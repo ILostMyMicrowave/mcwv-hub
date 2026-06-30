@@ -4,15 +4,6 @@ const PS99_API = process.env.PS99_API!;
 const CLAN_API = process.env.CLAN_API!;
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 
-type Battle = {
-  StartTime?: number;
-  FinishTime?: number;
-  PointContributions?: {
-    UserID: number;
-    Points: number;
-  }[];
-};
-
 export async function GET() {
   try {
     const warRes = await fetch(ACTIVE_BATTLE_API, { cache: "no-store" });
@@ -29,43 +20,41 @@ export async function GET() {
     const war_data = await warRes.json();
     const clan_data = await clanRes.json();
 
-    const war_config = war_data?.data?.configData ?? {};
+    // ---------------- BOT-STYLE WAR DETECTION ----------------
+    const config = war_data?.data?.configData ?? {};
 
-    // SAFE battles handling
-    const battlesRaw = clan_data?.data?.Battles;
-
-    const battles: Record<string, Battle> =
-      battlesRaw && typeof battlesRaw === "object"
-        ? battlesRaw
-        : {};
+    const start = Number(config.StartTime ?? 0);
+    const finish = Number(config.FinishTime ?? 0);
 
     const now = Math.floor(Date.now() / 1000);
 
-    let battle: Battle | null = null;
+    const isActive = start <= now && now <= finish;
 
-    for (const b of Object.values(battles)) {
-      if (!b || typeof b !== "object") continue;
-
-      const start = Number(b.StartTime ?? 0);
-      const end = Number(b.FinishTime ?? 0);
-
-      if (start <= now && now <= end) {
-        battle = b;
-        break;
-      }
-    }
-
-    if (!battle) {
+    if (!isActive) {
       return NextResponse.json({
         success: true,
         data: [],
       });
     }
 
-    const contributions = (battle.PointContributions ?? [])
-      .filter((e) => e && typeof e === "object")
-      .sort((a, b) => (b.Points ?? 0) - (a.Points ?? 0))
-      .map((entry, index) => ({
+    // ---------------- GET BATTLE ----------------
+    const battle =
+      clan_data?.data?.Battles
+        ? Object.values(clan_data.data.Battles as any)[0]
+        : null;
+
+    if (!battle || !battle.PointContributions) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+      });
+    }
+
+    // ---------------- SORT CONTRIBUTIONS ----------------
+    const contributions = battle.PointContributions
+      .filter((e: any) => e && typeof e === "object")
+      .sort((a: any, b: any) => (b.Points ?? 0) - (a.Points ?? 0))
+      .map((entry: any, index: number) => ({
         rank: index + 1,
         user_id: Number(entry.UserID),
         points: Number(entry.Points ?? 0),
