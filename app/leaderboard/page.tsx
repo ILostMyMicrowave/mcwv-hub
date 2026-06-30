@@ -8,25 +8,19 @@ export default function Leaderboard() {
   useEffect(() => {
     fetch("/api/leaderboard")
       .then(res => res.json())
-      .then(setData);
+      .then(res => setData(res.data || []));
   }, []);
 
   return (
     <main style={{ padding: 40, fontFamily: "Arial" }}>
       <h1>🏆 MCWV Leaderboard</h1>
 
+      <p style={{ opacity: 0.6 }}>Source: mock database</p>
+
       <div style={{ marginTop: 20 }}>
         {data.map((user, i) => (
-          <div
-            key={i}
-            style={{
-              padding: 10,
-              marginBottom: 10,
-              border: "1px solid #ddd",
-              borderRadius: 8
-            }}
-          >
-            <strong>#{i + 1}</strong> {user.name} — {user.points} pts
+          <div key={user.id || i}>
+            #{i + 1} {user.name} — {user.points}
           </div>
         ))}
       </div>
