@@ -1,33 +1,35 @@
-async function getData() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/leaderboard`, {
-    cache: "no-store"
-  });
+"use client";
 
-  return res.json();
-}
+import { useEffect, useState } from "react";
 
-export default async function Leaderboard() {
-  let data = [];
+export default function Leaderboard() {
+  const [data, setData] = useState<any[]>([]);
 
-  try {
-    data = await getData();
-  } catch (e) {
-    console.log("Leaderboard fetch error:", e);
-  }
+  useEffect(() => {
+    fetch("/api/leaderboard")
+      .then(res => res.json())
+      .then(setData);
+  }, []);
 
   return (
-    <main style={{ padding: 40 }}>
+    <main style={{ padding: 40, fontFamily: "Arial" }}>
       <h1>🏆 MCWV Leaderboard</h1>
 
-      {data.length === 0 ? (
-        <p>No data found</p>
-      ) : (
-        data.map((user: any, i: number) => (
-          <div key={i}>
-            #{i + 1} {user.name} — {user.points}
+      <div style={{ marginTop: 20 }}>
+        {data.map((user, i) => (
+          <div
+            key={i}
+            style={{
+              padding: 10,
+              marginBottom: 10,
+              border: "1px solid #ddd",
+              borderRadius: 8
+            }}
+          >
+            <strong>#{i + 1}</strong> {user.name} — {user.points} pts
           </div>
-        ))
-      )}
+        ))}
+      </div>
     </main>
   );
 }
