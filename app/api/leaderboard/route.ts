@@ -21,23 +21,33 @@ export async function GET() {
     if (!warRes.ok || !clanRes.ok) {
       return NextResponse.json({
         success: false,
-        error: "API unavailable",
+        error: "PS99 API unavailable",
         data: [],
       });
     }
 
-    const warData = await warRes.json();
-    const clanData = await clanRes.json();
+    const war_data = await warRes.json();
+    const clan_data = await clanRes.json();
 
-    const battles = (clanData?.data?.Battles ?? {}) as Record<string, Battle>;
+    const war_config = war_data?.data?.configData ?? {};
+
+    // SAFE battles handling
+    const battlesRaw = clan_data?.data?.Battles;
+
+    const battles: Record<string, Battle> =
+      battlesRaw && typeof battlesRaw === "object"
+        ? battlesRaw
+        : {};
 
     const now = Math.floor(Date.now() / 1000);
 
     let battle: Battle | null = null;
 
     for (const b of Object.values(battles)) {
-      const start = b.StartTime ?? 0;
-      const end = b.FinishTime ?? 0;
+      if (!b || typeof b !== "object") continue;
+
+      const start = Number(b.StartTime ?? 0);
+      const end = Number(b.FinishTime ?? 0);
 
       if (start <= now && now <= end) {
         battle = b;
@@ -53,11 +63,12 @@ export async function GET() {
     }
 
     const contributions = (battle.PointContributions ?? [])
+      .filter((e) => e && typeof e === "object")
       .sort((a, b) => (b.Points ?? 0) - (a.Points ?? 0))
       .map((entry, index) => ({
         rank: index + 1,
-        user_id: entry.UserID,
-        points: entry.Points,
+        user_id: Number(entry.UserID),
+        points: Number(entry.Points ?? 0),
       }));
 
     return NextResponse.json({
@@ -66,11 +77,11 @@ export async function GET() {
     });
 
   } catch (err) {
-    console.error("Leaderboard API error:", err);
+    console.error("Leaderboard API ERROR:", err);
 
     return NextResponse.json({
       success: false,
-      error: "Internal server error",
+      error: err instanceof Error ? err.message : String(err),
       data: [],
     });
   }
