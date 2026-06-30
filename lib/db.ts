@@ -1,5 +1,3 @@
-import { Client } from "@neondatabase/serverless";
+import { neon } from "@neondatabase/serverless";
 
-export const sql = new Client({
-  connectionString: process.env.DATABASE_URL!,
-});
+export const sql = neon(process.env.DATABASE_URL!);
