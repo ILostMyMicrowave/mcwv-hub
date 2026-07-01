@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+export const dynamic = "force-dynamic";
+
 type LeaderboardEntry = {
   rank: number;
   user_id: number;
@@ -95,6 +97,7 @@ export default function LeaderboardPage() {
   const [title, setTitle] = useState("MCWV Leaderboard");
   const [active, setActive] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [totalPoints, setTotalPoints] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
@@ -108,6 +111,7 @@ export default function LeaderboardPage() {
       if (!json.success) {
         setError(json.error ?? "Failed to load leaderboard");
         setData([]);
+        setTotalPoints(0);
         setLoading(false);
         return;
       }
@@ -125,11 +129,13 @@ export default function LeaderboardPage() {
       setTitle(json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
       setUpdatedAt(json.updatedAt ?? new Date().toISOString());
+      setTotalPoints(Number(json.total_points ?? 0));
       setError(null);
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setData([]);
+      setTotalPoints(0);
       setLoading(false);
     }
   }
@@ -151,10 +157,16 @@ export default function LeaderboardPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "bg-zinc-500"} animate-pulse`} />
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    active ? "bg-emerald-400" : "bg-zinc-500"
+                  } animate-pulse`}
+                />
                 {active ? "Live war tracking" : "No active war right now"}
               </div>
-              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                {title}
+              </h1>
               <p className="mt-2 max-w-2xl text-sm text-zinc-400">
                 Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
                 appear automatically when the API provides them.
@@ -165,9 +177,7 @@ export default function LeaderboardPage() {
               <div>
                 Total points:{" "}
                 <span className="font-semibold text-white">
-                  {formatNumber(
-                    data.reduce((sum, entry) => sum + (entry.points ?? 0), 0)
-                  )}
+                  {formatNumber(totalPoints)}
                 </span>
               </div>
               <div className="mt-1">
@@ -190,8 +200,14 @@ export default function LeaderboardPage() {
           </div>
         ) : (
           <>
-            <section className={`mb-8 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
-              <div className="mb-4 text-lg font-semibold text-zinc-100">Top 3 podium</div>
+            <section
+              className={`mb-8 transition-all duration-500 ${
+                flash ? "scale-[1.01]" : ""
+              }`}
+            >
+              <div className="mb-4 text-lg font-semibold text-zinc-100">
+                Top 3 podium
+              </div>
 
               <div className="grid gap-4 md:grid-cols-3 md:items-end">
                 <div className="md:order-1 md:translate-y-8">
@@ -246,7 +262,9 @@ export default function LeaderboardPage() {
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate font-semibold text-white">{entry.name}</h3>
+                          <h3 className="truncate font-semibold text-white">
+                            {entry.name}
+                          </h3>
                           {entry.discord_id ? (
                             <span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-300">
                               Discord linked
