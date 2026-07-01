@@ -57,7 +57,7 @@ type LeaderboardEntry = {
   points: number;
   avatar: string | null;
   discord_id: string | null;
-  is_alt?: boolean; // ✅ ADDED
+  is_alt?: boolean;
 };
 
 type LeaderboardResponse = {
@@ -278,7 +278,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     getAvatars(userIds.map(Number).filter(Number.isFinite)),
   ]);
 
-  /* ---------------- DISCORD DB ---------------- */
+  /* ---------------- DISCORD DB FIX ---------------- */
 
   const usersRes = await pool.query(
     `SELECT roblox_id, discord_id
@@ -291,14 +291,20 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     usersRes.rows.map((u) => [String(u.roblox_id), u.discord_id])
   );
 
-  /* ---------------- ALT DB ---------------- */
+  /* ---------------- FIXED ALT LOGIC (CORRECT VERSION) ---------------- */
+
+  const discordIds = Array.from(discordMap.values()).filter(Boolean);
 
   const altRes = await pool.query(
-    `SELECT roblox_id FROM user_alts WHERE roblox_id = ANY($1)`,
-    [userIds]
+    `SELECT roblox_id
+     FROM user_alts
+     WHERE discord_id = ANY($1)`,
+    [discordIds]
   );
 
-  const altSet = new Set(altRes.rows.map((r) => String(r.roblox_id)));
+  const altSet = new Set(
+    altRes.rows.map((r) => String(r.roblox_id))
+  );
 
   const total_points = Number(battle.Points ?? 0);
 
@@ -313,7 +319,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
       points,
       avatar: avatarMap.get(user_id) ?? null,
       discord_id: discordMap.get(String(user_id)) ?? null,
-      is_alt: altSet.has(String(user_id)), // ✅ ADDED
+      is_alt: altSet.has(String(user_id)),
     };
   });
 
@@ -334,8 +340,13 @@ async function getCachedLeaderboard(
 ): Promise<LeaderboardResponse> {
   const fresh = cache && Date.now() - cacheTime < CACHE_TTL;
 
-  if (!forceRefresh && fresh && cache) return cache;
-  if (inFlight) return inFlight;
+  if (!forceRefresh && fresh && cache) {
+    return cache;
+  }
+
+  if (inFlight) {
+    return inFlight;
+  }
 
   inFlight = buildLeaderboard()
     .then((payload) => {
