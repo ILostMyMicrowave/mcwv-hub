@@ -101,7 +101,10 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
+  const [rankChange, setRankChange] = useState<Record<number, number>>({});
+
   const prevSnapshot = useRef<string>("");
+  const prevRanksRef = useRef<Record<number, number>>({});
 
   async function load() {
     try {
@@ -125,6 +128,23 @@ export default function LeaderboardPage() {
 
       prevSnapshot.current = nextSnapshot;
 
+      const nextRanks: Record<number, number> = {};
+      const changes: Record<number, number> = {};
+
+      nextData.forEach((entry) => {
+        const oldRank = prevRanksRef.current[entry.user_id];
+        const newRank = entry.rank;
+
+        if (oldRank !== undefined) {
+          changes[entry.user_id] = oldRank - newRank;
+        }
+
+        nextRanks[entry.user_id] = newRank;
+      });
+
+      prevRanksRef.current = nextRanks;
+      setRankChange(changes);
+
       setData(nextData);
       setTitle(json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
@@ -147,7 +167,10 @@ export default function LeaderboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const podium = useMemo(() => data.slice(0, 3), [data]);
+  const podium = useMemo(() => {
+    return [...data].sort((a, b) => b.points - a.points).slice(0, 3);
+  }, [data]);
+
   const rest = useMemo(() => data.slice(3), [data]);
 
   return (
@@ -238,64 +261,29 @@ export default function LeaderboardPage() {
                     No active leaderboard data yet.
                   </div>
                 ) : (
-                  data.map((entry) => (
-                    <a
-                      key={entry.user_id}
-                      href={`/profile?roblox_id=${entry.user_id}`}
-                      className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
-                    >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
-                        #{entry.rank}
-                      </div>
+                  data.map((entry) => {
+                    const change = rankChange[entry.user_id] ?? 0;
 
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
-                        {entry.avatar ? (
-                          <img
-                            src={entry.avatar}
-                            alt={entry.name}
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
-                          />
-                        ) : (
-                          <InitialAvatar name={entry.name} />
-                        )}
-                      </div>
+                    return (
+                      <a
+                        key={entry.user_id}
+                        href={`/profile?roblox_id=${entry.user_id}`}
+                        className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
+                      >
+                        <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
+                          #{entry.rank}
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate font-semibold text-white">
-                            {entry.name}
-                          </h3>
-                          {entry.discord_id ? (
-                            <span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-300">
-                              Discord linked
+                          {change > 0 && (
+                            <span className="absolute -top-2 -right-2 text-xs font-bold text-green-400">
+                              ▲{change}
                             </span>
-                          ) : (
-                            <span className="rounded-full border border-zinc-500/20 bg-zinc-500/10 px-2 py-0.5 text-[11px] font-medium text-zinc-400">
-                              Not linked
+                          )}
+
+                          {change < 0 && (
+                            <span className="absolute -top-2 -right-2 text-xs font-bold text-red-400">
+                              ▼{Math.abs(change)}
                             </span>
                           )}
                         </div>
-                        <p className="truncate text-sm text-zinc-400">
-                          Roblox ID: {entry.user_id}
-                        </p>
-                      </div>
 
-                      <div className="text-right">
-                        <div className="text-lg font-bold text-white">
-                          {formatNumber(entry.points)}
-                        </div>
-                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                          points
-                        </div>
-                      </div>
-                    </a>
-                  ))
-                )}
-              </div>
-            </section>
-          </>
-        )}
-      </div>
-    </main>
-  );
-}
+                        <div className="
