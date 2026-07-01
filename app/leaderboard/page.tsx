@@ -71,7 +71,7 @@ function PodiumCard({
               )}
 
               {place === 1 && (
-                <div className="pointer-events-none absolute -top-4 text-2xl animate-bounce">
+                <div className="pointer-events-none absolute -top-4 animate-bounce text-2xl">
                   👑
                 </div>
               )}
@@ -124,6 +124,7 @@ export default function LeaderboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
   const [rankChange, setRankChange] = useState<Record<number, number>>({});
+  const [now, setNow] = useState(Date.now());
 
   const prevSnapshot = useRef<string>("");
   const prevRanksRef = useRef<Record<number, number>>({});
@@ -172,7 +173,7 @@ export default function LeaderboardPage() {
       setData(nextData);
       setTitle(json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
-      setUpdatedAt(json.updatedAt ?? new Date().toISOString());
+      setUpdatedAt(new Date().toISOString());
       setTotalPoints(Number(json.total_points ?? 0));
       setError(null);
       setLoading(false);
@@ -188,7 +189,12 @@ export default function LeaderboardPage() {
     load();
 
     const interval = setInterval(load, 10000);
-    return () => clearInterval(interval);
+    const clock = setInterval(() => setNow(Date.now()), 1000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(clock);
+    };
   }, []);
 
   const podium = useMemo(() => {
@@ -229,10 +235,20 @@ export default function LeaderboardPage() {
                   {formatNumber(totalPoints)}
                 </span>
               </div>
-              <div className="mt-1">
-                Last update:{" "}
-                <span className="text-zinc-200">
-                  {updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}
+
+              <div className="mt-1 flex items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                  LIVE
+                </span>
+                <span className="text-sm text-zinc-300">
+                  updated{" "}
+                  {updatedAt
+                    ? `${Math.max(
+                        1,
+                        Math.floor((now - new Date(updatedAt).getTime()) / 1000)
+                      )}s ago`
+                    : "—"}
                 </span>
               </div>
             </div>
@@ -258,20 +274,20 @@ export default function LeaderboardPage() {
                 Top 3 podium
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3 md:items-end">
-                <div className="md:order-1 md:translate-y-8">
+              <div className="flex flex-col items-center gap-6 md:flex-row md:items-end md:justify-center">
+                <div className="md:w-1/4 md:translate-y-8">
                   <PodiumCard entry={podium[1]} place={2} />
                 </div>
 
-                <div className="md:order-2 md:-translate-y-2">
+                <div className="md:z-10 md:w-1/3 md:-translate-y-4 md:scale-110">
                   <PodiumCard
                     entry={podium[0]}
                     place={1}
-                    className="md:scale-[1.04]"
+                    className="ring-2 ring-yellow-400/20"
                   />
                 </div>
 
-                <div className="md:order-3 md:translate-y-12">
+                <div className="md:w-1/4 md:translate-y-12">
                   <PodiumCard entry={podium[2]} place={3} />
                 </div>
               </div>
