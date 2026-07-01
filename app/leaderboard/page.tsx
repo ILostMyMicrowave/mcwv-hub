@@ -142,9 +142,7 @@ export default function LeaderboardPage() {
         return;
       }
 
-      const nextDataRaw = Array.isArray(json.data) ? json.data : [];
-      const nextData = [...nextDataRaw].sort((a, b) => b.points - a.points);
-
+      const nextData = Array.isArray(json.data) ? json.data : [];
       const nextSnapshot = JSON.stringify(nextData);
 
       if (prevSnapshot.current && prevSnapshot.current !== nextSnapshot) {
@@ -197,13 +195,8 @@ export default function LeaderboardPage() {
     };
   }, []);
 
-  const podium = useMemo(() => {
-    return [...data].sort((a, b) => b.points - a.points).slice(0, 3);
-  }, [data]);
-
-  const rest = useMemo(() => {
-    return [...data].sort((a, b) => b.points - a.points).slice(3);
-  }, [data]);
+  const podium = useMemo(() => data.slice(0, 3), [data]);
+  const rest = useMemo(() => data.slice(3), [data]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
@@ -274,20 +267,20 @@ export default function LeaderboardPage() {
                 Top 3 podium
               </div>
 
-              <div className="flex flex-col items-center gap-6 md:flex-row md:items-end md:justify-center">
-                <div className="md:w-1/4 md:translate-y-8">
+              <div className="grid gap-4 md:grid-cols-3 md:items-end">
+                <div className="md:order-1 md:translate-y-8">
                   <PodiumCard entry={podium[1]} place={2} />
                 </div>
 
-                <div className="md:z-10 md:w-1/3 md:-translate-y-4 md:scale-110">
+                <div className="md:order-2 md:-translate-y-2">
                   <PodiumCard
                     entry={podium[0]}
                     place={1}
-                    className="ring-2 ring-yellow-400/20"
+                    className="md:scale-[1.04]"
                   />
                 </div>
 
-                <div className="md:w-1/4 md:translate-y-12">
+                <div className="md:order-3 md:translate-y-12">
                   <PodiumCard entry={podium[2]} place={3} />
                 </div>
               </div>
