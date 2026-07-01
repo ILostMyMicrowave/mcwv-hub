@@ -8,17 +8,16 @@ const pool = new Pool({
 
 export async function POST(req: Request) {
   try {
-    const apiKey = req.headers.get("x-api-key");
+    const key = req.headers.get("x-api-key");
 
-    if (!apiKey || apiKey !== process.env.API_KEY) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (key !== process.env.API_KEY) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { battle_name, entries } = body;
+    const { battle_name, entries } = await req.json();
 
     if (!battle_name || !Array.isArray(entries)) {
-      return NextResponse.json({ error: "Bad payload" }, { status: 400 });
+      return NextResponse.json({ error: "bad request" }, { status: 400 });
     }
 
     const client = await pool.connect();
@@ -28,18 +27,9 @@ export async function POST(req: Request) {
 
       for (const e of entries) {
         await client.query(
-          `
-          INSERT INTO live_leaderboard (
-            roblox_id,
-            username,
-            discord_id,
-            points,
-            rank,
-            avatar,
-            battle_name
-          )
-          VALUES ($1,$2,$3,$4,$5,$6,$7)
-          `,
+          `INSERT INTO live_leaderboard
+          (roblox_id, username, discord_id, points, rank, avatar, battle_name)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
           [
             String(e.user_id),
             e.name,
@@ -56,8 +46,9 @@ export async function POST(req: Request) {
     } finally {
       client.release();
     }
+
   } catch (err) {
-    console.error("[LEADERBOARD SYNC ERROR]", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "server error" }, { status: 500 });
   }
 }
