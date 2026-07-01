@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { sql } from "@vercel/postgres";
+import pg from "pg";
+
+const { Pool } = pg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -262,7 +268,6 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     .filter((e): e is Contribution => !!e && typeof e === "object")
     .sort((a, b) => getPoints(b) - getPoints(a));
 
-  /* ---------------- FIXED: STRING IDS ---------------- */
   const userIds = [
     ...new Set(contributions.map((c) => String(c.UserID)))
   ].filter(Boolean);
@@ -272,16 +277,17 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     getAvatars(userIds.map(Number).filter(Number.isFinite)),
   ]);
 
-  /* ---------------- NEW: NEON DISCORD LINK ---------------- */
+  /* ---------------- DISCORD DB FIX ---------------- */
 
-  const users = await sql`
-    SELECT roblox_id, discord_id
-    FROM users
-    WHERE roblox_id = ANY(${userIds})
-  `;
+  const usersRes = await pool.query(
+    `SELECT roblox_id, discord_id
+     FROM users
+     WHERE roblox_id = ANY($1)`,
+    [userIds]
+  );
 
   const discordMap = new Map(
-    users.rows.map((u) => [String(u.roblox_id), u.discord_id])
+    usersRes.rows.map((u) => [String(u.roblox_id), u.discord_id])
   );
 
   const total_points = Number(battle.Points ?? 0);
