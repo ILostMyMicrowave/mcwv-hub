@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+export const dynamic = "force-dynamic";
+
 type LeaderboardEntry = {
   rank: number;
   user_id: number;
@@ -54,22 +56,44 @@ function PodiumCard({
 
   return (
     <div
-      className={`rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
+      className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
     >
+      {place === 1 && (
+        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-yellow-400/5" />
+      )}
+
       {entry ? (
         <>
           <div className="mb-4 flex items-center justify-center">
-            {entry.avatar ? (
-              <img
-                src={entry.avatar}
-                alt={entry.name}
-                className="h-20 w-20 rounded-full object-cover ring-4 ring-white/15"
-              />
-            ) : (
-              <div className="h-20 w-20 rounded-full ring-4 ring-white/15">
-                <InitialAvatar name={entry.name} />
-              </div>
-            )}
+            <div className="relative flex items-center justify-center">
+              {place === 1 && (
+                <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
+              )}
+
+              {place === 1 && (
+                <div className="pointer-events-none absolute -top-4 text-2xl animate-bounce">
+                  👑
+                </div>
+              )}
+
+              {entry.avatar ? (
+                <img
+                  src={entry.avatar}
+                  alt={entry.name}
+                  className={`h-20 w-20 rounded-full object-cover ring-4 ${
+                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
+                  }`}
+                />
+              ) : (
+                <div
+                  className={`h-20 w-20 rounded-full ring-4 ${
+                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
+                  }`}
+                >
+                  <InitialAvatar name={entry.name} />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="text-center">
@@ -99,10 +123,10 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
+  const [rankChange, setRankChange] = useState<Record<number, number>>({});
 
   const prevSnapshot = useRef<string>("");
   const prevRanksRef = useRef<Record<number, number>>({});
-  const [rankChange, setRankChange] = useState<Record<number, number>>({});
 
   async function load() {
     try {
@@ -117,7 +141,8 @@ export default function LeaderboardPage() {
         return;
       }
 
-      const nextData = Array.isArray(json.data) ? json.data : [];
+      const nextDataRaw = Array.isArray(json.data) ? json.data : [];
+      const nextData = [...nextDataRaw].sort((a, b) => b.points - a.points);
 
       const nextSnapshot = JSON.stringify(nextData);
 
@@ -127,7 +152,6 @@ export default function LeaderboardPage() {
 
       prevSnapshot.current = nextSnapshot;
 
-      // Rank change tracking
       const nextRanks: Record<number, number> = {};
       const changes: Record<number, number> = {};
 
@@ -145,10 +169,7 @@ export default function LeaderboardPage() {
       prevRanksRef.current = nextRanks;
       setRankChange(changes);
 
-      // 🔥 IMPORTANT FIX: ensure sorting is always correct
-      const sorted = [...nextData].sort((a, b) => b.points - a.points);
-
-      setData(sorted);
+      setData(nextData);
       setTitle(json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
       setUpdatedAt(json.updatedAt ?? new Date().toISOString());
@@ -165,21 +186,17 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     load();
+
     const interval = setInterval(load, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // 🔥 FIXED PODIUM (proper ranking, no slice bugs)
   const podium = useMemo(() => {
-    return [...data]
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 3);
+    return [...data].sort((a, b) => b.points - a.points).slice(0, 3);
   }, [data]);
 
   const rest = useMemo(() => {
-    return [...data]
-      .sort((a, b) => b.points - a.points)
-      .slice(3);
+    return [...data].sort((a, b) => b.points - a.points).slice(3);
   }, [data]);
 
   return (
@@ -196,13 +213,12 @@ export default function LeaderboardPage() {
                 />
                 {active ? "Live war tracking" : "No active war right now"}
               </div>
-
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
                 {title}
               </h1>
-
               <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-                Live updates refresh every 10 seconds.
+                Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
+                appear automatically when the API provides them.
               </p>
             </div>
 
@@ -213,7 +229,6 @@ export default function LeaderboardPage() {
                   {formatNumber(totalPoints)}
                 </span>
               </div>
-
               <div className="mt-1">
                 Last update:{" "}
                 <span className="text-zinc-200">
@@ -234,8 +249,11 @@ export default function LeaderboardPage() {
           </div>
         ) : (
           <>
-            {/* PODIUM */}
-            <section className={`mb-8 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
+            <section
+              className={`mb-8 transition-all duration-500 ${
+                flash ? "scale-[1.01]" : ""
+              }`}
+            >
               <div className="mb-4 text-lg font-semibold text-zinc-100">
                 Top 3 podium
               </div>
@@ -246,7 +264,11 @@ export default function LeaderboardPage() {
                 </div>
 
                 <div className="md:order-2 md:-translate-y-2">
-                  <PodiumCard entry={podium[0]} place={1} className="md:scale-[1.04]" />
+                  <PodiumCard
+                    entry={podium[0]}
+                    place={1}
+                    className="md:scale-[1.04]"
+                  />
                 </div>
 
                 <div className="md:order-3 md:translate-y-12">
@@ -255,59 +277,89 @@ export default function LeaderboardPage() {
               </div>
             </section>
 
-            {/* LIST */}
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6">
+            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Full leaderboard</h2>
+                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  Auto refresh
+                </span>
               </div>
 
               <div className="space-y-3">
-                {data.map((entry) => {
-                  const change = rankChange[entry.user_id] ?? 0;
+                {rest.length === 0 && data.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center text-zinc-400">
+                    No active leaderboard data yet.
+                  </div>
+                ) : (
+                  data.map((entry) => {
+                    const change = rankChange[entry.user_id] ?? 0;
 
-                  return (
-                    <div
-                      key={entry.user_id}
-                      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-                    >
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
-                        #{entry.rank}
+                    return (
+                      <a
+                        key={entry.user_id}
+                        href={`/profile?roblox_id=${entry.user_id}`}
+                        className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
+                      >
+                        <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
+                          #{entry.rank}
 
-                        {change !== 0 && (
-                          <span
-                            className={`absolute -top-2 -right-2 text-xs font-bold ${
-                              change > 0 ? "text-green-400" : "text-red-400"
-                            }`}
-                          >
-                            {change > 0 ? `▲${change}` : `▼${Math.abs(change)}`}
-                          </span>
-                        )}
-                      </div>
+                          {change > 0 && (
+                            <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
+                              ▲{change}
+                            </span>
+                          )}
 
-                      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
-                        {entry.avatar ? (
-                          <img
-                            src={entry.avatar}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <InitialAvatar name={entry.name} />
-                        )}
-                      </div>
-
-                      <div className="flex-1">
-                        <div className="font-semibold text-white">{entry.name}</div>
-                        <div className="text-sm text-zinc-400">
-                          Roblox ID: {entry.user_id}
+                          {change < 0 && (
+                            <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
+                              ▼{Math.abs(change)}
+                            </span>
+                          )}
                         </div>
-                      </div>
 
-                      <div className="text-right font-bold text-white">
-                        {formatNumber(entry.points)}
-                      </div>
-                    </div>
-                  );
-                })}
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
+                          {entry.avatar ? (
+                            <img
+                              src={entry.avatar}
+                              alt={entry.name}
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
+                            />
+                          ) : (
+                            <InitialAvatar name={entry.name} />
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate font-semibold text-white">
+                              {entry.name}
+                            </h3>
+                            {entry.discord_id ? (
+                              <span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+                                Discord linked
+                              </span>
+                            ) : (
+                              <span className="rounded-full border border-zinc-500/20 bg-zinc-500/10 px-2 py-0.5 text-[11px] font-medium text-zinc-400">
+                                Not linked
+                              </span>
+                            )}
+                          </div>
+                          <p className="truncate text-sm text-zinc-400">
+                            Roblox ID: {entry.user_id}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-white">
+                            {formatNumber(entry.points)}
+                          </div>
+                          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                            points
+                          </div>
+                        </div>
+                      </a>
+                    );
+                  })
+                )}
               </div>
             </section>
           </>
