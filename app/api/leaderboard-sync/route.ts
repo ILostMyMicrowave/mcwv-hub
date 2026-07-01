@@ -8,12 +8,6 @@ const pool = new Pool({
 
 export async function POST(req: Request) {
   try {
-    const key = req.headers.get("x-api-key");
-
-    if (key !== process.env.API_KEY) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
     const { battle_name, entries } = await req.json();
 
     if (!battle_name || !Array.isArray(entries)) {
@@ -27,9 +21,18 @@ export async function POST(req: Request) {
 
       for (const e of entries) {
         await client.query(
-          `INSERT INTO live_leaderboard
-          (roblox_id, username, discord_id, points, rank, avatar, battle_name)
-          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          `
+          INSERT INTO live_leaderboard (
+            roblox_id,
+            username,
+            discord_id,
+            points,
+            rank,
+            avatar,
+            battle_name
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          `,
           [
             String(e.user_id),
             e.name,
