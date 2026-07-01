@@ -10,15 +10,15 @@ export async function POST(req: Request) {
   try {
     const apiKey = req.headers.get("x-api-key");
 
-    if (apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== process.env.API_KEY) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json();
     const { battle_name, entries } = body;
 
-    if (!Array.isArray(entries)) {
-      return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+    if (!battle_name || !Array.isArray(entries)) {
+      return NextResponse.json({ error: "Bad payload" }, { status: 400 });
     }
 
     const client = await pool.connect();
@@ -43,10 +43,10 @@ export async function POST(req: Request) {
           [
             String(e.user_id),
             e.name,
-            e.discord_id || null,
+            e.discord_id ?? null,
             Number(e.points),
             Number(e.rank),
-            e.avatar || null,
+            e.avatar ?? null,
             battle_name,
           ]
         );
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       client.release();
     }
   } catch (err) {
-    console.error(err);
+    console.error("[LEADERBOARD SYNC ERROR]", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
