@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /* ---------------- CONFIG ---------------- */
 
@@ -37,6 +38,11 @@ type Battle = {
   configName?: string;
 };
 
+type BattleCandidate = {
+  key: string;
+  battle: Battle;
+};
+
 type LeaderboardEntry = {
   rank: number;
   user_id: number;
@@ -71,11 +77,14 @@ function normalizeTimestamp(value: unknown): number {
   return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
 }
 
+function normalizeKey(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function getPoints(entry: Contribution): number {
-  return Number(
-    entry.Points ??
-      0
-  );
+  return Number(entry.Points ?? 0);
 }
 
 async function fetchJson(url: string) {
@@ -149,6 +158,42 @@ async function getAvatars(userIds: number[]) {
   return map;
 }
 
+/* ---------------- BATTLE PICKER ---------------- */
+
+function pickBattle(
+  candidates: BattleCandidate[],
+  targetName: string,
+  now: number
+): BattleCandidate | null {
+  const target = normalizeKey(targetName);
+
+  const exact = candidates.find(({ key, battle }) => {
+    const names = [key, battle?.BattleID, battle?.configName, battle?.Title];
+    return names.some((name) => normalizeKey(name) === target);
+  });
+
+  if (exact) return exact;
+
+  const activeTimed = candidates.find(({ battle }) => {
+    const start = normalizeTimestamp(battle?.StartTime);
+    const finish = normalizeTimestamp(battle?.FinishTime);
+
+    if (start > 0 && finish > 0) {
+      return start <= now && now <= finish;
+    }
+
+    return false;
+  });
+
+  if (activeTimed) return activeTimed;
+
+  const withContribs = candidates.find(({ battle }) => {
+    return Array.isArray(battle?.PointContributions) && battle.PointContributions.length > 0;
+  });
+
+  return withContribs ?? candidates[0] ?? null;
+}
+
 /* ---------------- MAIN BUILDER ---------------- */
 
 async function buildLeaderboard(): Promise<LeaderboardResponse> {
@@ -183,11 +228,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     battle,
   }));
 
-  const battleEntry =
-    candidates.find(({ battle }) => Array.isArray(battle?.PointContributions) && battle.PointContributions.length > 0) ??
-    candidates[0] ??
-    null;
-
+  const battleEntry = pickBattle(candidates, title, now);
   const battle = battleEntry?.battle ?? null;
 
   if (!battle) {
@@ -257,7 +298,9 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
 /* ---------------- CACHE WRAPPER ---------------- */
 
-async function getCachedLeaderboard(forceRefresh = false): Promise<LeaderboardResponse> {
+async function getCachedLeaderboard(
+  forceRefresh = false
+): Promise<LeaderboardResponse> {
   const fresh = cache && Date.now() - cacheTime < CACHE_TTL;
 
   if (!forceRefresh && fresh && cache) {
@@ -292,7 +335,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(payload, {
       headers: {
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     });
   } catch (err) {
