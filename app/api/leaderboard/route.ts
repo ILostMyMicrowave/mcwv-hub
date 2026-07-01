@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sql } from "@vercel/postgres";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -261,14 +262,27 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     .filter((e): e is Contribution => !!e && typeof e === "object")
     .sort((a, b) => getPoints(b) - getPoints(a));
 
-  const userIds = [...new Set(contributions.map((c) => Number(c.UserID)))].filter((n) =>
-    Number.isFinite(n)
-  );
+  /* ---------------- FIXED: STRING IDS ---------------- */
+  const userIds = [
+    ...new Set(contributions.map((c) => String(c.UserID)))
+  ].filter(Boolean);
 
   const [nameMap, avatarMap] = await Promise.all([
-    getNames(userIds),
-    getAvatars(userIds),
+    getNames(userIds.map(Number).filter(Number.isFinite)),
+    getAvatars(userIds.map(Number).filter(Number.isFinite)),
   ]);
+
+  /* ---------------- NEW: NEON DISCORD LINK ---------------- */
+
+  const users = await sql`
+    SELECT roblox_id, discord_id
+    FROM users
+    WHERE roblox_id = ANY(${userIds})
+  `;
+
+  const discordMap = new Map(
+    users.rows.map((u) => [String(u.roblox_id), u.discord_id])
+  );
 
   const total_points = Number(battle.Points ?? 0);
 
@@ -282,7 +296,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
       name: nameMap.get(user_id) ?? `Unknown (${user_id})`,
       points,
       avatar: avatarMap.get(user_id) ?? null,
-      discord_id: null,
+      discord_id: discordMap.get(String(user_id)) ?? null,
     };
   });
 
