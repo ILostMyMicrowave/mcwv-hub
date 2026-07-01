@@ -1,43 +1,45 @@
-export default function Home() {
+import Navbar from "@/components/Navbar";
+
+export default function HomePage() {
   return (
-    <main style={{ fontFamily: "Arial" }}>
-      
-      {/* NAVBAR */}
-      <div style={{
-        display: "flex",
-        justifyContent: "space-between",
-        padding: "20px 40px",
-        borderBottom: "1px solid #ddd"
-      }}>
-        <h2>⚔️ MCWV</h2>
+    <main className="min-h-screen bg-black text-white">
+      <Navbar />
 
-        <div style={{ display: "flex", gap: 20 }}>
-          <a href="/leaderboard">Leaderboard</a>
-          <a href="/profile">Profile</a>
-          <a href="/dashboard">Dashboard</a>
-        </div>
-      </div>
+      {/* HERO */}
+      <section className="mx-auto flex max-w-6xl flex-col items-center justify-center px-4 py-24 text-center sm:px-6 lg:px-10">
+        <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
+          MCWV Hub
+        </h1>
 
-      {/* MAIN CONTENT */}
-      <div style={{ padding: 40 }}>
-        <h1>MCWV Clan Hub</h1>
-        <p>Welcome to the official MCWV system</p>
+        <p className="mt-4 max-w-2xl text-zinc-400">
+          Live clan stats, leaderboard tracking, and war progress all in one place.
+        </p>
 
-        <div style={{ marginTop: 30 }}>
-          <h2>📊 Features</h2>
-          <ul>
-            <li>Live Leaderboard</li>
-            <li>Player Profiles</li>
-            <li>Clan War Tracking</li>
-            <li>Events System</li>
-          </ul>
+        <a
+          href="/leaderboard"
+          className="mt-8 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400"
+        >
+          View Leaderboard
+        </a>
+      </section>
+
+      {/* QUICK STATS */}
+      <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 pb-16 sm:grid-cols-3 sm:px-6 lg:px-10">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+          <p className="text-sm text-zinc-400">Total Points</p>
+          <p className="mt-2 text-2xl font-bold">—</p>
         </div>
 
-        <div style={{ marginTop: 30 }}>
-          <p>🔗 Connected to Discord Bot</p>
-          <p>🗄 Powered by Neon Database (later)</p>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+          <p className="text-sm text-zinc-400">War Status</p>
+          <p className="mt-2 text-2xl font-bold text-emerald-400">LIVE</p>
         </div>
-      </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+          <p className="text-sm text-zinc-400">Players</p>
+          <p className="mt-2 text-2xl font-bold">—</p>
+        </div>
+      </section>
     </main>
   );
 }
