@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export const dynamic = "force-dynamic";
-
 type LeaderboardEntry = {
   rank: number;
   user_id: number;
@@ -101,10 +99,10 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
-  const [rankChange, setRankChange] = useState<Record<number, number>>({});
 
   const prevSnapshot = useRef<string>("");
   const prevRanksRef = useRef<Record<number, number>>({});
+  const [rankChange, setRankChange] = useState<Record<number, number>>({});
 
   async function load() {
     try {
@@ -120,6 +118,7 @@ export default function LeaderboardPage() {
       }
 
       const nextData = Array.isArray(json.data) ? json.data : [];
+
       const nextSnapshot = JSON.stringify(nextData);
 
       if (prevSnapshot.current && prevSnapshot.current !== nextSnapshot) {
@@ -128,6 +127,7 @@ export default function LeaderboardPage() {
 
       prevSnapshot.current = nextSnapshot;
 
+      // Rank change tracking
       const nextRanks: Record<number, number> = {};
       const changes: Record<number, number> = {};
 
@@ -145,7 +145,10 @@ export default function LeaderboardPage() {
       prevRanksRef.current = nextRanks;
       setRankChange(changes);
 
-      setData(nextData);
+      // 🔥 IMPORTANT FIX: ensure sorting is always correct
+      const sorted = [...nextData].sort((a, b) => b.points - a.points);
+
+      setData(sorted);
       setTitle(json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
       setUpdatedAt(json.updatedAt ?? new Date().toISOString());
@@ -162,16 +165,22 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     load();
-
     const interval = setInterval(load, 10000);
     return () => clearInterval(interval);
   }, []);
 
+  // 🔥 FIXED PODIUM (proper ranking, no slice bugs)
   const podium = useMemo(() => {
-    return [...data].sort((a, b) => b.points - a.points).slice(0, 3);
+    return [...data]
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 3);
   }, [data]);
 
-  const rest = useMemo(() => data.slice(3), [data]);
+  const rest = useMemo(() => {
+    return [...data]
+      .sort((a, b) => b.points - a.points)
+      .slice(3);
+  }, [data]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
@@ -187,12 +196,13 @@ export default function LeaderboardPage() {
                 />
                 {active ? "Live war tracking" : "No active war right now"}
               </div>
+
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
                 {title}
               </h1>
+
               <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-                Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
-                appear automatically when the API provides them.
+                Live updates refresh every 10 seconds.
               </p>
             </div>
 
@@ -203,6 +213,7 @@ export default function LeaderboardPage() {
                   {formatNumber(totalPoints)}
                 </span>
               </div>
+
               <div className="mt-1">
                 Last update:{" "}
                 <span className="text-zinc-200">
@@ -223,11 +234,8 @@ export default function LeaderboardPage() {
           </div>
         ) : (
           <>
-            <section
-              className={`mb-8 transition-all duration-500 ${
-                flash ? "scale-[1.01]" : ""
-              }`}
-            >
+            {/* PODIUM */}
+            <section className={`mb-8 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
               <div className="mb-4 text-lg font-semibold text-zinc-100">
                 Top 3 podium
               </div>
@@ -247,43 +255,64 @@ export default function LeaderboardPage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
+            {/* LIST */}
+            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Full leaderboard</h2>
-                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  Auto refresh
-                </span>
               </div>
 
               <div className="space-y-3">
-                {rest.length === 0 && data.length === 0 ? (
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center text-zinc-400">
-                    No active leaderboard data yet.
-                  </div>
-                ) : (
-                  data.map((entry) => {
-                    const change = rankChange[entry.user_id] ?? 0;
+                {data.map((entry) => {
+                  const change = rankChange[entry.user_id] ?? 0;
 
-                    return (
-                      <a
-                        key={entry.user_id}
-                        href={`/profile?roblox_id=${entry.user_id}`}
-                        className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
-                      >
-                        <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
-                          #{entry.rank}
+                  return (
+                    <div
+                      key={entry.user_id}
+                      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
+                        #{entry.rank}
 
-                          {change > 0 && (
-                            <span className="absolute -top-2 -right-2 text-xs font-bold text-green-400">
-                              ▲{change}
-                            </span>
-                          )}
+                        {change !== 0 && (
+                          <span
+                            className={`absolute -top-2 -right-2 text-xs font-bold ${
+                              change > 0 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            {change > 0 ? `▲${change}` : `▼${Math.abs(change)}`}
+                          </span>
+                        )}
+                      </div>
 
-                          {change < 0 && (
-                            <span className="absolute -top-2 -right-2 text-xs font-bold text-red-400">
-                              ▼{Math.abs(change)}
-                            </span>
-                          )}
+                      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
+                        {entry.avatar ? (
+                          <img
+                            src={entry.avatar}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <InitialAvatar name={entry.name} />
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="font-semibold text-white">{entry.name}</div>
+                        <div className="text-sm text-zinc-400">
+                          Roblox ID: {entry.user_id}
                         </div>
+                      </div>
 
-                        <div className="
+                      <div className="text-right font-bold text-white">
+                        {formatNumber(entry.points)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
