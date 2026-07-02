@@ -72,10 +72,7 @@ export default function HomePage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/leaderboard", {
-          cache: "no-store",
-        });
-
+        const res = await fetch("/api/leaderboard", { cache: "no-store" });
         if (!res.ok) return;
 
         const data = await res.json();
@@ -94,13 +91,12 @@ export default function HomePage() {
     }
 
     load();
-
     const interval = setInterval(load, 10000);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <main className="relative min-h-screen bg-black text-white overflow-hidden">
+    <main className="relative min-h-screen overflow-hidden bg-theme text-theme">
       <AnimatedBackground />
 
       <div className="relative z-10">
@@ -108,20 +104,35 @@ export default function HomePage() {
 
         {/* HERO */}
         <section className="mx-auto flex max-w-6xl flex-col items-center px-4 py-24 text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+          <div
+            className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs"
+            style={{
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--primary)",
+            }}
+          >
+            <span className="h-2 w-2 animate-pulse rounded-full"
+              style={{ background: "var(--primary)" }}
+            />
             LIVE CLAN SYSTEM
           </div>
 
-          <h1 className="text-5xl font-bold sm:text-6xl">MCWV Hub</h1>
+          <h1 className="text-5xl font-bold sm:text-6xl">
+            MCWV Hub
+          </h1>
 
-          <p className="mt-4 max-w-2xl text-zinc-400">
+          <p className="mt-4 max-w-2xl opacity-70">
             Real-time leaderboard tracking, war stats, and clan performance analytics.
           </p>
 
           <a
             href="/leaderboard"
-            className="mt-8 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400"
+            className="mt-8 rounded-2xl px-6 py-3 text-sm font-semibold transition"
+            style={{
+              background: "var(--primary)",
+              color: "#000",
+            }}
           >
             View Leaderboard
           </a>
@@ -129,78 +140,74 @@ export default function HomePage() {
 
         {/* STATS */}
         <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-            <p className="text-sm text-zinc-400">Live Players</p>
-            <p className="mt-2 text-2xl font-bold">{top.length}</p>
-          </div>
+          {[
+            { label: "Live Players", value: top.length },
+            { label: "System Status", value: "LIVE", highlight: true },
+            { label: "Tracking", value: "ACTIVE" },
+          ].map((item, i) => (
+            <div
+              key={i}
+              className="rounded-2xl p-6 text-center"
+              style={{
+                background: "var(--card)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <p style={{ opacity: 0.7, fontSize: "0.9rem" }}>
+                {item.label}
+              </p>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-            <p className="text-sm text-zinc-400">System Status</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-400">LIVE</p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-            <p className="text-sm text-zinc-400">Tracking</p>
-            <p className="mt-2 text-2xl font-bold">ACTIVE</p>
-          </div>
+              <p
+                className="mt-2 text-2xl font-bold"
+                style={{
+                  color: item.highlight ? "var(--primary)" : "var(--foreground)",
+                }}
+              >
+                {item.value}
+              </p>
+            </div>
+          ))}
         </section>
 
-        {/* 🏆 PODIUM (NEW) */}
+        {/* PODIUM */}
         <Podium players={top} />
 
-        {/* 🔥 LIVE ACTIVITY FEED */}
+        {/* ACTIVITY FEED */}
         <section className="mx-auto max-w-6xl px-4 pb-16 mt-12">
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6">
-
-            <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10" />
-
+          <div
+            className="rounded-3xl p-6"
+            style={{
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+            }}
+          >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-bold">LIVE ACTIVITY FEED</h2>
 
-              <div className="flex items-center gap-2 text-xs text-emerald-300">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+              <div className="flex items-center gap-2 text-xs"
+                style={{ color: "var(--primary)" }}
+              >
+                <span className="h-2 w-2 animate-pulse rounded-full"
+                  style={{ background: "var(--primary)" }}
+                />
                 LIVE
               </div>
             </div>
 
             <div className="space-y-2">
               {activity.length === 0 ? (
-                <p className="text-sm text-zinc-500">
+                <p style={{ opacity: 0.6 }}>
                   Waiting for activity...
                 </p>
               ) : (
                 activity.map((e, i) => (
                   <div
                     key={e.id}
-                    className={`
-                      rounded-xl border px-3 py-2 text-sm transition-all
-
-                      ${i === 0 ? "animate-slide-in animate-pop" : ""}
-
-                      ${
-                        e.type === "points"
-                          ? "bg-black/20 border-white/10 text-zinc-200"
-                          : ""
-                      }
-
-                      ${
-                        e.type === "rankup"
-                          ? "bg-emerald-500/10 border-emerald-400/20 text-emerald-300"
-                          : ""
-                      }
-
-                      ${
-                        e.type === "rankdown"
-                          ? "bg-red-500/10 border-red-400/20 text-red-300"
-                          : ""
-                      }
-
-                      ${
-                        e.type === "crown"
-                          ? "bg-yellow-500/10 border-yellow-400/30 text-yellow-300 shadow-[0_0_20px_rgba(234,179,8,0.2)]"
-                          : ""
-                      }
-                    `}
+                    className="rounded-xl px-3 py-2 text-sm"
+                    style={{
+                      background: i === 0 ? "var(--border)" : "transparent",
+                      border: "1px solid var(--border)",
+                    }}
                   >
                     {e.text}
                   </div>
