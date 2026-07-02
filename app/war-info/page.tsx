@@ -120,10 +120,7 @@ export default function WarInfoPage() {
   const startMs = toMs(war?.startTime ?? null);
   const endMs = toMs(war?.endTime ?? null);
 
-  const valid =
-    startMs !== null &&
-    endMs !== null &&
-    endMs > startMs;
+  const valid = startMs !== null && endMs !== null && endMs > startMs;
 
   const timeLeftMs = valid ? Math.max(0, endMs! - now) : null;
 
@@ -146,45 +143,46 @@ export default function WarInfoPage() {
   /* ================= UI ================= */
 
   return (
-    <main className="min-h-screen bg-black text-white">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <AnimatedBackground />
       <Navbar />
 
       <div className="mx-auto max-w-6xl px-4 pt-16">
 
         {/* HEADER */}
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-6">
           <h1 className="text-3xl font-bold">
             {war?.warName ?? "No Active War"}
           </h1>
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-[var(--foreground)]/70">
             ⚔️ Real war dashboard
           </p>
         </div>
 
         {/* TIMER */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
-          <p className="text-sm text-zinc-400">Time Remaining</p>
+        <div className="mt-8 rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center">
+          <p className="text-sm text-[var(--foreground)]/60">Time Remaining</p>
 
-          <h2 className="text-4xl font-bold text-emerald-300">
+          <h2 className="text-4xl font-bold text-[var(--primary)]">
             {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
           </h2>
 
-          {/* ✨ SMOOTH ANIMATED GRADIENT BAR */}
-          <div className="mt-6 h-3 w-full rounded-full bg-black/40 overflow-hidden">
+          {/* GRADIENT BAR (THEMED) */}
+          <div className="mt-6 h-3 w-full rounded-full bg-black/30 overflow-hidden">
             <div
               className="
-                h-full 
-                bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400
+                h-full
+                bg-gradient-to-r from-[var(--primary)] via-[var(--accent)] to-[var(--primary)]
                 bg-[length:300%_100%]
                 animate-gradientMove
+                shadow-[0_0_20px_var(--glow)]
                 transition-all duration-500
               "
               style={{ width: `${progress}%` }}
             />
           </div>
 
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-[var(--foreground)]/50">
             {progress.toFixed(1)}% complete
           </p>
         </div>
@@ -193,7 +191,6 @@ export default function WarInfoPage() {
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           <Stat label="War Points" value={totalPoints} />
           <Stat label="Participants" value={players.length} />
-
           <Stat
             label="Clan Rank"
             value={
@@ -204,38 +201,37 @@ export default function WarInfoPage() {
           />
         </div>
 
-        {/* TOP CONTRIBUTOR (PREMIUM STYLE) */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
+        {/* TOP CONTRIBUTOR */}
+        <div className="mt-8 rounded-3xl border border-[var(--border)] bg-[var(--card)] p-6">
           <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
 
           {top ? (
-            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/30 p-6">
+            <div className="relative overflow-hidden rounded-2xl border border-[var(--border)] bg-black/20 p-6">
 
-              {/* glow background */}
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10 blur-2xl" />
+              <div className="absolute inset-0 bg-gradient-to-r from-[var(--primary)]/10 via-[var(--accent)]/10 to-[var(--primary)]/10 blur-2xl" />
 
               <div className="relative flex items-center justify-between">
                 <div>
                   <p className="text-xl font-bold">
                     👑 {top.name}
                   </p>
-                  <p className="text-sm text-zinc-400">
+                  <p className="text-sm text-[var(--foreground)]/60">
                     Leading the war
                   </p>
                 </div>
 
                 <div className="text-right">
-                  <p className="text-3xl font-bold text-emerald-300">
+                  <p className="text-3xl font-bold text-[var(--primary)]">
                     {top.points.toLocaleString()}
                   </p>
-                  <p className="text-xs uppercase tracking-widest text-zinc-500">
+                  <p className="text-xs uppercase tracking-widest text-[var(--foreground)]/50">
                     points
                   </p>
                 </div>
               </div>
             </div>
           ) : (
-            <p className="text-zinc-500">No data</p>
+            <p className="text-[var(--foreground)]/50">No data</p>
           )}
         </div>
 
@@ -248,9 +244,9 @@ export default function WarInfoPage() {
 
 function Stat({ label, value }: { label: string; value: any }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center">
-      <p className="text-sm text-zinc-400">{label}</p>
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 text-center">
+      <p className="text-sm text-[var(--foreground)]/60">{label}</p>
       <p className="text-xl font-bold">{value}</p>
     </div>
   );
-}
+          }
