@@ -31,7 +31,13 @@ function InitialAvatar({ name }: { name: string }) {
   const letter = (name?.trim()?.[0] ?? "?").toUpperCase();
 
   return (
-    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-800 text-lg font-bold text-white ring-1 ring-white/10">
+    <div
+      className="flex h-14 w-14 items-center justify-center rounded-full text-lg font-bold text-white ring-1"
+      style={{
+        background: "var(--card)",
+        borderColor: "var(--border)",
+      }}
+    >
       {letter}
     </div>
   );
@@ -47,19 +53,26 @@ function PodiumCard({
   className?: string;
 }) {
   const styles = {
-    1: "from-yellow-500/25 to-yellow-500/5 ring-yellow-400/30",
-    2: "from-zinc-300/20 to-zinc-300/5 ring-zinc-300/20",
-    3: "from-orange-500/20 to-orange-500/5 ring-orange-400/20",
+    1: "from-[var(--primary)]/25 to-transparent ring-[var(--primary)]/30",
+    2: "from-[var(--accent)]/20 to-transparent ring-[var(--border)]",
+    3: "from-[var(--primary)]/15 to-transparent ring-[var(--accent)]/20",
   }[place];
 
   const crowns = { 1: "🥇", 2: "🥈", 3: "🥉" }[place];
 
   return (
     <div
-      className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
+      className={`relative rounded-3xl border p-5 shadow-2xl backdrop-blur transition-all duration-300 hover:-translate-y-1 ${className}`}
+      style={{
+        background: "var(--card)",
+        borderColor: "var(--border)",
+      }}
     >
       {place === 1 && (
-        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-yellow-400/5" />
+        <div
+          className="pointer-events-none absolute inset-0 rounded-3xl"
+          style={{ background: "var(--glow)" }}
+        />
       )}
 
       {entry ? (
@@ -68,7 +81,10 @@ function PodiumCard({
             <div className="relative flex items-center justify-center">
 
               {place === 1 && (
-                <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
+                <div
+                  className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full blur-2xl"
+                  style={{ background: "var(--primary)", opacity: 0.25 }}
+                />
               )}
 
               {place === 1 && (
@@ -82,13 +98,17 @@ function PodiumCard({
                   src={entry.avatar}
                   alt={entry.name}
                   className={`h-20 w-20 rounded-full object-cover ring-4 ${
-                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
+                    place === 1
+                      ? "ring-[var(--primary)]/30"
+                      : "ring-[var(--border)]"
                   }`}
                 />
               ) : (
                 <div
                   className={`h-20 w-20 rounded-full ring-4 ${
-                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
+                    place === 1
+                      ? "ring-[var(--primary)]/30"
+                      : "ring-[var(--border)]"
                   }`}
                 >
                   <InitialAvatar name={entry.name} />
@@ -100,16 +120,16 @@ function PodiumCard({
           <div className="text-center">
             <div className="mb-1 text-2xl">{crowns}</div>
             <h3 className="text-lg font-semibold text-white">{entry.name}</h3>
-            <p className="mt-1 text-sm text-zinc-300">
+            <p className="mt-1 text-sm text-white/70">
               {formatNumber(entry.points)} points
             </p>
-            <p className="mt-2 text-xs uppercase tracking-[0.25em] text-zinc-400">
+            <p className="mt-2 text-xs uppercase tracking-[0.25em] text-white/50">
               {entry.discord_id ? "Discord linked" : "No Discord link"}
             </p>
           </div>
         </>
       ) : (
-        <div className="py-10 text-center text-zinc-500">
+        <div className="py-10 text-center text-white/50">
           Waiting for data
         </div>
       )}
@@ -200,16 +220,36 @@ export default function LeaderboardPage() {
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
-
+    <main
+      className="min-h-screen px-4 py-8 text-white sm:px-6 lg:px-10"
+      style={{ background: "var(--background)" }}
+    >
       <div className="mx-auto max-w-6xl">
 
-        <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+        <div
+          className="mb-6 rounded-3xl border p-6 backdrop-blur"
+          style={{
+            background: "var(--card)",
+            borderColor: "var(--border)",
+          }}
+        >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 
             <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "bg-zinc-500"} animate-pulse`} />
+              <div
+                className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+                style={{
+                  background: "var(--card)",
+                  border: "1px solid var(--border)",
+                  color: "var(--primary)",
+                }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    background: active ? "var(--primary)" : "var(--border)",
+                  }}
+                />
                 {active ? "Live war tracking" : "No active war right now"}
               </div>
 
@@ -217,31 +257,16 @@ export default function LeaderboardPage() {
                 {title}
               </h1>
 
-              <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-                Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
-                appear automatically when the API provides them.
+              <p className="mt-2 max-w-2xl text-sm text-white/60">
+                Live updates refresh every 10 seconds.
               </p>
             </div>
 
-            <div className="text-sm text-zinc-400">
+            <div className="text-sm text-white/60">
               <div>
                 Total points:{" "}
                 <span className="font-semibold text-white">
                   {formatNumber(totalPoints)}
-                </span>
-              </div>
-
-              <div className="mt-1 flex items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                  LIVE
-                </span>
-
-                <span className="text-sm text-zinc-300">
-                  updated{" "}
-                  {updatedAt
-                    ? `${Math.max(1, Math.floor((now - new Date(updatedAt).getTime()) / 1000))}s ago`
-                    : "—"}
                 </span>
               </div>
             </div>
@@ -250,17 +275,23 @@ export default function LeaderboardPage() {
         </div>
 
         {loading ? (
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-zinc-300">
+          <div
+            className="rounded-3xl border p-8 text-center"
+            style={{ background: "var(--card)", borderColor: "var(--border)" }}
+          >
             Loading leaderboard...
           </div>
         ) : error ? (
-          <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-8 text-center text-red-200">
+          <div
+            className="rounded-3xl border p-8 text-center"
+            style={{ background: "var(--card)", borderColor: "red" }}
+          >
             {error}
           </div>
         ) : (
           <>
             <section className={`mb-16 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
-              <div className="mb-4 text-lg font-semibold text-zinc-100">
+              <div className="mb-4 text-lg font-semibold text-white">
                 Top 3 podium
               </div>
 
@@ -279,10 +310,12 @@ export default function LeaderboardPage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
+            <section className="rounded-3xl border p-4 shadow-2xl backdrop-blur sm:p-6"
+              style={{ background: "var(--card)", borderColor: "var(--border)" }}
+            >
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Full leaderboard</h2>
-                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">
                   Auto refresh
                 </span>
               </div>
@@ -295,25 +328,21 @@ export default function LeaderboardPage() {
                     <a
                       key={entry.user_id}
                       href={`/profile?roblox_id=${entry.user_id}`}
-                      className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
+                      className="group flex items-center gap-4 rounded-2xl border p-4 transition-all duration-300 hover:-translate-y-0.5"
+                      style={{
+                        background: "var(--card)",
+                        borderColor: "var(--border)",
+                      }}
                     >
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
+                      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl text-lg font-bold text-white"
+                        style={{ background: "var(--background)" }}
+                      >
                         #{entry.rank}
-
-                        {change > 0 && (
-                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
-                            ▲{change}
-                          </span>
-                        )}
-
-                        {change < 0 && (
-                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
-                            ▼{Math.abs(change)}
-                          </span>
-                        )}
                       </div>
 
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1"
+                        style={{ borderColor: "var(--border)" }}
+                      >
                         {entry.avatar ? (
                           <img
                             src={entry.avatar}
@@ -331,12 +360,19 @@ export default function LeaderboardPage() {
                             {entry.name}
                           </h3>
 
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[11px]"
+                            style={{
+                              background: "var(--background)",
+                              color: "white",
+                              border: "1px solid var(--border)",
+                            }}
+                          >
                             {entry.discord_id ? "Discord linked" : "Not linked"}
                           </span>
                         </div>
 
-                        <p className="truncate text-sm text-zinc-400">
+                        <p className="truncate text-sm text-white/60">
                           Roblox ID: {entry.user_id}
                         </p>
                       </div>
