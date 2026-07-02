@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
+import Podium from "@/components/Podium";
 
 type LeaderboardEntry = {
   user_id: number;
@@ -87,11 +88,7 @@ export default function HomePage() {
         prevRef.current = next;
 
         setTop(next);
-
-        // 💀 IMPORTANT CHANGE: newest events at TOP
-        setActivity((prev) =>
-          [...events, ...prev].slice(0, 20)
-        );
+        setActivity((prev) => [...events, ...prev].slice(0, 20));
       } catch {}
     }
 
@@ -147,25 +144,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* TOP 5 */}
-        <section className="mx-auto max-w-6xl px-4 py-12">
-          <h2 className="mb-4 text-xl font-semibold">Top Players</h2>
+        {/* 🏆 PODIUM (NEW) */}
+        <Podium players={top} />
 
-          <div className="space-y-2">
-            {top.map((p) => (
-              <div
-                key={p.user_id}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-              >
-                <span className="text-zinc-300">{p.name}</span>
-                <span className="font-bold">{p.points}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 🔥 LIVE ACTIVITY FEED (KILLFEED STYLE READY) */}
-        <section className="mx-auto max-w-6xl px-4 pb-16">
+        {/* 🔥 LIVE ACTIVITY FEED */}
+        <section className="mx-auto max-w-6xl px-4 pb-16 mt-12">
           <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6">
 
             <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10" />
