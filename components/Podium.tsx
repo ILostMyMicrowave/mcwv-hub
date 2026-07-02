@@ -16,7 +16,7 @@ export default function Podium({ players }: PodiumProps) {
 
   return (
     <section className="mx-auto mt-16 max-w-5xl px-4">
-      <h2 className="mb-10 text-center text-3xl font-bold text-white">
+      <h2 className="mb-10 text-center text-3xl font-bold">
         🏆 Top Performers
       </h2>
 
@@ -24,12 +24,7 @@ export default function Podium({ players }: PodiumProps) {
 
         {/* 🥈 SECOND (SILVER) */}
         <div className="flex w-40 flex-col items-center">
-          <div
-            className="h-16 w-16 overflow-hidden rounded-full border-2 bg-zinc-800"
-            style={{
-              borderColor: "#c0c0c0",
-            }}
-          >
+          <div className="h-16 w-16 overflow-hidden rounded-full border-2 border-zinc-400 bg-zinc-800">
             {second?.avatar ? (
               <img
                 src={second.avatar}
@@ -51,24 +46,13 @@ export default function Podium({ players }: PodiumProps) {
             {second?.points?.toLocaleString() ?? 0}
           </p>
 
-          <div
-            className="mt-4 h-36 w-full rounded-t-2xl"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(192,192,192,0.35), transparent)",
-            }}
-          />
+          {/* SILVER BASE */}
+          <div className="mt-4 h-36 w-full rounded-t-2xl bg-gradient-to-t from-zinc-700 to-zinc-500/30" />
         </div>
 
         {/* 👑 FIRST (GOLD) */}
         <div className="flex w-44 flex-col items-center">
-          <div
-            className="h-20 w-20 overflow-hidden rounded-full border-4 bg-yellow-500/10"
-            style={{
-              borderColor: "#ffd700",
-              boxShadow: "0 0 25px var(--podium-gold-glow)",
-            }}
-          >
+          <div className="h-20 w-20 overflow-hidden rounded-full border-4 border-yellow-400 bg-yellow-500/10 shadow-[0_0_25px_rgba(234,179,8,0.3)]">
             {first?.avatar ? (
               <img
                 src={first.avatar}
@@ -90,23 +74,13 @@ export default function Podium({ players }: PodiumProps) {
             {first?.points?.toLocaleString() ?? 0}
           </p>
 
-          <div
-            className="mt-4 h-52 w-full rounded-t-2xl"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(255, 215, 0, 0.35), transparent)",
-            }}
-          />
+          {/* GOLD BASE */}
+          <div className="mt-4 h-52 w-full rounded-t-2xl bg-gradient-to-t from-yellow-600 via-yellow-400/20 to-transparent" />
         </div>
 
         {/* 🥉 THIRD (BRONZE) */}
         <div className="flex w-40 flex-col items-center">
-          <div
-            className="h-16 w-16 overflow-hidden rounded-full border-2 bg-orange-500/10"
-            style={{
-              borderColor: "#cd7f32",
-            }}
-          >
+          <div className="h-16 w-16 overflow-hidden rounded-full border-2 border-orange-500 bg-orange-500/10">
             {third?.avatar ? (
               <img
                 src={third.avatar}
@@ -128,13 +102,8 @@ export default function Podium({ players }: PodiumProps) {
             {third?.points?.toLocaleString() ?? 0}
           </p>
 
-          <div
-            className="mt-4 h-32 w-full rounded-t-2xl"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(205,127,50,0.35), transparent)",
-            }}
-          />
+          {/* BRONZE BASE */}
+          <div className="mt-4 h-32 w-full rounded-t-2xl bg-gradient-to-t from-orange-800 to-orange-500/20" />
         </div>
 
       </div>
