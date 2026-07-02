@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Navbar from "@/components/Navbar";
 
 export const dynamic = "force-dynamic";
 
@@ -176,8 +175,8 @@ export default function LeaderboardPage() {
       setTotalPoints(Number(json.total_points ?? 0));
       setError(null);
       setLoading(false);
-    } catch {
-      setError("Unknown error");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
       setData([]);
       setTotalPoints(0);
       setLoading(false);
@@ -186,7 +185,6 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     load();
-
     const interval = setInterval(load, 10000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
@@ -201,9 +199,6 @@ export default function LeaderboardPage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
-
-      {/* NAVBAR (ONLY CHANGE — NO OTHER CODE TOUCHED) */}
-      <Navbar />
 
       <div className="mx-auto max-w-6xl">
 
@@ -303,3 +298,68 @@ export default function LeaderboardPage() {
 
                         {change > 0 && (
                           <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
+                            ▲{change}
+                          </span>
+                        )}
+
+                        {change < 0 && (
+                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
+                            ▼{Math.abs(change)}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
+                        {entry.avatar ? (
+                          <img
+                            src={entry.avatar}
+                            alt={entry.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <InitialAvatar name={entry.name} />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate font-semibold text-white">
+                            {entry.name}
+                          </h3>
+
+                          {entry.discord_id ? (
+                            <span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+                              Discord linked
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-zinc-500/20 bg-zinc-500/10 px-2 py-0.5 text-[11px] font-medium text-zinc-400">
+                              Not linked
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="truncate text-sm text-zinc-400">
+                          Roblox ID: {entry.user_id}
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-white">
+                          {formatNumber(entry.points)}
+                        </div>
+
+                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                          points
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </section>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
