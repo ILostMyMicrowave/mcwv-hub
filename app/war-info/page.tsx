@@ -24,8 +24,8 @@ type WarApiData = {
   success?: boolean;
   active: boolean;
   warName: string | null;
-  startTime: number | null; // UNIX (FIXED)
-  endTime: number | null;   // UNIX (FIXED)
+  startTime: number | null; // UNIX seconds
+  endTime: number | null;   // UNIX seconds
   clanRank: number | null;
   totalClans: number | null;
   totalPoints: number;
@@ -60,10 +60,9 @@ export default function WarInfoPage() {
     async function loadWar() {
       try {
         const res = await fetch("/api/war", { cache: "no-store" });
-
         const json = await res.json();
 
-        if (!json?.success && json?.success !== undefined) {
+        if (!json?.success) {
           setWar(null);
           return;
         }
@@ -93,7 +92,6 @@ export default function WarInfoPage() {
           : [];
 
         const prev = prevPlayersRef.current;
-
         const newEvents: WarEvent[] = [];
 
         next.forEach((p) => {
@@ -141,33 +139,31 @@ export default function WarInfoPage() {
     return () => clearInterval(i);
   }, []);
 
-  // clock
+  // clock tick
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
   }, []);
 
   // =========================
-  // SAFE TIME CALCS (FIX)
+  // SAFE TIME CALCS (FIXED)
   // =========================
-  const start = war?.startTime ?? null;
-  const end = war?.endTime ?? null;
 
-  const startMs =
-    typeof start === "number" ? start * 1000 : null;
+  const startMs = war?.startTime ? war.startTime * 1000 : null;
+  const endMs = war?.endTime ? war.endTime * 1000 : null;
 
-  const endMs =
-    typeof end === "number" ? end * 1000 : null;
+  const validTimes =
+    startMs !== null &&
+    endMs !== null &&
+    !Number.isNaN(startMs) &&
+    !Number.isNaN(endMs);
 
-  const durationMs =
-    startMs && endMs ? endMs - startMs : null;
-
-  const timeLeft =
-    endMs ? Math.max(0, endMs - now) : null;
+  const timeLeftMs =
+    validTimes ? Math.max(0, endMs! - now) : null;
 
   const progress =
-    startMs && endMs
-      ? Math.min(100, ((now - startMs) / (endMs - startMs)) * 100)
+    validTimes
+      ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100)
       : 0;
 
   const totalPoints = useMemo(
@@ -175,7 +171,11 @@ export default function WarInfoPage() {
     [players]
   );
 
-  const top = players.sort((a, b) => b.points - a.points)[0];
+  // FIX: don't mutate original array
+  const top = useMemo(
+    () => [...players].sort((a, b) => b.points - a.points)[0],
+    [players]
+  );
 
   // =========================
   // UI
@@ -203,10 +203,10 @@ export default function WarInfoPage() {
           <p className="text-sm text-zinc-400">Time Remaining</p>
 
           <h2 className="text-4xl font-bold text-emerald-300">
-            {timeLeft !== null ? formatDuration(timeLeft) : "—"}
+            {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
           </h2>
 
-          <div className="mt-6 h-3 w-full rounded-full bg-black/40">
+          <div className="mt-6 h-3 w-full rounded-full bg-black/40 overflow-hidden">
             <div
               className="h-full rounded-full bg-emerald-400 transition-all duration-500"
               style={{ width: `${progress}%` }}
@@ -225,7 +225,7 @@ export default function WarInfoPage() {
           <Stat label="Clan Rank" value={`#${war?.clanRank ?? "—"}`} />
         </div>
 
-        {/* TOP CONTRIBUTOR */}
+        {/* TOP */}
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
           <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
 
@@ -256,12 +256,13 @@ export default function WarInfoPage() {
             ))}
           </div>
         </div>
+
       </div>
     </main>
   );
 }
 
-function Stat({ label, value }: any) {
+function Stat({ label, value }: { label: string; value: any }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center">
       <p className="text-sm text-zinc-400">{label}</p>
