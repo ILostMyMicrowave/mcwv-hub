@@ -20,7 +20,10 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* 🌌 ANIMATED BLOBS */
+/* =========================================
+   🌌 ANIMATED BLOBS
+========================================= */
+
 @keyframes blob {
   0% {
     transform: translate(0px, 0px) scale(1);
@@ -48,7 +51,11 @@ body {
   animation-delay: 4s;
 }
 
-/* ✨ EVENT FADE */
+/* =========================================
+   ✨ UI ANIMATIONS
+========================================= */
+
+/* Fade in (event feed etc.) */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -64,7 +71,7 @@ body {
   animation: fade-in 0.25s ease-out;
 }
 
-/* 💀 SLIDE IN */
+/* Slide in (notifications etc.) */
 @keyframes slide-in {
   from {
     transform: translateX(40px);
@@ -80,7 +87,7 @@ body {
   animation: slide-in 0.25s ease-out;
 }
 
-/* ⚡ POP */
+/* Pop effect */
 @keyframes pop {
   0% {
     transform: scale(0.95);
@@ -98,18 +105,31 @@ body {
 }
 
 /* =========================================
-   🌈 WAR PROGRESS BAR ANIMATION (NEW)
+   🌈 WAR PROGRESS BAR (SMOOTH LOOP GRADIENT)
 ========================================= */
 
 @keyframes gradientMove {
   0% {
     background-position: 0% 50%;
   }
+  50% {
+    background-position: 100% 50%;
+  }
   100% {
-    background-position: 200% 50%;
+    background-position: 0% 50%;
   }
 }
 
 .animate-gradientMove {
-  animation: gradientMove 3s linear infinite;
+  animation: gradientMove 4s ease-in-out infinite;
+}
+
+/* REQUIRED for smooth motion */
+.gradient-bar {
+  background-size: 200% 200%;
+}
+
+/* OPTIONAL glow for future upgrade */
+.glow-emerald {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
 }
