@@ -104,10 +104,10 @@ function PodiumCard({
               {formatNumber(entry.points)} points
             </p>
 
-            {/* ONLY CHANGE: slightly richer pill styling */}
+            {/* ONLY CHANGE HERE (pill sync styling) */}
             <p className="mt-2 text-xs uppercase tracking-[0.25em]">
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-1 transition ${
+                className={`inline-flex items-center rounded-full px-2 py-1 transition ${
                   entry.discord_id
                     ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
                     : "bg-zinc-800/40 text-zinc-400 ring-1 ring-white/10"
