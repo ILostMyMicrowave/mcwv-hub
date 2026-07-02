@@ -198,7 +198,10 @@ const podium = useMemo(() => data.slice(0, 3), [data]);
 const rest = useMemo(() => data.slice(3), [data]);
 
 return (
-<main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
+<main
+  className="min-h-screen px-4 py-8 text-white sm:px-6 lg:px-10"
+  style={{ background: "var(--background)" }}
+>
 
 <div className="mx-auto max-w-6xl">
 
