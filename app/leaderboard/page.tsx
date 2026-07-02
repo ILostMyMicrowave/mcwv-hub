@@ -58,24 +58,10 @@ function PodiumCard({
     <div
       className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
     >
-      {place === 1 && (
-        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-yellow-400/5" />
-      )}
-
       {entry ? (
         <>
           <div className="mb-4 flex items-center justify-center">
             <div className="relative flex items-center justify-center">
-              {place === 1 && (
-                <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
-              )}
-
-              {place === 1 && (
-                <div className="pointer-events-none absolute -top-4 animate-bounce text-2xl">
-                  👑
-                </div>
-              )}
-
               {entry.avatar ? (
                 <img
                   src={entry.avatar}
@@ -201,8 +187,6 @@ export default function LeaderboardPage() {
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
       <div className="mx-auto max-w-6xl">
-
-        {/* HEADER */}
         <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -214,9 +198,14 @@ export default function LeaderboardPage() {
                 />
                 {active ? "Live war tracking" : "No active war right now"}
               </div>
+
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
                 {title}
               </h1>
+
+              <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+                Live updates refresh every 10 seconds.
+              </p>
             </div>
 
             <div className="text-sm text-zinc-400">
@@ -240,22 +229,22 @@ export default function LeaderboardPage() {
           </div>
         ) : (
           <>
-            {/* 🏆 PODIUM — FIXED (NO OVERLAP) */}
-            <section className="mb-10 transition-all duration-500">
+            {/* PODIUM (UNCHANGED) */}
+            <section className={`mb-8 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
               <div className="mb-4 text-lg font-semibold text-zinc-100">
                 Top 3 podium
               </div>
 
-              <div className="grid gap-6 md:grid-cols-3 md:items-end">
-                <div className="md:order-1">
+              <div className="grid gap-4 md:grid-cols-3 md:items-end">
+                <div className="md:order-1 md:translate-y-8">
                   <PodiumCard entry={podium[1]} place={2} />
                 </div>
 
-                <div className="md:order-2 md:scale-[1.05]">
+                <div className="md:order-2 md:-translate-y-2">
                   <PodiumCard entry={podium[0]} place={1} />
                 </div>
 
-                <div className="md:order-3">
+                <div className="md:order-3 md:translate-y-12">
                   <PodiumCard entry={podium[2]} place={3} />
                 </div>
               </div>
@@ -263,25 +252,49 @@ export default function LeaderboardPage() {
 
             {/* LIST */}
             <section className="rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6">
-              <div className="mb-4 text-xl font-semibold">Full leaderboard</div>
+              <h2 className="mb-4 text-xl font-semibold">Full leaderboard</h2>
 
               <div className="space-y-3">
-                {data.map((entry) => (
-                  <div
-                    key={entry.user_id}
-                    className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-                  >
-                    <div className="w-10 text-center font-bold">
-                      #{entry.rank}
-                    </div>
+                {data.map((entry) => {
+                  const change = rankChange[entry.user_id] ?? 0;
 
-                    <div className="flex-1">{entry.name}</div>
+                  return (
+                    <a
+                      key={entry.user_id}
+                      href={`/profile?roblox_id=${entry.user_id}`}
+                      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="text-lg font-bold">#{entry.rank}</div>
 
-                    <div className="font-bold">
-                      {formatNumber(entry.points)}
-                    </div>
-                  </div>
-                ))}
+                      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full">
+                        {entry.avatar ? (
+                          <img src={entry.avatar} className="h-full w-full object-cover" />
+                        ) : (
+                          <InitialAvatar name={entry.name} />
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        <p className="font-semibold">{entry.name}</p>
+                        <p className="text-sm text-zinc-400">
+                          Roblox ID: {entry.user_id}
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="font-bold">
+                          {formatNumber(entry.points)}
+                        </p>
+
+                        {change !== 0 && (
+                          <p className="text-xs text-zinc-400">
+                            {change > 0 ? `+${change}` : change}
+                          </p>
+                        )}
+                      </div>
+                    </a>
+                  );
+                })}
               </div>
             </section>
           </>
