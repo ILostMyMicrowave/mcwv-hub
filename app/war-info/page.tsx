@@ -21,6 +21,7 @@ type WarEvent = {
 };
 
 type WarApiData = {
+  success?: boolean;
   active: boolean;
   warName: string | null;
   battleId: string | null;
@@ -124,9 +125,7 @@ export default function WarInfoPage() {
         if (!res.ok) return;
 
         const json = await res.json();
-        const next: LeaderboardEntry[] = Array.isArray(json.data)
-          ? json.data
-          : [];
+        const next: LeaderboardEntry[] = Array.isArray(json.data) ? json.data : [];
 
         const nextEvents: WarEvent[] = [];
 
@@ -212,28 +211,37 @@ export default function WarInfoPage() {
     return () => clearInterval(clock);
   }, []);
 
-  const sorted = useMemo(
-    () => [...players].sort((a, b) => b.points - a.points),
-    [players]
-  );
+  const topContributor = war?.topContributor ?? null;
 
-  const totalPoints = useMemo(
-    () => sorted.reduce((sum, p) => sum + (p.points || 0), 0),
-    [sorted]
-  );
+  const startMs =
+    war?.startTime && !Number.isNaN(Date.parse(war.startTime))
+      ? new Date(war.startTime).getTime()
+      : null;
 
-  const participants = sorted.length;
-  const topContributor = war?.topContributor ?? sorted[0] ?? null;
+  const endMs =
+    war?.endTime && !Number.isNaN(Date.parse(war.endTime))
+      ? new Date(war.endTime).getTime()
+      : null;
 
-  const startMs = war?.startTime ? new Date(war.startTime).getTime() : 0;
-  const endMs = war?.endTime ? new Date(war.endTime).getTime() : 0;
-  const durationMs = Math.max(1, endMs - startMs);
-  const elapsedMs = Math.min(durationMs, Math.max(0, now - startMs));
-  const timeLeftMs = Math.max(0, endMs - now);
-  const progress = Math.min(100, Math.max(0, (elapsedMs / durationMs) * 100));
+  const durationMs =
+    startMs !== null && endMs !== null ? Math.max(1, endMs - startMs) : null;
+
+  const elapsedMs =
+    startMs !== null && durationMs !== null
+      ? Math.min(durationMs, Math.max(0, now - startMs))
+      : null;
+
+  const timeLeftMs =
+    endMs !== null ? Math.max(0, endMs - now) : null;
+
+  const progress =
+    startMs !== null && endMs !== null
+      ? Math.min(100, Math.max(0, ((now - startMs) / (endMs - startMs)) * 100))
+      : null;
+
   const active = Boolean(war?.active);
 
-  const animatedTotalPoints = useCountUp(totalPoints, 900);
+  const animatedWarPoints = useCountUp(war?.totalPoints ?? 0, 900);
   const animatedTopPoints = useCountUp(topContributor?.points ?? 0, 700);
 
   return (
@@ -275,7 +283,7 @@ export default function WarInfoPage() {
                 <div>
                   Total points:{" "}
                   <span className="font-semibold text-white">
-                    {animatedTotalPoints.toLocaleString()}
+                    {animatedWarPoints.toLocaleString()}
                   </span>
                 </div>
 
@@ -298,7 +306,7 @@ export default function WarInfoPage() {
             <p className="mb-2 text-sm text-zinc-400">Time Remaining</p>
 
             <h2 className="text-5xl font-bold tracking-wider text-emerald-300">
-              {formatDuration(timeLeftMs)}
+              {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
             </h2>
 
             <p className="mt-3 text-xs text-zinc-500">
@@ -308,22 +316,21 @@ export default function WarInfoPage() {
             <div className="mt-8">
               <div className="mb-2 flex items-center justify-between text-xs text-zinc-500">
                 <span>War progress</span>
-                <span>{progress.toFixed(0)}%</span>
+                <span>{progress !== null ? `${progress.toFixed(0)}%` : "—"}</span>
               </div>
 
               <div className="h-3 w-full overflow-hidden rounded-full bg-black/30 ring-1 ring-white/10">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400 transition-all duration-1000 ease-out"
-                  style={{ width: `${progress}%` }}
+                  style={{ width: `${progress ?? 0}%` }}
                 />
               </div>
 
               <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
                 <span>
-                  Started:{" "}
-                  {war?.startTime ? new Date(war.startTime).toLocaleString() : "—"}
+                  Started: {war?.startTime ? new Date(war.startTime).toLocaleString() : "—"}
                 </span>
-                <span>{formatCompact(elapsedMs)} elapsed</span>
+                <span>{elapsedMs !== null ? formatCompact(elapsedMs) : "—"} elapsed</span>
               </div>
             </div>
           </div>
@@ -338,14 +345,14 @@ export default function WarInfoPage() {
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur">
             <p className="text-sm text-zinc-400">Total War Points</p>
             <p className="mt-2 text-2xl font-bold">
-              {animatedTotalPoints.toLocaleString()}
+              {animatedWarPoints.toLocaleString()}
             </p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur">
             <p className="text-sm text-zinc-400">Participants</p>
             <p className="mt-2 text-2xl font-bold">
-              {war?.participants ?? participants}/75
+              {war?.participants ?? players.length}/75
             </p>
           </div>
 
