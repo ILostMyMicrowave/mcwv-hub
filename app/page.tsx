@@ -10,6 +10,7 @@ type LeaderboardEntry = {
   name: string;
   points: number;
   rank: number;
+  avatar: string | null;
 };
 
 type EventItem = {
