@@ -39,7 +39,7 @@ type WarApiData = {
 /* ================= HELPERS ================= */
 
 function toMs(value: number | string | null): number | null {
-  if (!value) return null;
+  if (value === null || value === undefined) return null;
 
   if (typeof value === "number") {
     return value < 1e12 ? value * 1000 : value;
@@ -119,7 +119,7 @@ export default function WarInfoPage() {
             newEvents.push({
               id: crypto.randomUUID(),
               type: "points",
-              text: `🔥 ${p.name} +${diff.toLocaleString()} points`,
+              text: `🔥 ${p.name} gained +${diff.toLocaleString()} points`,
               timestamp: Date.now(),
             });
           }
@@ -137,7 +137,7 @@ export default function WarInfoPage() {
             newEvents.push({
               id: crypto.randomUUID(),
               type: "milestone",
-              text: `👑 New leader: ${p.name}`,
+              text: `👑 ${p.name} is now leading the war`,
               timestamp: Date.now(),
             });
           }
@@ -145,7 +145,7 @@ export default function WarInfoPage() {
 
         prevPlayersRef.current = next;
         setPlayers(next);
-        setEvents((e) => [...newEvents, ...e].slice(0, 10));
+        setEvents((e) => [...newEvents, ...e].slice(0, 12));
       } catch {}
     }
 
@@ -184,9 +184,14 @@ export default function WarInfoPage() {
     [players]
   );
 
-  const clanRankDisplay = war?.clanRank
-    ? `#${war.clanRank}`
-    : "Unranked";
+  /* ================= CLEAN CLAN RANK FIX ================= */
+
+  const clanRankDisplay = useMemo(() => {
+    const r = Number(war?.clanRank);
+
+    if (!Number.isFinite(r) || r <= 0) return "Unranked";
+    return `#${r}`;
+  }, [war?.clanRank]);
 
   /* ================= UI ================= */
 
@@ -207,8 +212,8 @@ export default function WarInfoPage() {
           </p>
         </div>
 
-        {/* TIMER (UPGRADED) */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-8 text-center shadow-lg shadow-emerald-500/10">
+        {/* TIMER */}
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
           <p className="text-sm text-zinc-400">Time Remaining</p>
 
           <h2 className="text-4xl font-bold text-emerald-300 drop-shadow">
@@ -235,41 +240,44 @@ export default function WarInfoPage() {
         </div>
 
         {/* TOP CONTRIBUTOR (UPGRADED) */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-6">
+        <div className="mt-8 rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-black/30 p-6">
           <h2 className="mb-4 text-lg font-bold flex items-center gap-2">
             👑 Top Contribution
           </h2>
 
           {top ? (
-            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-4">
-              
+            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-5 shadow-lg shadow-emerald-500/10">
               <div>
-                <p className="text-lg font-semibold text-white">
-                  {top.name}
-                </p>
+                <p className="text-xl font-semibold">{top.name}</p>
                 <p className="text-xs text-emerald-300">
                   👑 Leading the war
                 </p>
               </div>
 
               <div className="text-right">
-                <p className="text-xl font-bold text-emerald-300">
+                <p className="text-2xl font-bold text-emerald-300">
                   {top.points.toLocaleString()}
                 </p>
                 <p className="text-xs uppercase tracking-widest text-zinc-500">
                   points
                 </p>
               </div>
-
             </div>
           ) : (
             <p className="text-zinc-500">No data</p>
           )}
         </div>
 
-        {/* LIVE FEED (FIXED EMPTY STATE) */}
+        {/* LIVE FEED (UPGRADED) */}
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
-          <h2 className="mb-4 font-bold">Live Feed</h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-bold">Live Feed</h2>
+
+            <span className="flex items-center gap-2 text-xs text-emerald-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+              LIVE
+            </span>
+          </div>
 
           <p className="mb-3 text-xs text-zinc-400">
             ⚔️ Tracking {players.length} players live
@@ -280,15 +288,22 @@ export default function WarInfoPage() {
               events.map((e) => (
                 <div
                   key={e.id}
-                  className="rounded-xl border border-white/10 bg-black/30 p-2 text-sm"
+                  className={`rounded-xl border px-3 py-2 text-sm transition
+                    ${
+                      e.type === "points"
+                        ? "border-emerald-400/20 bg-emerald-400/10"
+                        : e.type === "rank"
+                        ? "border-blue-400/20 bg-blue-400/10"
+                        : "border-purple-400/20 bg-purple-400/10"
+                    }`}
                 >
                   {e.text}
                 </div>
               ))
             ) : (
-              <p className="text-sm text-zinc-500">
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-500">
                 No war activity yet...
-              </p>
+              </div>
             )}
           </div>
         </div>
@@ -298,7 +313,7 @@ export default function WarInfoPage() {
   );
 }
 
-/* ================= STAT COMPONENT ================= */
+/* ================= STAT ================= */
 
 function Stat({ label, value }: { label: string; value: any }) {
   return (
