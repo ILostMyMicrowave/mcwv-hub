@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
+/* ================= TYPES ================= */
+
 type LeaderboardEntry = {
   user_id: number;
   name: string;
@@ -24,8 +26,8 @@ type WarApiData = {
   success?: boolean;
   active: boolean;
   warName: string | null;
-  startTime: number | null; // UNIX seconds
-  endTime: number | null;   // UNIX seconds
+  startTime: number | string | null;
+  endTime: number | string | null;
   clanRank: number | null;
   totalClans: number | null;
   totalPoints: number;
@@ -33,6 +35,19 @@ type WarApiData = {
   maxParticipants: number;
   topContributor: LeaderboardEntry | null;
 };
+
+/* ================= SAFE TIME PARSER ================= */
+
+function toMs(value: number | string | null): number | null {
+  if (!value) return null;
+
+  if (typeof value === "number") {
+    return value < 1e12 ? value * 1000 : value;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
 
 function formatDuration(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -45,6 +60,8 @@ function formatDuration(ms: number) {
   return `${d}d ${h}h ${m}m ${s}s`;
 }
 
+/* ================= PAGE ================= */
+
 export default function WarInfoPage() {
   const [war, setWar] = useState<WarApiData | null>(null);
   const [players, setPlayers] = useState<LeaderboardEntry[]>([]);
@@ -53,9 +70,8 @@ export default function WarInfoPage() {
 
   const prevPlayersRef = useRef<LeaderboardEntry[]>([]);
 
-  // =========================
-  // LOAD WAR
-  // =========================
+  /* ================= WAR LOAD ================= */
+
   useEffect(() => {
     async function loadWar() {
       try {
@@ -78,9 +94,8 @@ export default function WarInfoPage() {
     return () => clearInterval(i);
   }, []);
 
-  // =========================
-  // LOAD LEADERBOARD
-  // =========================
+  /* ================= PLAYERS LOAD ================= */
+
   useEffect(() => {
     async function loadPlayers() {
       try {
@@ -139,47 +154,38 @@ export default function WarInfoPage() {
     return () => clearInterval(i);
   }, []);
 
-  // clock tick
+  /* ================= CLOCK ================= */
+
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
   }, []);
 
-  // =========================
-  // SAFE TIME CALCS (FIXED)
-  // =========================
+  /* ================= SAFE WAR CALCS ================= */
 
-  const startMs = war?.startTime ? war.startTime * 1000 : null;
-  const endMs = war?.endTime ? war.endTime * 1000 : null;
+  const startMs = toMs(war?.startTime ?? null);
+  const endMs = toMs(war?.endTime ?? null);
 
-  const validTimes =
-    startMs !== null &&
-    endMs !== null &&
-    !Number.isNaN(startMs) &&
-    !Number.isNaN(endMs);
+  const valid = startMs !== null && endMs !== null && endMs > startMs;
 
-  const timeLeftMs =
-    validTimes ? Math.max(0, endMs! - now) : null;
+  const timeLeft = valid ? Math.max(0, endMs! - now) : null;
 
-  const progress =
-    validTimes
-      ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100)
-      : 0;
+  const progress = valid
+    ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100)
+    : 0;
 
   const totalPoints = useMemo(
     () => players.reduce((a, b) => a + (b.points || 0), 0),
     [players]
   );
 
-  // FIX: don't mutate original array
   const top = useMemo(
     () => [...players].sort((a, b) => b.points - a.points)[0],
     [players]
   );
 
-  // =========================
-  // UI
-  // =========================
+  /* ================= UI ================= */
+
   return (
     <main className="min-h-screen bg-black text-white">
       <AnimatedBackground />
@@ -192,7 +198,6 @@ export default function WarInfoPage() {
           <h1 className="text-3xl font-bold">
             {war?.warName ?? "No Active War"}
           </h1>
-
           <p className="mt-2 text-sm text-zinc-400">
             ⚔️ Real war dashboard
           </p>
@@ -203,12 +208,12 @@ export default function WarInfoPage() {
           <p className="text-sm text-zinc-400">Time Remaining</p>
 
           <h2 className="text-4xl font-bold text-emerald-300">
-            {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
+            {timeLeft !== null ? formatDuration(timeLeft) : "—"}
           </h2>
 
           <div className="mt-6 h-3 w-full rounded-full bg-black/40 overflow-hidden">
             <div
-              className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+              className="h-full bg-emerald-400 transition-all duration-500"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -230,12 +235,12 @@ export default function WarInfoPage() {
           <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
 
           {top ? (
-            <div>
+            <>
               <p className="text-xl font-semibold">{top.name}</p>
               <p className="text-emerald-300">
                 {top.points.toLocaleString()} points
               </p>
-            </div>
+            </>
           ) : (
             <p className="text-zinc-500">No data</p>
           )}
@@ -262,7 +267,7 @@ export default function WarInfoPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: any }) {
+function Stat({ label, value }: any) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center">
       <p className="text-sm text-zinc-400">{label}</p>
