@@ -31,13 +31,7 @@ function InitialAvatar({ name }: { name: string }) {
   const letter = (name?.trim()?.[0] ?? "?").toUpperCase();
 
   return (
-    <div
-      className="flex h-14 w-14 items-center justify-center rounded-full text-lg font-bold text-white ring-1"
-      style={{
-        background: "var(--card)",
-        borderColor: "var(--border)"
-      }}
-    >
+    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-800 text-lg font-bold text-white ring-1 ring-white/10">
       {letter}
     </div>
   );
@@ -62,17 +56,10 @@ function PodiumCard({
 
   return (
     <div
-      className={`relative rounded-3xl border p-5 shadow-2xl backdrop-blur transition-all duration-300 hover:-translate-y-1 ${className}`}
-      style={{
-        background: "var(--card)",
-        borderColor: "var(--border)",
-        boxShadow: "0 0 25px var(--glow)"
-      }}
+      className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
     >
       {place === 1 && (
-        <div className="pointer-events-none absolute inset-0 rounded-3xl"
-          style={{ background: "rgba(255,255,255,0.03)" }}
-        />
+        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-yellow-400/5" />
       )}
 
       {entry ? (
@@ -81,10 +68,7 @@ function PodiumCard({
             <div className="relative flex items-center justify-center">
 
               {place === 1 && (
-                <div
-                  className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full blur-2xl"
-                  style={{ background: "var(--glow)" }}
-                />
+                <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
               )}
 
               {place === 1 && (
@@ -125,7 +109,9 @@ function PodiumCard({
           </div>
         </>
       ) : (
-        <div className="py-10 text-center text-zinc-500">Waiting for data</div>
+        <div className="py-10 text-center text-zinc-500">
+          Waiting for data
+        </div>
       )}
     </div>
   );
@@ -214,30 +200,15 @@ export default function LeaderboardPage() {
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
   return (
-    <main
-      className="min-h-screen px-4 py-8 text-white sm:px-6 lg:px-10"
-      style={{ background: "var(--background)" }}
-    >
+    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
+
       <div className="mx-auto max-w-6xl">
 
-        {/* HEADER */}
-        <div
-          className="mb-6 rounded-3xl border p-6 backdrop-blur"
-          style={{
-            background: "var(--card)",
-            borderColor: "var(--border)"
-          }}
-        >
+        <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 
             <div>
-              <div
-                className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-emerald-300"
-                style={{
-                  background: "rgba(16,185,129,0.1)",
-                  border: "1px solid rgba(16,185,129,0.2)"
-                }}
-              >
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
                 <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "bg-zinc-500"} animate-pulse`} />
                 {active ? "Live war tracking" : "No active war right now"}
               </div>
@@ -261,13 +232,7 @@ export default function LeaderboardPage() {
               </div>
 
               <div className="mt-1 flex items-center gap-2">
-                <span
-                  className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-emerald-300"
-                  style={{
-                    background: "rgba(16,185,129,0.1)",
-                    border: "1px solid rgba(16,185,129,0.2)"
-                  }}
-                >
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
                   LIVE
                 </span>
@@ -284,19 +249,12 @@ export default function LeaderboardPage() {
           </div>
         </div>
 
-        {/* PODIUM */}
         {loading ? (
-          <div
-            className="rounded-3xl border p-8 text-center"
-            style={{ background: "var(--card)", borderColor: "var(--border)" }}
-          >
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-zinc-300">
             Loading leaderboard...
           </div>
         ) : error ? (
-          <div
-            className="rounded-3xl border p-8 text-center text-red-200"
-            style={{ background: "rgba(239,68,68,0.1)", borderColor: "rgba(239,68,68,0.3)" }}
-          >
+          <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-8 text-center text-red-200">
             {error}
           </div>
         ) : (
@@ -321,14 +279,7 @@ export default function LeaderboardPage() {
               </div>
             </section>
 
-            {/* LIST */}
-            <section
-              className="rounded-3xl border p-4 shadow-2xl backdrop-blur sm:p-6"
-              style={{
-                background: "var(--card)",
-                borderColor: "var(--border)"
-              }}
-            >
+            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Full leaderboard</h2>
                 <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -344,22 +295,25 @@ export default function LeaderboardPage() {
                     <a
                       key={entry.user_id}
                       href={`/profile?roblox_id=${entry.user_id}`}
-                      className="group flex items-center gap-4 rounded-2xl border p-4 transition-all duration-300 hover:-translate-y-0.5"
-                      style={{
-                        background: "rgba(0,0,0,0.25)",
-                        borderColor: "var(--border)"
-                      }}
+                      className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
                     >
-                      <div
-                        className="relative flex h-12 w-12 items-center justify-center rounded-xl text-lg font-bold text-white"
-                        style={{ background: "var(--card)" }}
-                      >
+                      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
                         #{entry.rank}
+
+                        {change > 0 && (
+                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
+                            ▲{change}
+                          </span>
+                        )}
+
+                        {change < 0 && (
+                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
+                            ▼{Math.abs(change)}
+                          </span>
+                        )}
                       </div>
 
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1"
-                        style={{ borderColor: "var(--border)" }}
-                      >
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
                         {entry.avatar ? (
                           <img
                             src={entry.avatar}
@@ -377,17 +331,7 @@ export default function LeaderboardPage() {
                             {entry.name}
                           </h3>
 
-                          {/* RESTORED EXACTLY */}
-                          <span
-                            className="rounded-full px-2 py-0.5 text-[11px]"
-                            style={{
-                              background: entry.discord_id
-                                ? "rgba(59,130,246,0.15)"
-                                : "rgba(161,161,170,0.1)",
-                              color: entry.discord_id ? "#93c5fd" : "#a1a1aa",
-                              border: "1px solid var(--border)"
-                            }}
-                          >
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">
                             {entry.discord_id ? "Discord linked" : "Not linked"}
                           </span>
                         </div>
