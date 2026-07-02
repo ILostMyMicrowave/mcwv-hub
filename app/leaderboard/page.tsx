@@ -66,6 +66,7 @@ function PodiumCard({
         <>
           <div className="mb-4 flex items-center justify-center">
             <div className="relative flex items-center justify-center">
+
               {place === 1 && (
                 <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
               )}
@@ -98,9 +99,7 @@ function PodiumCard({
 
           <div className="text-center">
             <div className="mb-1 text-2xl">{crowns}</div>
-            <h3 className="text-lg font-semibold text-white">
-              {entry.name}
-            </h3>
+            <h3 className="text-lg font-semibold text-white">{entry.name}</h3>
             <p className="mt-1 text-sm text-zinc-300">
               {formatNumber(entry.points)} points
             </p>
@@ -110,7 +109,9 @@ function PodiumCard({
           </div>
         </>
       ) : (
-        <div className="py-10 text-center text-zinc-500">Waiting for data</div>
+        <div className="py-10 text-center text-zinc-500">
+          Waiting for data
+        </div>
       )}
     </div>
   );
@@ -199,28 +200,28 @@ export default function LeaderboardPage() {
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
   return (
-    <main
-      className="min-h-screen px-4 py-8 text-white sm:px-6 lg:px-10"
-      style={{ background: "var(--background)" }}
-    >
+    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
+
       <div className="mx-auto max-w-6xl">
 
         <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-              <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "bg-zinc-500"} animate-pulse`} />
-              {active ? "Live war tracking" : "No active war right now"}
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
+                <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "bg-zinc-500"} animate-pulse`} />
+                {active ? "Live war tracking" : "No active war right now"}
+              </div>
+
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                {title}
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+                Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
+                appear automatically when the API provides them.
+              </p>
             </div>
-
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              {title}
-            </h1>
-
-            <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-              Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
-              appear automatically when the API provides them.
-            </p>
 
             <div className="text-sm text-zinc-400">
               <div>
@@ -298,6 +299,18 @@ export default function LeaderboardPage() {
                     >
                       <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
                         #{entry.rank}
+
+                        {change > 0 && (
+                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
+                            ▲{change}
+                          </span>
+                        )}
+
+                        {change < 0 && (
+                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
+                            ▼{Math.abs(change)}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
@@ -318,16 +331,9 @@ export default function LeaderboardPage() {
                             {entry.name}
                           </h3>
 
-                          {/* RESTORED TAG */}
-                          {entry.discord_id ? (
-                            <span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-300">
-                              Discord linked
-                            </span>
-                          ) : (
-                            <span className="rounded-full border border-zinc-500/20 bg-zinc-500/10 px-2 py-0.5 text-[11px] font-medium text-zinc-400">
-                              Not linked
-                            </span>
-                          )}
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">
+                            {entry.discord_id ? "Discord linked" : "Not linked"}
+                          </span>
                         </div>
 
                         <p className="truncate text-sm text-zinc-400">
