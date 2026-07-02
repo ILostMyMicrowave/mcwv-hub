@@ -15,20 +15,34 @@ export default function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur">
+    <header
+      className="sticky top-0 z-50 border-b backdrop-blur"
+      style={{
+        background: "rgba(0,0,0,0.4)",
+        borderColor: "var(--border)",
+      }}
+    >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+
         {/* Logo */}
-        <Link href="/" className="font-bold tracking-widest text-white">
+        <Link
+          href="/"
+          className="font-bold tracking-widest transition"
+          style={{ color: "var(--foreground)" }}
+        >
           MCWV
         </Link>
 
         {/* Desktop */}
-        <nav className="hidden gap-6 text-sm text-zinc-300 sm:flex">
+        <nav className="hidden gap-6 text-sm sm:flex">
           {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="hover:text-white transition"
+              className="transition"
+              style={{ color: "var(--foreground)", opacity: 0.7 }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
             >
               {link.label}
             </Link>
@@ -38,7 +52,8 @@ export default function Navbar() {
         {/* Mobile button */}
         <button
           onClick={() => setOpen(!open)}
-          className="sm:hidden text-zinc-300 text-xl"
+          className="text-xl sm:hidden"
+          style={{ color: "var(--foreground)" }}
         >
           ☰
         </button>
@@ -46,14 +61,23 @@ export default function Navbar() {
 
       {/* Mobile menu */}
       {open && (
-        <div className="sm:hidden border-t border-white/10 px-4 py-3 text-sm">
-          <div className="flex flex-col gap-3 text-zinc-300">
+        <div
+          className="sm:hidden border-t px-4 py-3 text-sm"
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--card)",
+          }}
+        >
+          <div className="flex flex-col gap-3">
             {links.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="hover:text-white transition"
+                className="transition"
+                style={{ color: "var(--foreground)", opacity: 0.7 }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
               >
                 {link.label}
               </Link>
