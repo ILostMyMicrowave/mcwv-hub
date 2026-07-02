@@ -27,12 +27,10 @@ export default function HomePage() {
 
     next.forEach((entry) => {
       const old = prev.find((p) => p.user_id === entry.user_id);
-
       if (!old) return;
 
       const diff = entry.points - old.points;
 
-      // 🔥 POINT GAIN
       if (diff > 0) {
         events.push({
           id: crypto.randomUUID(),
@@ -41,7 +39,6 @@ export default function HomePage() {
         });
       }
 
-      // 📈 RANK UP
       if (old.rank && entry.rank < old.rank) {
         events.push({
           id: crypto.randomUUID(),
@@ -50,7 +47,6 @@ export default function HomePage() {
         });
       }
 
-      // 📉 RANK DOWN
       if (old.rank && entry.rank > old.rank) {
         events.push({
           id: crypto.randomUUID(),
@@ -59,7 +55,6 @@ export default function HomePage() {
         });
       }
 
-      // 👑 NEW LEADER
       if (entry.rank === 1 && old.rank !== 1) {
         events.push({
           id: crypto.randomUUID(),
@@ -93,6 +88,7 @@ export default function HomePage() {
 
         setTop(next);
 
+        // 💀 IMPORTANT CHANGE: newest events at TOP
         setActivity((prev) =>
           [...events, ...prev].slice(0, 20)
         );
@@ -107,10 +103,8 @@ export default function HomePage() {
 
   return (
     <main className="relative min-h-screen bg-black text-white overflow-hidden">
-      {/* 🌌 BACKGROUND */}
       <AnimatedBackground />
 
-      {/* CONTENT */}
       <div className="relative z-10">
         <Navbar />
 
@@ -170,14 +164,12 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* 🔥 LIVE ACTIVITY FEED */}
+        {/* 🔥 LIVE ACTIVITY FEED (KILLFEED STYLE READY) */}
         <section className="mx-auto max-w-6xl px-4 pb-16">
           <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6">
 
-            {/* glow */}
             <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10" />
 
-            {/* header */}
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-bold">LIVE ACTIVITY FEED</h2>
 
@@ -187,18 +179,19 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* feed */}
             <div className="space-y-2">
               {activity.length === 0 ? (
                 <p className="text-sm text-zinc-500">
                   Waiting for activity...
                 </p>
               ) : (
-                activity.map((e) => (
+                activity.map((e, i) => (
                   <div
                     key={e.id}
                     className={`
-                      rounded-xl border px-3 py-2 text-sm animate-fade-in transition
+                      rounded-xl border px-3 py-2 text-sm transition-all
+
+                      ${i === 0 ? "animate-slide-in animate-pop" : ""}
 
                       ${
                         e.type === "points"
