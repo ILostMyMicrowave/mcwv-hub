@@ -36,7 +36,7 @@ type WarApiData = {
   topContributor: LeaderboardEntry | null;
 };
 
-/* ================= SAFE TIME ================= */
+/* ================= HELPERS ================= */
 
 function toMs(value: number | string | null): number | null {
   if (!value) return null;
@@ -70,7 +70,7 @@ export default function WarInfoPage() {
 
   const prevPlayersRef = useRef<LeaderboardEntry[]>([]);
 
-  /* ================= LOAD WAR ================= */
+  /* ================= WAR LOAD ================= */
 
   useEffect(() => {
     async function loadWar() {
@@ -94,7 +94,7 @@ export default function WarInfoPage() {
     return () => clearInterval(i);
   }, []);
 
-  /* ================= LOAD PLAYERS ================= */
+  /* ================= PLAYERS LOAD ================= */
 
   useEffect(() => {
     async function loadPlayers() {
@@ -108,16 +108,6 @@ export default function WarInfoPage() {
 
         const prev = prevPlayersRef.current;
         const newEvents: WarEvent[] = [];
-
-        /* 🔥 FIX: show initial feed state */
-        if (prev.length === 0 && next.length > 0) {
-          newEvents.push({
-            id: crypto.randomUUID(),
-            type: "milestone",
-            text: `⚔️ Tracking ${next.length} players live`,
-            timestamp: Date.now(),
-          });
-        }
 
         next.forEach((p) => {
           const old = prev.find((x) => x.user_id === p.user_id);
@@ -178,7 +168,7 @@ export default function WarInfoPage() {
 
   const valid = startMs !== null && endMs !== null && endMs > startMs;
 
-  const timeLeft = valid ? Math.max(0, endMs! - now) : null;
+  const timeLeftMs = valid ? Math.max(0, endMs! - now) : null;
 
   const progress = valid
     ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100)
@@ -194,11 +184,9 @@ export default function WarInfoPage() {
     [players]
   );
 
-  /* 🔥 FIX: clan rank fallback */
-  const clanRank =
-    war?.clanRank ??
-    (players[0] as any)?.clanRank ??
-    null;
+  const clanRankDisplay = war?.clanRank
+    ? `#${war.clanRank}`
+    : "Unranked";
 
   /* ================= UI ================= */
 
@@ -219,28 +207,19 @@ export default function WarInfoPage() {
           </p>
         </div>
 
-        {/* TIMER */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
+        {/* TIMER (UPGRADED) */}
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-8 text-center shadow-lg shadow-emerald-500/10">
           <p className="text-sm text-zinc-400">Time Remaining</p>
 
-          <h2 className="text-4xl font-bold text-emerald-300">
-            {timeLeft !== null ? formatDuration(timeLeft) : "—"}
+          <h2 className="text-4xl font-bold text-emerald-300 drop-shadow">
+            {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
           </h2>
 
-          {/* 🔥 UPGRADED PROGRESS BAR */}
-          <div className="relative mt-6 h-4 w-full overflow-hidden rounded-full bg-black/40 ring-1 ring-white/10">
-
-            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-blue-500/20 to-purple-500/20 blur-md" />
-
+          <div className="mt-6 h-4 w-full rounded-full bg-black/40 overflow-hidden ring-1 ring-white/10">
             <div
-              className="relative h-full rounded-full bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-500 transition-all duration-700"
-              style={{
-                width: `${progress}%`,
-                boxShadow: "0 0 20px rgba(16,185,129,0.6)",
-              }}
+              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 transition-all duration-700 shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+              style={{ width: `${progress}%` }}
             />
-
-            <div className="absolute inset-0 animate-pulse bg-white/10 opacity-20" />
           </div>
 
           <p className="mt-2 text-xs text-zinc-500">
@@ -252,37 +231,49 @@ export default function WarInfoPage() {
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           <Stat label="War Points" value={totalPoints} />
           <Stat label="Participants" value={players.length} />
-          <Stat label="Clan Rank" value={clanRank ? `#${clanRank}` : "—"} />
+          <Stat label="Clan Rank" value={clanRankDisplay} />
         </div>
 
-        {/* TOP CONTRIBUTOR */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
-          <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
+        {/* TOP CONTRIBUTOR (UPGRADED) */}
+        <div className="mt-8 rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-6">
+          <h2 className="mb-4 text-lg font-bold flex items-center gap-2">
+            👑 Top Contribution
+          </h2>
 
           {top ? (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-4">
+              
               <div>
-                <p className="text-xl font-bold">{top.name}</p>
-                <p className="text-sm text-zinc-400">👑 Leading the war</p>
+                <p className="text-lg font-semibold text-white">
+                  {top.name}
+                </p>
+                <p className="text-xs text-emerald-300">
+                  👑 Leading the war
+                </p>
               </div>
 
               <div className="text-right">
-                <p className="text-2xl font-bold text-emerald-300">
+                <p className="text-xl font-bold text-emerald-300">
                   {top.points.toLocaleString()}
                 </p>
                 <p className="text-xs uppercase tracking-widest text-zinc-500">
                   points
                 </p>
               </div>
+
             </div>
           ) : (
             <p className="text-zinc-500">No data</p>
           )}
         </div>
 
-        {/* LIVE FEED */}
+        {/* LIVE FEED (FIXED EMPTY STATE) */}
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
           <h2 className="mb-4 font-bold">Live Feed</h2>
+
+          <p className="mb-3 text-xs text-zinc-400">
+            ⚔️ Tracking {players.length} players live
+          </p>
 
           <div className="space-y-2">
             {events.length ? (
@@ -295,7 +286,9 @@ export default function WarInfoPage() {
                 </div>
               ))
             ) : (
-              <p className="text-zinc-500">No activity yet...</p>
+              <p className="text-sm text-zinc-500">
+                No war activity yet...
+              </p>
             )}
           </div>
         </div>
@@ -305,7 +298,7 @@ export default function WarInfoPage() {
   );
 }
 
-/* ================= STAT CARD ================= */
+/* ================= STAT COMPONENT ================= */
 
 function Stat({ label, value }: { label: string; value: any }) {
   return (
