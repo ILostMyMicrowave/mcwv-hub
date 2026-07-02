@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Navbar from "@/components/Navbar";
 
 export const dynamic = "force-dynamic";
 
@@ -200,9 +199,6 @@ export default function LeaderboardPage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
-
-      {/* ✅ NAVBAR FIXED (outside container like other pages) */}
-      <Navbar />
 
       <div className="mx-auto max-w-6xl">
 
