@@ -1,23 +1,76 @@
 @import "tailwindcss";
 
-/* 🌌 FORCE DARK THEME SITE-WIDE */
+/* =========================================
+   🎨 MCWV THEME SYSTEM (GLOBAL)
+========================================= */
+
 :root {
+  /* DEFAULT FALLBACK */
   --background: #0a0a0a;
   --foreground: #ededed;
+
+  --card: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.1);
+
+  --primary: #34d399;
+  --accent: #60a5fa;
+  --glow: rgba(52, 211, 153, 0.35);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ⚫ DEFAULT THEME */
+:root[data-theme="default"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+
+  --card: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.1);
+
+  --primary: #34d399;
+  --accent: #60a5fa;
+  --glow: rgba(52, 211, 153, 0.35);
 }
 
-/* 🌑 GLOBAL BODY STYLE */
+/* ❄️ ICE THEME */
+:root[data-theme="ice"] {
+  --background: #050b18;
+  --foreground: #e0f7ff;
+
+  --card: rgba(56, 189, 248, 0.08);
+  --border: rgba(125, 211, 252, 0.2);
+
+  --primary: #38bdf8;
+  --accent: #a5f3fc;
+  --glow: rgba(56, 189, 248, 0.4);
+}
+
+/* 🔥 INFERNO THEME */
+:root[data-theme="inferno"] {
+  --background: #0b0505;
+  --foreground: #fff1f1;
+
+  --card: rgba(239, 68, 68, 0.08);
+  --border: rgba(249, 115, 22, 0.25);
+
+  --primary: #ef4444;
+  --accent: #f97316;
+  --glow: rgba(239, 68, 68, 0.45);
+}
+
+/* =========================================
+   🌑 GLOBAL BASE STYLES
+========================================= */
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* smooth theme transitions */
+* {
+  transition: background 0.3s ease,
+              color 0.3s ease,
+              border-color 0.3s ease;
 }
 
 /* =========================================
@@ -55,7 +108,6 @@ body {
    ✨ UI ANIMATIONS
 ========================================= */
 
-/* Fade in (event feed etc.) */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -71,7 +123,6 @@ body {
   animation: fade-in 0.25s ease-out;
 }
 
-/* Slide in (notifications etc.) */
 @keyframes slide-in {
   from {
     transform: translateX(40px);
@@ -87,7 +138,6 @@ body {
   animation: slide-in 0.25s ease-out;
 }
 
-/* Pop effect */
 @keyframes pop {
   0% {
     transform: scale(0.95);
@@ -105,7 +155,7 @@ body {
 }
 
 /* =========================================
-   🌈 WAR PROGRESS BAR (SMOOTH LOOP GRADIENT)
+   🌈 WAR PROGRESS BAR ANIMATION
 ========================================= */
 
 @keyframes gradientMove {
@@ -124,12 +174,12 @@ body {
   animation: gradientMove 4s ease-in-out infinite;
 }
 
-/* REQUIRED for smooth motion */
+/* needed for smooth gradient movement */
 .gradient-bar {
   background-size: 200% 200%;
 }
 
-/* OPTIONAL glow for future upgrade */
+/* optional glow system (used later in themes) */
 .glow-emerald {
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
 }
