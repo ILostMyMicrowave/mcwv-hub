@@ -1,28 +1,81 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
-async function getLeaderboardPreview() {
-  try {
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_BASE_URL}/api/leaderboard`,
-      { cache: "no-store" }
-    );
+type LeaderboardEntry = {
+  user_id: number;
+  name: string;
+  points: number;
+  rank: number;
+};
 
-    if (!res.ok) return [];
-    const data = await res.json();
+export default function HomePage() {
+  const [top, setTop] = useState<LeaderboardEntry[]>([]);
+  const [activity, setActivity] = useState<string[]>([]);
+  const prevRef = useRef<LeaderboardEntry[]>([]);
 
-    return Array.isArray(data.data) ? data.data.slice(0, 5) : [];
-  } catch {
-    return [];
+  function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
+    const events: string[] = [];
+
+    next.forEach((entry) => {
+      const old = prev.find((p) => p.user_id === entry.user_id);
+
+      if (!old) return;
+
+      const diff = entry.points - old.points;
+
+      if (diff > 0) {
+        events.push(`🔥 ${entry.name} +${diff} points`);
+      }
+
+      if (old.rank && entry.rank < old.rank) {
+        events.push(`📈 ${entry.name} moved to #${entry.rank}`);
+      }
+
+      if (old.rank && entry.rank > old.rank) {
+        events.push(`📉 ${entry.name} dropped to #${entry.rank}`);
+      }
+    });
+
+    return events;
   }
-}
 
-export default async function HomePage() {
-  const top = await getLeaderboardPreview();
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/leaderboard", {
+          cache: "no-store",
+        });
+
+        if (!res.ok) return;
+
+        const data = await res.json();
+
+        const next: LeaderboardEntry[] = Array.isArray(data.data)
+          ? data.data.slice(0, 5)
+          : [];
+
+        const events = generateEvents(prevRef.current, next);
+
+        prevRef.current = next;
+
+        setTop(next);
+
+        setActivity((prev) => [...events, ...prev].slice(0, 15));
+      } catch {}
+    }
+
+    load();
+
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <main className="relative min-h-screen bg-black text-white overflow-hidden">
-      {/* 🌌 ANIMATED BACKGROUND */}
+      {/* 🌌 BACKGROUND */}
       <AnimatedBackground />
 
       {/* CONTENT */}
@@ -36,9 +89,7 @@ export default async function HomePage() {
             LIVE CLAN SYSTEM
           </div>
 
-          <h1 className="text-5xl font-bold sm:text-6xl">
-            MCWV Hub
-          </h1>
+          <h1 className="text-5xl font-bold sm:text-6xl">MCWV Hub</h1>
 
           <p className="mt-4 max-w-2xl text-zinc-400">
             Real-time leaderboard tracking, war stats, and clan performance analytics.
@@ -46,13 +97,13 @@ export default async function HomePage() {
 
           <a
             href="/leaderboard"
-            className="mt-8 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black hover:bg-emerald-400 transition"
+            className="mt-8 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400"
           >
             View Leaderboard
           </a>
         </section>
 
-        {/* STATS GRID */}
+        {/* STATS */}
         <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 sm:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
             <p className="text-sm text-zinc-400">Live Players</p>
@@ -70,12 +121,12 @@ export default async function HomePage() {
           </div>
         </section>
 
-        {/* TOP 5 PREVIEW */}
+        {/* TOP 5 */}
         <section className="mx-auto max-w-6xl px-4 py-12">
           <h2 className="mb-4 text-xl font-semibold">Top Players</h2>
 
           <div className="space-y-2">
-            {top.map((p: any) => (
+            {top.map((p) => (
               <div
                 key={p.user_id}
                 className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
@@ -84,6 +135,43 @@ export default async function HomePage() {
                 <span className="font-bold">{p.points}</span>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* 🔥 LIVE ACTIVITY FEED */}
+        <section className="mx-auto max-w-6xl px-4 pb-16">
+          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6">
+
+            {/* glow */}
+            <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10" />
+
+            {/* header */}
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">LIVE ACTIVITY FEED</h2>
+
+              <div className="flex items-center gap-2 text-xs text-emerald-300">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                LIVE
+              </div>
+            </div>
+
+            {/* feed */}
+            <div className="space-y-2">
+              {activity.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  Waiting for activity...
+                </p>
+              ) : (
+                activity.map((e, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 animate-fade-in"
+                  >
+                    {e}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </section>
       </div>
