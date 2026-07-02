@@ -5,10 +5,10 @@ import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
 type LeaderboardEntry = {
-  rank: number;
   user_id: number;
   name: string;
   points: number;
+  rank: number;
   avatar: string | null;
   discord_id: string | null;
 };
@@ -20,18 +20,20 @@ type WarEvent = {
   timestamp: number;
 };
 
-type WarSession = {
-  warName: string;
-  startTime: string;
-  endTime: string;
-};
-
-const SESSION_KEY = "mcwv-war-session-v1";
-
-const DEFAULT_SESSION: WarSession = {
-  warName: "July Clan War",
-  startTime: "2026-07-02T18:00:00Z",
-  endTime: "2026-07-02T23:59:59Z",
+type WarApiData = {
+  active: boolean;
+  warName: string | null;
+  battleId: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  clanRank: number | null;
+  totalClans: number | null;
+  totalPoints: number;
+  participants: number;
+  maxParticipants: number;
+  topContributor: LeaderboardEntry | null;
+  topClans: any[];
+  topPlayers: any[];
 };
 
 function formatDuration(ms: number) {
@@ -89,54 +91,47 @@ function useCountUp(target: number, duration = 700) {
 }
 
 export default function WarInfoPage() {
-  const [session, setSession] = useState<WarSession | null>(null);
-  const [data, setData] = useState<LeaderboardEntry[]>([]);
+  const [war, setWar] = useState<WarApiData | null>(null);
+  const [players, setPlayers] = useState<LeaderboardEntry[]>([]);
   const [events, setEvents] = useState<WarEvent[]>([]);
   const [now, setNow] = useState(Date.now());
   const [flashTop, setFlashTop] = useState(false);
 
-  const prevRef = useRef<LeaderboardEntry[]>([]);
+  const prevPlayersRef = useRef<LeaderboardEntry[]>([]);
   const prevTopRef = useRef<{ user_id: number; points: number } | null>(null);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem(SESSION_KEY);
-
-    if (stored) {
+    async function loadWar() {
       try {
-        const parsed = JSON.parse(stored) as WarSession;
-        if (parsed?.warName && parsed?.startTime && parsed?.endTime) {
-          setSession(parsed);
-          return;
-        }
+        const res = await fetch("/api/war", { cache: "no-store" });
+        if (!res.ok) return;
+
+        const json = (await res.json()) as WarApiData;
+        setWar(json);
       } catch {}
     }
 
-    localStorage.setItem(SESSION_KEY, JSON.stringify(DEFAULT_SESSION));
-    setSession(DEFAULT_SESSION);
+    loadWar();
+    const interval = setInterval(loadWar, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(clock);
-  }, []);
-
-  useEffect(() => {
-    async function load() {
+    async function loadPlayers() {
       try {
-        const res = await fetch("/api/leaderboard", {
-          cache: "no-store",
-        });
-
+        const res = await fetch("/api/leaderboard", { cache: "no-store" });
         if (!res.ok) return;
 
         const json = await res.json();
-        const next: LeaderboardEntry[] = Array.isArray(json.data) ? json.data : [];
+        const next: LeaderboardEntry[] = Array.isArray(json.data)
+          ? json.data
+          : [];
 
         const nextEvents: WarEvent[] = [];
 
         next.forEach((entry) => {
-          const old = prevRef.current.find((p) => p.user_id === entry.user_id);
+          const old = prevPlayersRef.current.find((p) => p.user_id === entry.user_id);
           if (!old) return;
 
           const diff = entry.points - old.points;
@@ -169,11 +164,11 @@ export default function WarInfoPage() {
           }
         });
 
-        prevRef.current = next;
-        setData(next);
+        prevPlayersRef.current = next;
+        setPlayers(next);
         setEvents((prev) => [...nextEvents, ...prev].slice(0, 10));
 
-        const ranked = [...next].sort((a, b) => a.rank - b.rank || b.points - a.points);
+        const ranked = [...next].sort((a, b) => b.points - a.points);
         const top = ranked[0];
 
         if (top) {
@@ -203,8 +198,8 @@ export default function WarInfoPage() {
       } catch {}
     }
 
-    load();
-    const interval = setInterval(load, 10000);
+    loadPlayers();
+    const interval = setInterval(loadPlayers, 10000);
 
     return () => {
       clearInterval(interval);
@@ -212,9 +207,14 @@ export default function WarInfoPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const clock = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(clock);
+  }, []);
+
   const sorted = useMemo(
-    () => [...data].sort((a, b) => a.rank - b.rank || b.points - a.points),
-    [data]
+    () => [...players].sort((a, b) => b.points - a.points),
+    [players]
   );
 
   const totalPoints = useMemo(
@@ -223,15 +223,15 @@ export default function WarInfoPage() {
   );
 
   const participants = sorted.length;
-  const topContributor = sorted[0];
+  const topContributor = war?.topContributor ?? sorted[0] ?? null;
 
-  const startMs = session ? new Date(session.startTime).getTime() : 0;
-  const endMs = session ? new Date(session.endTime).getTime() : 0;
+  const startMs = war?.startTime ? new Date(war.startTime).getTime() : 0;
+  const endMs = war?.endTime ? new Date(war.endTime).getTime() : 0;
   const durationMs = Math.max(1, endMs - startMs);
   const elapsedMs = Math.min(durationMs, Math.max(0, now - startMs));
   const timeLeftMs = Math.max(0, endMs - now);
   const progress = Math.min(100, Math.max(0, (elapsedMs / durationMs) * 100));
-  const active = session ? now >= startMs && now <= endMs : false;
+  const active = Boolean(war?.active);
 
   const animatedTotalPoints = useCountUp(totalPoints, 900);
   const animatedTopPoints = useCountUp(topContributor?.points ?? 0, 700);
@@ -243,7 +243,6 @@ export default function WarInfoPage() {
       <div className="relative z-10">
         <Navbar />
 
-        {/* HEADER */}
         <section className="mx-auto max-w-6xl px-4 pt-16">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -264,11 +263,11 @@ export default function WarInfoPage() {
                 </div>
 
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                  {session?.warName ?? "Loading War..."}
+                  {war?.warName ?? "Loading war..."}
                 </h1>
 
                 <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-                  Live war dashboard tracking clan performance in real time.
+                  Live war dashboard pulling real data from your PS99-powered API.
                 </p>
               </div>
 
@@ -294,7 +293,6 @@ export default function WarInfoPage() {
           </div>
         </section>
 
-        {/* COUNTDOWN */}
         <section className="mx-auto mt-8 max-w-6xl px-4">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur">
             <p className="mb-2 text-sm text-zinc-400">Time Remaining</p>
@@ -304,7 +302,7 @@ export default function WarInfoPage() {
             </h2>
 
             <p className="mt-3 text-xs text-zinc-500">
-              Ends: {session?.endTime ? new Date(session.endTime).toLocaleString() : "—"}
+              Ends: {war?.endTime ? new Date(war.endTime).toLocaleString() : "—"}
             </p>
 
             <div className="mt-8">
@@ -323,9 +321,7 @@ export default function WarInfoPage() {
               <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
                 <span>
                   Started:{" "}
-                  {session?.startTime
-                    ? new Date(session.startTime).toLocaleString()
-                    : "—"}
+                  {war?.startTime ? new Date(war.startTime).toLocaleString() : "—"}
                 </span>
                 <span>{formatCompact(elapsedMs)} elapsed</span>
               </div>
@@ -333,13 +329,10 @@ export default function WarInfoPage() {
           </div>
         </section>
 
-        {/* STATS */}
         <section className="mx-auto mt-10 grid max-w-6xl gap-4 px-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur">
             <p className="text-sm text-zinc-400">War Name</p>
-            <p className="mt-2 text-lg font-bold">
-              {session?.warName ?? "—"}
-            </p>
+            <p className="mt-2 text-lg font-bold">{war?.warName ?? "—"}</p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur">
@@ -351,18 +344,19 @@ export default function WarInfoPage() {
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur">
             <p className="text-sm text-zinc-400">Participants</p>
-            <p className="mt-2 text-2xl font-bold">{participants}/75</p>
+            <p className="mt-2 text-2xl font-bold">
+              {war?.participants ?? participants}/75
+            </p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur">
-            <p className="text-sm text-zinc-400">Current Rank</p>
+            <p className="text-sm text-zinc-400">Global Clan Rank</p>
             <p className="mt-2 text-2xl font-bold">
-              #{topContributor?.rank ?? "—"}
+              #{war?.clanRank ?? "—"} / {war?.totalClans ?? "—"}
             </p>
           </div>
         </section>
 
-        {/* TOP CONTRIBUTION + FEED */}
         <section className="mx-auto mt-10 grid max-w-6xl gap-4 px-4 lg:grid-cols-2">
           <div
             className={`rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur transition-all duration-300 ${
@@ -407,7 +401,7 @@ export default function WarInfoPage() {
               </div>
             ) : (
               <div className="rounded-2xl border border-white/10 bg-black/20 p-6 text-center text-zinc-500">
-                Waiting for top contribution...
+                Waiting for top contributor...
               </div>
             )}
           </div>
@@ -438,7 +432,6 @@ export default function WarInfoPage() {
           </div>
         </section>
 
-        {/* SNAPSHOT */}
         <section className="mx-auto mt-10 max-w-6xl px-4 pb-16">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
             <h2 className="text-lg font-bold">War Snapshot</h2>
@@ -447,16 +440,14 @@ export default function WarInfoPage() {
               <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                 Started:{" "}
                 <span className="font-semibold">
-                  {session?.startTime
-                    ? new Date(session.startTime).toLocaleString()
-                    : "—"}
+                  {war?.startTime ? new Date(war.startTime).toLocaleString() : "—"}
                 </span>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                 Ends:{" "}
                 <span className="font-semibold">
-                  {session?.endTime ? new Date(session.endTime).toLocaleString() : "—"}
+                  {war?.endTime ? new Date(war.endTime).toLocaleString() : "—"}
                 </span>
               </div>
             </div>
