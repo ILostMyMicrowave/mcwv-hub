@@ -48,7 +48,7 @@ body {
   animation-delay: 4s;
 }
 
-/* ✨ EVENT FADE (existing feed system) */
+/* ✨ EVENT FADE */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -64,7 +64,7 @@ body {
   animation: fade-in 0.25s ease-out;
 }
 
-/* 💀 KILLFEED SLIDE IN (NEW) */
+/* 💀 SLIDE IN */
 @keyframes slide-in {
   from {
     transform: translateX(40px);
@@ -80,7 +80,7 @@ body {
   animation: slide-in 0.25s ease-out;
 }
 
-/* ⚡ POP EFFECT (NEW EVENTS) */
+/* ⚡ POP */
 @keyframes pop {
   0% {
     transform: scale(0.95);
@@ -95,4 +95,21 @@ body {
 
 .animate-pop {
   animation: pop 0.25s ease-out;
+}
+
+/* =========================================
+   🌈 WAR PROGRESS BAR ANIMATION (NEW)
+========================================= */
+
+@keyframes gradientMove {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.animate-gradientMove {
+  animation: gradientMove 3s linear infinite;
 }
