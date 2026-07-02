@@ -15,13 +15,6 @@ type LeaderboardEntry = {
   discord_id: string | null;
 };
 
-type WarEvent = {
-  id: string;
-  text: string;
-  type: "points" | "rank" | "milestone";
-  timestamp: number;
-};
-
 type WarApiData = {
   success?: boolean;
   active: boolean;
@@ -36,10 +29,10 @@ type WarApiData = {
   topContributor: LeaderboardEntry | null;
 };
 
-/* ================= HELPERS ================= */
+/* ================= TIME ================= */
 
 function toMs(value: number | string | null): number | null {
-  if (value === null || value === undefined) return null;
+  if (!value) return null;
 
   if (typeof value === "number") {
     return value < 1e12 ? value * 1000 : value;
@@ -65,12 +58,11 @@ function formatDuration(ms: number) {
 export default function WarInfoPage() {
   const [war, setWar] = useState<WarApiData | null>(null);
   const [players, setPlayers] = useState<LeaderboardEntry[]>([]);
-  const [events, setEvents] = useState<WarEvent[]>([]);
   const [now, setNow] = useState(Date.now());
 
   const prevPlayersRef = useRef<LeaderboardEntry[]>([]);
 
-  /* ================= WAR LOAD ================= */
+  /* ================= LOAD WAR ================= */
 
   useEffect(() => {
     async function loadWar() {
@@ -94,7 +86,7 @@ export default function WarInfoPage() {
     return () => clearInterval(i);
   }, []);
 
-  /* ================= PLAYERS LOAD ================= */
+  /* ================= LOAD PLAYERS ================= */
 
   useEffect(() => {
     async function loadPlayers() {
@@ -106,46 +98,8 @@ export default function WarInfoPage() {
           ? json.data
           : [];
 
-        const prev = prevPlayersRef.current;
-        const newEvents: WarEvent[] = [];
-
-        next.forEach((p) => {
-          const old = prev.find((x) => x.user_id === p.user_id);
-          if (!old) return;
-
-          const diff = p.points - old.points;
-
-          if (diff > 0) {
-            newEvents.push({
-              id: crypto.randomUUID(),
-              type: "points",
-              text: `🔥 ${p.name} gained +${diff.toLocaleString()} points`,
-              timestamp: Date.now(),
-            });
-          }
-
-          if (old.rank && p.rank < old.rank) {
-            newEvents.push({
-              id: crypto.randomUUID(),
-              type: "rank",
-              text: `📈 ${p.name} moved to #${p.rank}`,
-              timestamp: Date.now(),
-            });
-          }
-
-          if (p.rank === 1 && old.rank !== 1) {
-            newEvents.push({
-              id: crypto.randomUUID(),
-              type: "milestone",
-              text: `👑 ${p.name} is now leading the war`,
-              timestamp: Date.now(),
-            });
-          }
-        });
-
         prevPlayersRef.current = next;
         setPlayers(next);
-        setEvents((e) => [...newEvents, ...e].slice(0, 12));
       } catch {}
     }
 
@@ -168,7 +122,7 @@ export default function WarInfoPage() {
 
   const valid = startMs !== null && endMs !== null && endMs > startMs;
 
-  const timeLeftMs = valid ? Math.max(0, endMs! - now) : null;
+  const timeLeft = valid ? Math.max(0, endMs! - now) : null;
 
   const progress = valid
     ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100)
@@ -184,14 +138,7 @@ export default function WarInfoPage() {
     [players]
   );
 
-  /* ================= CLEAN CLAN RANK FIX ================= */
-
-  const clanRankDisplay = useMemo(() => {
-    const r = Number(war?.clanRank);
-
-    if (!Number.isFinite(r) || r <= 0) return "Unranked";
-    return `#${r}`;
-  }, [war?.clanRank]);
+  const clanRank = war?.clanRank;
 
   /* ================= UI ================= */
 
@@ -216,13 +163,13 @@ export default function WarInfoPage() {
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
           <p className="text-sm text-zinc-400">Time Remaining</p>
 
-          <h2 className="text-4xl font-bold text-emerald-300 drop-shadow">
-            {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
+          <h2 className="text-4xl font-bold text-emerald-300">
+            {timeLeft !== null ? formatDuration(timeLeft) : "—"}
           </h2>
 
-          <div className="mt-6 h-4 w-full rounded-full bg-black/40 overflow-hidden ring-1 ring-white/10">
+          <div className="mt-6 h-3 w-full rounded-full bg-black/40 overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 transition-all duration-700 shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+              className="h-full bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400 transition-all duration-500"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -236,21 +183,29 @@ export default function WarInfoPage() {
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           <Stat label="War Points" value={totalPoints} />
           <Stat label="Participants" value={players.length} />
-          <Stat label="Clan Rank" value={clanRankDisplay} />
+
+          <Stat
+            label="Clan Rank"
+            value={
+              clanRank !== null && clanRank !== undefined
+                ? `#${clanRank}`
+                : "Unranked"
+            }
+          />
         </div>
 
-        {/* TOP CONTRIBUTOR (UPGRADED) */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-black/30 p-6">
-          <h2 className="mb-4 text-lg font-bold flex items-center gap-2">
-            👑 Top Contribution
-          </h2>
+        {/* TOP CONTRIBUTOR (IMPROVED) */}
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
+          <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
 
           {top ? (
-            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-5 shadow-lg shadow-emerald-500/10">
+            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-5">
               <div>
-                <p className="text-xl font-semibold">{top.name}</p>
-                <p className="text-xs text-emerald-300">
-                  👑 Leading the war
+                <p className="text-xl font-bold text-white">
+                  👑 {top.name}
+                </p>
+                <p className="text-sm text-zinc-400">
+                  Leading the war
                 </p>
               </div>
 
@@ -268,52 +223,12 @@ export default function WarInfoPage() {
           )}
         </div>
 
-        {/* LIVE FEED (UPGRADED) */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-bold">Live Feed</h2>
-
-            <span className="flex items-center gap-2 text-xs text-emerald-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-              LIVE
-            </span>
-          </div>
-
-          <p className="mb-3 text-xs text-zinc-400">
-            ⚔️ Tracking {players.length} players live
-          </p>
-
-          <div className="space-y-2">
-            {events.length ? (
-              events.map((e) => (
-                <div
-                  key={e.id}
-                  className={`rounded-xl border px-3 py-2 text-sm transition
-                    ${
-                      e.type === "points"
-                        ? "border-emerald-400/20 bg-emerald-400/10"
-                        : e.type === "rank"
-                        ? "border-blue-400/20 bg-blue-400/10"
-                        : "border-purple-400/20 bg-purple-400/10"
-                    }`}
-                >
-                  {e.text}
-                </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-500">
-                No war activity yet...
-              </div>
-            )}
-          </div>
-        </div>
-
       </div>
     </main>
   );
 }
 
-/* ================= STAT ================= */
+/* ================= STAT CARD ================= */
 
 function Stat({ label, value }: { label: string; value: any }) {
   return (
