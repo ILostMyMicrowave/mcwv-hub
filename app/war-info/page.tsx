@@ -170,9 +170,16 @@ export default function WarInfoPage() {
             {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
           </h2>
 
+          {/* ✨ SMOOTH ANIMATED GRADIENT BAR */}
           <div className="mt-6 h-3 w-full rounded-full bg-black/40 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400 bg-[length:200%_100%] animate-gradientMove transition-all duration-500"
+              className="
+                h-full 
+                bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400
+                bg-[length:300%_100%]
+                animate-gradientMove
+                transition-all duration-500
+              "
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -190,35 +197,41 @@ export default function WarInfoPage() {
           <Stat
             label="Clan Rank"
             value={
-              clanRank && clanRank > 0
+              clanRank !== null && clanRank !== undefined
                 ? `#${clanRank}`
                 : "Unranked"
             }
           />
         </div>
 
-        {/* TOP CONTRIBUTOR (UPGRADED) */}
+        {/* TOP CONTRIBUTOR (PREMIUM STYLE) */}
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
           <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
 
           {top ? (
-            <div className="flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-gradient-to-r from-black/40 to-emerald-500/10 p-5">
-              <div>
-                <p className="text-xl font-bold text-white">
-                  👑 {top.name}
-                </p>
-                <p className="text-sm text-zinc-400">
-                  Leading the war
-                </p>
-              </div>
+            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/30 p-6">
 
-              <div className="text-right">
-                <p className="text-2xl font-bold text-emerald-300">
-                  {top.points.toLocaleString()}
-                </p>
-                <p className="text-xs uppercase tracking-widest text-zinc-500">
-                  points
-                </p>
+              {/* glow background */}
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10 blur-2xl" />
+
+              <div className="relative flex items-center justify-between">
+                <div>
+                  <p className="text-xl font-bold">
+                    👑 {top.name}
+                  </p>
+                  <p className="text-sm text-zinc-400">
+                    Leading the war
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-emerald-300">
+                    {top.points.toLocaleString()}
+                  </p>
+                  <p className="text-xs uppercase tracking-widest text-zinc-500">
+                    points
+                  </p>
+                </div>
               </div>
             </div>
           ) : (
@@ -231,7 +244,7 @@ export default function WarInfoPage() {
   );
 }
 
-/* ================= STAT ================= */
+/* ================= STAT CARD ================= */
 
 function Stat({ label, value }: { label: string; value: any }) {
   return (
