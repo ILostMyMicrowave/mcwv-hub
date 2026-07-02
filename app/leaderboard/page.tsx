@@ -56,22 +56,44 @@ function PodiumCard({
 
   return (
     <div
-      className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur ${className}`}
+      className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
     >
+      {place === 1 && (
+        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-yellow-400/5" />
+      )}
+
       {entry ? (
         <>
           <div className="mb-4 flex items-center justify-center">
-            {entry.avatar ? (
-              <img
-                src={entry.avatar}
-                alt={entry.name}
-                className={`h-20 w-20 rounded-full object-cover ring-4 ${
-                  place === 1 ? "ring-yellow-300/30" : "ring-white/15"
-                }`}
-              />
-            ) : (
-              <InitialAvatar name={entry.name} />
-            )}
+            <div className="relative flex items-center justify-center">
+              {place === 1 && (
+                <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
+              )}
+
+              {place === 1 && (
+                <div className="pointer-events-none absolute -top-4 animate-bounce text-2xl">
+                  👑
+                </div>
+              )}
+
+              {entry.avatar ? (
+                <img
+                  src={entry.avatar}
+                  alt={entry.name}
+                  className={`h-20 w-20 rounded-full object-cover ring-4 ${
+                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
+                  }`}
+                />
+              ) : (
+                <div
+                  className={`h-20 w-20 rounded-full ring-4 ${
+                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
+                  }`}
+                >
+                  <InitialAvatar name={entry.name} />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="text-center">
@@ -79,6 +101,9 @@ function PodiumCard({
             <h3 className="text-lg font-semibold text-white">{entry.name}</h3>
             <p className="mt-1 text-sm text-zinc-300">
               {formatNumber(entry.points)} points
+            </p>
+            <p className="mt-2 text-xs uppercase tracking-[0.25em] text-zinc-400">
+              {entry.discord_id ? "Discord linked" : "No Discord link"}
             </p>
           </div>
         </>
@@ -92,91 +117,4 @@ function PodiumCard({
 export default function LeaderboardPage() {
   const [data, setData] = useState<LeaderboardEntry[]>([]);
   const [title, setTitle] = useState("MCWV Leaderboard");
-  const [active, setActive] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [totalPoints, setTotalPoints] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [flash, setFlash] = useState(0);
-  const [rankChange, setRankChange] = useState<Record<number, number>>({});
-  const [now, setNow] = useState(Date.now());
-
-  const prevSnapshot = useRef<string>("");
-  const prevRanksRef = useRef<Record<number, number>>({});
-
-  async function load() {
-    try {
-      const res = await fetch("/api/leaderboard", { cache: "no-store" });
-      const json: ApiResponse = await res.json();
-
-      if (!json.success) {
-        setError(json.error ?? "Failed to load leaderboard");
-        setData([]);
-        setTotalPoints(0);
-        setLoading(false);
-        return;
-      }
-
-      const nextData = Array.isArray(json.data) ? json.data : [];
-      const nextSnapshot = JSON.stringify(nextData);
-
-      if (prevSnapshot.current && prevSnapshot.current !== nextSnapshot) {
-        setFlash((n) => n + 1);
-      }
-
-      prevSnapshot.current = nextSnapshot;
-
-      const nextRanks: Record<number, number> = {};
-      const changes: Record<number, number> = {};
-
-      nextData.forEach((entry) => {
-        const oldRank = prevRanksRef.current[entry.user_id];
-        const newRank = entry.rank;
-
-        if (oldRank !== undefined) {
-          changes[entry.user_id] = oldRank - newRank;
-        }
-
-        nextRanks[entry.user_id] = newRank;
-      });
-
-      prevRanksRef.current = nextRanks;
-      setRankChange(changes);
-
-      setData(nextData);
-      setTitle(json.title ?? "MCWV Leaderboard");
-      setActive(Boolean(json.active));
-      setUpdatedAt(new Date().toISOString());
-      setTotalPoints(Number(json.total_points ?? 0));
-      setError(null);
-      setLoading(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setData([]);
-      setTotalPoints(0);
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-
-    const interval = setInterval(load, 10000);
-    const clock = setInterval(() => setNow(Date.now()), 1000);
-
-    return () => {
-      clearInterval(interval);
-      clearInterval(clock);
-    };
-  }, []);
-
-  const podium = useMemo(() => data.slice(0, 3), [data]);
-  const rest = useMemo(() => data.slice(3), [data]);
-
-  return (
-    <main className="min-h-screen bg-black px-4 py-8 text-white sm:px-6 lg:px-10">
-      <div className="mx-auto max-w-6xl">
-
-        {/* HEADER */}
-        <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6">
-          <h1 className="text-3xl font-bold
+  const [active, setActive] = useState
