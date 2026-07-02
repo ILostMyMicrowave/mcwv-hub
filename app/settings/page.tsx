@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useTheme, Theme } from "@/hooks/useTheme";
 
 export default function Settings() {
-  const [theme, setTheme] = useState("default");
+  const { theme, setTheme } = useTheme();
 
-  const themes = [
+  const themes: {
+    id: Theme;
+    name: string;
+    desc: string;
+    color: string;
+  }[] = [
     {
       id: "default",
       name: "Default",
@@ -24,7 +29,7 @@ export default function Settings() {
       desc: "Fire & war intensity theme",
       color: "bg-red-500",
     },
-  ] as const;
+  ];
 
   return (
     <main className="min-h-screen bg-black text-white p-10">
@@ -46,7 +51,8 @@ export default function Settings() {
               <button
                 key={t.id}
                 onClick={() => setTheme(t.id)}
-                className={`rounded-2xl border p-5 text-left transition-all duration-300
+                className={`
+                  rounded-2xl border p-5 text-left transition-all duration-300
                   ${
                     active
                       ? "border-white/30 bg-white/10 shadow-lg scale-[1.02]"
@@ -70,9 +76,14 @@ export default function Settings() {
             );
           })}
         </div>
+
+        {/* DEBUG */}
+        <p className="mt-6 text-xs text-zinc-500">
+          Active theme: {theme}
+        </p>
       </div>
 
-      {/* EXISTING SETTINGS */}
+      {/* OTHER SETTINGS */}
       <div className="mt-10 space-y-4">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <p className="font-semibold">API Status</p>
