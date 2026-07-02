@@ -1,9 +1,9 @@
 "use client";
 
-import { useTheme } from "@/hooks/useTheme";
+import { useState } from "react";
 
 export default function Settings() {
-  const { theme, setTheme } = useTheme();
+  const [theme, setTheme] = useState("default");
 
   const themes = [
     {
@@ -45,7 +45,7 @@ export default function Settings() {
             return (
               <button
                 key={t.id}
-                onClick={() => setTheme(t.id as any)}
+                onClick={() => setTheme(t.id)}
                 className={`rounded-2xl border p-5 text-left transition-all duration-300
                   ${
                     active
@@ -59,9 +59,7 @@ export default function Settings() {
                   <p className="font-semibold">{t.name}</p>
                 </div>
 
-                <p className="text-sm text-zinc-400 mt-2">
-                  {t.desc}
-                </p>
+                <p className="text-sm text-zinc-400 mt-2">{t.desc}</p>
 
                 {active && (
                   <p className="text-xs text-emerald-300 mt-3">
@@ -74,7 +72,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* EXISTING SETTINGS (kept but improved layout) */}
+      {/* EXISTING SETTINGS */}
       <div className="mt-10 space-y-4">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <p className="font-semibold">API Status</p>
