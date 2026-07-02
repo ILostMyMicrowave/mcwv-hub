@@ -186,7 +186,6 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     load();
-
     const interval = setInterval(load, 10000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
@@ -202,10 +201,10 @@ export default function LeaderboardPage() {
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
 
-      {/* ✅ NAVBAR ADDED HERE */}
-      <Navbar />
-
       <div className="mx-auto max-w-6xl">
+
+        {/* ✅ NAVBAR FIXED POSITION (matches other pages now) */}
+        <Navbar />
 
         <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
