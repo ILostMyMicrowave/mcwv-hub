@@ -255,7 +255,7 @@ export default function LeaderboardPage() {
           </div>
         ) : (
           <>
-            <section className={`mb-8 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
+            <section className={`mb-12 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
               <div className="mb-4 text-lg font-semibold text-zinc-100">
                 Top 3 podium
               </div>
