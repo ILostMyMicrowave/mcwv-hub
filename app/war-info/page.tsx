@@ -120,9 +120,12 @@ export default function WarInfoPage() {
   const startMs = toMs(war?.startTime ?? null);
   const endMs = toMs(war?.endTime ?? null);
 
-  const valid = startMs !== null && endMs !== null && endMs > startMs;
+  const valid =
+    startMs !== null &&
+    endMs !== null &&
+    endMs > startMs;
 
-  const timeLeft = valid ? Math.max(0, endMs! - now) : null;
+  const timeLeftMs = valid ? Math.max(0, endMs! - now) : null;
 
   const progress = valid
     ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100)
@@ -164,12 +167,12 @@ export default function WarInfoPage() {
           <p className="text-sm text-zinc-400">Time Remaining</p>
 
           <h2 className="text-4xl font-bold text-emerald-300">
-            {timeLeft !== null ? formatDuration(timeLeft) : "—"}
+            {timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
           </h2>
 
           <div className="mt-6 h-3 w-full rounded-full bg-black/40 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400 transition-all duration-500"
+              className="h-full bg-gradient-to-r from-emerald-400 via-blue-400 to-purple-400 bg-[length:200%_100%] animate-gradientMove transition-all duration-500"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -187,19 +190,19 @@ export default function WarInfoPage() {
           <Stat
             label="Clan Rank"
             value={
-              clanRank !== null && clanRank !== undefined
+              clanRank && clanRank > 0
                 ? `#${clanRank}`
                 : "Unranked"
             }
           />
         </div>
 
-        {/* TOP CONTRIBUTOR (IMPROVED) */}
+        {/* TOP CONTRIBUTOR (UPGRADED) */}
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
           <h2 className="mb-4 text-lg font-bold">Top Contribution</h2>
 
           {top ? (
-            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-5">
+            <div className="flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-gradient-to-r from-black/40 to-emerald-500/10 p-5">
               <div>
                 <p className="text-xl font-bold text-white">
                   👑 {top.name}
@@ -228,7 +231,7 @@ export default function WarInfoPage() {
   );
 }
 
-/* ================= STAT CARD ================= */
+/* ================= STAT ================= */
 
 function Stat({ label, value }: { label: string; value: any }) {
   return (
