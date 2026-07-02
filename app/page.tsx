@@ -11,13 +11,19 @@ type LeaderboardEntry = {
   rank: number;
 };
 
+type EventItem = {
+  id: string;
+  text: string;
+  type: "points" | "rankup" | "rankdown" | "crown";
+};
+
 export default function HomePage() {
   const [top, setTop] = useState<LeaderboardEntry[]>([]);
-  const [activity, setActivity] = useState<string[]>([]);
+  const [activity, setActivity] = useState<EventItem[]>([]);
   const prevRef = useRef<LeaderboardEntry[]>([]);
 
   function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
-    const events: string[] = [];
+    const events: EventItem[] = [];
 
     next.forEach((entry) => {
       const old = prev.find((p) => p.user_id === entry.user_id);
@@ -26,16 +32,40 @@ export default function HomePage() {
 
       const diff = entry.points - old.points;
 
+      // 🔥 POINT GAIN
       if (diff > 0) {
-        events.push(`🔥 ${entry.name} +${diff} points`);
+        events.push({
+          id: crypto.randomUUID(),
+          type: "points",
+          text: `🔥 ${entry.name} +${diff} points`,
+        });
       }
 
+      // 📈 RANK UP
       if (old.rank && entry.rank < old.rank) {
-        events.push(`📈 ${entry.name} moved to #${entry.rank}`);
+        events.push({
+          id: crypto.randomUUID(),
+          type: "rankup",
+          text: `📈 ${entry.name} moved to #${entry.rank}`,
+        });
       }
 
+      // 📉 RANK DOWN
       if (old.rank && entry.rank > old.rank) {
-        events.push(`📉 ${entry.name} dropped to #${entry.rank}`);
+        events.push({
+          id: crypto.randomUUID(),
+          type: "rankdown",
+          text: `📉 ${entry.name} dropped to #${entry.rank}`,
+        });
+      }
+
+      // 👑 NEW LEADER
+      if (entry.rank === 1 && old.rank !== 1) {
+        events.push({
+          id: crypto.randomUUID(),
+          type: "crown",
+          text: `👑 NEW LEADER: ${entry.name}`,
+        });
       }
     });
 
@@ -63,7 +93,9 @@ export default function HomePage() {
 
         setTop(next);
 
-        setActivity((prev) => [...events, ...prev].slice(0, 15));
+        setActivity((prev) =>
+          [...events, ...prev].slice(0, 20)
+        );
       } catch {}
     }
 
@@ -162,12 +194,38 @@ export default function HomePage() {
                   Waiting for activity...
                 </p>
               ) : (
-                activity.map((e, i) => (
+                activity.map((e) => (
                   <div
-                    key={i}
-                    className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 animate-fade-in"
+                    key={e.id}
+                    className={`
+                      rounded-xl border px-3 py-2 text-sm animate-fade-in transition
+
+                      ${
+                        e.type === "points"
+                          ? "bg-black/20 border-white/10 text-zinc-200"
+                          : ""
+                      }
+
+                      ${
+                        e.type === "rankup"
+                          ? "bg-emerald-500/10 border-emerald-400/20 text-emerald-300"
+                          : ""
+                      }
+
+                      ${
+                        e.type === "rankdown"
+                          ? "bg-red-500/10 border-red-400/20 text-red-300"
+                          : ""
+                      }
+
+                      ${
+                        e.type === "crown"
+                          ? "bg-yellow-500/10 border-yellow-400/30 text-yellow-300 shadow-[0_0_20px_rgba(234,179,8,0.2)]"
+                          : ""
+                      }
+                    `}
                   >
-                    {e}
+                    {e.text}
                   </div>
                 ))
               )}
