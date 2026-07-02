@@ -13,8 +13,6 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/* ❌ REMOVE LIGHT MODE SWITCHING (this was causing white pages) */
-
 /* 🌑 GLOBAL BODY STYLE */
 body {
   background: var(--background);
@@ -50,7 +48,7 @@ body {
   animation-delay: 4s;
 }
 
-/* ✨ optional smooth fade utility (used for events) */
+/* ✨ EVENT FADE (existing feed system) */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -64,14 +62,37 @@ body {
 
 .animate-fade-in {
   animation: fade-in 0.25s ease-out;
-}.animate-blob {
-  animation: blob 18s infinite ease-in-out;
 }
 
-.animation-delay-2000 {
-  animation-delay: 2s;
+/* 💀 KILLFEED SLIDE IN (NEW) */
+@keyframes slide-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0px);
+    opacity: 1;
+  }
 }
 
-.animation-delay-4000 {
-  animation-delay: 4s;
+.animate-slide-in {
+  animation: slide-in 0.25s ease-out;
+}
+
+/* ⚡ POP EFFECT (NEW EVENTS) */
+@keyframes pop {
+  0% {
+    transform: scale(0.95);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-pop {
+  animation: pop 0.25s ease-out;
 }
