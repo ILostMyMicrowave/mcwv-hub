@@ -33,6 +33,10 @@ export default function Podium({ players }: PodiumProps) {
                 src={getAvatar(second.user_id)}
                 alt={second.name}
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src =
+                    "https://www.roblox.com/headshot-thumbnail/image?userId=1&width=150&height=150&format=png";
+                }}
               />
             ) : (
               "🥈"
@@ -58,6 +62,10 @@ export default function Podium({ players }: PodiumProps) {
                 src={getAvatar(first.user_id)}
                 alt={first.name}
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src =
+                    "https://www.roblox.com/headshot-thumbnail/image?userId=1&width=150&height=150&format=png";
+                }}
               />
             ) : (
               "👑"
@@ -83,6 +91,10 @@ export default function Podium({ players }: PodiumProps) {
                 src={getAvatar(third.user_id)}
                 alt={third.name}
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src =
+                    "https://www.roblox.com/headshot-thumbnail/image?userId=1&width=150&height=150&format=png";
+                }}
               />
             ) : (
               "🥉"
