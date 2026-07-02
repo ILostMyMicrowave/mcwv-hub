@@ -1,67 +1,29 @@
 import { NextResponse } from "next/server";
 
 const BASE = "https://ps99.biggamesapi.io";
-const CLAN_NAME = "MCWV"; // change this if needed
-
-function toIsoTime(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-
-  // Handles either unix seconds or unix milliseconds
-  const ms = n > 10_000_000_000 ? n : n * 1000;
-  const d = new Date(ms);
-
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-function asArray(value: unknown): any[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function pickBattleId(activeJson: any): string | null {
-  return (
-    activeJson?.data?.activeBattleConfigName ??
-    activeJson?.data?.activeBattleId ??
-    activeJson?.data?.battleId ??
-    activeJson?.activeBattleConfigName ??
-    activeJson?.activeBattleId ??
-    activeJson?.battleId ??
-    null
-  );
-}
-
-function findOurClan(topClans: any[]) {
-  const target = CLAN_NAME.trim().toLowerCase();
-
-  return (
-    topClans.find((c) => String(c?.name ?? "").trim().toLowerCase() === target) ??
-    topClans.find((c) => String(c?.tag ?? "").trim().toLowerCase() === target) ??
-    topClans.find((c) => String(c?.clanTag ?? "").trim().toLowerCase() === target) ??
-    topClans.find((c) => String(c?.clanName ?? "").trim().toLowerCase() === target) ??
-    null
-  );
-}
+const CLAN_NAME = "MCWV";
 
 export async function GET() {
   try {
+    // STEP 1: fetch battle list safely
     const activeRes = await fetch(`${BASE}/v1/clans/players`, {
       cache: "no-store",
     });
 
     if (!activeRes.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to load PS99 active battle config",
-        },
-        { status: 502 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: "PS99 players endpoint failed",
+        active: false,
+      });
     }
 
-    const activeJson = await activeRes.json();
-    const battleId = pickBattleId(activeJson);
+    const activeJson = await activeRes.json().catch(() => null);
+
+    const battleId =
+      activeJson?.data?.activeBattleConfigName ??
+      activeJson?.activeBattleConfigName ??
+      null;
 
     if (!battleId) {
       return NextResponse.json({
@@ -82,75 +44,63 @@ export async function GET() {
       });
     }
 
+    // STEP 2: fetch battle details safely
     const battleRes = await fetch(
-      `${BASE}/v1/clans/battles/${encodeURIComponent(battleId)}`,
+      `${BASE}/v1/clans/battles/${battleId}`,
       { cache: "no-store" }
     );
 
     if (!battleRes.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to load PS99 battle details",
-        },
-        { status: 502 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: "Battle endpoint failed",
+        active: false,
+      });
     }
 
-    const battleJson = await battleRes.json();
+    const battleJson = await battleRes.json().catch(() => null);
+
     const data = battleJson?.data ?? {};
     const meta = data?.meta ?? {};
     const stats = data?.stats ?? {};
-    const topClans = asArray(data?.topClans);
-    const topPlayers = asArray(data?.topPlayers);
 
-    const ourClan = findOurClan(topClans);
-    const topContributor = topPlayers[0] ?? null;
+    const topClans = Array.isArray(data?.topClans) ? data.topClans : [];
+    const topPlayers = Array.isArray(data?.topPlayers) ? data.topPlayers : [];
+
+    const ourClan = topClans.find((c: any) =>
+      String(c?.name ?? "").toLowerCase() === CLAN_NAME.toLowerCase()
+    );
 
     return NextResponse.json({
       success: true,
-      active: meta?.state === "live" || Boolean(battleId),
-      warName: meta?.title ?? meta?.name ?? battleId,
+
+      active: meta?.state === "live",
+
+      warName: meta?.title ?? battleId,
+
       battleId,
 
-      startTime: toIsoTime(meta?.startTime ?? meta?.startedAt ?? meta?.start_at),
-      endTime: toIsoTime(meta?.finishTime ?? meta?.endedAt ?? meta?.end_at),
+      // keep RAW unix if possible (safer for frontend)
+      startTime: meta?.startTime ?? null,
+      endTime: meta?.finishTime ?? null,
 
-      // PS99 clan endpoints are sampled, so this rank is relative to the sampled battle data.
-      clanRank:
-        ourClan?.rank ??
-        ourClan?.reportedPlace ??
-        ourClan?.place ??
-        null,
+      clanRank: ourClan?.rank ?? null,
+      totalClans: stats?.sampledClans ?? topClans.length ?? 0,
 
-      totalClans:
-        stats?.sampledClans ??
-        topClans.length ??
-        null,
+      totalPoints: stats?.totalClanPoints ?? 0,
+      participants: stats?.participatingClans ?? 0,
+      maxParticipants: stats?.sampledClans ?? 75,
 
-      totalPoints:
-        stats?.totalClanPoints ??
-        stats?.points ??
-        0,
-
-      participants:
-        stats?.participatingClans ??
-        stats?.contributors ??
-        0,
-
-      maxParticipants:
-        stats?.sampledClans ??
-        100,
-
-      topContributor,
+      topContributor: topPlayers?.[0] ?? null,
       topClans,
       topPlayers,
     });
-  } catch (error) {
+  } catch (err) {
     return NextResponse.json(
       {
         success: false,
-        error: "Unexpected PS99 API error",
+        error: "WAR API CRASHED",
+        active: false,
       },
       { status: 500 }
     );
