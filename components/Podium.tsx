@@ -2,14 +2,11 @@ type Player = {
   user_id: number;
   name: string;
   points: number;
+  avatar: string | null;
 };
 
 interface PodiumProps {
   players: Player[];
-}
-
-function getAvatar(userId: number) {
-  return `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
 }
 
 export default function Podium({ players }: PodiumProps) {
@@ -28,9 +25,9 @@ export default function Podium({ players }: PodiumProps) {
         {/* 🥈 SECOND */}
         <div className="flex w-40 flex-col items-center">
           <div className="h-16 w-16 overflow-hidden rounded-full border-2 border-zinc-400 bg-zinc-800">
-            {second?.user_id ? (
+            {second?.avatar ? (
               <img
-                src={getAvatar(second.user_id)}
+                src={second.avatar}
                 alt={second.name}
                 className="h-full w-full object-cover"
               />
@@ -55,9 +52,9 @@ export default function Podium({ players }: PodiumProps) {
         {/* 👑 FIRST */}
         <div className="flex w-44 flex-col items-center">
           <div className="h-20 w-20 overflow-hidden rounded-full border-4 border-yellow-400 bg-yellow-500/10 shadow-[0_0_25px_rgba(234,179,8,0.3)]">
-            {first?.user_id ? (
+            {first?.avatar ? (
               <img
-                src={getAvatar(first.user_id)}
+                src={first.avatar}
                 alt={first.name}
                 className="h-full w-full object-cover"
               />
@@ -82,9 +79,9 @@ export default function Podium({ players }: PodiumProps) {
         {/* 🥉 THIRD */}
         <div className="flex w-40 flex-col items-center">
           <div className="h-16 w-16 overflow-hidden rounded-full border-2 border-orange-500 bg-orange-500/10">
-            {third?.user_id ? (
+            {third?.avatar ? (
               <img
-                src={getAvatar(third.user_id)}
+                src={third.avatar}
                 alt={third.name}
                 className="h-full w-full object-cover"
               />
