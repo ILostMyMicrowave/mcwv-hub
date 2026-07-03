@@ -20,10 +20,11 @@ export default function Podium({ players }: PodiumProps) {
         🏆 Top Performers
       </h2>
 
-      <div className="flex items-end justify-center gap-8">
+      {/* PODIUM WRAPPER */}
+      <div className="flex flex-col items-center gap-8 md:flex-row md:items-end md:justify-center">
 
-        {/* 🥈 SECOND (SILVER) */}
-        <div className="flex w-40 flex-col items-center">
+        {/* 🥈 SECOND */}
+        <div className="flex w-full max-w-xs flex-col items-center transition-transform duration-300 hover:-translate-y-1 md:w-40">
           <div className="h-16 w-16 overflow-hidden rounded-full border-2 border-zinc-400 bg-zinc-800">
             {second?.avatar ? (
               <img
@@ -38,7 +39,7 @@ export default function Podium({ players }: PodiumProps) {
             )}
           </div>
 
-          <p className="mt-3 font-semibold text-zinc-200">
+          <p className="mt-3 font-semibold text-zinc-200 text-center">
             {second?.name ?? "---"}
           </p>
 
@@ -46,12 +47,11 @@ export default function Podium({ players }: PodiumProps) {
             {second?.points?.toLocaleString() ?? 0}
           </p>
 
-          {/* SILVER BASE */}
           <div className="mt-4 h-36 w-full rounded-t-2xl bg-gradient-to-t from-zinc-700 to-zinc-500/30" />
         </div>
 
-        {/* 👑 FIRST (GOLD) */}
-        <div className="flex w-44 flex-col items-center">
+        {/* 👑 FIRST */}
+        <div className="flex w-full max-w-xs flex-col items-center transition-transform duration-300 hover:-translate-y-1 md:w-44 md:scale-105">
           <div className="h-20 w-20 overflow-hidden rounded-full border-4 border-yellow-400 bg-yellow-500/10 shadow-[0_0_25px_rgba(234,179,8,0.3)]">
             {first?.avatar ? (
               <img
@@ -66,7 +66,7 @@ export default function Podium({ players }: PodiumProps) {
             )}
           </div>
 
-          <p className="mt-3 text-lg font-bold text-white">
+          <p className="mt-3 text-lg font-bold text-white text-center">
             {first?.name ?? "---"}
           </p>
 
@@ -74,12 +74,11 @@ export default function Podium({ players }: PodiumProps) {
             {first?.points?.toLocaleString() ?? 0}
           </p>
 
-          {/* GOLD BASE */}
           <div className="mt-4 h-52 w-full rounded-t-2xl bg-gradient-to-t from-yellow-600 via-yellow-400/20 to-transparent" />
         </div>
 
-        {/* 🥉 THIRD (BRONZE) */}
-        <div className="flex w-40 flex-col items-center">
+        {/* 🥉 THIRD */}
+        <div className="flex w-full max-w-xs flex-col items-center transition-transform duration-300 hover:-translate-y-1 md:w-40">
           <div className="h-16 w-16 overflow-hidden rounded-full border-2 border-orange-500 bg-orange-500/10">
             {third?.avatar ? (
               <img
@@ -94,7 +93,7 @@ export default function Podium({ players }: PodiumProps) {
             )}
           </div>
 
-          <p className="mt-3 font-semibold text-zinc-200">
+          <p className="mt-3 font-semibold text-zinc-200 text-center">
             {third?.name ?? "---"}
           </p>
 
@@ -102,7 +101,6 @@ export default function Podium({ players }: PodiumProps) {
             {third?.points?.toLocaleString() ?? 0}
           </p>
 
-          {/* BRONZE BASE */}
           <div className="mt-4 h-32 w-full rounded-t-2xl bg-gradient-to-t from-orange-800 to-orange-500/20" />
         </div>
 
