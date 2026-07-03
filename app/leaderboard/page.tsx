@@ -104,16 +104,16 @@ function PodiumCard({
               {formatNumber(entry.points)} points
             </p>
 
-            {/* ONLY CHANGE HERE (pill sync styling) */}
+            {/* ONLY CHANGE: pill styling */}
             <p className="mt-2 text-xs uppercase tracking-[0.25em]">
               <span
-                className={`inline-flex items-center rounded-full px-2 py-1 transition ${
+                className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] transition ${
                   entry.discord_id
                     ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
                     : "bg-zinc-800/40 text-zinc-400 ring-1 ring-white/10"
                 }`}
               >
-                {entry.discord_id ? "Discord linked" : "No Discord link"}
+                {entry.discord_id ? "Discord linked" : "Not linked"}
               </span>
             </p>
           </div>
@@ -341,7 +341,14 @@ export default function LeaderboardPage() {
                             {entry.name}
                           </h3>
 
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">
+                          {/* CHANGED ONLY THIS PILL */}
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] transition ${
+                              entry.discord_id
+                                ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
+                                : "bg-zinc-800/40 text-zinc-400 ring-1 ring-white/10"
+                            }`}
+                          >
                             {entry.discord_id ? "Discord linked" : "Not linked"}
                           </span>
                         </div>
@@ -366,4 +373,4 @@ export default function LeaderboardPage() {
       </div>
     </main>
   );
-}
+                                                                }
