@@ -1,5 +1,5 @@
 "use client";
-p
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
