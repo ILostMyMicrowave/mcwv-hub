@@ -28,6 +28,53 @@ let cache: LeaderboardResponse | null = null;
 let cacheTime = 0;
 let inFlight: Promise<LeaderboardResponse> | null = null;
 
+/* ---------------- POINT HISTORY TRACKING ---------------- */
+
+let lastLoggedBattleKey: string | null = null;
+let lastPointsByUser = new Map<number, number>();
+
+function resetPointHistoryTracking() {
+  lastLoggedBattleKey = null;
+  lastPointsByUser = new Map();
+}
+
+async function logPointHistory(entries: LeaderboardEntry[], battleKey: string) {
+  if (!entries.length) return;
+
+  if (lastLoggedBattleKey !== battleKey) {
+    lastLoggedBattleKey = battleKey;
+    lastPointsByUser = new Map(entries.map((entry) => [entry.user_id, entry.points]));
+    return;
+  }
+
+  const writes: Promise<unknown>[] = [];
+
+  for (const entry of entries) {
+    const previous = lastPointsByUser.get(entry.user_id);
+
+    if (typeof previous === "number") {
+      const delta = entry.points - previous;
+
+      // Only log gains, not decreases.
+      if (delta > 0) {
+        writes.push(
+          pool.query(
+            `INSERT INTO point_history (user_id, points_added, created_at)
+             VALUES ($1, $2, NOW())`,
+            [entry.user_id, delta]
+          )
+        );
+      }
+    }
+
+    lastPointsByUser.set(entry.user_id, entry.points);
+  }
+
+  if (writes.length) {
+    await Promise.allSettled(writes);
+  }
+}
+
 /* ---------------- TYPES ---------------- */
 
 type Contribution = {
@@ -220,6 +267,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
   const active = start > 0 && finish > 0 ? start <= now && now <= finish : true;
 
   if (!active) {
+    resetPointHistoryTracking();
     return {
       success: true,
       active: false,
@@ -323,6 +371,13 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     };
   });
 
+  /* ---------------- POINT HISTORY LOGGING ---------------- */
+  const battleKey = normalizeKey(
+    battleEntry?.key ?? battle?.BattleID ?? battle?.configName ?? title
+  );
+
+  await logPointHistory(entries, battleKey);
+
   return {
     success: true,
     active: true,
@@ -389,4 +444,4 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   }
-}
+      }
