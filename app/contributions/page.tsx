@@ -659,4 +659,4 @@ export default function ContributionsPage() {
       </div>
     </main>
   );
-          }
+}
