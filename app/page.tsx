@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import Podium from "@/components/Podium";
@@ -28,6 +28,20 @@ type LeaderboardResponse = {
   data: LeaderboardEntry[];
   error?: string;
 };
+
+type RequirementBlock =
+  | { type: "heading1"; text: string }
+  | { type: "heading2"; text: string }
+  | { type: "heading3"; text: string }
+  | { type: "bullet"; text: string }
+  | { type: "quote"; text: string }
+  | { type: "paragraph"; text: string }
+  | { type: "spacer" };
+
+const BANNER_KEY = "mcwv_home_banner";
+const BANNER_SPEED_KEY = "mcwv_home_banner_speed";
+const DISCORD_KEY = "mcwv_home_discord_link";
+const REQUIREMENTS_KEY = "mcwv_home_requirements_text";
 
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
@@ -76,6 +90,49 @@ function useStoredString(key: string, fallback: string) {
   }, [key, fallback]);
 
   return value;
+}
+
+function parseRequirementBlocks(input: string): RequirementBlock[] {
+  const blocks: RequirementBlock[] = [];
+  const lines = input.split(/\r?\n/);
+
+  for (const raw of lines) {
+    const line = raw.trim();
+
+    if (!line) {
+      blocks.push({ type: "spacer" });
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      blocks.push({ type: "heading3", text: line.slice(4).trim() });
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      blocks.push({ type: "heading2", text: line.slice(3).trim() });
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      blocks.push({ type: "heading1", text: line.slice(2).trim() });
+      continue;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      blocks.push({ type: "bullet", text: line.slice(2).trim() });
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      blocks.push({ type: "quote", text: line.slice(2).trim() });
+      continue;
+    }
+
+    blocks.push({ type: "paragraph", text: line });
+  }
+
+  return blocks;
 }
 
 function makeIdleActivity(active: boolean): EventItem[] {
@@ -201,8 +258,8 @@ function InfoPanel({
   action,
 }: {
   title: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
+  children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <section
@@ -226,28 +283,95 @@ function feedAccent(type: EventItem["type"]) {
     case "crown":
       return {
         border: "rgba(250, 204, 21, 0.35)",
-        bg: "rgba(250, 204, 21, 0.10)",
         dot: "bg-yellow-300",
       };
     case "rankup":
       return {
         border: "rgba(96, 165, 250, 0.35)",
-        bg: "rgba(96, 165, 250, 0.10)",
         dot: "bg-sky-300",
       };
     case "rankdown":
       return {
         border: "rgba(251, 146, 60, 0.35)",
-        bg: "rgba(251, 146, 60, 0.10)",
         dot: "bg-orange-300",
       };
     default:
       return {
         border: "rgba(52, 211, 153, 0.30)",
-        bg: "rgba(52, 211, 153, 0.08)",
         dot: "bg-emerald-300",
       };
   }
+}
+
+function RequirementRenderer({ text }: { text: string }) {
+  const blocks = useMemo(() => parseRequirementBlocks(text), [text]);
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        if (block.type === "spacer") {
+          return <div key={index} className="h-1" />;
+        }
+
+        if (block.type === "heading1") {
+          return (
+            <h3 key={index} className="text-xl font-bold text-white">
+              {block.text}
+            </h3>
+          );
+        }
+
+        if (block.type === "heading2") {
+          return (
+            <h4 key={index} className="text-base font-semibold text-zinc-100">
+              {block.text}
+            </h4>
+          );
+        }
+
+        if (block.type === "heading3") {
+          return (
+            <p key={index} className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+              {block.text}
+            </p>
+          );
+        }
+
+        if (block.type === "bullet") {
+          return (
+            <div key={index} className="flex items-start gap-3 text-sm text-zinc-300">
+              <span
+                className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                style={{ background: "var(--primary)" }}
+              />
+              <span>{block.text}</span>
+            </div>
+          );
+        }
+
+        if (block.type === "quote") {
+          return (
+            <div
+              key={index}
+              className="rounded-2xl border-l-4 px-4 py-3 text-sm text-zinc-300"
+              style={{
+                borderColor: "var(--primary)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              {block.text}
+            </div>
+          );
+        }
+
+        return (
+          <p key={index} className="text-sm text-zinc-300">
+            {block.text}
+          </p>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function HomePage() {
@@ -260,21 +384,19 @@ export default function HomePage() {
   const prevRef = useRef<LeaderboardEntry[]>([]);
 
   const bannerText = useStoredString(
-    "mcwv_home_banner",
+    BANNER_KEY,
     "Recruiting now!! Join the Discord and help push us to the top."
   );
-  const discordLink = useStoredString("mcwv_discord_link", "");
+  const bannerSpeedRaw = useStoredString(BANNER_SPEED_KEY, "18");
+  const discordLink = useStoredString(DISCORD_KEY, "");
   const requirementsText = useStoredString(
-    "mcwv_requirements_text",
-    "Be respectful\nStay active in wars\nJoin the Discord when you can."
+    REQUIREMENTS_KEY,
+    "## Clan requirements\n- Be respectful\n- Stay active in wars\n- Join the Discord when you can."
   );
 
-  const requirementItems = useMemo(
-    () =>
-      requirementsText
-        .split(/\r?\n+/)
-        .map((item) => item.trim())
-        .filter(Boolean),
+  const bannerSpeed = Math.min(40, Math.max(8, toNumber(bannerSpeedRaw) || 18));
+  const requirementBlocks = useMemo(
+    () => parseRequirementBlocks(requirementsText),
     [requirementsText]
   );
 
@@ -285,7 +407,6 @@ export default function HomePage() {
 
   const discordHref = hasDiscordLink ? discordLink.trim() : "/settings";
   const discordLabel = hasDiscordLink ? "Open Discord" : "Set Discord link in Settings";
-
   const livePlayers = players.length;
   const statusLabel = active ? "LIVE" : "IDLE";
   const trackingLabel = active ? "ACTIVE" : "PAUSED";
@@ -356,32 +477,28 @@ export default function HomePage() {
             className="overflow-hidden rounded-2xl border"
             style={{
               background:
-                "linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))",
+                "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.07), rgba(255,255,255,0.03))",
               borderColor: "var(--border)",
             }}
           >
             <div
-              className="flex whitespace-nowrap py-2 text-xs font-semibold uppercase tracking-[0.25em]"
+              className="flex w-max items-center whitespace-nowrap py-2 text-xs font-semibold uppercase tracking-[0.25em]"
               style={{
                 color: "var(--primary)",
-                animation: "mcwv-marquee 18s linear infinite",
+                animation: `mcwv-marquee ${bannerSpeed}s linear infinite`,
               }}
             >
-              <div className="flex min-w-full items-center gap-10 px-4">
+              <div className="flex shrink-0 items-center gap-8 pr-8">
                 <span>{bannerText}</span>
                 <span className="opacity-70">•</span>
-                <span>MCWV Hub</span>
-                <span className="opacity-70">•</span>
-                <span>Live war tracking</span>
+                <span>{bannerText}</span>
                 <span className="opacity-70">•</span>
                 <span>{bannerText}</span>
               </div>
-              <div className="flex min-w-full items-center gap-10 px-4">
+              <div className="flex shrink-0 items-center gap-8 pr-8">
                 <span>{bannerText}</span>
                 <span className="opacity-70">•</span>
-                <span>MCWV Hub</span>
-                <span className="opacity-70">•</span>
-                <span>Live war tracking</span>
+                <span>{bannerText}</span>
                 <span className="opacity-70">•</span>
                 <span>{bannerText}</span>
               </div>
@@ -391,7 +508,8 @@ export default function HomePage() {
 
         <section className="mx-auto grid max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
           <div className="space-y-6">
-            <div className="rounded-3xl border p-6 backdrop-blur sm:p-8"
+            <div
+              className="rounded-3xl border p-6 backdrop-blur sm:p-8"
               style={{
                 background:
                   "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))",
@@ -547,21 +665,7 @@ export default function HomePage() {
             </InfoPanel>
 
             <InfoPanel title="Clan Requirements">
-              <ul className="space-y-3 text-sm text-zinc-300">
-                {requirementItems.length ? (
-                  requirementItems.map((item, index) => (
-                    <li key={index} className="flex items-start gap-3">
-                      <span
-                        className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                        style={{ background: "var(--primary)" }}
-                      />
-                      <span>{item}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-zinc-400">Add your clan requirements in Settings.</li>
-                )}
-              </ul>
+              <RequirementRenderer text={requirementsText} />
             </InfoPanel>
           </div>
         </section>
