@@ -12,6 +12,7 @@ type NavLink = {
 export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [indicator, setIndicator] = useState<{
     left: number;
     width: number;
@@ -69,6 +70,18 @@ export default function Navbar() {
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+
+    if (!mounted) return;
+
+    const t = window.setTimeout(() => setMounted(false), 220);
+    return () => window.clearTimeout(t);
+  }, [open, mounted]);
 
   useEffect(() => {
     if (!open) return;
@@ -156,24 +169,34 @@ export default function Navbar() {
         </button>
       </div>
 
-      {open && (
+      {mounted && (
         <>
           <button
-            className="fixed inset-0 z-50 sm:hidden"
+            className={`fixed inset-0 z-50 sm:hidden transition-opacity duration-200 ${
+              open ? "opacity-100" : "opacity-0"
+            }`}
             onClick={() => setOpen(false)}
             aria-label="Close navigation overlay"
             style={{ background: "rgba(0,0,0,0.55)" }}
           />
           <aside
-            className="fixed top-0 right-0 z-50 h-full w-[82vw] max-w-xs border-l backdrop-blur sm:hidden"
+            className={`fixed top-0 right-0 z-50 h-full w-[82vw] max-w-xs border-l backdrop-blur-sm sm:hidden transition-transform duration-200 ease-out will-change-transform ${
+              open ? "translate-x-0" : "translate-x-full"
+            }`}
             style={{
-              background: "var(--card)",
+              background: "rgba(7,7,7,0.96)",
               borderColor: "var(--border)",
               boxShadow: "-18px 0 40px rgba(0,0,0,0.4)",
             }}
           >
-            <div className="flex items-center justify-between border-b px-4 py-4" style={{ borderColor: "var(--border)" }}>
-              <div className="font-bold tracking-widest" style={{ color: "var(--foreground)" }}>
+            <div
+              className="flex items-center justify-between border-b px-4 py-4"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div
+                className="font-bold tracking-widest"
+                style={{ color: "var(--foreground)" }}
+              >
                 MCWV
               </div>
               <button
