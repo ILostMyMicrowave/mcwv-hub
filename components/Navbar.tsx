@@ -12,7 +12,7 @@ type NavLink = {
 export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [renderDrawer, setRenderDrawer] = useState(false);
   const [indicator, setIndicator] = useState<{
     left: number;
     width: number;
@@ -21,6 +21,7 @@ export default function Navbar() {
 
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const closeTimerRef = useRef<number | null>(null);
 
   const links: NavLink[] = useMemo(
     () => [
@@ -68,23 +69,9 @@ export default function Navbar() {
   }, [activeLink, pathname]);
 
   useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (open) {
-      setMounted(true);
+    if (!open) {
       return;
     }
-
-    if (!mounted) return;
-
-    const t = window.setTimeout(() => setMounted(false), 220);
-    return () => window.clearTimeout(t);
-  }, [open, mounted]);
-
-  useEffect(() => {
-    if (!open) return;
 
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -93,6 +80,49 @@ export default function Navbar() {
       document.body.style.overflow = original;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (pathname === "/") {
+      // nothing special
+    }
+    closeDrawer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const openDrawer = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+
+    setRenderDrawer(true);
+
+    // ensure the first paint is off-canvas, then animate in
+    window.requestAnimationFrame(() => {
+      setOpen(true);
+    });
+  };
+
+  const closeDrawer = () => {
+    setOpen(false);
+
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+
+    closeTimerRef.current = window.setTimeout(() => {
+      setRenderDrawer(false);
+      closeTimerRef.current = null;
+    }, 300);
+  };
 
   return (
     <header
@@ -155,7 +185,7 @@ export default function Navbar() {
         </nav>
 
         <button
-          onClick={() => setOpen(true)}
+          onClick={openDrawer}
           className="inline-flex items-center justify-center rounded-md p-2 sm:hidden"
           style={{ color: "var(--foreground)" }}
           aria-label="Open navigation menu"
@@ -169,24 +199,25 @@ export default function Navbar() {
         </button>
       </div>
 
-      {mounted && (
+      {renderDrawer && (
         <>
           <button
-            className={`fixed inset-0 z-50 sm:hidden transition-opacity duration-200 ${
+            className={`fixed inset-0 z-50 sm:hidden transition-opacity duration-300 ${
               open ? "opacity-100" : "opacity-0"
             }`}
-            onClick={() => setOpen(false)}
+            onClick={closeDrawer}
             aria-label="Close navigation overlay"
-            style={{ background: "rgba(0,0,0,0.55)" }}
+            style={{ background: "rgba(0,0,0,0.6)" }}
           />
           <aside
-            className={`fixed top-0 right-0 z-50 h-full w-[82vw] max-w-xs border-l backdrop-blur-sm sm:hidden transition-transform duration-200 ease-out will-change-transform ${
+            className={`fixed top-0 right-0 z-50 h-dvh w-[86vw] max-w-xs overflow-y-auto border-l sm:hidden transition-transform duration-300 ease-out will-change-transform ${
               open ? "translate-x-0" : "translate-x-full"
             }`}
             style={{
-              background: "rgba(7,7,7,0.96)",
+              background:
+                "linear-gradient(180deg, rgba(7,7,7,0.99) 0%, rgba(10,10,10,0.99) 100%)",
               borderColor: "var(--border)",
-              boxShadow: "-18px 0 40px rgba(0,0,0,0.4)",
+              boxShadow: "-18px 0 40px rgba(0,0,0,0.45)",
             }}
           >
             <div
@@ -200,7 +231,7 @@ export default function Navbar() {
                 MCWV
               </div>
               <button
-                onClick={() => setOpen(false)}
+                onClick={closeDrawer}
                 className="rounded-md px-2 py-1 text-lg"
                 style={{ color: "var(--foreground)" }}
                 aria-label="Close navigation menu"
@@ -220,7 +251,7 @@ export default function Navbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    onClick={() => setOpen(false)}
+                    onClick={closeDrawer}
                     className="rounded-2xl px-4 py-3 text-sm transition"
                     style={{
                       color: "var(--foreground)",
