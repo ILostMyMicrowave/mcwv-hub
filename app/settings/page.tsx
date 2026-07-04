@@ -43,10 +43,13 @@ export default function Settings() {
     },
   ];
 
-  /* ---------------- LOAD ---------------- */
+  /* ---------------- LOAD GLOBAL SETTINGS ---------------- */
   useEffect(() => {
     async function load() {
-      const res = await fetch("/api/settings/global", { cache: "no-store" });
+      const res = await fetch("/api/settings/global", {
+        cache: "no-store",
+      });
+
       const data: GlobalSettings = await res.json();
 
       setBannerText(data.banner_text ?? "");
@@ -60,7 +63,7 @@ export default function Settings() {
     load();
   }, []);
 
-  /* ---------------- SAVE FUNCTION ---------------- */
+  /* ---------------- SAVE ONE FIELD ---------------- */
   async function saveField(field: Partial<GlobalSettings>) {
     setSaving(Object.keys(field)[0]);
 
@@ -77,18 +80,6 @@ export default function Settings() {
     });
 
     setSaving(null);
-  }
-
-  /* ---------------- FORMAT REQUIREMENTS PREVIEW ---------------- */
-  function formatText(text: string) {
-    return text
-      .replace(/^### (.*$)/gm, "<h3>$1</h3>")
-      .replace(/^## (.*$)/gm, "<h2>$1</h2>")
-      .replace(/^# (.*$)/gm, "<h1>$1</h1>")
-      .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
-      .replace(/\*(.*?)\*/g, "<i>$1</i>")
-      .replace(/__(.*?)__/g, "<u>$1</u>")
-      .replace(/\n/g, "<br/>");
   }
 
   return (
@@ -110,14 +101,28 @@ export default function Settings() {
                   <button
                     key={t.id}
                     onClick={() => setTheme(t.id)}
-                    className={`rounded-2xl border p-5 ${
+                    className={`rounded-2xl border p-5 text-left transition-all ${
                       active
-                        ? "border-white/30 bg-white/10"
-                        : "border-white/10 bg-white/5"
+                        ? "border-white/40 bg-white/10 scale-[1.03]"
+                        : "border-white/10 bg-white/5 hover:bg-white/10"
                     }`}
                   >
-                    <p className="font-semibold">{t.name}</p>
-                    <p className="text-sm text-zinc-400">{t.desc}</p>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`h-3 w-3 rounded-full ${t.color} ${
+                          active ? "ring-2 ring-white/50" : ""
+                        }`}
+                      />
+                      <p className="font-semibold">{t.name}</p>
+                    </div>
+
+                    <p className="mt-2 text-sm text-zinc-400">{t.desc}</p>
+
+                    {active && (
+                      <p className="mt-3 text-xs text-emerald-300">
+                        Active
+                      </p>
+                    )}
                   </button>
                 );
               })}
@@ -131,13 +136,16 @@ export default function Settings() {
             {/* BANNER */}
             <div className="mt-6">
               <label className="text-sm font-semibold">Banner Text</label>
+
               <textarea
                 value={bannerText}
                 onChange={(e) => setBannerText(e.target.value)}
                 className="mt-2 w-full rounded-xl bg-black/40 p-3 border border-white/10"
+                rows={3}
               />
+
               <button
-                onClick={() => saveField({})}
+                onClick={() => saveField({ banner_text: bannerText })}
                 className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
               >
                 {saving === "banner_text" ? "Saving..." : "Save Banner"}
@@ -154,22 +162,27 @@ export default function Settings() {
                 type="range"
                 min={8}
                 max={40}
+                step={1}
                 value={bannerSpeed}
                 onChange={(e) => setBannerSpeed(Number(e.target.value))}
                 className="w-full mt-2 accent-emerald-400"
               />
 
-              {/* SPEED BAR */}
-              <div className="h-2 w-full bg-white/10 rounded mt-2 overflow-hidden">
+              {/* SPEED VISUAL BAR */}
+              <div className="mt-2 h-2 w-full rounded bg-white/10 overflow-hidden">
                 <div
                   className="h-full bg-emerald-400 transition-all"
-                  style={{ width: `${((bannerSpeed - 8) / 32) * 100}%` }}
+                  style={{
+                    width: `${((bannerSpeed - 8) / 32) * 100}%`,
+                  }}
                 />
               </div>
 
               <button
-                onClick={() => saveField({ banner_speed: bannerSpeed })}
-                className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
+                onClick={() =>
+                  saveField({ banner_speed: bannerSpeed })
+                }
+                className="mt-3 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
               >
                 Save Speed
               </button>
@@ -178,6 +191,7 @@ export default function Settings() {
             {/* DISCORD */}
             <div className="mt-6">
               <label className="text-sm font-semibold">Discord Link</label>
+
               <input
                 value={discordLink}
                 onChange={(e) => setDiscordLink(e.target.value)}
@@ -185,7 +199,9 @@ export default function Settings() {
               />
 
               <button
-                onClick={() => saveField({ discord_link: discordLink })}
+                onClick={() =>
+                  saveField({ discord_link: discordLink })
+                }
                 className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
               >
                 Save Discord
@@ -195,47 +211,26 @@ export default function Settings() {
             {/* REQUIREMENTS */}
             <div className="mt-6">
               <label className="text-sm font-semibold">
-                Requirements (Markdown Supported)
+                Requirements Text
               </label>
 
               <textarea
                 value={requirementsText}
                 onChange={(e) => setRequirementsText(e.target.value)}
-                rows={8}
                 className="mt-2 w-full rounded-xl bg-black/40 p-3 border border-white/10"
+                rows={8}
               />
 
               <button
                 onClick={() =>
-                  saveField({ requirements_text: requirementsText })
+                  saveField({
+                    requirements_text: requirementsText,
+                  })
                 }
                 className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
               >
                 Save Requirements
               </button>
-            </div>
-
-            {/* PREVIEW */}
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
-              <div className="p-4 border border-white/10 rounded-xl">
-                <p className="text-xs text-zinc-400">Preview Banner</p>
-                <p>{bannerText}</p>
-              </div>
-
-              <div className="p-4 border border-white/10 rounded-xl">
-                <p className="text-xs text-zinc-400">Preview Discord</p>
-                <p>{discordLink}</p>
-              </div>
-
-              <div className="p-4 border border-white/10 rounded-xl">
-                <p className="text-xs text-zinc-400">Preview Requirements</p>
-                <div
-                  className="text-sm"
-                  dangerouslySetInnerHTML={{
-                    __html: formatText(requirementsText),
-                  }}
-                />
-              </div>
             </div>
           </div>
         </div>
