@@ -11,7 +11,7 @@ const pool = new Pool({
 export async function GET() {
   try {
     const res = await pool.query(
-      `SELECT * FROM global_settings ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM global_settings WHERE id = 1 LIMIT 1`
     );
 
     const row = res.rows[0];
@@ -20,12 +20,11 @@ export async function GET() {
       discord_link: row?.discord_link ?? "",
       requirements: row?.requirements ?? "",
       banner_text: row?.banner_text ?? "",
+      updated_at: row?.updated_at ?? null,
     });
   } catch (err) {
     return NextResponse.json(
-      {
-        error: "Failed to load global settings",
-      },
+      { error: "Failed to load global settings" },
       { status: 500 }
     );
   }
@@ -40,26 +39,25 @@ export async function POST(req: Request) {
     const requirements = body.requirements ?? "";
     const banner_text = body.banner_text ?? "";
 
-    // If no row exists, create one
-    const existing = await pool.query(`SELECT id FROM global_settings LIMIT 1`);
-
-    if (existing.rows.length === 0) {
-      await pool.query(
-        `INSERT INTO global_settings (discord_link, requirements, banner_text)
-         VALUES ($1, $2, $3)`,
-        [discord_link, requirements, banner_text]
-      );
-    } else {
-      await pool.query(
-        `UPDATE global_settings
-         SET discord_link = $1,
-             requirements = $2,
-             banner_text = $3,
-             updated_at = NOW()
-         WHERE id = (SELECT id FROM global_settings LIMIT 1)`,
-        [discord_link, requirements, banner_text]
-      );
-    }
+    await pool.query(
+      `
+      INSERT INTO global_settings (
+        id,
+        discord_link,
+        requirements,
+        banner_text,
+        updated_at
+      )
+      VALUES (1, $1, $2, $3, NOW())
+      ON CONFLICT (id)
+      DO UPDATE SET
+        discord_link = EXCLUDED.discord_link,
+        requirements = EXCLUDED.requirements,
+        banner_text = EXCLUDED.banner_text,
+        updated_at = NOW();
+      `,
+      [discord_link, requirements, banner_text]
+    );
 
     return NextResponse.json({ success: true });
   } catch (err) {
