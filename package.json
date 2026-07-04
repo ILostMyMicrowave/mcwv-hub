@@ -14,7 +14,8 @@
     "react-dom": "19.2.4",
     "pg": "^8.11.3",
     "echarts": "^5.5.0",
-    "echarts-for-react": "^3.0.2"
+    "echarts-for-react": "^3.0.2",
+    "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
