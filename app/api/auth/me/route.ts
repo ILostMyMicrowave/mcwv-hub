@@ -9,35 +9,27 @@ const pool = new Pool({
 
 export async function GET(req: Request) {
   try {
-    const cookie = req.headers.get("cookie");
-    const sessionMatch = cookie?.match(/session=([^;]+)/);
+    const cookie = req.headers.get("cookie") || "";
+    const match = cookie.match(/mcwv_user=([^;]+)/);
 
-    if (!sessionMatch) {
+    if (!match) {
       return NextResponse.json({ user: null });
     }
 
-    const sessionId = sessionMatch[1];
-
-    const sessionRes = await pool.query(
-      `SELECT user_id FROM sessions WHERE id = $1`,
-      [sessionId]
-    );
-
-    const session = sessionRes.rows[0];
-
-    if (!session) {
+    const userId = Number(match[1]);
+    if (!Number.isFinite(userId)) {
       return NextResponse.json({ user: null });
     }
 
-    const userRes = await pool.query(
-      `SELECT id, username, roblox_id, discord_id FROM users WHERE id = $1`,
-      [session.user_id]
+    const result = await pool.query(
+      "SELECT id, username, roblox_id, discord_id, theme FROM users WHERE id = $1 LIMIT 1",
+      [userId]
     );
 
-    const user = userRes.rows[0];
+    const user = result.rows[0] ?? null;
 
-    return NextResponse.json({ user: user ?? null });
-  } catch (err) {
-    return NextResponse.json({ user: null });
+    return NextResponse.json({ user });
+  } catch {
+    return NextResponse.json({ user: null }, { status: 500 });
   }
 }
