@@ -20,13 +20,9 @@ export default function Settings() {
   const [requirementsText, setRequirementsText] = useState("");
 
   const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState<string | null>(null);
 
-  const themes: {
-    id: Theme;
-    name: string;
-    desc: string;
-    color: string;
-  }[] = [
+  const themes: { id: Theme; name: string; desc: string; color: string }[] = [
     {
       id: "default",
       name: "Default",
@@ -47,57 +43,62 @@ export default function Settings() {
     },
   ];
 
-  /* ---------------- LOAD FROM DATABASE ---------------- */
+  /* ---------------- LOAD ---------------- */
   useEffect(() => {
     async function load() {
-      try {
-        const res = await fetch("/api/settings/global", {
-          cache: "no-store",
-        });
+      const res = await fetch("/api/settings/global", { cache: "no-store" });
+      const data: GlobalSettings = await res.json();
 
-        const data: GlobalSettings = await res.json();
+      setBannerText(data.banner_text ?? "");
+      setBannerSpeed(data.banner_speed ?? 18);
+      setDiscordLink(data.discord_link ?? "");
+      setRequirementsText(data.requirements_text ?? "");
 
-        setBannerText(data.banner_text ?? "");
-        setBannerSpeed(data.banner_speed ?? 18);
-        setDiscordLink(data.discord_link ?? "");
-        setRequirementsText(data.requirements_text ?? "");
-
-        setLoaded(true);
-      } catch {
-        setLoaded(true);
-      }
+      setLoaded(true);
     }
 
     load();
   }, []);
 
-  /* ---------------- AUTO SAVE TO DATABASE ---------------- */
-  useEffect(() => {
-    if (!loaded) return;
+  /* ---------------- SAVE FUNCTION ---------------- */
+  async function saveField(field: Partial<GlobalSettings>) {
+    setSaving(Object.keys(field)[0]);
 
-    const timeout = setTimeout(async () => {
-      await fetch("/api/settings/global", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          banner_text: bannerText,
-          banner_speed: bannerSpeed,
-          discord_link: discordLink,
-          requirements_text: requirementsText,
-        }),
-      });
-    }, 500);
+    await fetch("/api/settings/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        banner_text: bannerText,
+        banner_speed: bannerSpeed,
+        discord_link: discordLink,
+        requirements_text: requirementsText,
+        ...field,
+      }),
+    });
 
-    return () => clearTimeout(timeout);
-  }, [bannerText, bannerSpeed, discordLink, requirementsText, loaded]);
+    setSaving(null);
+  }
+
+  /* ---------------- FORMAT REQUIREMENTS PREVIEW ---------------- */
+  function formatText(text: string) {
+    return text
+      .replace(/^### (.*$)/gm, "<h3>$1</h3>")
+      .replace(/^## (.*$)/gm, "<h2>$1</h2>")
+      .replace(/^# (.*$)/gm, "<h1>$1</h1>")
+      .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
+      .replace(/\*(.*?)\*/g, "<i>$1</i>")
+      .replace(/__(.*?)__/g, "<u>$1</u>")
+      .replace(/\n/g, "<br/>");
+  }
 
   return (
     <>
       <Navbar />
 
-      <main className="min-h-screen bg-black px-4 py-8 text-white sm:px-6 lg:px-10">
+      <main className="min-h-screen bg-black px-4 py-8 text-white">
         <div className="mx-auto max-w-6xl">
-          {/* THEME (still personal) */}
+
+          {/* THEME */}
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <h2 className="text-xl font-bold mb-4">Theme</h2>
 
@@ -109,17 +110,14 @@ export default function Settings() {
                   <button
                     key={t.id}
                     onClick={() => setTheme(t.id)}
-                    className={`rounded-2xl border p-5 text-left ${
+                    className={`rounded-2xl border p-5 ${
                       active
                         ? "border-white/30 bg-white/10"
                         : "border-white/10 bg-white/5"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className={`h-3 w-3 rounded-full ${t.color}`} />
-                      <p className="font-semibold">{t.name}</p>
-                    </div>
-                    <p className="text-sm text-zinc-400 mt-2">{t.desc}</p>
+                    <p className="font-semibold">{t.name}</p>
+                    <p className="text-sm text-zinc-400">{t.desc}</p>
                   </button>
                 );
               })}
@@ -130,28 +128,27 @@ export default function Settings() {
           <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6">
             <h2 className="text-xl font-bold">Global Settings</h2>
 
-            <div className="mt-6 space-y-4">
+            {/* BANNER */}
+            <div className="mt-6">
+              <label className="text-sm font-semibold">Banner Text</label>
               <textarea
                 value={bannerText}
                 onChange={(e) => setBannerText(e.target.value)}
-                className="w-full rounded-xl bg-black/40 p-3 border border-white/10"
-                placeholder="Banner text"
+                className="mt-2 w-full rounded-xl bg-black/40 p-3 border border-white/10"
               />
+              <button
+                onClick={() => saveField({})}
+                className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
+              >
+                {saving === "banner_text" ? "Saving..." : "Save Banner"}
+              </button>
+            </div>
 
-              <input
-                value={discordLink}
-                onChange={(e) => setDiscordLink(e.target.value)}
-                className="w-full rounded-xl bg-black/40 p-3 border border-white/10"
-                placeholder="Discord link"
-              />
-
-              <textarea
-                value={requirementsText}
-                onChange={(e) => setRequirementsText(e.target.value)}
-                className="w-full rounded-xl bg-black/40 p-3 border border-white/10"
-                rows={6}
-                placeholder="Requirements"
-              />
+            {/* SPEED */}
+            <div className="mt-6">
+              <label className="text-sm font-semibold">
+                Banner Speed ({bannerSpeed}s)
+              </label>
 
               <input
                 type="range"
@@ -159,8 +156,86 @@ export default function Settings() {
                 max={40}
                 value={bannerSpeed}
                 onChange={(e) => setBannerSpeed(Number(e.target.value))}
-                className="w-full"
+                className="w-full mt-2 accent-emerald-400"
               />
+
+              {/* SPEED BAR */}
+              <div className="h-2 w-full bg-white/10 rounded mt-2 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-400 transition-all"
+                  style={{ width: `${((bannerSpeed - 8) / 32) * 100}%` }}
+                />
+              </div>
+
+              <button
+                onClick={() => saveField({ banner_speed: bannerSpeed })}
+                className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
+              >
+                Save Speed
+              </button>
+            </div>
+
+            {/* DISCORD */}
+            <div className="mt-6">
+              <label className="text-sm font-semibold">Discord Link</label>
+              <input
+                value={discordLink}
+                onChange={(e) => setDiscordLink(e.target.value)}
+                className="mt-2 w-full rounded-xl bg-black/40 p-3 border border-white/10"
+              />
+
+              <button
+                onClick={() => saveField({ discord_link: discordLink })}
+                className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
+              >
+                Save Discord
+              </button>
+            </div>
+
+            {/* REQUIREMENTS */}
+            <div className="mt-6">
+              <label className="text-sm font-semibold">
+                Requirements (Markdown Supported)
+              </label>
+
+              <textarea
+                value={requirementsText}
+                onChange={(e) => setRequirementsText(e.target.value)}
+                rows={8}
+                className="mt-2 w-full rounded-xl bg-black/40 p-3 border border-white/10"
+              />
+
+              <button
+                onClick={() =>
+                  saveField({ requirements_text: requirementsText })
+                }
+                className="mt-2 rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold"
+              >
+                Save Requirements
+              </button>
+            </div>
+
+            {/* PREVIEW */}
+            <div className="mt-8 grid gap-4 sm:grid-cols-3">
+              <div className="p-4 border border-white/10 rounded-xl">
+                <p className="text-xs text-zinc-400">Preview Banner</p>
+                <p>{bannerText}</p>
+              </div>
+
+              <div className="p-4 border border-white/10 rounded-xl">
+                <p className="text-xs text-zinc-400">Preview Discord</p>
+                <p>{discordLink}</p>
+              </div>
+
+              <div className="p-4 border border-white/10 rounded-xl">
+                <p className="text-xs text-zinc-400">Preview Requirements</p>
+                <div
+                  className="text-sm"
+                  dangerouslySetInnerHTML={{
+                    __html: formatText(requirementsText),
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
