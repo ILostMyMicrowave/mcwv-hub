@@ -22,7 +22,10 @@ export async function GET(req: Request) {
     }
 
     const result = await pool.query(
-      "SELECT id, username, roblox_id, discord_id, theme FROM users WHERE id = $1 LIMIT 1",
+      `SELECT id, username, roblox_id, discord_id, role, theme
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
       [userId]
     );
 
