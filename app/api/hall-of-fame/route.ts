@@ -102,3 +102,102 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export async function PATCH(req: Request) {
+  try {
+    const me = await getCurrentUser(req);
+
+    if (!me) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (me.role !== "owner") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+
+    const id = Number(body.id);
+    const name = String(body.name || "").trim();
+    const reason = String(body.reason || "").trim();
+    const imageUrlRaw = String(body.image_url || "").trim();
+    const imageUrl = imageUrlRaw.length > 0 ? imageUrlRaw : null;
+
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
+
+    if (!name) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    }
+
+    if (!reason) {
+      return NextResponse.json({ error: "Reason is required" }, { status: 400 });
+    }
+
+    const existing = await pool.query(
+      `SELECT id FROM hall_of_fame WHERE id = $1 LIMIT 1`,
+      [id]
+    );
+
+    if (!existing.rows[0]) {
+      return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+    }
+
+    const res = await pool.query(
+      `UPDATE hall_of_fame
+       SET name = $1,
+           reason = $2,
+           image_url = $3
+       WHERE id = $4
+       RETURNING id, name, reason, image_url, created_at, created_by`,
+      [name, reason, imageUrl, id]
+    );
+
+    return NextResponse.json({ success: true, entry: res.rows[0] });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to update hall of fame entry" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const me = await getCurrentUser(req);
+
+    if (!me) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (me.role !== "owner") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const url = new URL(req.url);
+    const id = Number(url.searchParams.get("id"));
+
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
+
+    const existing = await pool.query(
+      `SELECT id FROM hall_of_fame WHERE id = $1 LIMIT 1`,
+      [id]
+    );
+
+    if (!existing.rows[0]) {
+      return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+    }
+
+    await pool.query(`DELETE FROM hall_of_fame WHERE id = $1`, [id]);
+
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to delete hall of fame entry" },
+      { status: 500 }
+    );
+  }
+}
