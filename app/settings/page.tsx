@@ -261,11 +261,7 @@ export default function Settings() {
       const username = (m.username || "").toLowerCase();
       const discord = String(m.discord_id ?? "").toLowerCase();
       const roleText = String(m.role ?? "").toLowerCase();
-      return (
-        username.includes(q) ||
-        discord.includes(q) ||
-        roleText.includes(q)
-      );
+      return username.includes(q) || discord.includes(q) || roleText.includes(q);
     });
   }, [members, memberSearch]);
 
@@ -277,7 +273,8 @@ export default function Settings() {
           <div className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur">
             <h1 className="text-3xl font-bold">Settings</h1>
             <p className="mt-3 text-zinc-400">
-              You can change your theme here. Global settings are available to officers and above.
+              You can change your theme here. Global settings are available to officers
+              and above.
             </p>
 
             <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
@@ -317,9 +314,7 @@ export default function Settings() {
 
                       <p className="mt-2 text-sm text-zinc-400">{t.desc}</p>
 
-                      {active && (
-                        <p className="mt-3 text-xs text-emerald-300">Active</p>
-                      )}
+                      {active && <p className="mt-3 text-xs text-emerald-300">Active</p>}
                     </button>
                   );
                 })}
@@ -389,9 +384,7 @@ export default function Settings() {
 
                     <p className="mt-2 text-sm text-zinc-400">{t.desc}</p>
 
-                    {active && (
-                      <p className="mt-3 text-xs text-emerald-300">Active</p>
-                    )}
+                    {active && <p className="mt-3 text-xs text-emerald-300">Active</p>}
                   </button>
                 );
               })}
@@ -502,7 +495,8 @@ export default function Settings() {
 __underline__`}
                   />
                   <p className="mt-2 text-xs text-zinc-500">
-                    Supports headings, subheadings, bold, italics, underline, and line breaks.
+                    Supports headings, subheadings, bold, italics, underline, and line
+                    breaks.
                   </p>
                   <button
                     type="button"
@@ -596,6 +590,51 @@ __underline__`}
               </div>
             </div>
           ) : null}
+
+          <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-bold">Account</h2>
+              <p className="text-xs text-zinc-500">Manage your session</p>
+            </div>
+
+            <div className="mt-4 text-sm text-zinc-400">
+              {currentUser ? (
+                <p>
+                  {currentUser.username} · {role}
+                </p>
+              ) : (
+                <p>Account actions are available for logged-in users.</p>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => (window.location.href = "/change-password")}
+                className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Change Password
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await fetch("/api/auth/logout", { method: "POST" });
+                  } catch {}
+
+                  window.location.href = "/login";
+                }}
+                className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Log Out
+              </button>
+            </div>
+
+            <p className="mt-4 text-xs text-zinc-500">
+              You will be signed out of this device only.
+            </p>
+          </div>
         </div>
       </main>
     </>
