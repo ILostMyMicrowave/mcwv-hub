@@ -29,6 +29,13 @@ type LeaderboardResponse = {
   error?: string;
 };
 
+type GlobalSettings = {
+  discord_link: string;
+  requirements_text: string;
+  banner_text: string;
+  banner_speed: number;
+};
+
 type RequirementBlock =
   | { type: "heading1"; text: string }
   | { type: "heading2"; text: string }
@@ -37,11 +44,6 @@ type RequirementBlock =
   | { type: "quote"; text: string }
   | { type: "paragraph"; text: string }
   | { type: "spacer" };
-
-const BANNER_KEY = "mcwv_home_banner";
-const BANNER_SPEED_KEY = "mcwv_home_banner_speed";
-const DISCORD_KEY = "mcwv_home_discord_link";
-const REQUIREMENTS_KEY = "mcwv_home_requirements_text";
 
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
@@ -64,32 +66,6 @@ function formatAgo(timestamp: string | null, nowMs: number) {
 
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
-}
-
-function useStoredString(key: string, fallback: string) {
-  const [value, setValue] = useState(fallback);
-
-  useEffect(() => {
-    const read = () => {
-      try {
-        const stored = window.localStorage.getItem(key);
-        setValue(stored && stored.trim() ? stored : fallback);
-      } catch {
-        setValue(fallback);
-      }
-    };
-
-    read();
-
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === key) read();
-    };
-
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [key, fallback]);
-
-  return value;
 }
 
 function parseRequirementBlocks(input: string): RequirementBlock[] {
@@ -133,6 +109,41 @@ function parseRequirementBlocks(input: string): RequirementBlock[] {
   }
 
   return blocks;
+}
+
+function renderInlineFormatting(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const regex = /(\*\*.+?\*\*|__.+?__|\*.+?\*)/g;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push(
+        <strong key={`b-${key++}`}>{token.slice(2, -2)}</strong>
+      );
+    } else if (token.startsWith("__") && token.endsWith("__")) {
+      nodes.push(<u key={`u-${key++}`}>{token.slice(2, -2)}</u>);
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      nodes.push(<em key={`i-${key++}`}>{token.slice(1, -1)}</em>);
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
 }
 
 function makeIdleActivity(active: boolean): EventItem[] {
@@ -316,7 +327,7 @@ function RequirementRenderer({ text }: { text: string }) {
         if (block.type === "heading1") {
           return (
             <h3 key={index} className="text-xl font-bold text-white">
-              {block.text}
+              {renderInlineFormatting(block.text)}
             </h3>
           );
         }
@@ -324,27 +335,33 @@ function RequirementRenderer({ text }: { text: string }) {
         if (block.type === "heading2") {
           return (
             <h4 key={index} className="text-base font-semibold text-zinc-100">
-              {block.text}
+              {renderInlineFormatting(block.text)}
             </h4>
           );
         }
 
         if (block.type === "heading3") {
           return (
-            <p key={index} className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-              {block.text}
+            <p
+              key={index}
+              className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300"
+            >
+              {renderInlineFormatting(block.text)}
             </p>
           );
         }
 
         if (block.type === "bullet") {
           return (
-            <div key={index} className="flex items-start gap-3 text-sm text-zinc-300">
+            <div
+              key={index}
+              className="flex items-start gap-3 text-sm text-zinc-300"
+            >
               <span
                 className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
                 style={{ background: "var(--primary)" }}
               />
-              <span>{block.text}</span>
+              <span>{renderInlineFormatting(block.text)}</span>
             </div>
           );
         }
@@ -359,14 +376,14 @@ function RequirementRenderer({ text }: { text: string }) {
                 background: "rgba(255,255,255,0.03)",
               }}
             >
-              {block.text}
+              {renderInlineFormatting(block.text)}
             </div>
           );
         }
 
         return (
           <p key={index} className="text-sm text-zinc-300">
-            {block.text}
+            {renderInlineFormatting(block.text)}
           </p>
         );
       })}
@@ -381,24 +398,44 @@ export default function HomePage() {
   const [totalPoints, setTotalPoints] = useState(0);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [global, setGlobal] = useState<GlobalSettings>({
+    discord_link: "",
+    requirements_text: "",
+    banner_text: "Recruiting now!! Join the Discord and help push us to the top.",
+    banner_speed: 18,
+  });
+
   const prevRef = useRef<LeaderboardEntry[]>([]);
 
-  const bannerText = useStoredString(
-    BANNER_KEY,
-    "Recruiting now!! Join the Discord and help push us to the top."
-  );
-  const bannerSpeedRaw = useStoredString(BANNER_SPEED_KEY, "18");
-  const discordLink = useStoredString(DISCORD_KEY, "");
-  const requirementsText = useStoredString(
-    REQUIREMENTS_KEY,
-    "## Clan requirements\n- Be respectful\n- Stay active in wars\n- Join the Discord when you can."
-  );
+  useEffect(() => {
+    async function loadGlobal() {
+      try {
+        const res = await fetch("/api/settings/global", {
+          cache: "no-store",
+        });
 
-  const bannerSpeed = Math.min(40, Math.max(8, toNumber(bannerSpeedRaw) || 18));
-  const requirementBlocks = useMemo(
-    () => parseRequirementBlocks(requirementsText),
-    [requirementsText]
-  );
+        if (!res.ok) return;
+
+        const data = await res.json();
+
+        setGlobal({
+          discord_link: data.discord_link ?? "",
+          requirements_text: data.requirements_text ?? "",
+          banner_text: data.banner_text ?? "",
+          banner_speed: data.banner_speed ?? 18,
+        });
+      } catch {
+        // keep defaults
+      }
+    }
+
+    loadGlobal();
+  }, []);
+
+  const bannerText = global.banner_text;
+  const bannerSpeed = Math.min(40, Math.max(8, toNumber(global.banner_speed) || 18));
+  const discordLink = global.discord_link;
+  const requirementsText = global.requirements_text;
 
   const hasDiscordLink = useMemo(() => {
     const trimmed = discordLink.trim();
@@ -432,7 +469,9 @@ export default function HomePage() {
 
         if (!next.length) {
           prevRef.current = [];
-          setActivity((prev) => (prev.length ? prev : makeIdleActivity(Boolean(data.active))));
+          setActivity((prev) =>
+            prev.length ? prev : makeIdleActivity(Boolean(data.active))
+          );
           return;
         }
 
@@ -461,6 +500,13 @@ export default function HomePage() {
       clearInterval(clock);
     };
   }, []);
+
+  const pillStyle = {
+    background:
+      "color-mix(in srgb, var(--primary) 14%, transparent)",
+    border: "1px solid color-mix(in srgb, var(--primary) 28%, transparent)",
+    color: "var(--primary)",
+  } as const;
 
   return (
     <main
@@ -518,11 +564,7 @@ export default function HomePage() {
             >
               <div
                 className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-                style={{
-                  background: "rgba(52, 211, 153, 0.10)",
-                  border: "1px solid rgba(52, 211, 153, 0.22)",
-                  color: "var(--primary)",
-                }}
+                style={pillStyle}
               >
                 <span
                   className="h-2 w-2 animate-pulse rounded-full"
@@ -600,11 +642,7 @@ export default function HomePage() {
               action={
                 <span
                   className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
-                  style={{
-                    background: "rgba(52,211,153,0.10)",
-                    color: "var(--primary)",
-                    border: "1px solid rgba(52,211,153,0.20)",
-                  }}
+                  style={pillStyle}
                 >
                   <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
                   {active ? "LIVE" : "IDLE"}
@@ -680,11 +718,7 @@ export default function HomePage() {
             action={
               <span
                 className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
-                style={{
-                  color: "var(--primary)",
-                  background: "rgba(52,211,153,0.08)",
-                  border: "1px solid rgba(52,211,153,0.18)",
-                }}
+                style={pillStyle}
               >
                 <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
                 LIVE
