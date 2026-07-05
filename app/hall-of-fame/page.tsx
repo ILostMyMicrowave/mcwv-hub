@@ -57,8 +57,10 @@ export default function HallOfFamePage() {
   const [reason, setReason] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
 
   const canAdd = role === "owner";
+  const isEditing = editId !== null;
 
   const featuredEntry = useMemo(() => entries[0] ?? null, [entries]);
 
@@ -104,7 +106,35 @@ export default function HallOfFamePage() {
     load();
   }, []);
 
-  async function handleAdd() {
+  function startEdit(entry: HallOfFameEntry) {
+    setEditId(entry.id);
+    setName(entry.name);
+    setReason(entry.reason);
+    setImageUrl(entry.image_url ?? "");
+    setStatus("");
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setName("");
+    setReason("");
+    setImageUrl("");
+    setStatus("");
+  }
+
+  async function refreshEntries() {
+    const refreshed = await fetch("/api/hall-of-fame", {
+      cache: "no-store",
+    });
+
+    if (refreshed.ok) {
+      const next: HallOfFameResponse = await refreshed.json();
+      setEntries(Array.isArray(next.entries) ? next.entries : []);
+    }
+  }
+
+  async function handleSubmit() {
     if (!canAdd) {
       setStatus("Owner only");
       return;
@@ -124,38 +154,75 @@ export default function HallOfFamePage() {
 
     try {
       const res = await fetch("/api/hall-of-fame", {
-        method: "POST",
+        method: isEditing ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          name: trimmedName,
-          reason: trimmedReason,
-          image_url: trimmedImage,
-        }),
+        body: JSON.stringify(
+          isEditing
+            ? {
+                id: editId,
+                name: trimmedName,
+                reason: trimmedReason,
+                image_url: trimmedImage,
+              }
+            : {
+                name: trimmedName,
+                reason: trimmedReason,
+                image_url: trimmedImage,
+              }
+        ),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to add entry");
+        throw new Error(data?.error || "Failed to save entry");
       }
 
       setName("");
       setReason("");
       setImageUrl("");
-      setStatus("Added to Hall of Fame");
+      setEditId(null);
+      setStatus(isEditing ? "Entry updated" : "Added to Hall of Fame");
 
-      const refreshed = await fetch("/api/hall-of-fame", {
-        cache: "no-store",
+      await refreshEntries();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save entry");
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setStatus(""), 1800);
+    }
+  }
+
+  async function handleDelete(entry: HallOfFameEntry) {
+    if (!canAdd) return;
+
+    const ok = window.confirm(`Remove ${entry.name} from Hall of Fame?`);
+    if (!ok) return;
+
+    setSaving(true);
+    setStatus("");
+
+    try {
+      const res = await fetch(`/api/hall-of-fame?id=${entry.id}`, {
+        method: "DELETE",
       });
 
-      if (refreshed.ok) {
-        const next: HallOfFameResponse = await refreshed.json();
-        setEntries(Array.isArray(next.entries) ? next.entries : []);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to delete entry");
       }
+
+      if (editId === entry.id) {
+        cancelEdit();
+      }
+
+      setStatus("Entry removed");
+      await refreshEntries();
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Failed to add entry");
+      setStatus(err instanceof Error ? err.message : "Failed to delete entry");
     } finally {
       setSaving(false);
       window.setTimeout(() => setStatus(""), 1800);
@@ -302,6 +369,25 @@ export default function HallOfFamePage() {
                             </span>
                           )}
                         </div>
+
+                        {canAdd && (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => startEdit(entry)}
+                              className="rounded-full border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-semibold text-yellow-200 transition hover:bg-yellow-400/15"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(entry)}
+                              className="rounded-full border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-400/15"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </article>
                   );
@@ -312,15 +398,15 @@ export default function HallOfFamePage() {
         </section>
 
         {canAdd && (
-          <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10">
+          <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10" id="hof-form">
             <div className="rounded-[2rem] border border-yellow-400/20 bg-white/5 p-6 backdrop-blur">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black text-white">
-                    Add to Hall of Fame
+                    {isEditing ? "Edit Hall of Fame Entry" : "Add to Hall of Fame"}
                   </h2>
                   <p className="mt-1 text-sm text-zinc-400">
-                    Owner only. Add a new legend manually.
+                    Owner only. Add or update a legend manually.
                   </p>
                 </div>
                 <p className="text-xs text-zinc-500">{status}</p>
@@ -364,14 +450,32 @@ export default function HallOfFamePage() {
                   />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleAdd}
-                  disabled={saving}
-                  className="rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-600 px-5 py-3 font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? "Adding..." : "Add Legend"}
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={saving}
+                    className="rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-600 px-5 py-3 font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving
+                      ? isEditing
+                        ? "Updating..."
+                        : "Adding..."
+                      : isEditing
+                      ? "Update Entry"
+                      : "Add Legend"}
+                  </button>
+
+                  {isEditing && (
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </section>
