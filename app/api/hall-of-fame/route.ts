@@ -1,0 +1,104 @@
+import { NextResponse } from "next/server";
+import pg from "pg";
+
+export const dynamic = "force-dynamic";
+
+const { Pool } = pg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+type CurrentUser = {
+  id: number;
+  role: "member" | "officer" | "owner";
+  username: string;
+} | null;
+
+async function getCurrentUser(req: Request): Promise<CurrentUser> {
+  const cookie = req.headers.get("cookie") || "";
+  const match = cookie.match(/mcwv_user=([^;]+)/);
+
+  if (!match) return null;
+
+  const userId = Number(match[1]);
+  if (!Number.isFinite(userId)) return null;
+
+  const res = await pool.query(
+    `SELECT id, role, username
+     FROM users
+     WHERE id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  return res.rows[0] ?? null;
+}
+
+export async function GET() {
+  try {
+    const res = await pool.query(
+      `SELECT
+         h.id,
+         h.name,
+         h.reason,
+         h.image_url,
+         h.created_at,
+         h.created_by,
+         u.username AS created_by_username
+       FROM hall_of_fame h
+       LEFT JOIN users u ON u.id = h.created_by
+       ORDER BY h.created_at DESC, h.id DESC`
+    );
+
+    return NextResponse.json({ entries: res.rows });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to load hall of fame entries" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const me = await getCurrentUser(req);
+
+    if (!me) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (me.role !== "owner") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+
+    const name = String(body.name || "").trim();
+    const reason = String(body.reason || "").trim();
+    const imageUrlRaw = String(body.image_url || "").trim();
+    const imageUrl = imageUrlRaw.length > 0 ? imageUrlRaw : null;
+
+    if (!name) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    }
+
+    if (!reason) {
+      return NextResponse.json({ error: "Reason is required" }, { status: 400 });
+    }
+
+    const res = await pool.query(
+      `INSERT INTO hall_of_fame (name, reason, image_url, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, reason, image_url, created_at, created_by`,
+      [name, reason, imageUrl, me.id]
+    );
+
+    return NextResponse.json({ success: true, entry: res.rows[0] });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to add hall of fame entry" },
+      { status: 500 }
+    );
+  }
+}
