@@ -7,6 +7,24 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+// helper to get user from cookie
+async function getUser(req: Request) {
+  const cookie = req.headers.get("cookie") || "";
+  const match = cookie.match(/mcwv_user=([^;]+)/);
+
+  if (!match) return null;
+
+  const userId = Number(match[1]);
+  if (!Number.isFinite(userId)) return null;
+
+  const res = await pool.query(
+    `SELECT id, role FROM users WHERE id = $1 LIMIT 1`,
+    [userId]
+  );
+
+  return res.rows[0] ?? null;
+}
+
 export async function GET() {
   try {
     const res = await pool.query(
@@ -35,6 +53,18 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const user = await getUser(req);
+
+    // ❌ not logged in
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // ❌ only officer+ can edit
+    if (!["officer", "owner"].includes(user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = await req.json();
 
     const discord_link = body.discord_link ?? "";
