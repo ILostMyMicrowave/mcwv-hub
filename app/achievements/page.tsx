@@ -86,6 +86,67 @@ accent: "from-emerald-300 to-emerald-500",
 };
 }
 
+function renderDiscordFormattedText(text: string) {
+const lines = text.split(/\r?\n/);
+
+const renderInline = (line: string) => {
+const parts = line.split(
+/(**[^]+**|[^_]+|/[^~]+/|"[^"]+`|*[^]+*|[^]+_)/g
+);
+
+return parts
+  .filter(Boolean)
+  .map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index} className="font-semibold text-white">{part.slice(2, -2)}</strong>;
+    }
+
+    if (part.startsWith("__") && part.endsWith("__")) {
+      return <span key={index} className="underline decoration-yellow-300/70 underline-offset-2">{part.slice(2, -2)}</span>;
+    }
+
+    if (part.startsWith("~~") && part.endsWith("~~")) {
+      return <span key={index} className="line-through opacity-80">{part.slice(2, -2)}</span>;
+    }
+
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={index}
+          className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[0.85em] text-yellow-100"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+
+    if (
+      (part.startsWith("*") && part.endsWith("*")) ||
+      (part.startsWith("_") && part.endsWith("_"))
+    ) {
+      return <em key={index} className="italic text-white/95">{part.slice(1, -1)}</em>;
+    }
+
+    return <span key={index}>{part}</span>;
+  });
+
+};
+
+return (
+<div className="space-y-1">
+{lines.map((line, index) =>
+line.trim().length === 0 ? (
+<div key={index} className="h-2" />
+) : (
+<p key={index} className="leading-6 text-zinc-300">
+{renderInline(line)}
+</p>
+)
+)}
+</div>
+);
+}
+
 export default function AchievementsPage() {
 const [entries, setEntries] = useState<AchievementEntry[]>([]);
 const [loading, setLoading] = useState(true);
@@ -98,8 +159,10 @@ const [date, setDate] = useState("");
 const [description, setDescription] = useState("");
 const [saving, setSaving] = useState(false);
 const [status, setStatus] = useState("");
+const [editId, setEditId] = useState<number | null>(null);
 
 const canManage = role === "owner";
+const isEditing = editId !== null;
 
 const stats = useMemo(() => {
 const total = entries.length;
@@ -180,6 +243,21 @@ setWarNumber("");
 setDate("");
 setDescription("");
 setStatus("");
+setEditId(null);
+}
+
+function startEdit(entry: AchievementEntry) {
+setEditId(entry.id);
+setTitle(entry.title);
+setPlacement(entry.placement);
+setWarNumber(entry.war_number !== null ? String(entry.war_number) : "");
+setDate(entry.date ?? "");
+setDescription(entry.description);
+setStatus("");
+document.getElementById("achievement-form")?.scrollIntoView({
+behavior: "smooth",
+block: "start",
+});
 }
 
 async function handleAdd() {
@@ -204,30 +282,76 @@ setStatus("");
 
 try {
   const res = await fetch("/api/achievements", {
-    method: "POST",
+    method: isEditing ? "PATCH" : "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      title: cleanTitle,
-      placement: cleanPlacement,
-      war_number: warNumberValue ? Number(warNumberValue) : null,
-      date: cleanDate || null,
-      description: cleanDescription,
-    }),
+    body: JSON.stringify(
+      isEditing
+        ? {
+            id: editId,
+            title: cleanTitle,
+            placement: cleanPlacement,
+            war_number: warNumberValue ? Number(warNumberValue) : null,
+            date: cleanDate || null,
+            description: cleanDescription,
+          }
+        : {
+            title: cleanTitle,
+            placement: cleanPlacement,
+            war_number: warNumberValue ? Number(warNumberValue) : null,
+            date: cleanDate || null,
+            description: cleanDescription,
+          }
+    ),
   });
 
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(data?.error || "Failed to add achievement");
+    throw new Error(data?.error || "Failed to save achievement");
   }
 
   resetForm();
-  setStatus("Achievement added");
+  setStatus(isEditing ? "Achievement updated" : "Achievement added");
   await refreshEntries();
 } catch (err) {
-  setStatus(err instanceof Error ? err.message : "Failed to add achievement");
+  setStatus(err instanceof Error ? err.message : "Failed to save achievement");
+} finally {
+  setSaving(false);
+  window.setTimeout(() => setStatus(""), 1800);
+}
+
+}
+
+async function handleDelete(entry: AchievementEntry) {
+if (!canManage) return;
+
+const ok = window.confirm(`Remove ${entry.title}?`);
+if (!ok) return;
+
+setSaving(true);
+setStatus("");
+
+try {
+  const res = await fetch(`/api/achievements?id=${entry.id}`, {
+    method: "DELETE",
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(data?.error || "Failed to delete achievement");
+  }
+
+  if (editId === entry.id) {
+    resetForm();
+  }
+
+  setStatus("Achievement removed");
+  await refreshEntries();
+} catch (err) {
+  setStatus(err instanceof Error ? err.message : "Failed to delete achievement");
 } finally {
   setSaving(false);
   window.setTimeout(() => setStatus(""), 1800);
@@ -338,9 +462,9 @@ return (
                       </p>
                     </div>
 
-                    <p className="mt-4 text-sm leading-6 text-zinc-300">
-                      {entry.description}
-                    </p>
+                    <div className="mt-4">
+                      {renderDiscordFormattedText(entry.description)}
+                    </div>
 
                     <div className="mt-5 flex flex-wrap gap-2 text-xs">
                       {entry.date && (
@@ -357,6 +481,25 @@ return (
                         </span>
                       )}
                     </div>
+
+                    {canManage && (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(entry)}
+                          className="rounded-full border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-semibold text-yellow-200 transition hover:bg-yellow-400/15"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(entry)}
+                          className="rounded-full border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-400/15"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -367,15 +510,15 @@ return (
     </section>
 
     {canManage && (
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10">
+      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10" id="achievement-form">
         <div className="rounded-[2rem] border border-yellow-400/20 bg-white/5 p-6 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-2xl font-black text-white">
-                Add Achievement
+                {isEditing ? "Edit Achievement" : "Add Achievement"}
               </h2>
               <p className="mt-1 text-sm text-zinc-400">
-                Owner only. Add or record a clan placement.
+                Owner only. Add or update a clan placement.
               </p>
             </div>
             <p className="text-xs text-zinc-500">{status}</p>
@@ -445,8 +588,11 @@ return (
                 onChange={(e) => setDescription(e.target.value)}
                 rows={6}
                 className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-yellow-400/40"
-                placeholder="MCWV improved from #62 to #38..."
+                placeholder={`**MCWV** improved from __#62__ to __#38__!\n\nGreat teamwork and incredible effort.`}
               />
+              <p className="mt-2 text-xs text-zinc-500">
+                Discord formatting supported: bold, italics, underline, strikethrough, inline code, and line breaks.
+              </p>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -456,8 +602,18 @@ return (
                 disabled={saving}
                 className="rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-600 px-5 py-3 font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saving ? "Saving..." : "Save Achievement"}
+                {saving ? "Saving..." : isEditing ? "Update Achievement" : "Save Achievement"}
               </button>
+
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -467,4 +623,4 @@ return (
 </>
 
 );
-}
+        }
