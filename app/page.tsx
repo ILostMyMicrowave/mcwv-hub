@@ -114,7 +114,7 @@ return blocks;
 
 function renderInlineFormatting(text: string): ReactNode[] {
 const nodes: ReactNode[] = [];
-const regex = /(**.+?**|.+?|*.+?*)/g;
+const regex = /(\*\*.+?\*\*|__.+?__|\*.+?\*)/g;
 
 let lastIndex = 0;
 let match: RegExpExecArray | null;
