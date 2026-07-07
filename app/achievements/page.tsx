@@ -90,45 +90,92 @@ function renderDiscordFormattedText(text: string) {
 const lines = text.split(/\r?\n/);
 
 const renderInline = (line: string) => {
-const parts = line.split(
-/(**[^]+**|[^_]+|/[^~]+/|"[^"]+`|*[^]+*|[^]+_)/g
-);
+const parts: React.ReactNode[] = [];
+let i = 0;
 
-return parts
-  .filter(Boolean)
-  .map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={index} className="font-semibold text-white">{part.slice(2, -2)}</strong>;
-    }
+while (i < line.length) {
+  const rest = line.slice(i);
 
-    if (part.startsWith("__") && part.endsWith("__")) {
-      return <span key={index} className="underline decoration-yellow-300/70 underline-offset-2">{part.slice(2, -2)}</span>;
-    }
+  const bold = rest.match(/^\*\*([^*]+)\*\*/);
+  if (bold) {
+    parts.push(
+      <strong key={`${i}-bold`} className="font-semibold text-white">
+        {bold[1]}
+      </strong>
+    );
+    i += bold[0].length;
+    continue;
+  }
 
-    if (part.startsWith("~~") && part.endsWith("~~")) {
-      return <span key={index} className="line-through opacity-80">{part.slice(2, -2)}</span>;
-    }
+  const underline = rest.match(/^__([^_]+)__/);
+  if (underline) {
+    parts.push(
+      <span
+        key={`${i}-underline`}
+        className="underline decoration-yellow-300/70 underline-offset-2"
+      >
+        {underline[1]}
+      </span>
+    );
+    i += underline[0].length;
+    continue;
+  }
 
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code
-          key={index}
-          className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[0.85em] text-yellow-100"
-        >
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
+  const strike = rest.match(/^~~([^~]+)~~/);
+  if (strike) {
+    parts.push(
+      <span key={`${i}-strike`} className="line-through opacity-80">
+        {strike[1]}
+      </span>
+    );
+    i += strike[0].length;
+    continue;
+  }
 
-    if (
-      (part.startsWith("*") && part.endsWith("*")) ||
-      (part.startsWith("_") && part.endsWith("_"))
-    ) {
-      return <em key={index} className="italic text-white/95">{part.slice(1, -1)}</em>;
-    }
+  const code = rest.match(/^`([^`]+)`/);
+  if (code) {
+    parts.push(
+      <code
+        key={`${i}-code`}
+        className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[0.85em] text-yellow-100"
+      >
+        {code[1]}
+      </code>
+    );
+    i += code[0].length;
+    continue;
+  }
 
-    return <span key={index}>{part}</span>;
-  });
+  const italic = rest.match(/^\*([^*]+)\*/);
+  if (italic) {
+    parts.push(
+      <em key={`${i}-italic`} className="italic text-white/95">
+        {italic[1]}
+      </em>
+    );
+    i += italic[0].length;
+    continue;
+  }
+
+  const plainEnd = rest.search(/(\*\*|__|~~|`|\*)/);
+  if (plainEnd === -1) {
+    parts.push(<span key={`${i}-plain`}>{rest}</span>);
+    break;
+  }
+
+  if (plainEnd > 0) {
+    parts.push(
+      <span key={`${i}-plain`}>{rest.slice(0, plainEnd)}</span>
+    );
+    i += plainEnd;
+    continue;
+  }
+
+  parts.push(<span key={`${i}-plain-ch`}>{rest[0]}</span>);
+  i += 1;
+}
+
+return parts;
 
 };
 
@@ -169,7 +216,8 @@ const total = entries.length;
 const best =
 entries.length > 0
 ? entries.reduce((bestEntry, entry) => {
-return placementRank(entry.placement) < placementRank(bestEntry.placement)
+return placementRank(entry.placement) <
+placementRank(bestEntry.placement)
 ? entry
 : bestEntry;
 })
@@ -383,19 +431,25 @@ return (
 
           <div className="mt-8 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Total Wars</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                Total Wars
+              </p>
               <p className="mt-2 text-2xl font-bold text-white">{stats.total}</p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Best Placement</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                Best Placement
+              </p>
               <p className="mt-2 text-2xl font-bold text-white">
                 {stats.best ? stats.best.placement : "—"}
               </p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Latest</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                Latest
+              </p>
               <p className="mt-2 text-2xl font-bold text-white">
                 {stats.latest ? stats.latest.placement : "—"}
               </p>
@@ -510,7 +564,10 @@ return (
     </section>
 
     {canManage && (
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10" id="achievement-form">
+      <section
+        className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10"
+        id="achievement-form"
+      >
         <div className="rounded-[2rem] border border-yellow-400/20 bg-white/5 p-6 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -602,7 +659,11 @@ return (
                 disabled={saving}
                 className="rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-600 px-5 py-3 font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saving ? "Saving..." : isEditing ? "Update Achievement" : "Save Achievement"}
+                {saving
+                  ? "Saving..."
+                  : isEditing
+                    ? "Update Achievement"
+                    : "Save Achievement"}
               </button>
 
               {isEditing && (
@@ -623,4 +684,4 @@ return (
 </>
 
 );
-        }
+              }
