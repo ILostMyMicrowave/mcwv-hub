@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+useEffect,
+useMemo,
+useRef,
+useState,
+type ReactNode,
+} from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import Podium from "@/components/Podium";
+import HallOfFamePreview from "@/components/HallOfFamePreview";
+import AchievementsPreview from "@/components/AchievementsPreview";
 
 type LeaderboardEntry = {
 user_id: number;
@@ -114,7 +122,7 @@ return blocks;
 
 function renderInlineFormatting(text: string): ReactNode[] {
 const nodes: ReactNode[] = [];
-const regex = /(\*\*.+?\*\*|__.+?__|\*.+?\*)/g;
+const regex = /(**.+?**|.+?|*.+?*)/g;
 
 let lastIndex = 0;
 let match: RegExpExecArray | null;
@@ -275,9 +283,7 @@ borderColor: "var(--border)",
 className="absolute inset-x-0 top-0 h-1"
 style={{ background: accent ?? "var(--primary)" }}
 />
-<p className="text-xs uppercase tracking-[0.25em] text-zinc-400">
-{label}
-</p>
+<p className="text-xs uppercase tracking-[0.25em] text-zinc-400">{label}</p>
 <p className="mt-3 text-3xl font-bold text-white">{value}</p>
 {sub && <p className="mt-2 text-sm text-zinc-400">{sub}</p>}
 </div>
@@ -491,7 +497,9 @@ if (!res.ok) return;
     setActive(Boolean(data.active));
     setPlayers(next);
     setTotalPoints(
-      toNumber(data.total_points ?? next.reduce((sum, entry) => sum + entry.points, 0))
+      toNumber(
+        data.total_points ?? next.reduce((sum, entry) => sum + entry.points, 0)
+      )
     );
     setLastSyncedAt(data.updatedAt ?? new Date().toISOString());
 
@@ -538,10 +546,12 @@ color: "var(--primary)",
 
 return (
 <main
-className="relative min-h-screen overflow-hidden bg-theme text-theme"
+className="relative isolate min-h-screen overflow-hidden bg-theme text-theme"
 style={{ background: "var(--background)", color: "var(--foreground)" }}
 >
+<div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
 <AnimatedBackground />
+</div>
 
   <div className="relative z-10">
     <Navbar />
@@ -796,6 +806,11 @@ style={{ background: "var(--background)", color: "var(--foreground)" }}
     <section className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-10">
       <Podium players={players} />
     </section>
+
+    <section className="mx-auto grid max-w-6xl gap-6 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-2 lg:px-10">
+      <HallOfFamePreview />
+      <AchievementsPreview />
+    </section>
   </div>
 
   <style jsx global>{`
@@ -811,4 +826,4 @@ style={{ background: "var(--background)", color: "var(--foreground)" }}
 </main>
 
 );
-                                                      }
+  }
