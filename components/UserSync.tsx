@@ -26,13 +26,17 @@ export default function UserSync() {
 
         setUser(nextUser);
 
-        const theme = nextUser?.theme || "dark";
+        if (!savedTheme) {
+          const theme = nextUser?.theme || "default";
 
-        document.documentElement.setAttribute("data-theme", theme);
-        localStorage.setItem("mcwv-theme", theme);
+          document.documentElement.setAttribute("data-theme", theme);
+          localStorage.setItem("mcwv-theme", theme);
+        }
       } catch {
-        document.documentElement.setAttribute("data-theme", "dark");
-        localStorage.setItem("mcwv-theme", "dark");
+        if (!savedTheme) {
+          document.documentElement.setAttribute("data-theme", "default");
+          localStorage.setItem("mcwv-theme", "default");
+        }
       }
     }
 
