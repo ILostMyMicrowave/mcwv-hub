@@ -7,7 +7,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-type AuthUser = {
+type McwvUser = {
   id: number;
   username: string;
   roblox_id: string;
@@ -47,7 +47,7 @@ function getCookieUserId(req: Request): number | null {
   return Number.isFinite(userId) ? userId : null;
 }
 
-async function getAuthUser(req: Request): Promise<AuthUser> {
+async function getAuthUser(req: Request): Promise<McwvUser> {
   const userId = getCookieUserId(req);
   if (!userId) return null;
 
@@ -62,52 +62,53 @@ async function getAuthUser(req: Request): Promise<AuthUser> {
   return result.rows[0] ?? null;
 }
 
-async function resolveRobloxId(slug: string): Promise<string | null> {
+async function resolveMcwvUser(slug: string): Promise<McwvUser> {
   const result = await pool.query(
     `
-    SELECT roblox_id
+    SELECT id, username, roblox_id, discord_id, role, theme
     FROM users
-    WHERE username = $1
+    WHERE LOWER(username) = LOWER($1)
        OR roblox_id = $1
     LIMIT 1
     `,
     [slug]
   );
 
-  const row = result.rows[0];
-  if (!row?.roblox_id) return null;
-
-  return String(row.roblox_id);
+  return result.rows[0] ?? null;
 }
 
 function normalizeNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
+
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
+
   return null;
 }
 
-function getNestedNumber(obj: unknown, path: string[]): number | null {
+function getNestedValue(obj: unknown, path: string[]): unknown {
   let current: any = obj;
+
   for (const key of path) {
-    if (!current || typeof current !== "object") return null;
+    if (!current || typeof current !== "object") return undefined;
     current = current[key];
   }
-  return normalizeNumber(current);
+
+  return current;
+}
+
+function getNestedNumber(obj: unknown, path: string[]): number | null {
+  return normalizeNumber(getNestedValue(obj, path));
 }
 
 function getNestedObject<T extends object = Record<string, unknown>>(
   obj: unknown,
   path: string[]
 ): T | null {
-  let current: any = obj;
-  for (const key of path) {
-    if (!current || typeof current !== "object") return null;
-    current = current[key];
-  }
-  return current && typeof current === "object" ? (current as T) : null;
+  const value = getNestedValue(obj, path);
+  return value && typeof value === "object" ? (value as T) : null;
 }
 
 function countObjectKeys(value: unknown): number {
@@ -115,19 +116,87 @@ function countObjectKeys(value: unknown): number {
   return Object.keys(value as Record<string, unknown>).length;
 }
 
+function extractDiamonds(profileData: Record<string, any> | null): number | null {
+  if (!profileData) return null;
+
+  const candidates: unknown[] = [
+    getNestedValue(profileData, ["Currency", "Diamonds", "_am"]),
+    getNestedValue(profileData, ["Currency", "Diamonds", "amount"]),
+    getNestedValue(profileData, ["Currency", "Diamonds", "Amount"]),
+    getNestedValue(profileData, ["Currency", "Diamonds", "value"]),
+    getNestedValue(profileData, ["Currency", "Diamonds"]),
+    getNestedValue(profileData, ["Diamonds"]),
+    getNestedValue(profileData, ["Gems"]),
+  ];
+
+  for (const candidate of candidates) {
+    const value = normalizeNumber(candidate);
+    if (value !== null) return value;
+  }
+
+  return null;
+}
+
+function extractMasteryLevel(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  if (!value || typeof value !== "object") return null;
+
+  const obj = value as Record<string, unknown>;
+
+  const preferredKeys = [
+    "Level",
+    "level",
+    "Rank",
+    "rank",
+    "Value",
+    "value",
+    "CurrentLevel",
+    "currentLevel",
+    "Progress",
+    "progress",
+    "XP",
+    "xp",
+    "_am",
+  ];
+
+  for (const key of preferredKeys) {
+    const candidate = normalizeNumber(obj[key]);
+    if (candidate !== null) return candidate;
+  }
+
+  return null;
+}
+
 function buildNormalizedSummary(profileData: Record<string, any> | null) {
   if (!profileData) return null;
 
-  const currencyDiamonds =
-    getNestedNumber(profileData, ["Currency", "Diamonds", "_am"]) ??
-    getNestedNumber(profileData, ["Currency", "Diamonds", "amount"]);
-
-  const mastery = getNestedObject<Record<string, number>>(profileData, ["Mastery"]);
+  const masteryRaw = getNestedObject<Record<string, unknown>>(profileData, ["Mastery"]);
   const statistics = getNestedObject<Record<string, any>>(profileData, ["Statistics"]);
   const achievements = getNestedObject<Record<string, any>>(profileData, ["Achievements"]);
   const unlockedZones = getNestedObject<Record<string, boolean>>(profileData, ["UnlockedZones"]);
   const purchasedEggs = getNestedObject<Record<string, boolean>>(profileData, ["PurchasedEggs"]);
   const loginStreak = getNestedObject<Record<string, any>>(profileData, ["LoginStreak"]);
+
+  const masteryValues = masteryRaw
+    ? Object.values(masteryRaw)
+        .map((entry) => extractMasteryLevel(entry))
+        .filter((value): value is number => value !== null)
+    : [];
+
+  const masteryAverage =
+    masteryValues.length > 0
+      ? Math.round(
+          masteryValues.reduce((sum, value) => sum + value, 0) / masteryValues.length
+        )
+      : null;
 
   return {
     rank: normalizeNumber(profileData.Rank),
@@ -143,15 +212,9 @@ function buildNormalizedSummary(profileData: Record<string, any> | null) {
     boothSlots: normalizeNumber(profileData.BoothSlots),
     eggSlotsPurchased: normalizeNumber(profileData.EggSlotsPurchased),
     petSlotsPurchased: normalizeNumber(profileData.PetSlotsPurchased),
-    gems: currencyDiamonds,
-    mastery: mastery ?? null,
-    masteryAverage:
-      mastery && Object.keys(mastery).length > 0
-        ? Math.round(
-            Object.values(mastery).reduce((sum, value) => sum + Number(value || 0), 0) /
-              Object.keys(mastery).length
-          )
-        : null,
+    gems: extractDiamonds(profileData),
+    mastery: masteryRaw ?? null,
+    masteryAverage,
     statistics: statistics ?? null,
     achievementsCount: achievements ? countObjectKeys(achievements) : 0,
     zonesUnlockedCount: unlockedZones ? countObjectKeys(unlockedZones) : 0,
@@ -198,14 +261,16 @@ export async function GET(
   try {
     const { slug } = await params;
     const include =
-      new URL(req.url).searchParams.get("include") || "profile,inventory,extendedProfile";
+      new URL(req.url).searchParams.get("include") ||
+      "profile,inventory,extendedProfile";
 
+    let mcwvUser: McwvUser = null;
     let targetSlug = slug;
 
     if (slug === "me") {
-      const authUser = await getAuthUser(req);
+      mcwvUser = await getAuthUser(req);
 
-      if (!authUser?.roblox_id) {
+      if (!mcwvUser?.roblox_id) {
         return NextResponse.json(
           {
             status: "error",
@@ -215,11 +280,11 @@ export async function GET(
         );
       }
 
-      targetSlug = authUser.roblox_id;
+      targetSlug = mcwvUser.roblox_id;
     } else {
-      const resolvedRobloxId = await resolveRobloxId(slug);
-      if (resolvedRobloxId) {
-        targetSlug = resolvedRobloxId;
+      mcwvUser = await resolveMcwvUser(slug);
+      if (mcwvUser?.roblox_id) {
+        targetSlug = mcwvUser.roblox_id;
       }
     }
 
@@ -259,9 +324,9 @@ export async function GET(
     const account = data?.data?.account ?? null;
     const views = data?.data?.views ?? {};
 
-    const profileView = views.profile;
-    const inventoryView = views.inventory;
-    const extendedProfileView = views.extendedProfile;
+    const profileView = views.profile ?? null;
+    const inventoryView = views.inventory ?? null;
+    const extendedProfileView = views.extendedProfile ?? null;
 
     const profileData =
       profileView && profileView.available && profileView.data && typeof profileView.data === "object"
@@ -293,11 +358,21 @@ export async function GET(
             displayName: account?.displayName ?? null,
             publicViews: account?.publicViews ?? {},
           },
+          mcwv: mcwvUser
+            ? {
+                id: mcwvUser.id,
+                username: mcwvUser.username,
+                roblox_id: mcwvUser.roblox_id,
+                discord_id: mcwvUser.discord_id,
+                role: mcwvUser.role,
+                theme: mcwvUser.theme ?? null,
+              }
+            : null,
           summary: normalizedSummary,
           views: {
-            profile: profileView ?? null,
-            inventory: inventoryView ?? null,
-            extendedProfile: extendedProfileView ?? null,
+            profile: profileView,
+            inventory: inventoryView,
+            extendedProfile: extendedProfileView,
           },
           raw: {
             profile: profileData,
