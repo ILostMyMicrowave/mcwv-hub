@@ -251,7 +251,7 @@ export default function ProfilePage() {
   }, [slug, router]);
 
   const ok = data?.status === "ok" ? data.data : null;
-  const account = ok?.account ?? null;
+  const account = ok.account;
   const summary = ok?.summary ?? null;
   const profileView = ok?.views.profile ?? null;
   const inventoryView = ok?.views.inventory ?? null;
