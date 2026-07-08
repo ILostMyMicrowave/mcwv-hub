@@ -1,7 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 type ApiResponse =
@@ -98,8 +98,8 @@ type ApiResponse =
 type SectionProps = {
   title: string;
   defaultOpen?: boolean;
-  children: React.ReactNode;
-  right?: React.ReactNode;
+  children: ReactNode;
+  right?: ReactNode;
 };
 
 function formatNumber(value: number | null | undefined) {
@@ -109,7 +109,7 @@ function formatNumber(value: number | null | undefined) {
 
 function formatDate(value: number | null | undefined) {
   if (!value) return "—";
-  const ms = value < 10_000_000_000 ? value * 1000 : value * 1000;
+  const ms = value * 1000;
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString("en-GB", {
@@ -119,13 +119,6 @@ function formatDate(value: number | null | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function formatRelativeDays(value: number | null | undefined) {
-  if (!value || !Number.isFinite(value)) return "—";
-  const days = value / 86400;
-  if (days < 1) return `${Math.round(days * 24)}h`;
-  return `${days.toFixed(1)}d`;
 }
 
 function getInitials(name: string) {
@@ -186,14 +179,17 @@ function ProgressBar({
   value: number | null;
   max?: number;
 }) {
-  const safe = value === null || !Number.isFinite(value) ? 0 : Math.max(0, Math.min(max, value));
+  const safe =
+    value === null || !Number.isFinite(value) ? 0 : Math.max(0, Math.min(max, value));
   const pct = Math.min(100, Math.max(0, (safe / max) * 100));
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-white">{label}</p>
-        <p className="text-sm text-zinc-400">{safe}/{max}</p>
+        <p className="text-sm text-zinc-400">
+          {safe}/{max}
+        </p>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
         <div
@@ -234,7 +230,11 @@ export default function ProfilePage() {
 
         setData(json);
 
-        if (json.status === "error" && json.error.code === "unauthorized" && slug === "me") {
+        if (
+          json.status === "error" &&
+          json.error.code === "unauthorized" &&
+          slug === "me"
+        ) {
           router.push("/login");
         }
       } catch {
@@ -249,24 +249,6 @@ export default function ProfilePage() {
 
     load();
   }, [slug, router]);
-
-  const ok = data?.status === "ok" ? data.data : null;
-  const account = ok.account;
-  const summary = ok?.summary ?? null;
-  const profileView = ok?.views.profile ?? null;
-  const inventoryView = ok?.views.inventory ?? null;
-  const extendedView = ok?.views.extendedProfile ?? null;
-
-  const equippedPets = inventoryView?.available
-    ? inventoryView.data?.equipped?.pets?.list ?? []
-    : [];
-  const equippedEnchants = inventoryView?.available
-    ? inventoryView.data?.equipped?.enchants?.list ?? []
-    : [];
-
-  const profilePublic = !!account?.publicViews?.profile;
-  const inventoryPublic = !!account?.publicViews?.inventory;
-  const extendedPublic = !!account?.publicViews?.extendedProfile;
 
   if (loading) {
     return (
@@ -283,7 +265,7 @@ export default function ProfilePage() {
     );
   }
 
-  if (!ok) {
+  if (!data || data.status !== "ok") {
     const code = data && data.status === "error" ? data.error.code : "internal_error";
 
     return (
@@ -306,6 +288,24 @@ export default function ProfilePage() {
       </>
     );
   }
+
+  const ok = data.data;
+  const account = ok.account;
+  const summary = ok.summary ?? null;
+  const profileView = ok.views.profile ?? null;
+  const inventoryView = ok.views.inventory ?? null;
+  const extendedView = ok.views.extendedProfile ?? null;
+
+  const equippedPets = inventoryView?.available
+    ? inventoryView.data?.equipped?.pets?.list ?? []
+    : [];
+  const equippedEnchants = inventoryView?.available
+    ? inventoryView.data?.equipped?.enchants?.list ?? []
+    : [];
+
+  const profilePublic = !!account.publicViews?.profile;
+  const inventoryPublic = !!account.publicViews?.inventory;
+  const extendedPublic = !!account.publicViews?.extendedProfile;
 
   const currentRank = summary?.rank ?? null;
   const masteryAverage = summary?.masteryAverage ?? null;
@@ -360,22 +360,35 @@ export default function ProfilePage() {
                 <StatPill label="Rank" value={formatNumber(currentRank)} />
                 <StatPill label="Gems" value={formatNumber(summary?.gems)} />
                 <StatPill label="Rebirths" value={formatNumber(summary?.rebirths)} />
-                <StatPill label="Mastery Avg" value={masteryAverage === null ? "—" : `${masteryAverage}%`} />
+                <StatPill
+                  label="Mastery Avg"
+                  value={masteryAverage === null ? "—" : `${masteryAverage}%`}
+                />
               </div>
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <StatPill label="Eggs Hatched" value={formatNumber(summary?.eggsHatched)} />
               <StatPill label="Sessions" value={formatNumber(summary?.totalSessions)} />
-              <StatPill label="Zones Unlocked" value={formatNumber(summary?.zonesUnlockedCount)} />
+              <StatPill
+                label="Zones Unlocked"
+                value={formatNumber(summary?.zonesUnlockedCount)}
+              />
               <StatPill label="Achievements" value={formatNumber(summary?.achievementsCount)} />
             </div>
           </div>
 
-          <Section title="Progression" defaultOpen right={<span className="text-xs text-zinc-400">Core stats</span>}>
+          <Section
+            title="Progression"
+            defaultOpen
+            right={<span className="text-xs text-zinc-400">Core stats</span>}
+          >
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <StatPill label="Rank Stars" value={formatNumber(summary?.rankStars)} />
-              <StatPill label="Goals Completed" value={formatNumber(summary?.goalsCompleted)} />
+              <StatPill
+                label="Goals Completed"
+                value={formatNumber(summary?.goalsCompleted)}
+              />
               <StatPill label="Egg Slots" value={formatNumber(summary?.eggSlotsPurchased)} />
               <StatPill label="Pet Slots" value={formatNumber(summary?.petSlotsPurchased)} />
             </div>
@@ -386,12 +399,19 @@ export default function ProfilePage() {
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <StatPill label="Booth Diamonds Earned" value={formatNumber(summary?.boothDiamondsEarned)} />
+              <StatPill
+                label="Booth Diamonds Earned"
+                value={formatNumber(summary?.boothDiamondsEarned)}
+              />
               <StatPill label="Booth Slots" value={formatNumber(summary?.boothSlots)} />
             </div>
           </Section>
 
-          <Section title="Masteries" defaultOpen={false} right={<span className="text-xs text-zinc-400">Public profile</span>}>
+          <Section
+            title="Masteries"
+            defaultOpen={false}
+            right={<span className="text-xs text-zinc-400">Public profile</span>}
+          >
             {!profileView?.available || !summary?.mastery ? (
               <p className="text-sm text-zinc-400">
                 Mastery data is not public or not available.
@@ -407,7 +427,11 @@ export default function ProfilePage() {
             )}
           </Section>
 
-          <Section title="Equipped Loadout" defaultOpen={false} right={<span className="text-xs text-zinc-400">Live gear</span>}>
+          <Section
+            title="Equipped Loadout"
+            defaultOpen={false}
+            right={<span className="text-xs text-zinc-400">Live gear</span>}
+          >
             {!inventoryView?.available ? (
               <p className="text-sm text-zinc-400">
                 Equipped loadout is not public or no recent data is available.
@@ -429,8 +453,7 @@ export default function ProfilePage() {
                             {String(pet.displayName ?? pet.id ?? "Unknown")}
                           </p>
                           <p className="mt-1 text-xs text-zinc-400">
-                            Slot {String(pet.slot ?? "—")} ·{" "}
-                            {pet.shiny ? "Shiny " : ""}
+                            Slot {String(pet.slot ?? "—")} · {pet.shiny ? "Shiny " : ""}
                             {pet.golden ? "Golden " : ""}
                             {pet.rainbow ? "Rainbow " : ""}
                           </p>
@@ -455,7 +478,8 @@ export default function ProfilePage() {
                             {String(ench.displayName ?? ench.id ?? "Unknown")}
                           </p>
                           <p className="mt-1 text-xs text-zinc-400">
-                            Slot {String(ench.slot ?? "—")} · Level {String(ench.level ?? "—")}
+                            Slot {String(ench.slot ?? "—")} · Level{" "}
+                            {String(ench.level ?? "—")}
                           </p>
                         </div>
                       ))}
@@ -470,7 +494,9 @@ export default function ProfilePage() {
                   />
                   <StatPill
                     label="Hoverboard"
-                    value={String(inventoryView.data?.equipped?.hoverboard?.displayName ?? "—")}
+                    value={String(
+                      inventoryView.data?.equipped?.hoverboard?.displayName ?? "—"
+                    )}
                   />
                   <StatPill
                     label="Booth"
@@ -481,7 +507,11 @@ export default function ProfilePage() {
             )}
           </Section>
 
-          <Section title="Inventory" defaultOpen={false} right={<span className="text-xs text-zinc-400">May be large</span>}>
+          <Section
+            title="Inventory"
+            defaultOpen={false}
+            right={<span className="text-xs text-zinc-400">May be large</span>}
+          >
             {!inventoryView?.available ? (
               <p className="text-sm text-zinc-400">
                 Inventory is not public or no recent data is available.
@@ -495,7 +525,9 @@ export default function ProfilePage() {
                   />
                   <StatPill
                     label="Equipped Pets"
-                    value={formatNumber(inventoryView.data?.equipped?.pets?.equippedCount)}
+                    value={formatNumber(
+                      inventoryView.data?.equipped?.pets?.equippedCount
+                    )}
                   />
                   <StatPill
                     label="Max Pets"
@@ -514,7 +546,11 @@ export default function ProfilePage() {
             )}
           </Section>
 
-          <Section title="Extended Profile" defaultOpen={false} right={<span className="text-xs text-zinc-400">Sensitive public data</span>}>
+          <Section
+            title="Extended Profile"
+            defaultOpen={false}
+            right={<span className="text-xs text-zinc-400">Sensitive public data</span>}
+          >
             {!extendedView?.available || !ok.raw.extendedProfile ? (
               <p className="text-sm text-zinc-400">
                 Extended profile is private or unavailable.
@@ -551,7 +587,11 @@ export default function ProfilePage() {
             )}
           </Section>
 
-          <Section title="MCWV" defaultOpen={true} right={<span className="text-xs text-zinc-400">Clan data</span>}>
+          <Section
+            title="MCWV"
+            defaultOpen={true}
+            right={<span className="text-xs text-zinc-400">Clan data</span>}
+          >
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <StatPill label="Role" value="Member" />
               <StatPill label="Discord ID" value="Linked" />
@@ -563,4 +603,4 @@ export default function ProfilePage() {
       </main>
     </>
   );
-    }
+}
