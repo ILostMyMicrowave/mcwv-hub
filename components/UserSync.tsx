@@ -12,6 +12,12 @@ export default function UserSync() {
   const [user, setUser] = useState<User>(null);
 
   useEffect(() => {
+    const savedTheme = localStorage.getItem("mcwv-theme");
+
+    if (savedTheme) {
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+
     async function load() {
       try {
         const res = await fetch("/api/auth/me", { cache: "no-store" });
@@ -21,9 +27,12 @@ export default function UserSync() {
         setUser(nextUser);
 
         const theme = nextUser?.theme || "dark";
+
         document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("mcwv-theme", theme);
       } catch {
         document.documentElement.setAttribute("data-theme", "dark");
+        localStorage.setItem("mcwv-theme", "dark");
       }
     }
 
