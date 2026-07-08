@@ -14,6 +14,14 @@ type ApiResponse =
           displayName: string | null;
           publicViews: Record<string, true>;
         };
+        mcwv: {
+          id: number;
+          username: string;
+          roblox_id: string;
+          discord_id: string | number | null;
+          role: "member" | "officer" | "owner";
+          theme: string | null;
+        } | null;
         summary: {
           rank: number | null;
           rankStars: number | null;
@@ -29,7 +37,7 @@ type ApiResponse =
           eggSlotsPurchased: number | null;
           petSlotsPurchased: number | null;
           gems: number | null;
-          mastery: Record<string, number> | null;
+          mastery: Record<string, unknown> | null;
           masteryAverage: number | null;
           statistics: Record<string, unknown> | null;
           achievementsCount: number;
@@ -109,8 +117,7 @@ function formatNumber(value: number | null | undefined) {
 
 function formatDate(value: number | null | undefined) {
   if (!value) return "—";
-  const ms = value * 1000;
-  const date = new Date(ms);
+  const date = new Date(value * 1000);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString("en-GB", {
     year: "numeric",
@@ -179,8 +186,9 @@ function ProgressBar({
   value: number | null;
   max?: number;
 }) {
-  const safe =
-    value === null || !Number.isFinite(value) ? 0 : Math.max(0, Math.min(max, value));
+  const safe = value === null || !Number.isFinite(value)
+    ? 0
+    : Math.max(0, Math.min(max, value));
   const pct = Math.min(100, Math.max(0, (safe / max) * 100));
 
   return (
@@ -201,6 +209,21 @@ function ProgressBar({
   );
 }
 
+function CompactItemCard({
+  name,
+  meta,
+}: {
+  name: string;
+  meta: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+      <p className="font-semibold text-white">{name}</p>
+      <p className="mt-1 text-xs text-zinc-400">{meta}</p>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const params = useParams<{ slug?: string | string[] }>();
   const router = useRouter();
@@ -213,6 +236,8 @@ export default function ProfilePage() {
 
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAllPets, setShowAllPets] = useState(false);
+  const [showAllEnchants, setShowAllEnchants] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -291,6 +316,7 @@ export default function ProfilePage() {
 
   const ok = data.data;
   const account = ok.account;
+  const mcwv = ok.mcwv ?? null;
   const summary = ok.summary ?? null;
   const profileView = ok.views.profile ?? null;
   const inventoryView = ok.views.inventory ?? null;
@@ -303,12 +329,20 @@ export default function ProfilePage() {
     ? inventoryView.data?.equipped?.enchants?.list ?? []
     : [];
 
+  const visiblePets = showAllPets ? equippedPets : equippedPets.slice(0, 12);
+  const visibleEnchants = showAllEnchants ? equippedEnchants : equippedEnchants.slice(0, 7);
+
   const profilePublic = !!account.publicViews?.profile;
   const inventoryPublic = !!account.publicViews?.inventory;
   const extendedPublic = !!account.publicViews?.extendedProfile;
 
   const currentRank = summary?.rank ?? null;
   const masteryAverage = summary?.masteryAverage ?? null;
+
+  const discordValue =
+    mcwv?.discord_id === null || mcwv?.discord_id === undefined
+      ? "Not linked"
+      : String(mcwv.discord_id);
 
   return (
     <>
@@ -333,6 +367,11 @@ export default function ProfilePage() {
                     <span className="rounded-full border border-yellow-400/20 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
                       PS99 Profile
                     </span>
+                    {mcwv?.role && (
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-zinc-200">
+                        MCWV {mcwv.role}
+                      </span>
+                    )}
                   </div>
 
                   <p className="mt-2 text-sm text-zinc-300">
@@ -362,7 +401,7 @@ export default function ProfilePage() {
                 <StatPill label="Rebirths" value={formatNumber(summary?.rebirths)} />
                 <StatPill
                   label="Mastery Avg"
-                  value={masteryAverage === null ? "—" : `${masteryAverage}%`}
+                  value={masteryAverage === null ? "—" : formatNumber(masteryAverage)}
                 />
               </div>
             </div>
@@ -419,7 +458,11 @@ export default function ProfilePage() {
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
                 {Object.entries(summary.mastery)
-                  .sort((a, b) => Number(b[1]) - Number(a[1]))
+                  .sort((a, b) => {
+                    const left = Number(a[1] ?? 0);
+                    const right = Number(b[1] ?? 0);
+                    return right - left;
+                  })
                   .map(([name, level]) => (
                     <ProgressBar key={name} label={name} value={Number(level)} />
                   ))}
@@ -437,53 +480,83 @@ export default function ProfilePage() {
                 Equipped loadout is not public or no recent data is available.
               </p>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
-                  <p className="mb-3 text-sm font-semibold text-white">Pets</p>
-                  {equippedPets.length === 0 ? (
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">
+                      Pets
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {formatNumber(inventoryView.data?.equipped?.pets?.equippedCount)} equipped
+                    </p>
+                  </div>
+
+                  {visiblePets.length === 0 ? (
                     <p className="text-sm text-zinc-400">No equipped pets found.</p>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {equippedPets.map((pet, index) => (
-                        <div
+                      {visiblePets.map((pet, index) => (
+                        <CompactItemCard
                           key={`${pet.uid ?? index}-${pet.id ?? index}`}
-                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                        >
-                          <p className="font-semibold text-white">
-                            {String(pet.displayName ?? pet.id ?? "Unknown")}
-                          </p>
-                          <p className="mt-1 text-xs text-zinc-400">
-                            Slot {String(pet.slot ?? "—")} · {pet.shiny ? "Shiny " : ""}
-                            {pet.golden ? "Golden " : ""}
-                            {pet.rainbow ? "Rainbow " : ""}
-                          </p>
-                        </div>
+                          name={String(pet.displayName ?? pet.id ?? "Unknown")}
+                          meta={`#${index + 1} · ${pet.shiny ? "Shiny " : ""}${pet.golden ? "Golden " : ""}${pet.rainbow ? "Rainbow " : ""}`.replace(
+                            /\s+·\s+$/,
+                            ""
+                          )}
+                        />
                       ))}
                     </div>
+                  )}
+
+                  {equippedPets.length > 12 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllPets((v) => !v)}
+                      className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                    >
+                      {showAllPets
+                        ? "Show fewer pets"
+                        : `Show all pets (${equippedPets.length})`}
+                    </button>
                   )}
                 </div>
 
                 <div>
-                  <p className="mb-3 text-sm font-semibold text-white">Enchants</p>
-                  {equippedEnchants.length === 0 ? (
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">
+                      Enchants
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {formatNumber(inventoryView.data?.equipped?.enchants?.paidCount)} paid slots
+                    </p>
+                  </div>
+
+                  {visibleEnchants.length === 0 ? (
                     <p className="text-sm text-zinc-400">No enchants found.</p>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {equippedEnchants.map((ench, index) => (
-                        <div
+                      {visibleEnchants.map((ench, index) => (
+                        <CompactItemCard
                           key={`${ench.uid ?? index}-${ench.id ?? index}`}
-                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                        >
-                          <p className="font-semibold text-white">
-                            {String(ench.displayName ?? ench.id ?? "Unknown")}
-                          </p>
-                          <p className="mt-1 text-xs text-zinc-400">
-                            Slot {String(ench.slot ?? "—")} · Level{" "}
-                            {String(ench.level ?? "—")}
-                          </p>
-                        </div>
+                          name={String(ench.displayName ?? ench.id ?? "Unknown")}
+                          meta={`Slot ${String(ench.slot ?? "—")} · Level ${String(
+                            ench.level ?? "—"
+                          )}`}
+                        />
                       ))}
                     </div>
+                  )}
+
+                  {equippedEnchants.length > 7 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllEnchants((v) => !v)}
+                      className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                    >
+                      {showAllEnchants
+                        ? "Show fewer enchants"
+                        : `Show all enchants (${equippedEnchants.length})`}
+                    </button>
                   )}
                 </div>
 
@@ -592,12 +665,18 @@ export default function ProfilePage() {
             defaultOpen={true}
             right={<span className="text-xs text-zinc-400">Clan data</span>}
           >
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatPill label="Role" value="Member" />
-              <StatPill label="Discord ID" value="Linked" />
-              <StatPill label="Website Theme" value="Saved" />
-              <StatPill label="Profile Route" value={slug} />
-            </div>
+            {mcwv ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StatPill label="MCWV Username" value={mcwv.username} />
+                <StatPill label="Role" value={mcwv.role} />
+                <StatPill label="Discord ID" value={discordValue} />
+                <StatPill label="Theme" value={mcwv.theme ?? "default"} />
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-400">
+                No MCWV account data is linked for this profile.
+              </p>
+            )}
           </Section>
         </div>
       </main>
