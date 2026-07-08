@@ -479,7 +479,6 @@ export default function HomePage() {
   const livePlayers = players.length;
   const statusLabel = active ? "LIVE" : "IDLE";
   const trackingLabel = active ? "ACTIVE" : "PAUSED";
-  const currentLeader = players[0];
   const syncedLabel = formatAgo(lastSyncedAt, now);
 
   useEffect(() => {
@@ -718,80 +717,23 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-4">
-            <InfoPanel
-              title="System Snapshot"
-              action={
-                <span
-                  className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
-                  style={pillStyle}
-                >
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
-                  {active ? "LIVE" : "IDLE"}
-                </span>
-              }
-            >
-              <div className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-zinc-400">Current leader</span>
-                  <span className="font-semibold text-white">
-                    {currentLeader
-                      ? currentLeader.name
-                      : active
-                        ? "Waiting for updates"
-                        : "No active war"}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-zinc-400">Players tracked</span>
-                  <span className="font-semibold text-white">
-                    {formatNumber(livePlayers)}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-zinc-400">Last synced</span>
-                  <span className="font-semibold text-white">{syncedLabel}</span>
-                </div>
-              </div>
-            </InfoPanel>
-
             <InfoPanel title="Join MCWV Discord">
-              <div className="space-y-4 text-sm">
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <p className="text-base font-semibold text-white">
-                    Stay connected with the clan
-                  </p>
-                  <p className="mt-2 text-zinc-300">
-                    Updates, wars, events, and member chat all happen in one place.
-                  </p>
+              <a
+                href={discordHref}
+                className="inline-flex items-center justify-center rounded-2xl px-5 py-2.5 text-sm font-semibold transition hover:opacity-90"
+                style={{
+                  background: "var(--primary)",
+                  color: "#000",
+                }}
+              >
+                {discordLabel}
+              </a>
 
-                  <ul className="mt-3 space-y-2 text-zinc-300">
-                    <li>• Clan updates</li>
-                    <li>• War calls</li>
-                    <li>• Events</li>
-                    <li>• Community chat</li>
-                  </ul>
-                </div>
-
-                <a
-                  href={discordHref}
-                  className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold transition hover:opacity-90"
-                  style={{
-                    background: "var(--primary)",
-                    color: "#000",
-                  }}
-                >
-                  {discordLabel}
-                </a>
-
-                {!hasDiscordLink && (
-                  <p className="text-xs text-zinc-400">
-                    Add your Discord invite link in Settings to make this button open the
-                    server directly.
-                  </p>
-                )}
-              </div>
+              {!hasDiscordLink && (
+                <p className="mt-3 text-xs text-zinc-400">
+                  Add your Discord invite link in Settings.
+                </p>
+              )}
             </InfoPanel>
 
             <InfoPanel title="Clan Requirements">
@@ -822,4 +764,4 @@ export default function HomePage() {
       `}</style>
     </main>
   );
-      }
+            }
