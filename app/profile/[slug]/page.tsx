@@ -634,15 +634,27 @@ return (
             <div className="grid gap-3 sm:grid-cols-3">
               <StatPill
                 label="Ultimate"
-                value={String(inventorySummary?.ultimate ?? inventoryView.data?.equipped?.ultimate?.displayName ?? "—")}
+                value={String(
+                  inventorySummary?.ultimate ??
+                    inventoryView.data?.equipped?.ultimate?.displayName ??
+                    "—"
+                )}
               />
               <StatPill
                 label="Hoverboard"
-                value={String(inventorySummary?.hoverboard ?? inventoryView.data?.equipped?.hoverboard?.displayName ?? "—")}
+                value={String(
+                  inventorySummary?.hoverboard ??
+                    inventoryView.data?.equipped?.hoverboard?.displayName ??
+                    "—"
+                )}
               />
               <StatPill
                 label="Booth"
-                value={String(inventorySummary?.booth ?? inventoryView.data?.equipped?.booth?.displayName ?? "—")}
+                value={String(
+                  inventorySummary?.booth ??
+                    inventoryView.data?.equipped?.booth?.displayName ??
+                    "—"
+                )}
               />
             </div>
           </div>
@@ -663,16 +675,15 @@ return (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <StatPill
                 label="Items Owned"
-                value={formatNumber(inventorySummary?.itemsOwned ?? inventoryView.data?.items?.length ?? 0)}
+                value={formatNumber(
+                  inventorySummary?.itemsOwned ?? inventoryView.data?.items?.length ?? 0
+                )}
               />
               <StatPill
                 label="Equipped Pets"
                 value={formatNumber(inventorySummary?.equippedPetsCount)}
               />
-              <StatPill
-                label="Max Pets"
-                value={formatNumber(inventorySummary?.maxPets)}
-              />
+              <StatPill label="Max Pets" value={formatNumber(inventorySummary?.maxPets)} />
               <StatPill
                 label="Paid Enchants"
                 value={formatNumber(inventorySummary?.paidEnchantSlots)}
@@ -742,4 +753,4 @@ return (
 </>
 
 );
-                }
+  }
