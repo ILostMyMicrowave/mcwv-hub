@@ -135,12 +135,12 @@ return Object.keys(value as Record<string, unknown>).length;
 }
 
 function getRobloxAvatarUrl(robloxId: string) {
-return "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent( robloxId )}&size=150x150&format=Png";
+return `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent( robloxId )}&size=150x150&format=Png`;
 }
 
 function getPetIconUrl(name: string, golden = false) {
 const fileName = golden ? "${name} (Golden)" : name;
-return "https://raw.githubusercontent.com/BIG-Games-LLC/ps99-public-api-docs/master/Pet%20Icons/${encodeURIComponent( fileName )}.png";
+return `https://raw.githubusercontent.com/BIG-Games-LLC/ps99-public-api-docs/master/Pet%20Icons/${encodeURIComponent( fileName )}.png`;
 }
 
 function masteryCumulativeXpForLevel(level: number): number {
