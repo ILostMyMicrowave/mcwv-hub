@@ -403,13 +403,8 @@ loginStreak: loginStreak ?? null,
 };
 }
 
-async function fetchPs99Player(
-slug: string,
-include = "profile,inventory,extendedProfile"
-) {
-const url = new URL(
-"https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}"
-);
+async function fetchPs99Player(slug: string, include = "profile,inventory,extendedProfile") {
+const url = new URL("https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}");
 
 if (include.trim()) {
 url.searchParams.set("include", include);
@@ -440,7 +435,9 @@ req: Request,
 ) {
 try {
 const { slug } = await params;
-const include = new URL(req.url).searchParams.get("include") || "profile,inventory,extendedProfile";
+const include =
+new URL(req.url).searchParams.get("include") ||
+"profile,inventory,extendedProfile";
 
 let mcwvUser: McwvUser = null;
 let targetSlug = slug;
@@ -611,4 +608,4 @@ error: { code: "internal_error" },
 { status: 500 }
 );
 }
-  }
+}
