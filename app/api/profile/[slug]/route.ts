@@ -141,13 +141,13 @@ if (!value) return "";
 
 if (value.startsWith("rbxassetid://")) {
 const id = value.replace("rbxassetid://", "").trim();
-return id ? "https://assetdelivery.roblox.com/v1/asset/?id=${encodeURIComponent(id)}" : "";
+return id ? `https://assetdelivery.roblox.com/v1/asset/?id=${encodeURIComponent(id)}` : "";
 }
 
 if (value.startsWith("rbxthumb://")) {
 const match = value.match(/id=(\d+)/);
 if (match?.[1]) {
-return "https://assetdelivery.roblox.com/v1/asset/?id=${match[1]}";
+return `https://assetdelivery.roblox.com/v1/asset/?id=${match[1]}`;
 }
 }
 
@@ -155,12 +155,12 @@ return value;
 }
 
 function getRobloxAvatarUrl(robloxId: string) {
-return "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent( robloxId )}&size=150x150&format=Png&isCircular=false";
+return `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent( robloxId )}&size=150x150&format=Png&isCircular=false`;
 }
 
 function getPetIconUrl(name: string, golden = false) {
 const fileName = golden ? "${name} (Golden)" : name;
-return "https://raw.githubusercontent.com/BIG-Games-LLC/ps99-public-api-docs/master/Pet%20Icons/${encodeURIComponent( fileName )}.png";
+return `https://raw.githubusercontent.com/BIG-Games-LLC/ps99-public-api-docs/master/Pet%20Icons/${encodeURIComponent( fileName )}.png`;
 }
 
 function choosePetIcon(pet: Record<string, any>, fallbackName: string, golden: boolean) {
