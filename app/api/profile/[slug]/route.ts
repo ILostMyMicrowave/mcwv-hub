@@ -372,11 +372,11 @@ return { res, json };
 }
 
 export async function GET(
-req: Request,
-{ params }: { params: { slug: string } }
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> }
 ) {
-try {
-const { slug } = params;
+  try {
+    const { slug } = await params;
 const include = new URL(req.url).searchParams.get("include") || "*";
 
 let mcwvUser: McwvUser = null;
