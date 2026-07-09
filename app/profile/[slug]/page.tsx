@@ -132,7 +132,7 @@ function getInitials(name: string) {
 const parts = name.trim().split(/\s+/).filter(Boolean);
 if (!parts.length) return "?";
 if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
+return "${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}".toUpperCase();
 }
 
 function capitalize(value: string) {
@@ -329,9 +329,7 @@ const profileView = ok.views.profile ?? null;
 const inventoryView = ok.views.inventory ?? null;
 const extendedView = ok.views.extendedProfile ?? null;
 
-const equippedPets = inventoryView?.available
-? inventoryView.data?.equipped?.pets?.list ?? []
-: [];
+const equippedPets = inventoryView?.available ? inventoryView.data?.equipped?.pets?.list ?? [] : [];
 const equippedEnchants = inventoryView?.available
 ? inventoryView.data?.equipped?.enchants?.list ?? []
 : [];
@@ -352,6 +350,8 @@ mcwv?.discord_id === null || mcwv?.discord_id === undefined
 ? "Not linked"
 : String(mcwv.discord_id);
 
+const extendedRaw = ok.raw.extendedProfile as Record<string, any> | null;
+
 return (
 <>
 <Navbar />
@@ -369,9 +369,7 @@ return (
 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-3xl font-black text-white">
-                  {account.username}
-                </h1>
+                <h1 className="text-3xl font-black text-white">{account.username}</h1>
                 <span className="rounded-full border border-yellow-400/20 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
                   PS99 Profile
                 </span>
@@ -417,10 +415,7 @@ return (
         <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatPill label="Eggs Hatched" value={formatNumber(summary?.eggsHatched)} />
           <StatPill label="Sessions" value={formatNumber(summary?.totalSessions)} />
-          <StatPill
-            label="Zones Unlocked"
-            value={formatNumber(summary?.zonesUnlockedCount)}
-          />
+          <StatPill label="Zones Unlocked" value={formatNumber(summary?.zonesUnlockedCount)} />
           <StatPill label="Achievements" value={formatNumber(summary?.achievementsCount)} />
         </div>
       </div>
@@ -432,10 +427,7 @@ return (
       >
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatPill label="Rank Stars" value={formatNumber(summary?.rankStars)} />
-          <StatPill
-            label="Goals Completed"
-            value={formatNumber(summary?.goalsCompleted)}
-          />
+          <StatPill label="Goals Completed" value={formatNumber(summary?.goalsCompleted)} />
           <StatPill label="Egg Slots" value={formatNumber(summary?.eggSlotsPurchased)} />
           <StatPill label="Pet Slots" value={formatNumber(summary?.petSlotsPurchased)} />
         </div>
@@ -460,9 +452,7 @@ return (
         right={<span className="text-xs text-zinc-400">Public profile</span>}
       >
         {!profileView?.available || !summary?.mastery ? (
-          <p className="text-sm text-zinc-400">
-            Mastery data is not public or not available.
-          </p>
+          <p className="text-sm text-zinc-400">Mastery data is not public or not available.</p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {Object.entries(summary.mastery)
@@ -528,9 +518,7 @@ return (
                   onClick={() => setShowAllPets((v) => !v)}
                   className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
                 >
-                  {showAllPets
-                    ? "Show fewer pets"
-                    : `Show all pets (${equippedPets.length})`}
+                  {showAllPets ? "Show fewer pets" : `Show all pets (${equippedPets.length})`}
                 </button>
               )}
             </div>
@@ -552,9 +540,7 @@ return (
                     <CompactItemCard
                       key={`${ench.uid ?? index}-${ench.id ?? index}`}
                       name={String(ench.displayName ?? ench.id ?? "Unknown")}
-                      meta={`Slot ${String(ench.slot ?? "—")} · Level ${String(
-                        ench.level ?? "—"
-                      )}`}
+                      meta={`Slot ${String(ench.slot ?? "—")} · Level ${String(ench.level ?? "—")}`}
                     />
                   ))}
                 </div>
@@ -580,9 +566,7 @@ return (
               />
               <StatPill
                 label="Hoverboard"
-                value={String(
-                  inventoryView.data?.equipped?.hoverboard?.displayName ?? "—"
-                )}
+                value={String(inventoryView.data?.equipped?.hoverboard?.displayName ?? "—")}
               />
               <StatPill
                 label="Booth"
@@ -605,15 +589,10 @@ return (
         ) : (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatPill
-                label="Items Owned"
-                value={formatNumber(inventoryView.data?.items?.length ?? 0)}
-              />
+              <StatPill label="Items Owned" value={formatNumber(inventoryView.data?.items?.length ?? 0)} />
               <StatPill
                 label="Equipped Pets"
-                value={formatNumber(
-                  inventoryView.data?.equipped?.pets?.equippedCount
-                )}
+                value={formatNumber(inventoryView.data?.equipped?.pets?.equippedCount)}
               />
               <StatPill
                 label="Max Pets"
@@ -637,35 +616,29 @@ return (
         defaultOpen={false}
         right={<span className="text-xs text-zinc-400">Sensitive public data</span>}
       >
-        {!extendedView?.available || !ok.raw.extendedProfile ? (
-          <p className="text-sm text-zinc-400">
-            Extended profile is private or unavailable.
-          </p>
+        {!extendedView?.available || !extendedRaw ? (
+          <p className="text-sm text-zinc-400">Extended profile is private or unavailable.</p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <StatPill
               label="Robux Spent"
               value={formatNumber(
-                typeof ok.raw.extendedProfile.RobuxSpent === "number"
-                  ? ok.raw.extendedProfile.RobuxSpent
-                  : null
+                typeof extendedRaw.RobuxSpent === "number" ? extendedRaw.RobuxSpent : null
               )}
             />
             <StatPill
               label="Gamepasses"
               value={formatNumber(
-                ok.raw.extendedProfile.Gamepasses &&
-                  typeof ok.raw.extendedProfile.Gamepasses === "object"
-                  ? Object.keys(ok.raw.extendedProfile.Gamepasses).length
+                extendedRaw.Gamepasses && typeof extendedRaw.Gamepasses === "object"
+                  ? Object.keys(extendedRaw.Gamepasses).length
                   : 0
               )}
             />
             <StatPill
               label="Products"
               value={formatNumber(
-                ok.raw.extendedProfile.Products &&
-                  typeof ok.raw.extendedProfile.Products === "object"
-                  ? Object.keys(ok.raw.extendedProfile.Products).length
+                extendedRaw.Products && typeof extendedRaw.Products === "object"
+                  ? Object.keys(extendedRaw.Products).length
                   : 0
               )}
             />
@@ -686,9 +659,7 @@ return (
             <StatPill label="Theme" value={mcwv.theme ?? "default"} />
           </div>
         ) : (
-          <p className="text-sm text-zinc-400">
-            No MCWV account data is linked for this profile.
-          </p>
+          <p className="text-sm text-zinc-400">No MCWV account data is linked for this profile.</p>
         )}
       </Section>
     </div>
