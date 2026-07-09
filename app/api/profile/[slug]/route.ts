@@ -154,10 +154,20 @@ function resolveRobloxImageUrl(src: unknown): string {
   return value;
 }
 
-function getRobloxAvatarUrl(robloxId: string) {
-  return `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent(
-    robloxId
-  )}&size=150x150&format=Png&isCircular=false`;
+async function getRobloxAvatarUrl(robloxId: string): Promise<string> {
+  try {
+    const url = `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent(
+      robloxId
+    )}&size=150x150&format=Png&isCircular=false`;
+
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return "";
+
+    const json = await res.json().catch(() => null);
+    return json?.data?.[0]?.imageUrl ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function getPetIconUrl(name: string, golden = false) {
@@ -614,7 +624,7 @@ export async function GET(
             robloxUserId: account?.robloxUserId ?? targetSlug,
             username: account?.username ?? targetSlug,
             displayName: account?.displayName ?? null,
-            avatarUrl: getRobloxAvatarUrl(account?.robloxUserId ?? targetSlug),
+            avatarUrl: await getRobloxAvatarUrl(account?.robloxUserId ?? targetSlug),
             publicViews: account?.publicViews ?? {},
           },
           mcwv: mcwvUser
