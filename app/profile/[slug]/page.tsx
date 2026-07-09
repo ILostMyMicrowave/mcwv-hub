@@ -207,7 +207,7 @@ return (
 <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
 <div
 className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-yellow-400 transition-all"
-style={{ width: "${pct}%" }}
+style={{ width: `${pct}%` }}
 />
 </div>
 </div>
