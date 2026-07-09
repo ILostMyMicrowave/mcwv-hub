@@ -404,7 +404,7 @@ loginStreak: loginStreak ?? null,
 }
 
 async function fetchPs99Player(slug: string, include = "profile,inventory,extendedProfile") {
-const url = new URL("https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}");
+const url = new URL(`https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}`);
 
 if (include.trim()) {
 url.searchParams.set("include", include);
