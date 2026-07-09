@@ -34,7 +34,34 @@ displayName: string | null;
 publicViews: Record<string, true>;
 };
 views?: Record<string, Ps99ViewEnvelope>;
+profile?: unknown;
+inventory?: unknown;
+extendedProfile?: unknown;
+[key: string]: unknown;
 };
+};
+
+type EquippedPetSummary = {
+uid: string | null;
+slot: string | null;
+id: string | null;
+displayName: string;
+icon: string;
+goldenIcon: string;
+shiny: boolean;
+golden: boolean;
+rainbow: boolean;
+rarity: "Titanic" | "Huge" | null;
+};
+
+type EquippedEnchantSummary = {
+uid: string | null;
+slot: string | null;
+id: string | null;
+displayName: string;
+icon: string;
+paid: boolean;
+level: number;
 };
 
 const MASTERY_MAX_LEVEL = 99;
@@ -105,6 +132,15 @@ return value && typeof value === "object" ? (value as T) : null;
 function countObjectKeys(value: unknown): number {
 if (!value || typeof value !== "object") return 0;
 return Object.keys(value as Record<string, unknown>).length;
+}
+
+function getRobloxAvatarUrl(robloxId: string) {
+return "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${encodeURIComponent( robloxId )}&size=150x150&format=Png";
+}
+
+function getPetIconUrl(name: string, golden = false) {
+const fileName = golden ? "${name} (Golden)" : name;
+return "https://raw.githubusercontent.com/BIG-Games-LLC/ps99-public-api-docs/master/Pet%20Icons/${encodeURIComponent( fileName )}.png";
 }
 
 function masteryCumulativeXpForLevel(level: number): number {
@@ -257,18 +293,43 @@ let shinyPetsEquipped = 0;
 let goldenPetsEquipped = 0;
 let rainbowPetsEquipped = 0;
 
-for (const pet of petList) {
-const displayName = String(pet?.displayName ?? pet?.id ?? "");
+const equippedPets: EquippedPetSummary[] = petList.map((pet, index) => {
+const displayName = String(pet?.displayName ?? pet?.id ?? "Unknown");
 const lower = displayName.toLowerCase();
+const golden = Boolean(pet?.golden);
+const shiny = Boolean(pet?.shiny);
+const rainbow = Boolean(pet?.rainbow);
 
 if (lower.includes("titanic")) titanicPetsEquipped += 1;
 if (lower.startsWith("huge ")) hugePetsEquipped += 1;
+if (shiny) shinyPetsEquipped += 1;
+if (golden) goldenPetsEquipped += 1;
+if (rainbow) rainbowPetsEquipped += 1;
 
-if (pet?.shiny) shinyPetsEquipped += 1;
-if (pet?.golden) goldenPetsEquipped += 1;
-if (pet?.rainbow) rainbowPetsEquipped += 1;
+return {
+  uid: pet?.uid ? String(pet.uid) : null,
+  slot: pet?.slot ? String(pet.slot) : String(index + 1),
+  id: pet?.id ? String(pet.id) : null,
+  displayName,
+  icon: getPetIconUrl(displayName, golden),
+  goldenIcon: getPetIconUrl(displayName, true),
+  shiny,
+  golden,
+  rainbow,
+  rarity: lower.includes("titanic") ? "Titanic" : lower.startsWith("huge ") ? "Huge" : null,
+};
 
-}
+});
+
+const equippedEnchants: EquippedEnchantSummary[] = enchantList.map((ench, index) => ({
+uid: ench?.uid ? String(ench.uid) : null,
+slot: ench?.slot ? String(ench.slot) : String(index + 1),
+id: ench?.id ? String(ench.id) : null,
+displayName: String(ench?.displayName ?? ench?.id ?? "Unknown"),
+icon: String(ench?.icon ?? ""),
+paid: Boolean(ench?.paid),
+level: normalizeNumber(ench?.level) ?? 0,
+}));
 
 return {
 itemsOwned: items.length,
@@ -283,6 +344,8 @@ titanicPetsEquipped,
 shinyPetsEquipped,
 goldenPetsEquipped,
 rainbowPetsEquipped,
+equippedPets,
+equippedEnchants,
 ultimate: String(
 getNestedValue(inventoryData, ["equipped", "ultimate", "displayName"]) ?? "—"
 ),
@@ -342,10 +405,10 @@ loginStreak: loginStreak ?? null,
 
 async function fetchPs99Player(
 slug: string,
-include = "*"
+include = "profile,inventory,extendedProfile"
 ) {
 const url = new URL(
-`https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}`
+"https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}"
 );
 
 if (include.trim()) {
@@ -372,12 +435,12 @@ return { res, json };
 }
 
 export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ slug: string }> }
+req: Request,
+{ params }: { params: Promise<{ slug: string }> }
 ) {
-  try {
-    const { slug } = await params;
-const include = new URL(req.url).searchParams.get("include") || "*";
+try {
+const { slug } = await params;
+const include = new URL(req.url).searchParams.get("include") || "profile,inventory,extendedProfile";
 
 let mcwvUser: McwvUser = null;
 let targetSlug = slug;
@@ -439,9 +502,36 @@ const data = json as Ps99PlayerResponse | null;
 const account = data?.data?.account ?? null;
 const views = data?.data?.views ?? {};
 
-const profileView = views.profile ?? null;
-const inventoryView = views.inventory ?? null;
-const extendedProfileView = views.extendedProfile ?? null;
+const profileFallback = (data?.data as Record<string, unknown> | undefined)?.profile;
+const inventoryFallback = (data?.data as Record<string, unknown> | undefined)?.inventory;
+const extendedProfileFallback = (data?.data as Record<string, unknown> | undefined)?.extendedProfile;
+
+const profileView =
+  views.profile ??
+  (profileFallback !== undefined
+    ? ({
+        available: true,
+        data: profileFallback,
+      } as Ps99ViewEnvelope)
+    : null);
+
+const inventoryView =
+  views.inventory ??
+  (inventoryFallback !== undefined
+    ? ({
+        available: true,
+        data: inventoryFallback,
+      } as Ps99ViewEnvelope)
+    : null);
+
+const extendedProfileView =
+  views.extendedProfile ??
+  (extendedProfileFallback !== undefined
+    ? ({
+        available: true,
+        data: extendedProfileFallback,
+      } as Ps99ViewEnvelope)
+    : null);
 
 const profileData =
   profileView &&
@@ -478,6 +568,7 @@ return NextResponse.json(
         robloxUserId: account?.robloxUserId ?? targetSlug,
         username: account?.username ?? targetSlug,
         displayName: account?.displayName ?? null,
+        avatarUrl: getRobloxAvatarUrl(account?.robloxUserId ?? targetSlug),
         publicViews: account?.publicViews ?? {},
       },
       mcwv: mcwvUser
