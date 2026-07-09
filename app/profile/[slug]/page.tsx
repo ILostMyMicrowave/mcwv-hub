@@ -4,6 +4,29 @@ import Navbar from "@/components/Navbar";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
+type EquippedPet = {
+uid: string | null;
+slot: string | null;
+id: string | null;
+displayName: string;
+icon: string;
+goldenIcon: string;
+shiny: boolean;
+golden: boolean;
+rainbow: boolean;
+rarity: "Titanic" | "Huge" | null;
+};
+
+type EquippedEnchant = {
+uid: string | null;
+slot: string | null;
+id: string | null;
+displayName: string;
+icon: string;
+paid: boolean;
+level: number;
+};
+
 type ApiResponse =
 | {
 status: "ok";
@@ -12,6 +35,7 @@ account: {
 robloxUserId: string;
 username: string;
 displayName: string | null;
+avatarUrl?: string | null;
 publicViews: Record<string, true>;
 };
 mcwv: {
@@ -45,6 +69,27 @@ zonesUnlockedCount: number;
 purchasedEggsCount: number;
 loginStreak: Record<string, unknown> | null;
 } | null;
+inventorySummary:
+| {
+itemsOwned: number;
+equippedPetsCount: number;
+maxPets: number | null;
+equippedEnchantsCount: number;
+paidEnchantSlots: number | null;
+maxEnchants: number | null;
+maxPaidEnchants: number | null;
+hugePetsEquipped: number;
+titanicPetsEquipped: number;
+shinyPetsEquipped: number;
+goldenPetsEquipped: number;
+rainbowPetsEquipped: number;
+equippedPets: EquippedPet[];
+equippedEnchants: EquippedEnchant[];
+ultimate: string;
+hoverboard: string;
+booth: string;
+}
+| null;
 views: {
 profile: {
 available: boolean;
@@ -132,7 +177,7 @@ function getInitials(name: string) {
 const parts = name.trim().split(/\s+/).filter(Boolean);
 if (!parts.length) return "?";
 if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
+return "${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}".toUpperCase();
 }
 
 function capitalize(value: string) {
@@ -207,7 +252,7 @@ return (
 <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
 <div
 className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-yellow-400 transition-all"
-style={{ width: `${pct}%` }}
+style={{ width: "${pct}%" }}
 />
 </div>
 </div>
@@ -217,15 +262,42 @@ style={{ width: `${pct}%` }}
 function CompactItemCard({
 name,
 meta,
+icon,
+badge,
 }: {
 name: string;
 meta: string;
+icon?: string | null;
+badge?: string | null;
 }) {
 return (
-<div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-<p className="font-semibold text-white">{name}</p>
-<p className="mt-1 text-xs text-zinc-400">{meta}</p>
+<div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+<div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+{icon ? (
+<img
+src={icon}
+alt={name}
+className="h-full w-full object-contain"
+loading="lazy"
+/>
+) : (
+<span className="text-xs text-zinc-500">N/A</span>
+)}
 </div>
+
+  <div className="min-w-0 flex-1">
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="truncate font-semibold text-white">{name}</p>
+      {badge ? (
+        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-200">
+          {badge}
+        </span>
+      ) : null}
+    </div>
+    <p className="mt-1 text-xs text-zinc-400">{meta}</p>
+  </div>
+</div>
+
 );
 }
 
@@ -325,14 +397,13 @@ const ok = data.data;
 const account = ok.account;
 const mcwv = ok.mcwv ?? null;
 const summary = ok.summary ?? null;
+const inventorySummary = ok.inventorySummary ?? null;
 const profileView = ok.views.profile ?? null;
 const inventoryView = ok.views.inventory ?? null;
 const extendedView = ok.views.extendedProfile ?? null;
 
-const equippedPets = inventoryView?.available ? inventoryView.data?.equipped?.pets?.list ?? [] : [];
-const equippedEnchants = inventoryView?.available
-? inventoryView.data?.equipped?.enchants?.list ?? []
-: [];
+const equippedPets = inventorySummary?.equippedPets ?? [];
+const equippedEnchants = inventorySummary?.equippedEnchants ?? [];
 
 const visiblePets = showAllPets ? equippedPets : equippedPets.slice(0, 12);
 const visibleEnchants = showAllEnchants ? equippedEnchants : equippedEnchants.slice(0, 7);
@@ -362,9 +433,17 @@ return (
         <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="flex items-start gap-5">
             <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-yellow-400/20 bg-yellow-400/10">
-              <span className="text-2xl font-black text-yellow-200">
-                {getInitials(account.username)}
-              </span>
+              {account.avatarUrl ? (
+                <img
+                  src={account.avatarUrl}
+                  alt={account.username}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-2xl font-black text-yellow-200">
+                  {getInitials(account.username)}
+                </span>
+              )}
             </div>
 
             <div className="min-w-0 flex-1">
@@ -483,8 +562,8 @@ return (
               <div className="mb-3 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-white">Pets</p>
                 <p className="text-xs text-zinc-500">
-                  {formatNumber(inventoryView.data?.equipped?.pets?.equippedCount)} /{" "}
-                  {formatNumber(inventoryView.data?.equipped?.pets?.maxEquipped)} equipped
+                  {formatNumber(inventorySummary?.equippedPetsCount)} /{" "}
+                  {formatNumber(inventorySummary?.maxPets)} equipped
                 </p>
               </div>
 
@@ -492,23 +571,15 @@ return (
                 <p className="text-sm text-zinc-400">No equipped pets found.</p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {visiblePets.map((pet, index) => {
-                    const flags = [
-                      pet.shiny ? "Shiny" : "",
-                      pet.golden ? "Golden" : "",
-                      pet.rainbow ? "Rainbow" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ");
-
-                    return (
-                      <CompactItemCard
-                        key={`${pet.uid ?? index}-${pet.id ?? index}`}
-                        name={String(pet.displayName ?? pet.id ?? "Unknown")}
-                        meta={`#${index + 1}${flags ? ` · ${flags}` : ""}`}
-                      />
-                    );
-                  })}
+                  {visiblePets.map((pet, index) => (
+                    <CompactItemCard
+                      key={`${pet.uid ?? index}-${pet.id ?? index}`}
+                      name={pet.displayName}
+                      meta={`#${index + 1}${pet.shiny ? " · Shiny" : ""}${pet.golden ? " · Golden" : ""}${pet.rainbow ? " · Rainbow" : ""}${pet.rarity ? ` · ${pet.rarity}` : ""}`}
+                      icon={pet.golden ? pet.goldenIcon || pet.icon : pet.icon}
+                      badge={pet.rarity}
+                    />
+                  ))}
                 </div>
               )}
 
@@ -527,7 +598,7 @@ return (
               <div className="mb-3 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-white">Enchants</p>
                 <p className="text-xs text-zinc-500">
-                  {formatNumber(equippedEnchants.length)} equipped ·{" "}
+                  {formatNumber(inventorySummary?.equippedEnchantsCount)} equipped ·{" "}
                   {formatNumber(inventoryView.data?.equipped?.enchants?.paidCount)} paid
                 </p>
               </div>
@@ -539,8 +610,9 @@ return (
                   {visibleEnchants.map((ench, index) => (
                     <CompactItemCard
                       key={`${ench.uid ?? index}-${ench.id ?? index}`}
-                      name={String(ench.displayName ?? ench.id ?? "Unknown")}
+                      name={ench.displayName}
                       meta={`Slot ${String(ench.slot ?? "—")} · Level ${String(ench.level ?? "—")}`}
+                      icon={ench.icon || null}
                     />
                   ))}
                 </div>
@@ -562,15 +634,15 @@ return (
             <div className="grid gap-3 sm:grid-cols-3">
               <StatPill
                 label="Ultimate"
-                value={String(inventoryView.data?.equipped?.ultimate?.displayName ?? "—")}
+                value={String(inventorySummary?.ultimate ?? inventoryView.data?.equipped?.ultimate?.displayName ?? "—")}
               />
               <StatPill
                 label="Hoverboard"
-                value={String(inventoryView.data?.equipped?.hoverboard?.displayName ?? "—")}
+                value={String(inventorySummary?.hoverboard ?? inventoryView.data?.equipped?.hoverboard?.displayName ?? "—")}
               />
               <StatPill
                 label="Booth"
-                value={String(inventoryView.data?.equipped?.booth?.displayName ?? "—")}
+                value={String(inventorySummary?.booth ?? inventoryView.data?.equipped?.booth?.displayName ?? "—")}
               />
             </div>
           </div>
@@ -589,18 +661,21 @@ return (
         ) : (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatPill label="Items Owned" value={formatNumber(inventoryView.data?.items?.length ?? 0)} />
+              <StatPill
+                label="Items Owned"
+                value={formatNumber(inventorySummary?.itemsOwned ?? inventoryView.data?.items?.length ?? 0)}
+              />
               <StatPill
                 label="Equipped Pets"
-                value={formatNumber(inventoryView.data?.equipped?.pets?.equippedCount)}
+                value={formatNumber(inventorySummary?.equippedPetsCount)}
               />
               <StatPill
                 label="Max Pets"
-                value={formatNumber(inventoryView.data?.equipped?.pets?.maxEquipped)}
+                value={formatNumber(inventorySummary?.maxPets)}
               />
               <StatPill
                 label="Paid Enchants"
-                value={formatNumber(inventoryView.data?.equipped?.enchants?.paidCount)}
+                value={formatNumber(inventorySummary?.paidEnchantSlots)}
               />
             </div>
 
@@ -667,4 +742,4 @@ return (
 </>
 
 );
-}
+                }
