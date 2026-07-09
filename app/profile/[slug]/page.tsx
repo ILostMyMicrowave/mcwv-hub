@@ -636,10 +636,10 @@ export default function ProfilePage() {
 
       <main className="min-h-screen bg-black px-4 py-8 text-white">
         <div className="mx-auto max-w-6xl space-y-6">
-          <div className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/10 to-white/5 p-6 backdrop-blur">
+          <div className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/10 to-white/5 p-4 sm:p-6 backdrop-blur">
             <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <div className="flex items-start gap-5">
-                <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-yellow-400/20 bg-yellow-400/10">
+              <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-start sm:text-left">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-yellow-400/20 bg-yellow-400/10 sm:h-24 sm:w-24">
                   {avatarSrc ? (
                     <img
                       src={avatarSrc}
@@ -655,8 +655,8 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-3xl font-black text-white">{account.username}</h1>
+                  <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                    <h1 className="text-2xl font-black text-white sm:text-3xl">{account.username}</h1>
                     <span className="rounded-full border border-yellow-400/20 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
                       PS99 Profile
                     </span>
@@ -671,7 +671,7 @@ export default function ProfilePage() {
                     {account.displayName || "No display name set"}
                   </p>
 
-                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                  <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs sm:justify-start">
                     <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
                       Roblox ID: {account.robloxUserId}
                     </span>
@@ -955,4 +955,4 @@ export default function ProfilePage() {
       </main>
     </>
   );
-    }
+            }
