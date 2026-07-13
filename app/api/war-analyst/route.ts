@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const BASE = "https://ps99.biggamesapi.io";
-const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
+const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "SOPU";
 
 type ClanStanding = {
   rank: number | null;
