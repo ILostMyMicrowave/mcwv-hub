@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -94,24 +94,53 @@ function toneStyles(tone: WarAnalysisResponse["uiTone"]) {
         border: "color-mix(in srgb, var(--primary) 28%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
         text: "var(--primary)",
+        label: "Strong position",
       };
     case "warning":
       return {
         border: "color-mix(in srgb, var(--primary) 22%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
         text: "var(--primary)",
+        label: "Watch closely",
       };
     case "danger":
       return {
         border: "color-mix(in srgb, var(--primary) 18%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 7%, transparent)",
         text: "var(--primary)",
+        label: "At risk",
       };
     default:
       return {
         border: "color-mix(in srgb, var(--primary) 20%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
         text: "var(--primary)",
+        label: "In progress",
+      };
+  }
+}
+
+function targetTone(status: WarAnalysisResponse["targets"]["top30"]["status"]) {
+  switch (status) {
+    case "safe":
+      return {
+        border: "color-mix(in srgb, var(--primary) 28%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
+      };
+    case "reachable":
+      return {
+        border: "color-mix(in srgb, var(--primary) 22%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
+      };
+    case "unlikely":
+      return {
+        border: "color-mix(in srgb, var(--border) 90%, transparent)",
+        soft: "rgba(0,0,0,0.18)",
+      };
+    default:
+      return {
+        border: "color-mix(in srgb, var(--border) 90%, transparent)",
+        soft: "rgba(0,0,0,0.18)",
       };
   }
 }
@@ -146,7 +175,7 @@ function Section({
 }: {
   title: string;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section
@@ -188,6 +217,19 @@ function MiniStat({
       <p className="mt-1 text-lg font-bold text-white">{value}</p>
     </div>
   );
+}
+
+function statusText(status: WarAnalysisResponse["targets"]["top30"]["status"]) {
+  switch (status) {
+    case "safe":
+      return "On pace";
+    case "reachable":
+      return "Reachable";
+    case "unlikely":
+      return "Unlikely";
+    default:
+      return "Unknown";
+  }
 }
 
 export default function WarAnalystPage() {
@@ -268,25 +310,47 @@ export default function WarAnalystPage() {
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">
                     {data.analysis.summary}
                   </p>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <StatusChip
+                      label="Current status"
+                      value={data.active ? "Live" : "Inactive"}
+                    />
+                    <StatusChip
+                      label="Current rank"
+                      value={
+                        data.current.rank !== null ? `#${data.current.rank}` : "Unresolved"
+                      }
+                    />
+                    <StatusChip
+                      label="Projected finish"
+                      value={
+                        data.projection.placement !== null ? `#${data.projection.placement}` : "—"
+                      }
+                    />
+                    <StatusChip
+                      label="Confidence"
+                      value={data.projection.confidence.toUpperCase()}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
-                  <StatusChip label="Current status" value={data.active ? "Live" : "Inactive"} />
-                  <StatusChip
-                    label="Current rank"
-                    value={
-                      data.current.rank !== null ? `#${data.current.rank}` : "Unresolved"
-                    }
-                  />
-                  <StatusChip
-                    label="Projected finish"
-                    value={
-                      data.projection.placement !== null ? `#${data.projection.placement}` : "—"
-                    }
-                  />
                   <StatusChip
                     label="Time remaining"
                     value={formatDuration(data.current.timeRemainingMs)}
+                  />
+                  <StatusChip
+                    label="Clan"
+                    value={data.current.clanName}
+                  />
+                  <StatusChip
+                    label="Participants"
+                    value={formatNumber(data.current.participants)}
+                  />
+                  <StatusChip
+                    label="Battle points"
+                    value={formatNumber(data.current.points)}
                   />
                 </div>
               </div>
@@ -301,12 +365,12 @@ export default function WarAnalystPage() {
                   }
                 />
                 <MiniStat
-                  label="Points"
-                  value={formatNumber(data.current.points)}
+                  label="Total clans"
+                  value={formatNumber(data.current.totalClans)}
                 />
                 <MiniStat
-                  label="Participants"
-                  value={formatNumber(data.current.participants)}
+                  label="Total points"
+                  value={formatNumber(data.current.totalPoints)}
                 />
               </div>
 
@@ -326,7 +390,10 @@ export default function WarAnalystPage() {
 
             <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
               <div className="space-y-6">
-                <Section title="Current assessment" subtitle="Short, officer-friendly analysis of the live war.">
+                <Section
+                  title="Current assessment"
+                  subtitle="Officer-friendly analysis of the live war."
+                >
                   <div className="space-y-4">
                     <div
                       className="rounded-2xl border p-4"
@@ -375,57 +442,50 @@ export default function WarAnalystPage() {
                   </div>
                 </Section>
 
-                <Section title="Target pressure" subtitle="How the current snapshot reads against common finish goals.">
+                <Section
+                  title="Target pressure"
+                  subtitle="How the current snapshot reads against common finish goals."
+                >
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div
-                      className="rounded-2xl border p-4"
-                      style={{
-                        borderColor:
-                          data.targets.top30.status === "safe"
-                            ? "color-mix(in srgb, var(--primary) 30%, transparent)"
-                            : data.targets.top30.status === "reachable"
-                              ? "color-mix(in srgb, var(--primary) 22%, transparent)"
-                              : "var(--border)",
-                        background: "rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Top 30
-                      </p>
-                      <p className="mt-2 text-lg font-bold text-white">
-                        {data.targets.top30.status.toUpperCase()}
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/70">
-                        {data.targets.top30.message}
-                      </p>
-                    </div>
+                    {[data.targets.top30, data.targets.top50].map((target, index) => {
+                      const label = index === 0 ? "Top 30" : "Top 50";
+                      const tone = targetTone(target.status);
 
-                    <div
-                      className="rounded-2xl border p-4"
-                      style={{
-                        borderColor:
-                          data.targets.top50.status === "safe"
-                            ? "color-mix(in srgb, var(--primary) 30%, transparent)"
-                            : data.targets.top50.status === "reachable"
-                              ? "color-mix(in srgb, var(--primary) 22%, transparent)"
-                              : "var(--border)",
-                        background: "rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Top 50
-                      </p>
-                      <p className="mt-2 text-lg font-bold text-white">
-                        {data.targets.top50.status.toUpperCase()}
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/70">
-                        {data.targets.top50.message}
-                      </p>
-                    </div>
+                      return (
+                        <div
+                          key={label}
+                          className="rounded-2xl border p-4"
+                          style={{
+                            borderColor: tone.border,
+                            background: tone.soft,
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
+                              {label}
+                            </p>
+                            <p className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white"
+                               style={{
+                                 borderColor: tone.border,
+                                 background: "rgba(0,0,0,0.16)",
+                               }}
+                            >
+                              {statusText(target.status)}
+                            </p>
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-[var(--foreground)]/80">
+                            {target.message}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </Section>
 
-                <Section title="Nearby clans" subtitle="The closest clans around MCWV’s current position.">
+                <Section
+                  title="Nearby clans"
+                  subtitle="The closest clans around MCWV’s current position."
+                >
                   {data.nearbyClans.length === 0 ? (
                     <p className="text-sm text-[var(--foreground)]/65">
                       Nearby clan data is not available yet.
@@ -440,9 +500,7 @@ export default function WarAnalystPage() {
                             className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
                             style={{
                               borderColor: isUs ? styles.border : "var(--border)",
-                              background: isUs
-                                ? styles.soft
-                                : "rgba(0,0,0,0.16)",
+                              background: isUs ? styles.soft : "rgba(0,0,0,0.16)",
                             }}
                           >
                             <div className="min-w-0">
@@ -480,7 +538,10 @@ export default function WarAnalystPage() {
               </div>
 
               <div className="space-y-6">
-                <Section title="Projection" subtitle="A simple finish estimate from the live snapshot.">
+                <Section
+                  title="Projection"
+                  subtitle="A simple finish estimate from the live snapshot."
+                >
                   <div
                     className="rounded-2xl border p-5"
                     style={{
@@ -500,7 +561,10 @@ export default function WarAnalystPage() {
                   </div>
                 </Section>
 
-                <Section title="Top contributor" subtitle="The current leader inside the battle snapshot.">
+                <Section
+                  title="Top contributor"
+                  subtitle="The current leader inside the battle snapshot."
+                >
                   {data.topContributor ? (
                     <div
                       className="rounded-2xl border p-4"
@@ -530,11 +594,16 @@ export default function WarAnalystPage() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-[var(--foreground)]/65">No top contributor data yet.</p>
+                    <p className="text-sm text-[var(--foreground)]/65">
+                      No top contributor data yet.
+                    </p>
                   )}
                 </Section>
 
-                <Section title="Member activity" subtitle="Public PS99 battle data does not expose full internal inactivity history.">
+                <Section
+                  title="Member activity"
+                  subtitle="Public PS99 battle data does not expose full internal inactivity history."
+                >
                   <div
                     className="rounded-2xl border p-4"
                     style={{
@@ -552,4 +621,4 @@ export default function WarAnalystPage() {
       </div>
     </main>
   );
-                                }
+}
