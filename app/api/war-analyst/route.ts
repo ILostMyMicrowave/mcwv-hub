@@ -98,7 +98,17 @@ function asNumber(value: unknown): number | null {
 }
 
 function normalizeName(value: unknown): string {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function sameClan(a: unknown, b: unknown): boolean {
+  const left = normalizeName(a);
+  const right = normalizeName(b);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
 }
 
 function pickBattleId(activeJson: any): string | null {
@@ -113,18 +123,6 @@ function pickBattleId(activeJson: any): string | null {
   );
 }
 
-function findOurClan(topClans: any[]) {
-  const target = normalizeName(CLAN_NAME);
-
-  return (
-    topClans.find((c) => normalizeName(c?.name) === target) ??
-    topClans.find((c) => normalizeName(c?.tag) === target) ??
-    topClans.find((c) => normalizeName(c?.clanTag) === target) ??
-    topClans.find((c) => normalizeName(c?.clanName) === target) ??
-    null
-  );
-}
-
 function toMs(value: unknown): number | null {
   if (value === null || value === undefined) return null;
 
@@ -132,15 +130,6 @@ function toMs(value: unknown): number | null {
   if (n === null) return null;
 
   return n < 10_000_000_000 ? n * 1000 : n;
-}
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const d = Math.floor(total / 86400);
-  const h = Math.floor((total % 86400) / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return `${d}d ${h}h ${m}m ${s}s`;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -151,13 +140,13 @@ function sortClans(topClans: any[]): ClanStanding[] {
   return [...topClans]
     .map((clan) => ({
       rank: asNumber(clan?.rank) ?? null,
-      name: String(clan?.name ?? "Unknown Clan"),
+      name: String(clan?.name ?? clan?.clanName ?? "Unknown Clan"),
       icon: clan?.icon ?? null,
       countryCode: clan?.countryCode ?? clan?.country ?? null,
       members: asNumber(clan?.members) ?? null,
       memberCapacity: asNumber(clan?.memberCapacity) ?? null,
       points: asNumber(clan?.points) ?? 0,
-      reportedPlace: asNumber(clan?.reportedPlace) ?? null,
+      reportedPlace: asNumber(clan?.reportedPlace) ?? asNumber(clan?.place) ?? null,
       medal: clan?.medal ?? null,
       contributorCount: asNumber(clan?.contributorCount) ?? null,
     }))
@@ -165,7 +154,8 @@ function sortClans(topClans: any[]): ClanStanding[] {
       const ap = a.reportedPlace ?? Number.MAX_SAFE_INTEGER;
       const bp = b.reportedPlace ?? Number.MAX_SAFE_INTEGER;
       if (ap !== bp) return ap - bp;
-      return (b.points ?? 0) - (a.points ?? 0);
+      if ((b.points ?? 0) !== (a.points ?? 0)) return (b.points ?? 0) - (a.points ?? 0);
+      return normalizeName(a.name).localeCompare(normalizeName(b.name));
     });
 }
 
@@ -198,7 +188,8 @@ function nearbyClansForIndex(clans: ClanStanding[], index: number, ourPoints: nu
 function buildTargetStatus(
   projectedPlacement: number | null,
   target: number,
-  currentRank: number | null
+  currentRank: number | null,
+  clanName: string
 ) {
   if (projectedPlacement === null) {
     return {
@@ -210,20 +201,123 @@ function buildTargetStatus(
   if (projectedPlacement <= target) {
     return {
       status: "safe" as const,
-      message: `Current projection keeps MCWV inside the Top ${target}.`,
+      message: `Current projection keeps ${clanName} inside the Top ${target}.`,
     };
   }
 
   if (currentRank !== null && currentRank <= target + 5) {
     return {
       status: "reachable" as const,
-      message: `Top ${target} is still within range, but the current snapshot places MCWV just outside it.`,
+      message: `Top ${target} is still within range, but the current snapshot places ${clanName} just outside it.`,
     };
   }
 
   return {
     status: "unlikely" as const,
-    message: `MCWV is currently outside the pace needed for Top ${target}.`,
+    message: `${clanName} is currently outside the pace needed for Top ${target}.`,
+  };
+}
+
+function findOurClan(topClans: any[]) {
+  return (
+    topClans.find((c) => sameClan(c?.name, CLAN_NAME)) ??
+    topClans.find((c) => sameClan(c?.tag, CLAN_NAME)) ??
+    topClans.find((c) => sameClan(c?.clanTag, CLAN_NAME)) ??
+    topClans.find((c) => sameClan(c?.clanName, CLAN_NAME)) ??
+    null
+  );
+}
+
+function findClanAcrossSources(data: Record<string, any>) {
+  const sources: Array<{ name: string; list: any[] }> = [
+    { name: "topClans", list: asArray(data.topClans) },
+    { name: "clans", list: asArray(data.clans) },
+    { name: "clanLeaderboard", list: asArray(data.clanLeaderboard) },
+    { name: "leaderboard", list: asArray(data.leaderboard) },
+    { name: "battleClans", list: asArray(data.battleClans) },
+    { name: "entries", list: asArray(data.entries) },
+  ];
+
+  for (const source of sources) {
+    const found = findOurClan(source.list);
+    if (found) {
+      return { found, source: source.name, sources: sources.map((s) => s.name) };
+    }
+  }
+
+  const topPlayers = asArray(data.topPlayers);
+  const playerClan = topPlayers.find((p) => sameClan(p?.clan?.name, CLAN_NAME));
+
+  if (playerClan?.clan) {
+    return {
+      found: {
+        name: playerClan.clan.name ?? CLAN_NAME,
+        icon: playerClan.clan.icon ?? null,
+        countryCode: playerClan.clan.countryCode ?? null,
+        points: asNumber(playerClan.clan.points) ?? 0,
+        reportedPlace: asNumber(playerClan.clan.place) ?? null,
+        rank: asNumber(playerClan.clan.place) ?? null,
+        members: null,
+        memberCapacity: null,
+        medal: null,
+        contributorCount: null,
+      },
+      source: "topPlayers.clan",
+      sources: sources.map((s) => s.name).concat("topPlayers.clan"),
+    };
+  }
+
+  return { found: null, source: null, sources: sources.map((s) => s.name) };
+}
+
+function buildEmptyResponse(): WarAnalysisResponse {
+  return {
+    success: true,
+    active: false,
+    battleId: null,
+    warName: null,
+    current: {
+      clanName: CLAN_NAME,
+      rank: null,
+      points: 0,
+      participants: 0,
+      totalClans: 0,
+      totalPoints: 0,
+      timeElapsedMs: null,
+      timeRemainingMs: null,
+      progressPct: null,
+    },
+    targets: {
+      top30: {
+        status: "unknown",
+        message: "No live battle is active right now.",
+      },
+      top50: {
+        status: "unknown",
+        message: "No live battle is active right now.",
+      },
+    },
+    projection: {
+      placement: null,
+      confidence: "low",
+      message: "No active battle is currently available.",
+    },
+    nearbyClans: [],
+    topContributor: null,
+    analysis: {
+      overview: "There is no active war to analyse at the moment.",
+      pace: "Pace analysis is unavailable until a live battle starts.",
+      threat: "No threat check can be made without a live battle.",
+      summary: "The War Assistant will become active once a battle is live.",
+    },
+    memberActivity: {
+      available: false,
+      note:
+        "Member-level activity detection needs your own internal contribution snapshots, so it is not available from the public PS99 battle API alone.",
+      inactiveMembers: [],
+      fallingBehind: [],
+    },
+    uiTone: "info",
   };
 }
 
@@ -247,56 +341,7 @@ export async function GET() {
     const battleId = pickBattleId(activeJson);
 
     if (!battleId) {
-      const empty: WarAnalysisResponse = {
-        success: true,
-        active: false,
-        battleId: null,
-        warName: null,
-        current: {
-          clanName: CLAN_NAME,
-          rank: null,
-          points: 0,
-          participants: 0,
-          totalClans: 0,
-          totalPoints: 0,
-          timeElapsedMs: null,
-          timeRemainingMs: null,
-          progressPct: null,
-        },
-        targets: {
-          top30: {
-            status: "unknown",
-            message: "No live battle is active right now.",
-          },
-          top50: {
-            status: "unknown",
-            message: "No live battle is active right now.",
-          },
-        },
-        projection: {
-          placement: null,
-          confidence: "low",
-          message: "No active battle is currently available.",
-        },
-        nearbyClans: [],
-        topContributor: null,
-        analysis: {
-          overview: "There is no active war to analyse at the moment.",
-          pace: "Pace analysis is unavailable until a live battle starts.",
-          threat: "No threat check can be made without a live battle.",
-          summary: "The War Assistant will become active once a battle is live.",
-        },
-        memberActivity: {
-          available: false,
-          note:
-            "Member-level activity detection needs your own internal contribution snapshots, so it is not available from the public PS99 battle API alone.",
-          inactiveMembers: [],
-          fallingBehind: [],
-        },
-        uiTone: "info",
-      };
-
-      return NextResponse.json(empty, {
+      return NextResponse.json(buildEmptyResponse(), {
         headers: {
           "Cache-Control": "no-store",
         },
@@ -321,55 +366,32 @@ export async function GET() {
     }
 
     const battleJson = await battleRes.json().catch(() => null);
-    const data = battleJson?.data ?? {};
-    const meta = data?.meta ?? {};
-    const stats = data?.stats ?? {};
+    const data = (battleJson?.data ?? {}) as Record<string, any>;
+    const meta = (data?.meta ?? {}) as Record<string, any>;
+    const stats = (data?.stats ?? {}) as Record<string, any>;
 
-    const topClansRaw = asArray(data?.topClans);
-    const topPlayersRaw = asArray(data?.topPlayers);
+    const clanSearch = findClanAcrossSources(data);
+    const ourClanRaw = clanSearch.found;
+    const sampleSource = clanSearch.source;
+    const sourceList = clanSearch.sources;
 
-    const clans = sortClans(topClansRaw);
-
-    const ourClanRaw =
-      findOurClan(topClansRaw) ??
-      data?.yourClan ??
-      data?.clan ??
-      data?.myClan ??
-      null;
-
-    const ourClan = ourClanRaw
-      ? {
-          rank: asNumber(ourClanRaw?.rank) ?? null,
-          name: String(ourClanRaw?.name ?? CLAN_NAME),
-          icon: ourClanRaw?.icon ?? null,
-          countryCode: ourClanRaw?.countryCode ?? ourClanRaw?.country ?? null,
-          members: asNumber(ourClanRaw?.members) ?? null,
-          memberCapacity: asNumber(ourClanRaw?.memberCapacity) ?? null,
-          points: asNumber(ourClanRaw?.points) ?? 0,
-          reportedPlace: asNumber(ourClanRaw?.reportedPlace) ?? null,
-          medal: ourClanRaw?.medal ?? null,
-          contributorCount: asNumber(ourClanRaw?.contributorCount) ?? null,
-        }
-      : null;
+    const clans = sortClans(asArray(data?.topClans));
 
     const currentRank =
-      ourClan?.reportedPlace ??
-      ourClan?.rank ??
+      ourClanRaw?.reportedPlace ??
+      ourClanRaw?.rank ??
       asNumber(ourClanRaw?.place) ??
       asNumber(ourClanRaw?.position) ??
       null;
 
-    const ourPoints = ourClan?.points ?? 0;
+    const ourPoints = asNumber(ourClanRaw?.points) ?? 0;
 
     const ourIndex =
-      ourClan && clans.length
-        ? clans.findIndex(
-            (c) => normalizeName(c.name) === normalizeName(ourClan.name)
-          )
+      ourClanRaw && clans.length
+        ? clans.findIndex((c) => normalizeName(c.name) === normalizeName(ourClanRaw.name))
         : -1;
 
-    const nearbyClans =
-      ourIndex >= 0 ? nearbyClansForIndex(clans, ourIndex, ourPoints) : [];
+    const nearbyClans = ourIndex >= 0 ? nearbyClansForIndex(clans, ourIndex, ourPoints) : [];
 
     const totalClans = asNumber(stats?.participatingClans) ?? clans.length ?? 0;
     const totalPoints = asNumber(stats?.totalClanPoints) ?? 0;
@@ -379,9 +401,7 @@ export async function GET() {
     const endMs = toMs(meta?.finishTime);
     const now = Date.now();
 
-    const validTime =
-      startMs !== null && endMs !== null && endMs > startMs;
-
+    const validTime = startMs !== null && endMs !== null && endMs > startMs;
     const timeElapsedMs = validTime ? Math.max(0, now - startMs!) : null;
     const timeRemainingMs = validTime ? Math.max(0, endMs! - now) : null;
     const progressPct = validTime
@@ -398,18 +418,14 @@ export async function GET() {
       const gapBehind = nextClan ? ourPoints - nextClan.points : null;
 
       let adjustment = 0;
-
       const pointScale = Math.max(10_000, ourPoints * 0.03);
 
       if (gapBehind !== null && gapBehind <= pointScale) adjustment += 1;
       if (gapBehind !== null && gapBehind <= pointScale * 0.5) adjustment += 1;
-
       if (gapAhead !== null && gapAhead <= pointScale) adjustment -= 1;
       if (gapAhead !== null && gapAhead <= pointScale * 0.5) adjustment -= 1;
 
-      const volatility =
-        progressPct === null ? 0.5 : clamp(1 - progressPct / 100, 0.15, 1);
-
+      const volatility = progressPct === null ? 0.5 : clamp(1 - progressPct / 100, 0.15, 1);
       adjustment = adjustment * volatility;
 
       projectedPlacement = clamp(
@@ -419,8 +435,10 @@ export async function GET() {
       );
     }
 
-    const target30 = buildTargetStatus(projectedPlacement, 30, currentRank);
-    const target50 = buildTargetStatus(projectedPlacement, 50, currentRank);
+    const clanLabel = String(ourClanRaw?.name ?? CLAN_NAME);
+
+    const target30 = buildTargetStatus(projectedPlacement, 30, currentRank, clanLabel);
+    const target50 = buildTargetStatus(projectedPlacement, 50, currentRank, clanLabel);
 
     let confidence: "low" | "medium" | "high" = "low";
     if (projectedPlacement !== null && currentRank !== null) {
@@ -436,7 +454,7 @@ export async function GET() {
       else uiTone = "danger";
     }
 
-    const topContributorRaw = topPlayersRaw[0] ?? null;
+    const topContributorRaw = asArray(data?.topPlayers)[0] ?? null;
     const topContributor: PlayerEntry | null = topContributorRaw
       ? {
           rank: asNumber(topContributorRaw?.rank) ?? null,
@@ -455,29 +473,33 @@ export async function GET() {
         }
       : null;
 
+    const clanFoundInSample = Boolean(ourClanRaw);
+
     const positionText =
       currentRank !== null
-        ? `MCWV is currently sitting at #${currentRank}.`
-        : `MCWV is present in the live battle, but a current placement could not be resolved.`;
+        ? `${clanLabel} is currently sitting at #${currentRank}.`
+        : clanFoundInSample
+          ? `${clanLabel} is present in the live battle, but a current placement could not be resolved.`
+          : `${clanLabel} is not present in the current public sample, so a live placement could not be resolved.`;
 
     const projectionText =
       projectedPlacement !== null
-        ? `Based on the current snapshot, MCWV is projected to finish around #${projectedPlacement}.`
+        ? `Based on the current snapshot, ${clanLabel} is projected to finish around #${projectedPlacement}.`
         : `A finish prediction is not available yet.`;
 
     const paceText =
       target50.status === "safe"
-        ? `MCWV is on pace for a Top 50 finish.`
+        ? `${clanLabel} is on pace for a Top 50 finish.`
         : target30.status === "safe"
-          ? `MCWV is inside Top 30 range on the current snapshot.`
-          : `MCWV is currently outside the pace needed for a comfortable Top 50 finish.`;
+          ? `${clanLabel} is inside Top 30 range on the current snapshot.`
+          : `${clanLabel} is currently outside the pace needed for a comfortable Top 50 finish.`;
 
     const threatClan =
       nearbyClans.find((c) => c.relation === "behind" && c.gapFromUs !== null) ?? null;
 
     const threatText =
       threatClan && threatClan.gapFromUs !== null
-        ? `${threatClan.name} is the closest clan behind MCWV, trailing by ${threatClan.gapFromUs.toLocaleString(
+        ? `${threatClan.name} is the closest clan behind ${clanLabel}, trailing by ${threatClan.gapFromUs.toLocaleString(
             "en-GB"
           )} points.`
         : `No immediate trailing clan threat could be resolved from the current snapshot.`;
@@ -488,9 +510,9 @@ export async function GET() {
       success: true,
       active: true,
       battleId,
-      warName: meta?.title ?? meta?.name ?? meta?.id ?? battleId,
+      warName: String(meta?.title ?? meta?.name ?? meta?.id ?? battleId),
       current: {
-        clanName: ourClan?.name ?? CLAN_NAME,
+        clanName: clanLabel,
         rank: currentRank,
         points: ourPoints,
         participants,
@@ -520,7 +542,7 @@ export async function GET() {
       memberActivity: {
         available: false,
         note:
-          "Member-level inactivity detection needs your own contribution snapshots. The public PS99 clan battle API can show clan and player standings, but it does not expose the full internal activity history needed for accurate inactivity tracking.",
+          "Member-level inactivity detection needs your own contribution snapshots. The public PS99 battle API can show clan and player standings, but it does not expose the full internal activity history needed for accurate inactivity tracking.",
         inactiveMembers: [],
         fallingBehind: [],
       },
@@ -541,4 +563,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-      }
+}
