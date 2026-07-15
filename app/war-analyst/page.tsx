@@ -19,6 +19,8 @@ type WarAnalysisResponse = {
     timeElapsedMs: number | null;
     timeRemainingMs: number | null;
     progressPct: number | null;
+    foundInSample: boolean;
+    sampleSource: string | null;
   };
   targets: {
     top30: {
@@ -68,6 +70,11 @@ type WarAnalysisResponse = {
     fallingBehind: never[];
   };
   uiTone: "success" | "warning" | "danger" | "info";
+  diagnostics?: {
+    clanFoundInSample: boolean;
+    sampleSource: string | null;
+    candidateSources: string[];
+  };
 };
 
 function formatNumber(value: number | null | undefined) {
@@ -259,6 +266,9 @@ export default function WarAnalystPage() {
   }, []);
 
   const styles = useMemo(() => toneStyles(data?.uiTone ?? "info"), [data?.uiTone]);
+  const clanFoundInSample = data?.current.foundInSample ?? false;
+  const sampleSource = data?.current.sampleSource ?? null;
+  const projectionKnown = data?.projection.placement !== null;
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -288,6 +298,32 @@ export default function WarAnalystPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {!clanFoundInSample ? (
+              <section
+                className="rounded-[2rem] border p-5 sm:p-6"
+                style={{
+                  borderColor: styles.border,
+                  background: "color-mix(in srgb, var(--card) 92%, transparent)",
+                }}
+              >
+                <p
+                  className="text-xs font-semibold uppercase tracking-[0.24em]"
+                  style={{ color: styles.text }}
+                >
+                  Sample notice
+                </p>
+                <p className="mt-2 text-sm leading-6 text-white">
+                  {data.current.clanName} is not present in the current public sample, so live rank
+                  and nearby clan data cannot be resolved from this response yet.
+                </p>
+                {sampleSource ? (
+                  <p className="mt-2 text-xs text-[var(--foreground)]/60">
+                    Source used: {sampleSource}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+
             <section
               className="rounded-[2rem] border p-6 sm:p-7 backdrop-blur"
               style={{
@@ -319,19 +355,18 @@ export default function WarAnalystPage() {
                     <StatusChip
                       label="Current rank"
                       value={
-                        data.current.rank !== null ? `#${data.current.rank}` : "Unresolved"
+                        data.current.rank !== null
+                          ? `#${data.current.rank}`
+                          : clanFoundInSample
+                            ? "Unresolved"
+                            : "Not in sample"
                       }
                     />
                     <StatusChip
                       label="Projected finish"
-                      value={
-                        data.projection.placement !== null ? `#${data.projection.placement}` : "—"
-                      }
+                      value={projectionKnown ? `#${data.projection.placement}` : "—"}
                     />
-                    <StatusChip
-                      label="Confidence"
-                      value={data.projection.confidence.toUpperCase()}
-                    />
+                    <StatusChip label="Confidence" value={data.projection.confidence.toUpperCase()} />
                   </div>
                 </div>
 
@@ -340,17 +375,13 @@ export default function WarAnalystPage() {
                     label="Time remaining"
                     value={formatDuration(data.current.timeRemainingMs)}
                   />
-                  <StatusChip
-                    label="Clan"
-                    value={data.current.clanName}
-                  />
-                  <StatusChip
-                    label="Participants"
-                    value={formatNumber(data.current.participants)}
-                  />
+                  <StatusChip label="Clan" value={data.current.clanName} />
+                  <StatusChip label="Participants" value={formatNumber(data.current.participants)} />
                   <StatusChip
                     label="Battle points"
-                    value={formatNumber(data.current.points)}
+                    value={
+                      clanFoundInSample ? formatNumber(data.current.points) : "Not in sample"
+                    }
                   />
                 </div>
               </div>
@@ -364,14 +395,8 @@ export default function WarAnalystPage() {
                       : "—"
                   }
                 />
-                <MiniStat
-                  label="Total clans"
-                  value={formatNumber(data.current.totalClans)}
-                />
-                <MiniStat
-                  label="Total points"
-                  value={formatNumber(data.current.totalPoints)}
-                />
+                <MiniStat label="Total clans" value={formatNumber(data.current.totalClans)} />
+                <MiniStat label="Total points" value={formatNumber(data.current.totalPoints)} />
               </div>
 
               <div className="mt-6 h-3 overflow-hidden rounded-full bg-black/30">
@@ -420,9 +445,7 @@ export default function WarAnalystPage() {
                       <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
                         Pace
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-white">
-                        {data.analysis.pace}
-                      </p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.analysis.pace}</p>
                     </div>
 
                     <div
@@ -435,9 +458,7 @@ export default function WarAnalystPage() {
                       <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
                         Threat
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-white">
-                        {data.analysis.threat}
-                      </p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.analysis.threat}</p>
                     </div>
                   </div>
                 </Section>
@@ -447,8 +468,10 @@ export default function WarAnalystPage() {
                   subtitle="How the current snapshot reads against common finish goals."
                 >
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {[data.targets.top30, data.targets.top50].map((target, index) => {
-                      const label = index === 0 ? "Top 30" : "Top 50";
+                    {[
+                      { label: "Top 30", target: data.targets.top30 },
+                      { label: "Top 50", target: data.targets.top50 },
+                    ].map(({ label, target }) => {
                       const tone = targetTone(target.status);
 
                       return (
@@ -464,11 +487,12 @@ export default function WarAnalystPage() {
                             <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
                               {label}
                             </p>
-                            <p className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white"
-                               style={{
-                                 borderColor: tone.border,
-                                 background: "rgba(0,0,0,0.16)",
-                               }}
+                            <p
+                              className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white"
+                              style={{
+                                borderColor: tone.border,
+                                background: "rgba(0,0,0,0.16)",
+                              }}
                             >
                               {statusText(target.status)}
                             </p>
@@ -621,4 +645,4 @@ export default function WarAnalystPage() {
       </div>
     </main>
   );
-}
+                      }
