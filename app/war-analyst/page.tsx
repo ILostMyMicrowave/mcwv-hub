@@ -21,6 +21,7 @@ type WarAnalysisResponse = {
     progressPct: number | null;
     foundInSample: boolean;
     sampleSource: string | null;
+    lastSeenAt: string | null;
   };
   targets: {
     top30: {
@@ -74,6 +75,7 @@ type WarAnalysisResponse = {
     clanFoundInSample: boolean;
     sampleSource: string | null;
     candidateSources: string[];
+    usedFallbackHistory: boolean;
   };
 };
 
@@ -94,6 +96,19 @@ function formatDuration(ms: number | null) {
   return `${d}d ${h}h ${m}m ${s}s`;
 }
 
+function formatDateTime(value: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function toneStyles(tone: WarAnalysisResponse["uiTone"]) {
   switch (tone) {
     case "success":
@@ -101,28 +116,24 @@ function toneStyles(tone: WarAnalysisResponse["uiTone"]) {
         border: "color-mix(in srgb, var(--primary) 28%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
         text: "var(--primary)",
-        label: "Strong position",
       };
     case "warning":
       return {
         border: "color-mix(in srgb, var(--primary) 22%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
         text: "var(--primary)",
-        label: "Watch closely",
       };
     case "danger":
       return {
         border: "color-mix(in srgb, var(--primary) 18%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 7%, transparent)",
         text: "var(--primary)",
-        label: "At risk",
       };
     default:
       return {
         border: "color-mix(in srgb, var(--primary) 20%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
         text: "var(--primary)",
-        label: "In progress",
       };
   }
 }
@@ -268,6 +279,7 @@ export default function WarAnalystPage() {
   const styles = useMemo(() => toneStyles(data?.uiTone ?? "info"), [data?.uiTone]);
   const clanFoundInSample = data?.current.foundInSample ?? false;
   const sampleSource = data?.current.sampleSource ?? null;
+  const usedFallbackHistory = data?.diagnostics?.usedFallbackHistory ?? false;
   const projectionKnown = data?.projection.placement !== null;
 
   return (
@@ -313,14 +325,14 @@ export default function WarAnalystPage() {
                   Sample notice
                 </p>
                 <p className="mt-2 text-sm leading-6 text-white">
-                  {data.current.clanName} is not present in the current public sample, so live rank
-                  and nearby clan data cannot be resolved from this response yet.
+                  {usedFallbackHistory
+                    ? `${data.current.clanName} is not present in the current public sample, but the latest stored snapshot is being used instead.`
+                    : `${data.current.clanName} is not present in the current public sample, so live rank and nearby clan data cannot be resolved from this response yet.`}
                 </p>
-                {sampleSource ? (
-                  <p className="mt-2 text-xs text-[var(--foreground)]/60">
-                    Source used: {sampleSource}
-                  </p>
-                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--foreground)]/60">
+                  {sampleSource ? <span>Source used: {sampleSource}</span> : null}
+                  {data.current.lastSeenAt ? <span>Last seen: {formatDateTime(data.current.lastSeenAt)}</span> : null}
+                </div>
               </section>
             ) : null}
 
@@ -359,7 +371,9 @@ export default function WarAnalystPage() {
                           ? `#${data.current.rank}`
                           : clanFoundInSample
                             ? "Unresolved"
-                            : "Not in sample"
+                            : usedFallbackHistory
+                              ? "From history"
+                              : "Not in sample"
                       }
                     />
                     <StatusChip
@@ -380,7 +394,9 @@ export default function WarAnalystPage() {
                   <StatusChip
                     label="Battle points"
                     value={
-                      clanFoundInSample ? formatNumber(data.current.points) : "Not in sample"
+                      clanFoundInSample || usedFallbackHistory
+                        ? formatNumber(data.current.points)
+                        : "Not in sample"
                     }
                   />
                 </div>
@@ -638,6 +654,26 @@ export default function WarAnalystPage() {
                     <p className="text-sm leading-6 text-white">{data.memberActivity.note}</p>
                   </div>
                 </Section>
+
+                <Section
+                  title="Diagnostics"
+                  subtitle="Helpful while the public sample is still incomplete."
+                >
+                  <div className="space-y-3">
+                    <MiniStat
+                      label="Sample source"
+                      value={data.current.sampleSource ?? "—"}
+                    />
+                    <MiniStat
+                      label="Last seen"
+                      value={formatDateTime(data.current.lastSeenAt)}
+                    />
+                    <MiniStat
+                      label="Fallback history"
+                      value={usedFallbackHistory ? "Yes" : "No"}
+                    />
+                  </div>
+                </Section>
               </div>
             </div>
           </div>
@@ -645,4 +681,4 @@ export default function WarAnalystPage() {
       </div>
     </main>
   );
-                      }
+}
