@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -95,43 +95,43 @@ function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
       return {
         border: "color-mix(in srgb, var(--primary) 30%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 9%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(52,211,153,0.12)]",
         pill: "bg-emerald-500/10 text-emerald-200 border-emerald-500/20",
-        bar: "bg-emerald-400",
+        accent: "var(--primary)",
+        track: "color-mix(in srgb, var(--primary) 15%, transparent)",
       };
     case "warning":
       return {
         border: "color-mix(in srgb, var(--primary) 24%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(250,204,21,0.12)]",
         pill: "bg-amber-500/10 text-amber-200 border-amber-500/20",
-        bar: "bg-amber-400",
+        accent: "var(--primary)",
+        track: "color-mix(in srgb, var(--primary) 15%, transparent)",
       };
     case "danger":
       return {
         border: "color-mix(in srgb, var(--primary) 20%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 7%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(248,113,113,0.12)]",
         pill: "bg-rose-500/10 text-rose-200 border-rose-500/20",
-        bar: "bg-rose-400",
+        accent: "var(--primary)",
+        track: "color-mix(in srgb, var(--primary) 15%, transparent)",
       };
     default:
       return {
         border: "color-mix(in srgb, var(--primary) 22%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(96,165,250,0.12)]",
         pill: "bg-sky-500/10 text-sky-200 border-sky-500/20",
-        bar: "bg-sky-400",
+        accent: "var(--primary)",
+        track: "color-mix(in srgb, var(--primary) 15%, transparent)",
       };
   }
 }
 
-function StatCard({
-  label,
+function Card({
+  title,
   value,
   sub,
 }: {
-  label: string;
+  title: string;
   value: string;
   sub?: string;
 }) {
@@ -140,11 +140,11 @@ function StatCard({
       className="rounded-2xl border p-4 backdrop-blur"
       style={{
         borderColor: "var(--border)",
-        background: "color-mix(in srgb, var(--card) 88%, transparent)",
+        background: "color-mix(in srgb, var(--card) 92%, transparent)",
       }}
     >
       <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-        {label}
+        {title}
       </p>
       <p className="mt-1 text-xl font-black text-white">{value}</p>
       {sub ? <p className="mt-1 text-xs text-[var(--foreground)]/55">{sub}</p> : null}
@@ -152,14 +152,12 @@ function StatCard({
   );
 }
 
-function Section({
+function Panel({
   title,
-  subtitle,
   children,
 }: {
   title: string;
-  subtitle?: string;
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <section
@@ -169,29 +167,25 @@ function Section({
         background: "color-mix(in srgb, var(--card) 92%, transparent)",
       }}
     >
-      <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
-          {title}
-        </p>
-        {subtitle ? <p className="mt-1 text-sm text-[var(--foreground)]/65">{subtitle}</p> : null}
-      </div>
-      {children}
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
+        {title}
+      </p>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
 
-function ProgressBar({ value }: { value: number | null }) {
+function ProgressBar({ value, accent, track }: { value: number | null; accent: string; track: string }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
   return (
     <div>
-      <div className="h-3 overflow-hidden rounded-full bg-black/30">
+      <div className="h-3 overflow-hidden rounded-full" style={{ background: track }}>
         <div
-          className="h-full rounded-full transition-all duration-500 gradient-bar animate-gradientMove"
+          className="h-full rounded-full transition-all duration-500 animate-gradientMove gradient-bar"
           style={{
             width: `${safe}%`,
-            background: "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
+            background: `linear-gradient(90deg, ${accent}, var(--accent), ${accent})`,
             boxShadow: "0 0 20px var(--glow)",
-            backgroundSize: "200% 200%",
           }}
         />
       </div>
@@ -245,9 +239,9 @@ export default function BattleHQPage() {
     : null;
 
   const enoughHistoryForRate = (data?.diagnostics.snapshotsAvailable ?? 0) >= 3;
-  const enoughHistoryForTrend = pointsHistory.length >= 2;
   const showRate = enoughHistoryForRate && data?.stats.hourlyRate !== null;
   const showThreatEta = data?.stats.threatEtaMs !== null && gapBelow !== null && gapBelow > 0;
+  const recentHistory = pointsHistory.slice(-6);
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -276,7 +270,7 @@ export default function BattleHQPage() {
             No battle data available right now.
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in">
             <section
               className="rounded-[2rem] border p-6 sm:p-7 backdrop-blur"
               style={{
@@ -288,12 +282,10 @@ export default function BattleHQPage() {
               <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: styles.border }}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: styles.accent }}>
                       Battle HQ
                     </p>
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.pill}`}
-                    >
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.pill}`}>
                       {data.active ? "Live" : "Inactive"}
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/70">
@@ -301,52 +293,45 @@ export default function BattleHQPage() {
                     </span>
                   </div>
 
-                  <h1 className="mt-2 text-3xl font-black text-white sm:text-4xl">
-                    {data.current.clanName}
-                  </h1>
+                  <div className="mt-4 flex items-end gap-3">
+                    <h1 className="text-3xl font-black text-white sm:text-5xl">{data.current.clanName}</h1>
+                    <span className="pb-1 text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/45">
+                      {data.current.level !== null ? `Lv ${data.current.level}` : ""}
+                    </span>
+                  </div>
 
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">
-                    {data.summary.overview}
-                  </p>
-
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <StatCard label="Current rank" value={rank === null ? "—" : `#${rank}`} />
-                    <StatCard
-                      label="Battle points"
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <Card title="Current rank" value={rank === null ? "—" : `#${rank}`} />
+                    <Card
+                      title="Battle points"
                       value={formatNumber(currentPoints)}
                       sub={data.stats.gain24h ? `+${formatNumber(data.stats.gain24h)} in 24h` : "24h gain pending"}
                     />
-                    <StatCard
-                      label="Projected finish"
+                    <Card
+                      title="Projected finish"
                       value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                     />
-                    <StatCard label="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
+                    <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
-                  <StatCard label="Level" value={data.current.level !== null ? String(data.current.level) : "—"} />
-                  <StatCard label="Kick cooldown" value={data.current.kickCooldown ?? "—"} />
-                  <StatCard label="Participants" value={formatNumber(data.current.participants)} />
-                  <StatCard label="Last updated" value={data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"} />
+                  <Card title="Participants" value={formatNumber(data.current.participants)} />
+                  <Card title="Kick cooldown" value={data.current.kickCooldown ?? "—"} />
+                  <Card title="Total clans" value={formatNumber(data.current.totalClans)} />
+                  <Card title="Last updated" value={data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"} />
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <StatCard label="Progress" value={data.current.progressPct !== null ? `${data.current.progressPct.toFixed(1)}%` : "—"} />
-                <StatCard label="Total clans" value={formatNumber(data.current.totalClans)} />
-                <StatCard label="Total points" value={formatNumber(data.current.totalPoints)} />
-              </div>
-
               <div className="mt-6">
-                <ProgressBar value={data.current.progressPct} />
+                <ProgressBar value={data.current.progressPct} accent={styles.accent} track={styles.track} />
               </div>
             </section>
 
-            <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
               <div className="space-y-6">
-                <Section title="Position" subtitle="Your place in the current battle and the clans around you.">
+                <Panel title="Position">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
                       <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Next target</p>
@@ -354,9 +339,7 @@ export default function BattleHQPage() {
                       <p className="mt-2 text-sm text-[var(--foreground)]/75">
                         Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}
                       </p>
-                      <p className="mt-1 text-sm text-[var(--foreground)]/75">
-                        ETA: {etaText(data.stats.etaAboveMs)}
-                      </p>
+                      <p className="mt-1 text-sm text-[var(--foreground)]/75">ETA: {etaText(data.stats.etaAboveMs)}</p>
                     </div>
 
                     <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
@@ -370,13 +353,13 @@ export default function BattleHQPage() {
                       </p>
                     </div>
                   </div>
-                </Section>
+                </Panel>
 
-                <Section title="Nearby clans" subtitle="Clans immediately around MCWV in the ladder.">
+                <Panel title="Nearby clans">
                   {data.nearby.length === 0 ? (
                     <p className="text-sm text-[var(--foreground)]/65">No nearby clans available yet.</p>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       {data.nearby.map((clan) => {
                         const isUs = clan.name.toLowerCase() === data.current.clanName.toLowerCase();
                         return (
@@ -405,48 +388,37 @@ export default function BattleHQPage() {
                       })}
                     </div>
                   )}
-                </Section>
+                </Panel>
               </div>
 
               <div className="space-y-6">
-                <Section title="Performance" subtitle="How the current battle is trending right now.">
+                <Panel title="Performance">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <StatCard
-                      label="24h gain"
+                    <Card
+                      title="24h gain"
                       value={`+${formatNumber(data.stats.gain24h)}`}
                       sub={showRate ? `${formatNumber(Math.round(data.stats.hourlyRate ?? 0))} / hour` : "Need more snapshots"}
                     />
-                    <StatCard
-                      label="Forecast"
+                    <Card
+                      title="Forecast"
                       value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                     />
                   </div>
-                </Section>
+                </Panel>
 
-                <Section title="Battle summary" subtitle="Short readout for officers.">
-                  <div className="space-y-3">
-                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.14)" }}>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Overview</p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.overview}</p>
-                    </div>
-                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.14)" }}>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Pace</p>
-                      <p className="mt-2 text-sm leading-6 text-white">{showRate ? data.summary.pace : "Need a few more snapshots before pace becomes reliable."}</p>
-                    </div>
-                  </div>
-                </Section>
-
-                <Section title="Snapshot history" subtitle="Saved points over time.">
+                <Panel title="Snapshot history">
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <StatCard label="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
-                    <StatCard label="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} />
-                    <StatCard label="Next update" value={formatDuration(nextUpdateLeft)} />
+                    <Card title="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
+                    <Card title="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} />
+                    <Card title="Next update" value={formatDuration(nextUpdateLeft)} />
                   </div>
 
                   <div className="mt-4 space-y-2">
-                    {enoughHistoryForTrend ? (
-                      pointsHistory.slice(-8).map((row) => (
+                    {recentHistory.length === 0 ? (
+                      <p className="text-sm text-[var(--foreground)]/65">A few more snapshots are needed before the history row becomes useful.</p>
+                    ) : (
+                      recentHistory.map((row) => (
                         <div
                           key={`${row.capturedAt ?? "x"}-${row.points}`}
                           className="flex items-center justify-between rounded-xl border px-3 py-2"
@@ -463,11 +435,9 @@ export default function BattleHQPage() {
                           <span className="text-xs font-semibold text-white">{formatNumber(row.points)}</span>
                         </div>
                       ))
-                    ) : (
-                      <p className="text-sm text-[var(--foreground)]/65">A few more snapshots are needed before the trend list becomes useful.</p>
                     )}
                   </div>
-                </Section>
+                </Panel>
               </div>
             </div>
           </div>
