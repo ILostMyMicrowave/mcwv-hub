@@ -14,6 +14,9 @@ const pool = DATABASE_URL
     })
   : null;
 
+const PAGE_SIZE = 100;
+const MAX_PAGES = 20;
+
 type ClanStanding = {
   rank: number | null;
   name: string;
@@ -119,15 +122,25 @@ async function fetchJson<T>(url: string, timeoutMs = 12_000): Promise<T | null> 
   }
 }
 
-function mapBattleClan(raw: any, rank: number): ClanStanding {
+function extractClanList(response: any): any[] {
+  return asArray(
+    response?.data ??
+      response?.items ??
+      response?.clans ??
+      response?.data?.items ??
+      response?.data?.clans
+  );
+}
+
+function mapLeaderboardClan(raw: any, rank: number): ClanStanding {
   return {
     rank: asNumber(raw?.rank) ?? rank,
-    name: String(raw?.name ?? raw?.clanName ?? raw?.tag ?? CLAN_NAME),
-    icon: raw?.icon ?? null,
-    countryCode: raw?.countryCode ?? raw?.country ?? null,
-    members: asNumber(raw?.members) ?? null,
-    memberCapacity: asNumber(raw?.memberCapacity) ?? null,
-    points: asNumber(raw?.points) ?? 0,
+    name: String(raw?.Name ?? raw?.name ?? raw?.ClanName ?? raw?.clanName ?? CLAN_NAME),
+    icon: raw?.Icon ?? raw?.icon ?? null,
+    countryCode: raw?.CountryCode ?? raw?.countryCode ?? raw?.country ?? null,
+    members: asNumber(raw?.Members ?? raw?.members) ?? null,
+    memberCapacity: asNumber(raw?.MemberCapacity ?? raw?.memberCapacity) ?? null,
+    points: asNumber(raw?.Points ?? raw?.points) ?? 0,
     reportedPlace: asNumber(raw?.reportedPlace) ?? asNumber(raw?.place) ?? rank,
     medal: raw?.medal ?? null,
     contributorCount: asNumber(raw?.contributorCount) ?? null,
@@ -199,12 +212,72 @@ async function getBattleMeta(battleId: string): Promise<BattleMeta> {
   };
 }
 
-async function getBattleClans(battleId: string) {
-  const json = await fetchJson<any>(`${BASE}/v1/clans/battles/${encodeURIComponent(battleId)}`);
-  const data = json?.data ?? {};
-  return asArray(data?.topClans).map((raw: any, index: number) =>
-    mapBattleClan(raw, index + 1)
+async function getLeaderboardPage(page: number) {
+  return fetchJson<any>(
+    `${BASE}/api/clans?page=${page}&pageSize=${PAGE_SIZE}&sort=Points&sortOrder=desc`
   );
+}
+
+async function getFullLeaderboardSnapshot(clanName: string) {
+  const pages = new Map<number, ClanStanding[]>();
+  let found: ClanStanding | null = null;
+  let foundPage: number | null = null;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const json = await getLeaderboardPage(page);
+    const list = extractClanList(json);
+
+    if (!list.length) break;
+
+    const clans = list.map((raw: any, index: number) =>
+      mapLeaderboardClan(raw, (page - 1) * PAGE_SIZE + index + 1)
+    );
+
+    pages.set(page, clans);
+
+    if (!found) {
+      const match = clans.find((c) => namesMatch(c.name, clanName));
+      if (match) {
+        found = match;
+        foundPage = page;
+        break;
+      }
+    }
+
+    if (list.length < PAGE_SIZE) break;
+  }
+
+  if (foundPage !== null) {
+    for (const extra of [foundPage - 1, foundPage + 1]) {
+      if (extra < 1 || extra > MAX_PAGES) continue;
+      if (pages.has(extra)) continue;
+
+      const json = await getLeaderboardPage(extra);
+      const list = extractClanList(json);
+      if (!list.length) continue;
+
+      const clans = list.map((raw: any, index: number) =>
+        mapLeaderboardClan(raw, (extra - 1) * PAGE_SIZE + index + 1)
+      );
+      pages.set(extra, clans);
+    }
+  }
+
+  const allClans = [...pages.entries()]
+    .sort(([a], [b]) => a - b)
+    .flatMap(([, clans]) => clans)
+    .sort((a, b) => {
+      const ap = a.rank ?? Number.MAX_SAFE_INTEGER;
+      const bp = b.rank ?? Number.MAX_SAFE_INTEGER;
+      if (ap !== bp) return ap - bp;
+      return (b.points ?? 0) - (a.points ?? 0);
+    });
+
+  return {
+    found,
+    foundPage,
+    clans: allClans,
+  };
 }
 
 async function getClanDetails(clanName: string) {
@@ -234,6 +307,31 @@ async function getLastSnapshot(battleId: string, clanName: string) {
   } finally {
     client.release();
   }
+}
+
+function pickNearbyClans(
+  clans: ClanStanding[],
+  currentRank: number | null,
+  currentName: string
+) {
+  if (!clans.length) return [];
+
+  let index = -1;
+
+  if (currentRank !== null) {
+    index = Math.max(0, currentRank - 1);
+  } else {
+    index = clans.findIndex((c) => namesMatch(c.name, currentName));
+  }
+
+  if (index < 0) {
+    return clans.slice(0, Math.min(10, clans.length));
+  }
+
+  const start = Math.max(0, index - 5);
+  const end = Math.min(clans.length, index + 6);
+
+  return clans.slice(start, end);
 }
 
 async function saveCollectorSnapshot(params: {
@@ -356,10 +454,10 @@ export async function GET(request: Request) {
       );
     }
 
-    const [battleMeta, clanDetails, battleClans] = await Promise.all([
+    const [battleMeta, clanDetails, leaderboard] = await Promise.all([
       getBattleMeta(battleId),
       getClanDetails(CLAN_NAME),
-      getBattleClans(battleId),
+      getFullLeaderboardSnapshot(CLAN_NAME),
     ]);
 
     const clanDetail = clanDetails?.data ?? null;
@@ -377,18 +475,21 @@ export async function GET(request: Request) {
 
     const historical = await getLastSnapshot(battleId, CLAN_NAME);
 
-    const liveClan =
-      battleClans.find((c) => namesMatch(c.name, CLAN_NAME)) ?? null;
+    const liveClan = leaderboard.found ?? null;
+    const foundInLeaderboard = Boolean(liveClan);
 
-    const rank = liveClan?.reportedPlace ?? historical?.rank ?? null;
+    const rank = liveClan?.rank ?? historical?.rank ?? null;
     const points =
       liveClan?.points ??
       historical?.battle_points ??
       normalizedClan.battlePoints ??
       0;
 
-    const foundInSample = Boolean(liveClan);
-    const clansForHistory = battleClans;
+    const nearbyClans = pickNearbyClans(
+      leaderboard.clans,
+      rank ?? historical?.rank ?? null,
+      CLAN_NAME
+    );
 
     await saveCollectorSnapshot({
       battleId,
@@ -402,8 +503,8 @@ export async function GET(request: Request) {
       totalClans: battleMeta.totalClans,
       totalPoints: battleMeta.totalPoints,
       progressPct: battleMeta.progressPct,
-      foundInSample,
-      clans: clansForHistory,
+      foundInSample: foundInLeaderboard,
+      clans: nearbyClans,
     });
 
     return NextResponse.json(
@@ -431,8 +532,8 @@ export async function GET(request: Request) {
           totalPoints: battleMeta.totalPoints,
         },
         source: {
-          foundInLeaderboard: foundInSample,
-          historicalFallbackUsed: !foundInSample && Boolean(historical),
+          foundInLeaderboard,
+          historicalFallbackUsed: !foundInLeaderboard && Boolean(historical),
           lastHistoricalRank: historical?.rank ?? null,
           lastHistoricalPoints: historical?.battle_points ?? null,
           lastHistoricalSeenAt: historical?.captured_at?.toISOString() ?? null,
