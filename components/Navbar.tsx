@@ -13,6 +13,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [renderDrawer, setRenderDrawer] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
   const [indicator, setIndicator] = useState<{
     left: number;
     width: number;
@@ -28,6 +29,7 @@ export default function Navbar() {
       { href: "/", label: "Home" },
       { href: "/leaderboard", label: "Leaderboard" },
       { href: "/war-info", label: "War Info" },
+      { href: "/war-analyst", label: "Battle HQ" },
       { href: "/contributions", label: "Contributions" },
       { href: "/settings", label: "Settings" },
     ],
@@ -69,9 +71,17 @@ export default function Navbar() {
   }, [activeLink, pathname]);
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
+    const onScroll = () => {
+      setIsScrolled(window.scrollY > 8);
+    };
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
 
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -82,9 +92,6 @@ export default function Navbar() {
   }, [open]);
 
   useEffect(() => {
-    if (pathname === "/") {
-      // nothing special
-    }
     closeDrawer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
@@ -105,7 +112,6 @@ export default function Navbar() {
 
     setRenderDrawer(true);
 
-    // ensure the first paint is off-canvas, then animate in
     window.requestAnimationFrame(() => {
       setOpen(true);
     });
@@ -126,17 +132,29 @@ export default function Navbar() {
 
   return (
     <header
-      className="sticky top-0 z-50 border-b backdrop-blur"
+      className="sticky top-0 z-50 border-b backdrop-blur animate-fade-in"
       style={{
-        background: "rgba(0,0,0,0.4)",
+        background: isScrolled ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.4)",
         borderColor: "var(--border)",
+        boxShadow: isScrolled ? "0 10px 30px rgba(0,0,0,0.18)" : "none",
+        transition: "background 300ms ease, box-shadow 300ms ease, backdrop-filter 300ms ease",
+        backdropFilter: isScrolled ? "blur(18px)" : "blur(12px)",
       }}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <Link
           href="/"
-          className="font-bold tracking-widest transition"
-          style={{ color: "var(--foreground)" }}
+          className="font-bold tracking-widest transition duration-300 ease-out hover:scale-[1.02]"
+          style={{
+            color: "var(--foreground)",
+            textShadow: "0 0 0 transparent",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.textShadow = "0 0 18px var(--glow)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.textShadow = "0 0 0 transparent";
+          }}
         >
           MCWV
         </Link>
@@ -147,6 +165,7 @@ export default function Navbar() {
           style={{
             borderColor: "var(--border)",
             background: "rgba(255,255,255,0.04)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
           }}
         >
           <div
@@ -172,10 +191,10 @@ export default function Navbar() {
                 ref={(el) => {
                   itemRefs.current[link.href] = el;
                 }}
-                className="relative z-10 rounded-full px-3 py-1 text-sm transition-colors duration-200"
+                className="relative z-10 rounded-full px-3 py-1 text-sm transition-all duration-200 ease-out hover:-translate-y-[1px] hover:opacity-100 active:scale-[0.98]"
                 style={{
                   color: "var(--foreground)",
-                  opacity: isActive ? 1 : 0.7,
+                  opacity: isActive ? 1 : 0.72,
                 }}
               >
                 {link.label}
@@ -186,7 +205,7 @@ export default function Navbar() {
 
         <button
           onClick={openDrawer}
-          className="inline-flex items-center justify-center rounded-md p-2 sm:hidden"
+          className="inline-flex items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] sm:hidden"
           style={{ color: "var(--foreground)" }}
           aria-label="Open navigation menu"
           aria-expanded={open}
@@ -232,7 +251,7 @@ export default function Navbar() {
               </div>
               <button
                 onClick={closeDrawer}
-                className="rounded-md px-2 py-1 text-lg"
+                className="rounded-md px-2 py-1 text-lg transition duration-200 ease-out active:scale-[0.96]"
                 style={{ color: "var(--foreground)" }}
                 aria-label="Close navigation menu"
               >
@@ -241,7 +260,7 @@ export default function Navbar() {
             </div>
 
             <nav className="flex flex-col gap-2 p-4">
-              {links.map((link) => {
+              {links.map((link, index) => {
                 const isActive =
                   link.href === "/"
                     ? pathname === "/"
@@ -252,12 +271,13 @@ export default function Navbar() {
                     key={link.href}
                     href={link.href}
                     onClick={closeDrawer}
-                    className="rounded-2xl px-4 py-3 text-sm transition"
+                    className="rounded-2xl px-4 py-3 text-sm transition-all duration-200 ease-out active:scale-[0.98]"
                     style={{
                       color: "var(--foreground)",
                       background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
                       border: `1px solid ${isActive ? "var(--border)" : "transparent"}`,
-                      opacity: isActive ? 1 : 0.75,
+                      opacity: isActive ? 1 : 0.78,
+                      animationDelay: `${index * 30}ms`,
                     }}
                   >
                     {link.label}
