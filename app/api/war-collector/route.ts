@@ -14,9 +14,6 @@ const pool = DATABASE_URL
     })
   : null;
 
-const PAGE_SIZE = 100;
-const MAX_PAGES = 10;
-
 type ClanStanding = {
   rank: number | null;
   name: string;
@@ -122,18 +119,18 @@ async function fetchJson<T>(url: string, timeoutMs = 12_000): Promise<T | null> 
   }
 }
 
-function mapLegacyClan(raw: any, rank: number): ClanStanding {
+function mapBattleClan(raw: any, rank: number): ClanStanding {
   return {
-    rank,
-    name: String(raw?.Name ?? raw?.name ?? raw?.ClanName ?? raw?.clanName ?? CLAN_NAME),
-    icon: raw?.Icon ?? raw?.icon ?? null,
-    countryCode: raw?.CountryCode ?? raw?.countryCode ?? raw?.country ?? null,
-    members: asNumber(raw?.Members ?? raw?.members) ?? null,
-    memberCapacity: asNumber(raw?.MemberCapacity ?? raw?.memberCapacity) ?? null,
-    points: asNumber(raw?.Points ?? raw?.points) ?? 0,
-    reportedPlace: rank,
-    medal: null,
-    contributorCount: null,
+    rank: asNumber(raw?.rank) ?? rank,
+    name: String(raw?.name ?? raw?.clanName ?? raw?.tag ?? CLAN_NAME),
+    icon: raw?.icon ?? null,
+    countryCode: raw?.countryCode ?? raw?.country ?? null,
+    members: asNumber(raw?.members) ?? null,
+    memberCapacity: asNumber(raw?.memberCapacity) ?? null,
+    points: asNumber(raw?.points) ?? 0,
+    reportedPlace: asNumber(raw?.reportedPlace) ?? asNumber(raw?.place) ?? rank,
+    medal: raw?.medal ?? null,
+    contributorCount: asNumber(raw?.contributorCount) ?? null,
   };
 }
 
@@ -147,7 +144,10 @@ function buildClanFromLegacyDetail(raw: any, fallbackName: string): {
   battlePoints: number | null;
 } {
   const battleArray = asArray(raw?.Contribution?.Battle);
-  const battlePoints = battleArray.reduce((sum, entry) => sum + (asNumber(entry?.Points) ?? 0), 0);
+  const battlePoints = battleArray.reduce(
+    (sum, entry) => sum + (asNumber(entry?.Points) ?? 0),
+    0
+  );
 
   return {
     name: String(raw?.Name ?? fallbackName),
@@ -179,7 +179,12 @@ async function getBattleMeta(battleId: string): Promise<BattleMeta> {
 
   const progressPct =
     startTime && endTime && endTime.getTime() > startTime.getTime()
-      ? clamp(((Date.now() - startTime.getTime()) / (endTime.getTime() - startTime.getTime())) * 100, 0, 100)
+      ? clamp(
+          ((Date.now() - startTime.getTime()) /
+            (endTime.getTime() - startTime.getTime())) * 100,
+          0,
+          100
+        )
       : null;
 
   return {
@@ -194,69 +199,16 @@ async function getBattleMeta(battleId: string): Promise<BattleMeta> {
   };
 }
 
-async function getClanDetails(clanName: string) {
-  return fetchJson<any>(`${BASE}/api/clan/${encodeURIComponent(clanName)}`);
-}
-
-async function getLeaderboardPage(page: number) {
-  return fetchJson<any>(
-    `${BASE}/api/clans?page=${page}&pageSize=${PAGE_SIZE}&sort=Points&sortOrder=desc`
+async function getBattleClans(battleId: string) {
+  const json = await fetchJson<any>(`${BASE}/v1/clans/battles/${encodeURIComponent(battleId)}`);
+  const data = json?.data ?? {};
+  return asArray(data?.topClans).map((raw: any, index: number) =>
+    mapBattleClan(raw, index + 1)
   );
 }
 
-async function findClanOnLeaderboard(clanName: string) {
-  const pages: Array<{ page: number; clans: ClanStanding[] }> = [];
-  let found: ClanStanding | null = null;
-  let foundPage: number | null = null;
-
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const json = await getLeaderboardPage(page);
-    const list = asArray(json?.data);
-
-    if (!list.length) break;
-
-    const clans = list.map((raw: any, index: number) => mapLegacyClan(raw, (page - 1) * PAGE_SIZE + index + 1));
-    pages.push({ page, clans });
-
-    const match = clans.find((c) => namesMatch(c.name, clanName));
-    if (match) {
-      found = match;
-      foundPage = page;
-      break;
-    }
-  }
-
-  // Fetch neighboring pages if we found the clan, to capture nearby clans across page boundaries.
-  if (foundPage !== null) {
-    for (const extra of [foundPage - 1, foundPage + 1]) {
-      if (extra < 1 || extra > MAX_PAGES) continue;
-      if (pages.some((p) => p.page === extra)) continue;
-
-      const json = await getLeaderboardPage(extra);
-      const list = asArray(json?.data);
-      if (!list.length) continue;
-
-      const clans = list.map((raw: any, index: number) =>
-        mapLegacyClan(raw, (extra - 1) * PAGE_SIZE + index + 1)
-      );
-      pages.push({ page: extra, clans });
-    }
-  }
-
-  const merged = pages
-    .flatMap((p) => p.clans)
-    .sort((a, b) => {
-      const ap = a.rank ?? Number.MAX_SAFE_INTEGER;
-      const bp = b.rank ?? Number.MAX_SAFE_INTEGER;
-      if (ap !== bp) return ap - bp;
-      return (b.points ?? 0) - (a.points ?? 0);
-    });
-
-  return {
-    found,
-    clans: merged,
-    foundPage,
-  };
+async function getClanDetails(clanName: string) {
+  return fetchJson<any>(`${BASE}/api/clan/${encodeURIComponent(clanName)}`);
 }
 
 async function getLastSnapshot(battleId: string, clanName: string) {
@@ -404,10 +356,10 @@ export async function GET(request: Request) {
       );
     }
 
-    const [battleMeta, clanDetails, leaderboard] = await Promise.all([
+    const [battleMeta, clanDetails, battleClans] = await Promise.all([
       getBattleMeta(battleId),
       getClanDetails(CLAN_NAME),
-      findClanOnLeaderboard(CLAN_NAME),
+      getBattleClans(battleId),
     ]);
 
     const clanDetail = clanDetails?.data ?? null;
@@ -425,17 +377,18 @@ export async function GET(request: Request) {
 
     const historical = await getLastSnapshot(battleId, CLAN_NAME);
 
-    const liveClan = leaderboard.found;
-    const foundInLeaderboard = Boolean(liveClan);
+    const liveClan =
+      battleClans.find((c) => namesMatch(c.name, CLAN_NAME)) ?? null;
 
-    const rank = liveClan?.rank ?? historical?.rank ?? null;
+    const rank = liveClan?.reportedPlace ?? historical?.rank ?? null;
     const points =
       liveClan?.points ??
-      normalizedClan.battlePoints ??
       historical?.battle_points ??
+      normalizedClan.battlePoints ??
       0;
 
-    const clansForHistory = leaderboard.clans;
+    const foundInSample = Boolean(liveClan);
+    const clansForHistory = battleClans;
 
     await saveCollectorSnapshot({
       battleId,
@@ -449,7 +402,7 @@ export async function GET(request: Request) {
       totalClans: battleMeta.totalClans,
       totalPoints: battleMeta.totalPoints,
       progressPct: battleMeta.progressPct,
-      foundInSample: foundInLeaderboard,
+      foundInSample,
       clans: clansForHistory,
     });
 
@@ -478,9 +431,8 @@ export async function GET(request: Request) {
           totalPoints: battleMeta.totalPoints,
         },
         source: {
-          foundInLeaderboard,
-          leaderboardPage: leaderboard.foundPage,
-          historicalFallbackUsed: !foundInLeaderboard && Boolean(historical),
+          foundInLeaderboard: foundInSample,
+          historicalFallbackUsed: !foundInSample && Boolean(historical),
           lastHistoricalRank: historical?.rank ?? null,
           lastHistoricalPoints: historical?.battle_points ?? null,
           lastHistoricalSeenAt: historical?.captured_at?.toISOString() ?? null,
@@ -488,7 +440,7 @@ export async function GET(request: Request) {
       },
       { headers: makeHeaders() }
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         success: false,
