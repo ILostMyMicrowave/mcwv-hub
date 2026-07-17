@@ -250,7 +250,7 @@ export default function BattleHQPage() {
   const pointsHistory = data?.history.points24h ?? [];
   const gain24h = data?.stats.gain24h ?? 0;
   const rank = data?.current.rank ?? null;
-  const points = data?.current.points ?? null;
+  const currentPoints = data?.current.points ?? 0;
   const gapAbove = data?.stats.gapAbove ?? null;
   const gapBelow = data?.stats.gapBelow ?? null;
 
