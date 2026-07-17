@@ -1,83 +1,63 @@
-"use client";
+import { NextResponse } from "next/server";
+import { Pool } from "pg";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import Navbar from "@/components/Navbar";
-import AnimatedBackground from "@/components/AnimatedBackground";
+export const runtime = "nodejs";
 
-type WarAnalysisResponse = {
-  success: boolean;
-  active: boolean;
-  battleId: string | null;
-  warName: string | null;
-  current: {
-    clanName: string;
-    rank: number | null;
-    points: number;
-    participants: number;
-    totalClans: number;
-    totalPoints: number;
-    timeElapsedMs: number | null;
-    timeRemainingMs: number | null;
-    progressPct: number | null;
-    foundInSample: boolean;
-    sampleSource: string | null;
-    lastSeenAt: string | null;
-  };
-  targets: {
-    top30: {
-      status: "safe" | "reachable" | "unlikely" | "unknown";
-      message: string;
-    };
-    top50: {
-      status: "safe" | "reachable" | "unlikely" | "unknown";
-      message: string;
-    };
-  };
-  projection: {
-    placement: number | null;
-    confidence: "low" | "medium" | "high";
-    message: string;
-  };
-  nearbyClans: Array<{
-    rank: number | null;
-    name: string;
-    points: number;
-    gapFromUs: number | null;
-    relation: "ahead" | "us" | "behind";
-  }>;
-  topContributor: null | {
-    rank: number | null;
-    userId: number;
-    displayName: string;
-    points: number;
-    share?: number | null;
-    clan: {
-      name: string;
-      icon: string | null;
-      countryCode: string | null;
-      place: number | null;
-    };
-  };
-  analysis: {
-    overview: string;
-    pace: string;
-    threat: string;
-    summary: string;
-  };
-  memberActivity: {
-    available: boolean;
-    note: string;
-    inactiveMembers: never[];
-    fallingBehind: never[];
-  };
-  uiTone: "success" | "warning" | "danger" | "info";
-  diagnostics?: {
-    clanFoundInSample: boolean;
-    sampleSource: string | null;
-    candidateSources: string[];
-    usedFallbackHistory: boolean;
-  };
+const DATABASE_URL = process.env.DATABASE_URL;
+const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
+
+const pool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+    })
+  : null;
+
+type SnapshotRow = {
+  battle_id: string;
+  clan_name: string;
+  captured_at: string | Date;
+  rank: number | null;
+  battle_points: number | null;
+  participants: number | null;
+  total_clans: number | null;
+  total_points: number | null;
+  progress_percent: number | null;
+  found_in_sample: boolean | null;
 };
+
+type ClanHistoryRow = {
+  battle_id: string;
+  clan_name: string;
+  rank: number | null;
+  points: number | null;
+  captured_at: string | Date;
+};
+
+type BattleRow = {
+  battle_id: string;
+  battle_name: string | null;
+  start_time: string | Date | null;
+  end_time: string | Date | null;
+};
+
+function toDate(value: string | Date | null | undefined): Date | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -86,599 +66,412 @@ function formatNumber(value: number | null | undefined) {
 
 function formatDuration(ms: number | null) {
   if (ms === null) return "—";
-
   const total = Math.max(0, Math.floor(ms / 1000));
   const d = Math.floor(total / 86400);
   const h = Math.floor((total % 86400) / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-
   return `${d}d ${h}h ${m}m ${s}s`;
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("en-GB", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatShortDuration(ms: number | null) {
+  if (ms === null) return "—";
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
-function toneStyles(tone: WarAnalysisResponse["uiTone"]) {
-  switch (tone) {
-    case "success":
-      return {
-        border: "color-mix(in srgb, var(--primary) 28%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
-        text: "var(--primary)",
-      };
-    case "warning":
-      return {
-        border: "color-mix(in srgb, var(--primary) 22%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-        text: "var(--primary)",
-      };
-    case "danger":
-      return {
-        border: "color-mix(in srgb, var(--primary) 18%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 7%, transparent)",
-        text: "var(--primary)",
-      };
-    default:
-      return {
-        border: "color-mix(in srgb, var(--primary) 20%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-        text: "var(--primary)",
-      };
-  }
+function hourKey(date: Date) {
+  return date.toISOString().slice(0, 13);
 }
 
-function targetTone(status: WarAnalysisResponse["targets"]["top30"]["status"]) {
-  switch (status) {
-    case "safe":
-      return {
-        border: "color-mix(in srgb, var(--primary) 28%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
-      };
-    case "reachable":
-      return {
-        border: "color-mix(in srgb, var(--primary) 22%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-      };
-    case "unlikely":
-      return {
-        border: "color-mix(in srgb, var(--border) 90%, transparent)",
-        soft: "rgba(0,0,0,0.18)",
-      };
-    default:
-      return {
-        border: "color-mix(in srgb, var(--border) 90%, transparent)",
-        soft: "rgba(0,0,0,0.18)",
-      };
-  }
+function normalizeName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
-function StatusChip({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div
-      className="rounded-2xl border px-4 py-3"
-      style={{
-        borderColor: "color-mix(in srgb, var(--border) 85%, transparent)",
-        background: "color-mix(in srgb, var(--card) 88%, transparent)",
-      }}
-    >
-      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/55">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
-    </div>
+function namesMatch(a: unknown, b: unknown): boolean {
+  const left = normalizeName(a);
+  const right = normalizeName(b);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+async function getLatestBattleId(): Promise<string | null> {
+  if (!pool) return null;
+
+  const res = await pool.query<{ battle_id: string }>(
+    `SELECT battle_id
+     FROM battles
+     ORDER BY COALESCE(end_time, start_time, created_at, NOW()) DESC
+     LIMIT 1`
   );
+
+  return res.rows[0]?.battle_id ?? null;
 }
 
-function Section({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      className="rounded-[2rem] border p-5 sm:p-6 backdrop-blur"
-      style={{
-        borderColor: "var(--border)",
-        background: "color-mix(in srgb, var(--card) 90%, transparent)",
-      }}
-    >
-      <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
-          {title}
-        </p>
-        {subtitle ? <p className="mt-1 text-sm text-[var(--foreground)]/65">{subtitle}</p> : null}
-      </div>
-      {children}
-    </section>
+async function getBattleMeta(battleId: string) {
+  if (!pool) return null;
+
+  const res = await pool.query<BattleRow>(
+    `SELECT battle_id, battle_name, start_time, end_time
+     FROM battles
+     WHERE battle_id = $1
+     LIMIT 1`,
+    [battleId]
   );
+
+  return res.rows[0] ?? null;
 }
 
-function MiniStat({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div
-      className="rounded-2xl border p-4"
-      style={{
-        borderColor: "var(--border)",
-        background: "rgba(0,0,0,0.18)",
-      }}
-    >
-      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-        {label}
-      </p>
-      <p className="mt-1 text-lg font-bold text-white">{value}</p>
-    </div>
+async function getLatestSnapshots(battleId: string) {
+  if (!pool) return [];
+
+  const res = await pool.query<SnapshotRow>(
+    `SELECT battle_id, clan_name, captured_at, rank, battle_points, participants, total_clans, total_points, progress_percent, found_in_sample
+     FROM war_snapshots
+     WHERE battle_id = $1
+     ORDER BY captured_at DESC
+     LIMIT 1`,
+    [battleId]
   );
+
+  return res.rows;
 }
 
-function statusText(status: WarAnalysisResponse["targets"]["top30"]["status"]) {
-  switch (status) {
-    case "safe":
-      return "On pace";
-    case "reachable":
-      return "Reachable";
-    case "unlikely":
-      return "Unlikely";
-    default:
-      return "Unknown";
+async function getSnapshotHistory(battleId: string, clanName: string, hours: number) {
+  if (!pool) return [];
+
+  const res = await pool.query<SnapshotRow>(
+    `SELECT battle_id, clan_name, captured_at, rank, battle_points, participants, total_clans, total_points, progress_percent, found_in_sample
+     FROM war_snapshots
+     WHERE battle_id = $1
+       AND LOWER(clan_name) = LOWER($2)
+       AND captured_at >= NOW() - ($3 || ' hours')::interval
+     ORDER BY captured_at ASC`,
+    [battleId, clanName, hours]
+  );
+
+  return res.rows;
+}
+
+async function getClanHistoryWindow(battleId: string, clanName: string, hours: number) {
+  if (!pool) return [];
+
+  const res = await pool.query<ClanHistoryRow>(
+    `SELECT battle_id, clan_name, rank, points, captured_at
+     FROM clan_history
+     WHERE battle_id = $1
+       AND LOWER(clan_name) = LOWER($2)
+       AND captured_at >= NOW() - ($3 || ' hours')::interval
+     ORDER BY captured_at ASC`,
+    [battleId, clanName, hours]
+  );
+
+  return res.rows;
+}
+
+async function getNearbyClans(battleId: string, snapshotTime: Date) {
+  if (!pool) return [];
+
+  const res = await pool.query<ClanHistoryRow>(
+    `SELECT battle_id, clan_name, rank, points, captured_at
+     FROM clan_history
+     WHERE battle_id = $1
+       AND captured_at = $2
+     ORDER BY COALESCE(rank, 999999), points DESC, LOWER(clan_name) ASC`,
+    [battleId, snapshotTime]
+  );
+
+  return res.rows;
+}
+
+function pickClosestAbove(rows: ClanHistoryRow[], ourRank: number | null, ourPoints: number) {
+  if (ourRank !== null) {
+    const above = rows
+      .map((r) => ({
+        rank: asNumber(r.rank),
+        name: String(r.clan_name),
+        points: asNumber(r.points) ?? 0,
+      }))
+      .filter((r) => r.rank !== null && (r.rank as number) < ourRank)
+      .sort((a, b) => (b.rank ?? 999999) - (a.rank ?? 999999));
+
+    return above[0] ?? null;
   }
+
+  const byPoints = rows
+    .map((r) => ({
+      rank: asNumber(r.rank),
+      name: String(r.clan_name),
+      points: asNumber(r.points) ?? 0,
+    }))
+    .filter((r) => r.points > ourPoints)
+    .sort((a, b) => a.points - b.points);
+
+  return byPoints[0] ?? null;
 }
 
-export default function WarAnalystPage() {
-  const [data, setData] = useState<WarAnalysisResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+function pickClosestBelow(rows: ClanHistoryRow[], ourRank: number | null, ourPoints: number) {
+  if (ourRank !== null) {
+    const below = rows
+      .map((r) => ({
+        rank: asNumber(r.rank),
+        name: String(r.clan_name),
+        points: asNumber(r.points) ?? 0,
+      }))
+      .filter((r) => r.rank !== null && (r.rank as number) > ourRank)
+      .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999));
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/war-analyst", { cache: "no-store" });
-        const json = await res.json().catch(() => null);
+    return below[0] ?? null;
+  }
 
-        if (json?.success) {
-          setData(json);
-        } else {
-          setData(null);
-        }
-      } catch {
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
+  const byPoints = rows
+    .map((r) => ({
+      rank: asNumber(r.rank),
+      name: String(r.clan_name),
+      points: asNumber(r.points) ?? 0,
+    }))
+    .filter((r) => r.points < ourPoints)
+    .sort((a, b) => b.points - a.points);
+
+  return byPoints[0] ?? null;
+}
+
+function average(values: number[]) {
+  if (!values.length) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function ratePerHour(history: { capturedAt: Date; points: number }[]) {
+  if (history.length < 2) return null;
+
+  const first = history[0];
+  const last = history[history.length - 1];
+  const hours = (last.capturedAt.getTime() - first.capturedAt.getTime()) / 3_600_000;
+  if (hours <= 0) return null;
+
+  return (last.points - first.points) / hours;
+}
+
+function projectEta(gap: number, netRatePerHour: number | null) {
+  if (netRatePerHour === null || netRatePerHour <= 0) return null;
+  return (gap / netRatePerHour) * 3_600_000;
+}
+
+function statusTone(projectedPlacement: number | null) {
+  if (projectedPlacement === null) return "info" as const;
+  if (projectedPlacement <= 30) return "success" as const;
+  if (projectedPlacement <= 50) return "warning" as const;
+  return "danger" as const;
+}
+
+export async function GET() {
+  try {
+    if (!pool) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database not configured",
+        },
+        { status: 500 }
+      );
     }
 
-    load();
-  }, []);
+    let battleId = await getLatestBattleId();
 
-  const styles = useMemo(() => toneStyles(data?.uiTone ?? "info"), [data?.uiTone]);
-  const clanFoundInSample = data?.current.foundInSample ?? false;
-  const sampleSource = data?.current.sampleSource ?? null;
-  const usedFallbackHistory = data?.diagnostics?.usedFallbackHistory ?? false;
-  const projectionKnown = data?.projection.placement !== null;
+    if (!battleId) {
+      return NextResponse.json({
+        success: true,
+        active: false,
+        battleId: null,
+        battleName: null,
+        current: null,
+        summary: "No saved battle snapshots yet.",
+      });
+    }
 
-  return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <AnimatedBackground />
-      <Navbar />
+    const meta = await getBattleMeta(battleId);
+    const latestRows = await getLatestSnapshots(battleId);
+    const latest = latestRows[0] ?? null;
 
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-        {loading ? (
-          <div
-            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
-            style={{
-              borderColor: "var(--border)",
-              background: "color-mix(in srgb, var(--card) 90%, transparent)",
-            }}
-          >
-            Loading war analyst...
-          </div>
-        ) : !data ? (
-          <div
-            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
-            style={{
-              borderColor: "var(--border)",
-              background: "color-mix(in srgb, var(--card) 90%, transparent)",
-            }}
-          >
-            No war data available right now.
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {!clanFoundInSample ? (
-              <section
-                className="rounded-[2rem] border p-5 sm:p-6"
-                style={{
-                  borderColor: styles.border,
-                  background: "color-mix(in srgb, var(--card) 92%, transparent)",
-                }}
-              >
-                <p
-                  className="text-xs font-semibold uppercase tracking-[0.24em]"
-                  style={{ color: styles.text }}
-                >
-                  Sample notice
-                </p>
-                <p className="mt-2 text-sm leading-6 text-white">
-                  {usedFallbackHistory
-                    ? `${data.current.clanName} is not present in the current public sample, but the latest stored snapshot is being used instead.`
-                    : `${data.current.clanName} is not present in the current public sample, so live rank and nearby clan data cannot be resolved from this response yet.`}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--foreground)]/60">
-                  {sampleSource ? <span>Source used: {sampleSource}</span> : null}
-                  {data.current.lastSeenAt ? <span>Last seen: {formatDateTime(data.current.lastSeenAt)}</span> : null}
-                </div>
-              </section>
-            ) : null}
+    if (!latest) {
+      return NextResponse.json({
+        success: true,
+        active: false,
+        battleId,
+        battleName: meta?.battle_name ?? null,
+        current: null,
+        summary: "No snapshot rows available yet.",
+      });
+    }
 
-            <section
-              className="rounded-[2rem] border p-6 sm:p-7 backdrop-blur"
-              style={{
-                borderColor: styles.border,
-                background:
-                  "linear-gradient(180deg, color-mix(in srgb, var(--card) 94%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
-              }}
-            >
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="text-xs font-semibold uppercase tracking-[0.24em]"
-                    style={{ color: styles.text }}
-                  >
-                    War Analyst
-                  </p>
-                  <h1 className="mt-2 text-3xl font-black text-white sm:text-4xl">
-                    {data.warName ?? "No Active War"}
-                  </h1>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">
-                    {data.analysis.summary}
-                  </p>
+    const snapshotTime = toDate(latest.captured_at) ?? new Date();
+    const ourHistory = await getSnapshotHistory(battleId, CLAN_NAME, 24);
+    const ourClanRows = await getClanHistoryWindow(battleId, CLAN_NAME, 24);
+    const nearbyRows = await getNearbyClans(battleId, snapshotTime);
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <StatusChip
-                      label="Current status"
-                      value={data.active ? "Live" : "Inactive"}
-                    />
-                    <StatusChip
-                      label="Current rank"
-                      value={
-                        data.current.rank !== null
-                          ? `#${data.current.rank}`
-                          : clanFoundInSample
-                            ? "Unresolved"
-                            : usedFallbackHistory
-                              ? "From history"
-                              : "Not in sample"
-                      }
-                    />
-                    <StatusChip
-                      label="Projected finish"
-                      value={projectionKnown ? `#${data.projection.placement}` : "—"}
-                    />
-                    <StatusChip label="Confidence" value={data.projection.confidence.toUpperCase()} />
-                  </div>
-                </div>
+    const currentRank = asNumber(latest.rank);
+    const currentPoints = asNumber(latest.battle_points) ?? 0;
+    const currentTotalClans = asNumber(latest.total_clans);
+    const currentTotalPoints = asNumber(latest.total_points);
+    const currentParticipants = asNumber(latest.participants);
+    const currentProgress = asNumber(latest.progress_percent);
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
-                  <StatusChip
-                    label="Time remaining"
-                    value={formatDuration(data.current.timeRemainingMs)}
-                  />
-                  <StatusChip label="Clan" value={data.current.clanName} />
-                  <StatusChip label="Participants" value={formatNumber(data.current.participants)} />
-                  <StatusChip
-                    label="Battle points"
-                    value={
-                      clanFoundInSample || usedFallbackHistory
-                        ? formatNumber(data.current.points)
-                        : "Not in sample"
-                    }
-                  />
-                </div>
-              </div>
+    const last24hPoints =
+      ourHistory.length >= 2
+        ? (asNumber(ourHistory[ourHistory.length - 1]?.battle_points) ?? 0) -
+          (asNumber(ourHistory[0]?.battle_points) ?? 0)
+        : 0;
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <MiniStat
-                  label="Progress"
-                  value={
-                    data.current.progressPct !== null
-                      ? `${data.current.progressPct.toFixed(1)}%`
-                      : "—"
-                  }
-                />
-                <MiniStat label="Total clans" value={formatNumber(data.current.totalClans)} />
-                <MiniStat label="Total points" value={formatNumber(data.current.totalPoints)} />
-              </div>
+    const pointsHistory = ourHistory
+      .map((row) => ({
+        capturedAt: toDate(row.captured_at) ?? snapshotTime,
+        points: asNumber(row.battle_points) ?? 0,
+      }))
+      .filter((row) => Number.isFinite(row.points))
+      .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
 
-              <div className="mt-6 h-3 overflow-hidden rounded-full bg-black/30">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${data.current.progressPct ?? 0}%`,
-                    background:
-                      "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
-                    boxShadow: "0 0 20px var(--glow)",
-                    backgroundSize: "300% 100%",
-                  }}
-                />
-              </div>
-            </section>
+    const hourlyRate = ratePerHour(pointsHistory);
+    const avgRate = average(
+      pointsHistory.length >= 2
+        ? pointsHistory.slice(1).map((row, index) => {
+            const prev = pointsHistory[index];
+            const deltaPoints = row.points - prev.points;
+            const deltaHours = (row.capturedAt.getTime() - prev.capturedAt.getTime()) / 3_600_000;
+            return deltaHours > 0 ? deltaPoints / deltaHours : 0;
+          })
+        : []
+    );
 
-            <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="space-y-6">
-                <Section
-                  title="Current assessment"
-                  subtitle="Officer-friendly analysis of the live war."
-                >
-                  <div className="space-y-4">
-                    <div
-                      className="rounded-2xl border p-4"
-                      style={{
-                        borderColor: "var(--border)",
-                        background: "rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Overview
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-white">
-                        {data.analysis.overview}
-                      </p>
-                    </div>
+    const above = pickClosestAbove(nearbyRows, currentRank, currentPoints);
+    const below = pickClosestBelow(nearbyRows, currentRank, currentPoints);
 
-                    <div
-                      className="rounded-2xl border p-4"
-                      style={{
-                        borderColor: "var(--border)",
-                        background: "rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Pace
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.analysis.pace}</p>
-                    </div>
+    const gapAbove =
+      above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
+    const gapBelow =
+      below && below.points < currentPoints ? currentPoints - below.points : null;
 
-                    <div
-                      className="rounded-2xl border p-4"
-                      style={{
-                        borderColor: "var(--border)",
-                        background: "rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Threat
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.analysis.threat}</p>
-                    </div>
-                  </div>
-                </Section>
+    const etaAboveMs = projectEta(gapAbove ?? 0, hourlyRate);
+    const belowPressureRate =
+      hourlyRate !== null && below
+        ? (below.points - currentPoints) / 0.5
+        : null;
 
-                <Section
-                  title="Target pressure"
-                  subtitle="How the current snapshot reads against common finish goals."
-                >
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {[
-                      { label: "Top 30", target: data.targets.top30 },
-                      { label: "Top 50", target: data.targets.top50 },
-                    ].map(({ label, target }) => {
-                      const tone = targetTone(target.status);
+    const threatEtaMs =
+      below && gapBelow !== null && hourlyRate !== null
+        ? projectEta(gapBelow, Math.max(0.1, hourlyRate - (avgRate ?? 0)))
+        : null;
 
-                      return (
-                        <div
-                          key={label}
-                          className="rounded-2xl border p-4"
-                          style={{
-                            borderColor: tone.border,
-                            background: tone.soft,
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                              {label}
-                            </p>
-                            <p
-                              className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white"
-                              style={{
-                                borderColor: tone.border,
-                                background: "rgba(0,0,0,0.16)",
-                              }}
-                            >
-                              {statusText(target.status)}
-                            </p>
-                          </div>
-                          <p className="mt-3 text-sm leading-6 text-[var(--foreground)]/80">
-                            {target.message}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Section>
+    const projectedPlacement =
+      currentRank !== null
+        ? currentRank
+        : above
+          ? (above.rank ?? null)
+          : null;
 
-                <Section
-                  title="Nearby clans"
-                  subtitle="The closest clans around MCWV’s current position."
-                >
-                  {data.nearbyClans.length === 0 ? (
-                    <p className="text-sm text-[var(--foreground)]/65">
-                      Nearby clan data is not available yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {data.nearbyClans.map((clan) => {
-                        const isUs = clan.relation === "us";
-                        return (
-                          <div
-                            key={`${clan.name}-${String(clan.rank ?? "x")}`}
-                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
-                            style={{
-                              borderColor: isUs ? styles.border : "var(--border)",
-                              background: isUs ? styles.soft : "rgba(0,0,0,0.16)",
-                            }}
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-white">
-                                {clan.rank !== null ? `#${clan.rank}` : "—"} · {clan.name}
-                              </p>
-                              <p className="mt-1 text-xs text-[var(--foreground)]/55">
-                                {clan.relation === "us"
-                                  ? "MCWV"
-                                  : clan.relation === "ahead"
-                                    ? "Ahead of MCWV"
-                                    : "Behind MCWV"}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-white">
-                                {formatNumber(clan.points)}
-                              </p>
-                              <p className="text-xs text-[var(--foreground)]/55">
-                                {clan.gapFromUs === null
-                                  ? "Gap unknown"
-                                  : clan.gapFromUs === 0
-                                    ? "Current position"
-                                    : clan.relation === "ahead"
-                                      ? `${formatNumber(clan.gapFromUs)} ahead`
-                                      : `${formatNumber(clan.gapFromUs)} behind`}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </Section>
-              </div>
+    const confidence =
+      ourHistory.length >= 6 ? "high" : ourHistory.length >= 3 ? "medium" : "low";
 
-              <div className="space-y-6">
-                <Section
-                  title="Projection"
-                  subtitle="A simple finish estimate from the live snapshot."
-                >
-                  <div
-                    className="rounded-2xl border p-5"
-                    style={{
-                      borderColor: styles.border,
-                      background: "rgba(0,0,0,0.18)",
-                    }}
-                  >
-                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                      Confidence
-                    </p>
-                    <p className="mt-2 text-3xl font-black text-white">
-                      {data.projection.confidence.toUpperCase()}
-                    </p>
-                    <p className="mt-3 text-sm leading-6 text-[var(--foreground)]/70">
-                      {data.projection.message}
-                    </p>
-                  </div>
-                </Section>
+    const updateEveryMs = 5 * 60 * 1000;
+    const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
 
-                <Section
-                  title="Top contributor"
-                  subtitle="The current leader inside the battle snapshot."
-                >
-                  {data.topContributor ? (
-                    <div
-                      className="rounded-2xl border p-4"
-                      style={{
-                        borderColor: styles.border,
-                        background: "rgba(0,0,0,0.18)",
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-lg font-bold text-white">
-                            👑 {data.topContributor.displayName}
-                          </p>
-                          <p className="mt-1 text-sm text-[var(--foreground)]/65">
-                            Leading the war
-                          </p>
-                        </div>
+    const summaryParts = [
+      currentRank !== null ? `${CLAN_NAME} is currently #${currentRank}.` : `${CLAN_NAME} rank is not available from the latest snapshot.`,
+      `Battle points: ${formatNumber(currentPoints)}.`,
+      last24hPoints ? `Last 24h gain: +${formatNumber(last24hPoints)}.` : `Last 24h gain is not available yet.`,
+      gapAbove !== null && above ? `Need ${formatNumber(gapAbove)} more points to pass ${above.name}.` : `No clan above could be resolved yet.`,
+      gapBelow !== null && below ? `Closest threat below is ${below.name}, trailing by ${formatNumber(gapBelow)} points.` : `No immediate threat below could be resolved yet.`,
+    ];
 
-                        <div className="text-right">
-                          <p className="text-2xl font-black text-white">
-                            {formatNumber(data.topContributor.points)}
-                          </p>
-                          <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                            points
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-[var(--foreground)]/65">
-                      No top contributor data yet.
-                    </p>
-                  )}
-                </Section>
+    const overview = summaryParts.join(" ");
 
-                <Section
-                  title="Member activity"
-                  subtitle="Public PS99 battle data does not expose full internal inactivity history."
-                >
-                  <div
-                    className="rounded-2xl border p-4"
-                    style={{
-                      borderColor: "var(--border)",
-                      background: "rgba(0,0,0,0.18)",
-                    }}
-                  >
-                    <p className="text-sm leading-6 text-white">{data.memberActivity.note}</p>
-                  </div>
-                </Section>
+    const response = {
+      success: true,
+      active: true,
+      battleId,
+      battleName: meta?.battle_name ?? null,
+      lastUpdatedAt: snapshotTime.toISOString(),
+      current: {
+        clanName: CLAN_NAME,
+        rank: currentRank,
+        points: currentPoints,
+        level: null,
+        kickCooldown: null,
+        progressPct: currentProgress,
+        participants: currentParticipants,
+        totalClans: currentTotalClans,
+        totalPoints: currentTotalPoints,
+      },
+      stats: {
+        gain24h: last24hPoints,
+        hourlyRate: hourlyRate,
+        averageRate: avgRate,
+        gapAbove,
+        gapBelow,
+        etaAboveMs,
+        threatEtaMs,
+        projectedPlacement,
+        confidence,
+        uiTone: statusTone(projectedPlacement),
+      },
+      nearby: nearbyRows.slice(0, 10).map((row) => ({
+        rank: asNumber(row.rank),
+        name: String(row.clan_name),
+        points: asNumber(row.points) ?? 0,
+      })),
+      summary: {
+        overview,
+        pace:
+          hourlyRate !== null
+            ? `Current pace is ${formatNumber(Math.round(hourlyRate))} points/hour.`
+            : `Current pace is not available yet.`,
+        target:
+          gapAbove !== null && above
+            ? `${above.name} is the next clan to pass.`
+            : `No next target could be resolved yet.`,
+        threat:
+          gapBelow !== null && below
+            ? `${below.name} is the closest danger from below.`
+            : `No close threat from below could be resolved yet.`,
+      },
+      timing: {
+        snapshotIntervalMs: updateEveryMs,
+        nextUpdateInMs: nextUpdateMs,
+        nextUpdateText: formatShortDuration(nextUpdateMs),
+      },
+      history: {
+        points24h: ourClanRows.map((row) => ({
+          capturedAt: toDate(row.captured_at)?.toISOString() ?? null,
+          points: asNumber(row.points) ?? 0,
+          rank: asNumber(row.rank),
+        })),
+      },
+      diagnostics: {
+        snapshotsAvailable: ourHistory.length,
+        latestSnapshotRank: currentRank,
+      },
+    };
 
-                <Section
-                  title="Diagnostics"
-                  subtitle="Helpful while the public sample is still incomplete."
-                >
-                  <div className="space-y-3">
-                    <MiniStat
-                      label="Sample source"
-                      value={data.current.sampleSource ?? "—"}
-                    />
-                    <MiniStat
-                      label="Last seen"
-                      value={formatDateTime(data.current.lastSeenAt)}
-                    />
-                    <MiniStat
-                      label="Fallback history"
-                      value={usedFallbackHistory ? "Yes" : "No"}
-                    />
-                  </div>
-                </Section>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </main>
-  );
+    return NextResponse.json(response, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Battle analyst failed",
+      },
+      { status: 500 }
+    );
+  }
 }
