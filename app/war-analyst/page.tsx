@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -67,13 +67,6 @@ function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("en-GB").format(value);
 }
 
-function formatSignedNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  const n = Math.round(value);
-  const prefix = n > 0 ? "+" : "";
-  return `${prefix}${new Intl.NumberFormat("en-GB").format(n)}`;
-}
-
 function formatDuration(ms: number | null) {
   if (ms === null) return "—";
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -86,40 +79,54 @@ function formatDuration(ms: number | null) {
   return `${m}m ${s}s`;
 }
 
+function etaText(ms: number | null) {
+  if (ms === null) return "—";
+  if (ms < 60_000) return `~${Math.max(1, Math.round(ms / 1000))}s`;
+  if (ms < 3_600_000) return `~${Math.round(ms / 60_000)}m`;
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return `~${h}h ${m}m`;
+}
+
 function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
   switch (tone) {
     case "success":
       return {
-        border: "color-mix(in srgb, var(--primary) 28%, transparent)",
-        soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(52,211,153,0.16)]",
+        border: "color-mix(in srgb, var(--primary) 30%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 9%, transparent)",
+        glow: "shadow-[0_0_24px_rgba(52,211,153,0.12)]",
         pill: "bg-emerald-500/10 text-emerald-200 border-emerald-500/20",
+        bar: "bg-emerald-400",
       };
     case "warning":
       return {
-        border: "color-mix(in srgb, var(--primary) 22%, transparent)",
+        border: "color-mix(in srgb, var(--primary) 24%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(250,204,21,0.16)]",
+        glow: "shadow-[0_0_24px_rgba(250,204,21,0.12)]",
         pill: "bg-amber-500/10 text-amber-200 border-amber-500/20",
+        bar: "bg-amber-400",
       };
     case "danger":
       return {
-        border: "color-mix(in srgb, var(--primary) 18%, transparent)",
+        border: "color-mix(in srgb, var(--primary) 20%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 7%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(248,113,113,0.16)]",
+        glow: "shadow-[0_0_24px_rgba(248,113,113,0.12)]",
         pill: "bg-rose-500/10 text-rose-200 border-rose-500/20",
+        bar: "bg-rose-400",
       };
     default:
       return {
-        border: "color-mix(in srgb, var(--primary) 20%, transparent)",
+        border: "color-mix(in srgb, var(--primary) 22%, transparent)",
         soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
-        glow: "shadow-[0_0_24px_rgba(96,165,250,0.16)]",
+        glow: "shadow-[0_0_24px_rgba(96,165,250,0.12)]",
         pill: "bg-sky-500/10 text-sky-200 border-sky-500/20",
+        bar: "bg-sky-400",
       };
   }
 }
 
-function HumanStat({
+function StatCard({
   label,
   value,
   sub,
@@ -130,10 +137,10 @@ function HumanStat({
 }) {
   return (
     <div
-      className="rounded-2xl border p-4"
+      className="rounded-2xl border p-4 backdrop-blur"
       style={{
         borderColor: "var(--border)",
-        background: "rgba(0,0,0,0.18)",
+        background: "color-mix(in srgb, var(--card) 88%, transparent)",
       }}
     >
       <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
@@ -152,23 +159,21 @@ function Section({
 }: {
   title: string;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section
       className="rounded-[2rem] border p-5 sm:p-6 backdrop-blur"
       style={{
         borderColor: "var(--border)",
-        background: "color-mix(in srgb, var(--card) 90%, transparent)",
+        background: "color-mix(in srgb, var(--card) 92%, transparent)",
       }}
     >
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
           {title}
         </p>
-        {subtitle ? (
-          <p className="mt-1 text-sm text-[var(--foreground)]/65">{subtitle}</p>
-        ) : null}
+        {subtitle ? <p className="mt-1 text-sm text-[var(--foreground)]/65">{subtitle}</p> : null}
       </div>
       {children}
     </section>
@@ -178,16 +183,15 @@ function Section({
 function ProgressBar({ value }: { value: number | null }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
   return (
-    <div className="mt-5">
+    <div>
       <div className="h-3 overflow-hidden rounded-full bg-black/30">
         <div
-          className="h-full rounded-full transition-all duration-500"
+          className="h-full rounded-full transition-all duration-500 gradient-bar animate-gradientMove"
           style={{
             width: `${safe}%`,
-            background:
-              "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
+            background: "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
             boxShadow: "0 0 20px var(--glow)",
-            backgroundSize: "300% 100%",
+            backgroundSize: "200% 200%",
           }}
         />
       </div>
@@ -197,21 +201,6 @@ function ProgressBar({ value }: { value: number | null }) {
       </div>
     </div>
   );
-}
-
-function rankText(rank: number | null) {
-  if (rank === null) return "Not available";
-  return `#${rank}`;
-}
-
-function etaText(ms: number | null) {
-  if (ms === null) return "—";
-  if (ms < 60_000) return `about ${Math.max(1, Math.round(ms / 1000))}s`;
-  if (ms < 3_600_000) return `about ${Math.round(ms / 60_000)}m`;
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  return `about ${h}h ${m}m`;
 }
 
 export default function BattleHQPage() {
@@ -225,8 +214,7 @@ export default function BattleHQPage() {
       try {
         const res = await fetch("/api/war-analyst", { cache: "no-store" });
         const json = await res.json().catch(() => null);
-        if (json?.success) setData(json);
-        else setData(null);
+        setData(json?.success ? json : null);
       } catch {
         setData(null);
       } finally {
@@ -246,13 +234,20 @@ export default function BattleHQPage() {
 
   const styles = useMemo(() => toneStyles(data?.stats.uiTone ?? "info"), [data?.stats.uiTone]);
 
-  const nextUpdateLeft = data ? Math.max(0, data.timing.nextUpdateInMs - (Date.now() % data.timing.snapshotIntervalMs)) : null;
-  const pointsHistory = data?.history.points24h ?? [];
-  const gain24h = data?.stats.gain24h ?? 0;
-  const rank = data?.current.rank ?? null;
   const currentPoints = data?.current.points ?? 0;
+  const rank = data?.current.rank ?? null;
   const gapAbove = data?.stats.gapAbove ?? null;
   const gapBelow = data?.stats.gapBelow ?? null;
+  const pointsHistory = data?.history.points24h ?? [];
+
+  const nextUpdateLeft = data
+    ? Math.max(0, data.timing.nextUpdateInMs - (now % data.timing.snapshotIntervalMs))
+    : null;
+
+  const enoughHistoryForRate = (data?.diagnostics.snapshotsAvailable ?? 0) >= 3;
+  const enoughHistoryForTrend = pointsHistory.length >= 2;
+  const showRate = enoughHistoryForRate && data?.stats.hourlyRate !== null;
+  const showThreatEta = data?.stats.threatEtaMs !== null && gapBelow !== null && gapBelow > 0;
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -265,7 +260,7 @@ export default function BattleHQPage() {
             className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
             style={{
               borderColor: "var(--border)",
-              background: "color-mix(in srgb, var(--card) 90%, transparent)",
+              background: "color-mix(in srgb, var(--card) 92%, transparent)",
             }}
           >
             Loading Battle HQ...
@@ -275,7 +270,7 @@ export default function BattleHQPage() {
             className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
             style={{
               borderColor: "var(--border)",
-              background: "color-mix(in srgb, var(--card) 90%, transparent)",
+              background: "color-mix(in srgb, var(--card) 92%, transparent)",
             }}
           >
             No battle data available right now.
@@ -287,16 +282,13 @@ export default function BattleHQPage() {
               style={{
                 borderColor: styles.border,
                 background:
-                  "linear-gradient(180deg, color-mix(in srgb, var(--card) 94%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
+                  "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
               }}
             >
               <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p
-                      className="text-xs font-semibold uppercase tracking-[0.24em]"
-                      style={{ color: styles.border }}
-                    >
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: styles.border }}>
                       Battle HQ
                     </p>
                     <span
@@ -304,10 +296,13 @@ export default function BattleHQPage() {
                     >
                       {data.active ? "Live" : "Inactive"}
                     </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/70">
+                      {data.battleName ?? "No Active Battle"}
+                    </span>
                   </div>
 
                   <h1 className="mt-2 text-3xl font-black text-white sm:text-4xl">
-                    {data.battleName ?? "No Active Battle"}
+                    {data.current.clanName}
                   </h1>
 
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">
@@ -315,54 +310,49 @@ export default function BattleHQPage() {
                   </p>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <HumanStat label="Current rank" value={rankText(rank)} />
-                    <HumanStat label="Battle points" value={formatNumber(currentPoints)} sub={gain24h ? `+${formatNumber(gain24h)} in 24h` : "24h gain pending"} />
-                    <HumanStat label="Projected finish" value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"} sub={`Confidence: ${data.stats.confidence.toUpperCase()}`} />
-                    <HumanStat label="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
+                    <StatCard label="Current rank" value={rank === null ? "—" : `#${rank}`} />
+                    <StatCard
+                      label="Battle points"
+                      value={formatNumber(currentPoints)}
+                      sub={data.stats.gain24h ? `+${formatNumber(data.stats.gain24h)} in 24h` : "24h gain pending"}
+                    />
+                    <StatCard
+                      label="Projected finish"
+                      value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
+                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
+                    />
+                    <StatCard label="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
-                  <HumanStat label="Clan" value={data.current.clanName} />
-                  <HumanStat label="Level" value={data.current.level !== null ? String(data.current.level) : "—"} />
-                  <HumanStat label="Kick cooldown" value={data.current.kickCooldown ?? "—"} />
-                  <HumanStat label="Last updated" value={data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"} />
+                  <StatCard label="Level" value={data.current.level !== null ? String(data.current.level) : "—"} />
+                  <StatCard label="Kick cooldown" value={data.current.kickCooldown ?? "—"} />
+                  <StatCard label="Participants" value={formatNumber(data.current.participants)} />
+                  <StatCard label="Last updated" value={data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"} />
                 </div>
               </div>
 
-              <ProgressBar value={data.current.progressPct} />
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <StatCard label="Progress" value={data.current.progressPct !== null ? `${data.current.progressPct.toFixed(1)}%` : "—"} />
+                <StatCard label="Total clans" value={formatNumber(data.current.totalClans)} />
+                <StatCard label="Total points" value={formatNumber(data.current.totalPoints)} />
+              </div>
+
+              <div className="mt-6">
+                <ProgressBar value={data.current.progressPct} />
+              </div>
             </section>
 
             <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
               <div className="space-y-6">
-                <Section title="Officer summary" subtitle="Like the bot command, but cleaner and easier to read.">
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Overview</p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.overview}</p>
-                    </div>
-                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Pace</p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.pace}</p>
-                    </div>
-                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Target</p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.target}</p>
-                    </div>
-                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Threat</p>
-                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.threat}</p>
-                    </div>
-                  </div>
-                </Section>
-
-                <Section title="Target pressure" subtitle="The next clan to pass, and the closest clan behind us.">
+                <Section title="Position" subtitle="Your place in the current battle and the clans around you.">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
                       <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Next target</p>
                       <p className="mt-2 text-lg font-bold text-white">{data.summary.target}</p>
                       <p className="mt-2 text-sm text-[var(--foreground)]/75">
-                        Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}.
+                        Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}
                       </p>
                       <p className="mt-1 text-sm text-[var(--foreground)]/75">
                         ETA: {etaText(data.stats.etaAboveMs)}
@@ -376,15 +366,15 @@ export default function BattleHQPage() {
                         Gap below: {gapBelow === null ? "—" : formatNumber(gapBelow)}
                       </p>
                       <p className="mt-1 text-sm text-[var(--foreground)]/75">
-                        Threat ETA: {etaText(data.stats.threatEtaMs)}
+                        Threat ETA: {showThreatEta ? etaText(data.stats.threatEtaMs) : "—"}
                       </p>
                     </div>
                   </div>
                 </Section>
 
-                <Section title="Nearby clans" subtitle="A small command-style snapshot of the current ladder.">
+                <Section title="Nearby clans" subtitle="Clans immediately around MCWV in the ladder.">
                   {data.nearby.length === 0 ? (
-                    <p className="text-sm text-[var(--foreground)]/65">No nearby clans are available from the stored snapshots yet.</p>
+                    <p className="text-sm text-[var(--foreground)]/65">No nearby clans available yet.</p>
                   ) : (
                     <div className="space-y-3">
                       {data.nearby.map((clan) => {
@@ -395,7 +385,7 @@ export default function BattleHQPage() {
                             className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
                             style={{
                               borderColor: isUs ? styles.border : "var(--border)",
-                              background: isUs ? styles.soft : "rgba(0,0,0,0.16)",
+                              background: isUs ? styles.soft : "rgba(0,0,0,0.14)",
                             }}
                           >
                             <div className="min-w-0">
@@ -419,43 +409,64 @@ export default function BattleHQPage() {
               </div>
 
               <div className="space-y-6">
-                <Section title="Forecast" subtitle="A simple, clean projection from your stored snapshots.">
-                  <div className="rounded-2xl border p-5" style={{ borderColor: styles.border, background: "rgba(0,0,0,0.18)" }}>
-                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Projected finish</p>
-                    <p className="mt-2 text-3xl font-black text-white">
-                      {data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
-                    </p>
-                    <p className="mt-3 text-sm leading-6 text-[var(--foreground)]/70">
-                      Confidence: {data.stats.confidence.toUpperCase()}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/70">
-                      {data.summary.overview}
-                    </p>
+                <Section title="Performance" subtitle="How the current battle is trending right now.">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <StatCard
+                      label="24h gain"
+                      value={`+${formatNumber(data.stats.gain24h)}`}
+                      sub={showRate ? `${formatNumber(Math.round(data.stats.hourlyRate ?? 0))} / hour` : "Need more snapshots"}
+                    />
+                    <StatCard
+                      label="Forecast"
+                      value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
+                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
+                    />
                   </div>
                 </Section>
 
-                <Section title="Snapshot history" subtitle="Enough history to power graphs and trend lines later.">
+                <Section title="Battle summary" subtitle="Short readout for officers.">
                   <div className="space-y-3">
-                    <HumanStat label="Snapshots stored" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
-                    <HumanStat label="Latest snapshot rank" value={rankText(data.diagnostics.latestSnapshotRank)} />
-                    <HumanStat label="Refresh interval" value={`${Math.round(data.timing.snapshotIntervalMs / 60000)} min`} />
-                    <HumanStat label="Next update in" value={formatDuration(nextUpdateLeft)} />
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.14)" }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Overview</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.overview}</p>
+                    </div>
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.14)" }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Pace</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{showRate ? data.summary.pace : "Need a few more snapshots before pace becomes reliable."}</p>
+                    </div>
                   </div>
                 </Section>
 
-                <Section title="24h trend" subtitle="A simple history lane for later charts.">
-                  {pointsHistory.length === 0 ? (
-                    <p className="text-sm text-[var(--foreground)]/65">No history points yet.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {pointsHistory.slice(-8).map((row) => (
-                        <div key={`${row.capturedAt ?? "x"}-${row.points}`} className="flex items-center justify-between rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.14)" }}>
-                          <span className="text-xs text-[var(--foreground)]/60">{row.capturedAt ? new Date(row.capturedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                <Section title="Snapshot history" subtitle="Saved points over time.">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <StatCard label="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
+                    <StatCard label="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} />
+                    <StatCard label="Next update" value={formatDuration(nextUpdateLeft)} />
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    {enoughHistoryForTrend ? (
+                      pointsHistory.slice(-8).map((row) => (
+                        <div
+                          key={`${row.capturedAt ?? "x"}-${row.points}`}
+                          className="flex items-center justify-between rounded-xl border px-3 py-2"
+                          style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.12)" }}
+                        >
+                          <span className="text-xs text-[var(--foreground)]/60">
+                            {row.capturedAt
+                              ? new Date(row.capturedAt).toLocaleTimeString("en-GB", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : "—"}
+                          </span>
                           <span className="text-xs font-semibold text-white">{formatNumber(row.points)}</span>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      ))
+                    ) : (
+                      <p className="text-sm text-[var(--foreground)]/65">A few more snapshots are needed before the trend list becomes useful.</p>
+                    )}
+                  </div>
                 </Section>
               </div>
             </div>
@@ -465,4 +476,3 @@ export default function BattleHQPage() {
     </main>
   );
 }
-
