@@ -316,7 +316,7 @@ export default function BattleHQPage() {
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <HumanStat label="Current rank" value={rankText(rank)} />
-                    <HumanStat label="Battle points" value={formatNumber(points)} sub={gain24h ? `+${formatNumber(gain24h)} in 24h` : "24h gain pending"} />
+                    <HumanStat label="Battle points" value={formatNumber(currentPoints)} sub={gain24h ? `+${formatNumber(gain24h)} in 24h` : "24h gain pending"} />
                     <HumanStat label="Projected finish" value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"} sub={`Confidence: ${data.stats.confidence.toUpperCase()}`} />
                     <HumanStat label="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
                   </div>
