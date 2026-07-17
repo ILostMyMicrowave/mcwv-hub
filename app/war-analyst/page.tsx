@@ -1,67 +1,77 @@
-import { NextResponse } from "next/server";
-import { Pool } from "pg";
+"use client";
 
-export const runtime = "nodejs";
+import { useEffect, useMemo, useState } from "react";
+import Navbar from "@/components/Navbar";
+import AnimatedBackground from "@/components/AnimatedBackground";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
-
-const pool = DATABASE_URL
-  ? new Pool({
-      connectionString: DATABASE_URL,
-    })
-  : null;
-
-type SnapshotRow = {
-  battle_id: string;
-  clan_name: string;
-  captured_at: string | Date;
-  rank: number | null;
-  battle_points: number | null;
-  participants: number | null;
-  total_clans: number | null;
-  total_points: number | null;
-  progress_percent: number | null;
-  found_in_sample: boolean | null;
+type BattleHqResponse = {
+  success: boolean;
+  active: boolean;
+  battleId: string | null;
+  battleName: string | null;
+  lastUpdatedAt: string | null;
+  current: {
+    clanName: string;
+    rank: number | null;
+    points: number;
+    level: number | null;
+    kickCooldown: string | null;
+    progressPct: number | null;
+    participants: number | null;
+    totalClans: number | null;
+    totalPoints: number | null;
+  };
+  stats: {
+    gain24h: number;
+    hourlyRate: number | null;
+    averageRate: number | null;
+    gapAbove: number | null;
+    gapBelow: number | null;
+    etaAboveMs: number | null;
+    threatEtaMs: number | null;
+    projectedPlacement: number | null;
+    confidence: "low" | "medium" | "high";
+    uiTone: "success" | "warning" | "danger" | "info";
+  };
+  nearby: Array<{
+    rank: number | null;
+    name: string;
+    points: number;
+  }>;
+  summary: {
+    overview: string;
+    pace: string;
+    target: string;
+    threat: string;
+  };
+  timing: {
+    snapshotIntervalMs: number;
+    nextUpdateInMs: number;
+    nextUpdateText: string;
+  };
+  history: {
+    points24h: Array<{
+      capturedAt: string | null;
+      points: number;
+      rank: number | null;
+    }>;
+  };
+  diagnostics: {
+    snapshotsAvailable: number;
+    latestSnapshotRank: number | null;
+  };
 };
-
-type ClanHistoryRow = {
-  battle_id: string;
-  clan_name: string;
-  rank: number | null;
-  points: number | null;
-  captured_at: string | Date;
-};
-
-type BattleRow = {
-  battle_id: string;
-  battle_name: string | null;
-  start_time: string | Date | null;
-  end_time: string | Date | null;
-};
-
-function toDate(value: string | Date | null | undefined): Date | null {
-  if (!value) return null;
-  const d = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function asNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-GB").format(value);
+}
+
+function formatSignedNumber(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const n = Math.round(value);
+  const prefix = n > 0 ? "+" : "";
+  return `${prefix}${new Intl.NumberFormat("en-GB").format(n)}`;
 }
 
 function formatDuration(ms: number | null) {
@@ -71,407 +81,388 @@ function formatDuration(ms: number | null) {
   const h = Math.floor((total % 86400) / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  return `${d}d ${h}h ${m}m ${s}s`;
+  if (d > 0) return `${d}d ${h}h ${m}m ${s}s`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s}s`;
 }
 
-function formatShortDuration(ms: number | null) {
+function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
+  switch (tone) {
+    case "success":
+      return {
+        border: "color-mix(in srgb, var(--primary) 28%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 10%, transparent)",
+        glow: "shadow-[0_0_24px_rgba(52,211,153,0.16)]",
+        pill: "bg-emerald-500/10 text-emerald-200 border-emerald-500/20",
+      };
+    case "warning":
+      return {
+        border: "color-mix(in srgb, var(--primary) 22%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
+        glow: "shadow-[0_0_24px_rgba(250,204,21,0.16)]",
+        pill: "bg-amber-500/10 text-amber-200 border-amber-500/20",
+      };
+    case "danger":
+      return {
+        border: "color-mix(in srgb, var(--primary) 18%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 7%, transparent)",
+        glow: "shadow-[0_0_24px_rgba(248,113,113,0.16)]",
+        pill: "bg-rose-500/10 text-rose-200 border-rose-500/20",
+      };
+    default:
+      return {
+        border: "color-mix(in srgb, var(--primary) 20%, transparent)",
+        soft: "color-mix(in srgb, var(--primary) 8%, transparent)",
+        glow: "shadow-[0_0_24px_rgba(96,165,250,0.16)]",
+        pill: "bg-sky-500/10 text-sky-200 border-sky-500/20",
+      };
+  }
+}
+
+function HumanStat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{
+        borderColor: "var(--border)",
+        background: "rgba(0,0,0,0.18)",
+      }}
+    >
+      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-black text-white">{value}</p>
+      {sub ? <p className="mt-1 text-xs text-[var(--foreground)]/55">{sub}</p> : null}
+    </div>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-[2rem] border p-5 sm:p-6 backdrop-blur"
+      style={{
+        borderColor: "var(--border)",
+        background: "color-mix(in srgb, var(--card) 90%, transparent)",
+      }}
+    >
+      <div className="mb-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
+          {title}
+        </p>
+        {subtitle ? (
+          <p className="mt-1 text-sm text-[var(--foreground)]/65">{subtitle}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ProgressBar({ value }: { value: number | null }) {
+  const safe = Math.max(0, Math.min(100, value ?? 0));
+  return (
+    <div className="mt-5">
+      <div className="h-3 overflow-hidden rounded-full bg-black/30">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${safe}%`,
+            background:
+              "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
+            boxShadow: "0 0 20px var(--glow)",
+            backgroundSize: "300% 100%",
+          }}
+        />
+      </div>
+      <div className="mt-2 flex items-center justify-between text-xs text-[var(--foreground)]/55">
+        <span>{value === null ? "—" : `${safe.toFixed(1)}% complete`}</span>
+        <span>Live progress</span>
+      </div>
+    </div>
+  );
+}
+
+function rankText(rank: number | null) {
+  if (rank === null) return "Not available";
+  return `#${rank}`;
+}
+
+function etaText(ms: number | null) {
   if (ms === null) return "—";
+  if (ms < 60_000) return `about ${Math.max(1, Math.round(ms / 1000))}s`;
+  if (ms < 3_600_000) return `about ${Math.round(ms / 60_000)}m`;
   const total = Math.max(0, Math.floor(ms / 1000));
-  const d = Math.floor(total / 86400);
-  const h = Math.floor((total % 86400) / 3600);
+  const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
-
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  return `about ${h}h ${m}m`;
 }
 
-function hourKey(date: Date) {
-  return date.toISOString().slice(0, 13);
-}
+export default function BattleHQPage() {
+  const [data, setData] = useState<BattleHqResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(Date.now());
 
-function normalizeName(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function namesMatch(a: unknown, b: unknown): boolean {
-  const left = normalizeName(a);
-  const right = normalizeName(b);
-  if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
-}
-
-async function getLatestBattleId(): Promise<string | null> {
-  if (!pool) return null;
-
-  const res = await pool.query<{ battle_id: string }>(
-    `SELECT battle_id
-     FROM battles
-     ORDER BY COALESCE(end_time, start_time, created_at, NOW()) DESC
-     LIMIT 1`
-  );
-
-  return res.rows[0]?.battle_id ?? null;
-}
-
-async function getBattleMeta(battleId: string) {
-  if (!pool) return null;
-
-  const res = await pool.query<BattleRow>(
-    `SELECT battle_id, battle_name, start_time, end_time
-     FROM battles
-     WHERE battle_id = $1
-     LIMIT 1`,
-    [battleId]
-  );
-
-  return res.rows[0] ?? null;
-}
-
-async function getLatestSnapshots(battleId: string) {
-  if (!pool) return [];
-
-  const res = await pool.query<SnapshotRow>(
-    `SELECT battle_id, clan_name, captured_at, rank, battle_points, participants, total_clans, total_points, progress_percent, found_in_sample
-     FROM war_snapshots
-     WHERE battle_id = $1
-     ORDER BY captured_at DESC
-     LIMIT 1`,
-    [battleId]
-  );
-
-  return res.rows;
-}
-
-async function getSnapshotHistory(battleId: string, clanName: string, hours: number) {
-  if (!pool) return [];
-
-  const res = await pool.query<SnapshotRow>(
-    `SELECT battle_id, clan_name, captured_at, rank, battle_points, participants, total_clans, total_points, progress_percent, found_in_sample
-     FROM war_snapshots
-     WHERE battle_id = $1
-       AND LOWER(clan_name) = LOWER($2)
-       AND captured_at >= NOW() - ($3 || ' hours')::interval
-     ORDER BY captured_at ASC`,
-    [battleId, clanName, hours]
-  );
-
-  return res.rows;
-}
-
-async function getClanHistoryWindow(battleId: string, clanName: string, hours: number) {
-  if (!pool) return [];
-
-  const res = await pool.query<ClanHistoryRow>(
-    `SELECT battle_id, clan_name, rank, points, captured_at
-     FROM clan_history
-     WHERE battle_id = $1
-       AND LOWER(clan_name) = LOWER($2)
-       AND captured_at >= NOW() - ($3 || ' hours')::interval
-     ORDER BY captured_at ASC`,
-    [battleId, clanName, hours]
-  );
-
-  return res.rows;
-}
-
-async function getNearbyClans(battleId: string, snapshotTime: Date) {
-  if (!pool) return [];
-
-  const res = await pool.query<ClanHistoryRow>(
-    `SELECT battle_id, clan_name, rank, points, captured_at
-     FROM clan_history
-     WHERE battle_id = $1
-       AND captured_at = $2
-     ORDER BY COALESCE(rank, 999999), points DESC, LOWER(clan_name) ASC`,
-    [battleId, snapshotTime]
-  );
-
-  return res.rows;
-}
-
-function pickClosestAbove(rows: ClanHistoryRow[], ourRank: number | null, ourPoints: number) {
-  if (ourRank !== null) {
-    const above = rows
-      .map((r) => ({
-        rank: asNumber(r.rank),
-        name: String(r.clan_name),
-        points: asNumber(r.points) ?? 0,
-      }))
-      .filter((r) => r.rank !== null && (r.rank as number) < ourRank)
-      .sort((a, b) => (b.rank ?? 999999) - (a.rank ?? 999999));
-
-    return above[0] ?? null;
-  }
-
-  const byPoints = rows
-    .map((r) => ({
-      rank: asNumber(r.rank),
-      name: String(r.clan_name),
-      points: asNumber(r.points) ?? 0,
-    }))
-    .filter((r) => r.points > ourPoints)
-    .sort((a, b) => a.points - b.points);
-
-  return byPoints[0] ?? null;
-}
-
-function pickClosestBelow(rows: ClanHistoryRow[], ourRank: number | null, ourPoints: number) {
-  if (ourRank !== null) {
-    const below = rows
-      .map((r) => ({
-        rank: asNumber(r.rank),
-        name: String(r.clan_name),
-        points: asNumber(r.points) ?? 0,
-      }))
-      .filter((r) => r.rank !== null && (r.rank as number) > ourRank)
-      .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999));
-
-    return below[0] ?? null;
-  }
-
-  const byPoints = rows
-    .map((r) => ({
-      rank: asNumber(r.rank),
-      name: String(r.clan_name),
-      points: asNumber(r.points) ?? 0,
-    }))
-    .filter((r) => r.points < ourPoints)
-    .sort((a, b) => b.points - a.points);
-
-  return byPoints[0] ?? null;
-}
-
-function average(values: number[]) {
-  if (!values.length) return null;
-  return values.reduce((a, b) => a + b, 0) / values.length;
-}
-
-function ratePerHour(history: { capturedAt: Date; points: number }[]) {
-  if (history.length < 2) return null;
-
-  const first = history[0];
-  const last = history[history.length - 1];
-  const hours = (last.capturedAt.getTime() - first.capturedAt.getTime()) / 3_600_000;
-  if (hours <= 0) return null;
-
-  return (last.points - first.points) / hours;
-}
-
-function projectEta(gap: number, netRatePerHour: number | null) {
-  if (netRatePerHour === null || netRatePerHour <= 0) return null;
-  return (gap / netRatePerHour) * 3_600_000;
-}
-
-function statusTone(projectedPlacement: number | null) {
-  if (projectedPlacement === null) return "info" as const;
-  if (projectedPlacement <= 30) return "success" as const;
-  if (projectedPlacement <= 50) return "warning" as const;
-  return "danger" as const;
-}
-
-export async function GET() {
-  try {
-    if (!pool) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Database not configured",
-        },
-        { status: 500 }
-      );
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/war-analyst", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (json?.success) setData(json);
+        else setData(null);
+      } catch {
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
     }
 
-    let battleId = await getLatestBattleId();
+    load();
+    const timer = setInterval(load, 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
-    if (!battleId) {
-      return NextResponse.json({
-        success: true,
-        active: false,
-        battleId: null,
-        battleName: null,
-        current: null,
-        summary: "No saved battle snapshots yet.",
-      });
-    }
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-    const meta = await getBattleMeta(battleId);
-    const latestRows = await getLatestSnapshots(battleId);
-    const latest = latestRows[0] ?? null;
+  const styles = useMemo(() => toneStyles(data?.stats.uiTone ?? "info"), [data?.stats.uiTone]);
 
-    if (!latest) {
-      return NextResponse.json({
-        success: true,
-        active: false,
-        battleId,
-        battleName: meta?.battle_name ?? null,
-        current: null,
-        summary: "No snapshot rows available yet.",
-      });
-    }
+  const nextUpdateLeft = data ? Math.max(0, data.timing.nextUpdateInMs - (Date.now() % data.timing.snapshotIntervalMs)) : null;
+  const pointsHistory = data?.history.points24h ?? [];
+  const gain24h = data?.stats.gain24h ?? 0;
+  const rank = data?.current.rank ?? null;
+  const points = data?.current.points ?? null;
+  const gapAbove = data?.stats.gapAbove ?? null;
+  const gapBelow = data?.stats.gapBelow ?? null;
 
-    const snapshotTime = toDate(latest.captured_at) ?? new Date();
-    const ourHistory = await getSnapshotHistory(battleId, CLAN_NAME, 24);
-    const ourClanRows = await getClanHistoryWindow(battleId, CLAN_NAME, 24);
-    const nearbyRows = await getNearbyClans(battleId, snapshotTime);
+  return (
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <AnimatedBackground />
+      <Navbar />
 
-    const currentRank = asNumber(latest.rank);
-    const currentPoints = asNumber(latest.battle_points) ?? 0;
-    const currentTotalClans = asNumber(latest.total_clans);
-    const currentTotalPoints = asNumber(latest.total_points);
-    const currentParticipants = asNumber(latest.participants);
-    const currentProgress = asNumber(latest.progress_percent);
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
+        {loading ? (
+          <div
+            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
+            style={{
+              borderColor: "var(--border)",
+              background: "color-mix(in srgb, var(--card) 90%, transparent)",
+            }}
+          >
+            Loading Battle HQ...
+          </div>
+        ) : !data ? (
+          <div
+            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
+            style={{
+              borderColor: "var(--border)",
+              background: "color-mix(in srgb, var(--card) 90%, transparent)",
+            }}
+          >
+            No battle data available right now.
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <section
+              className="rounded-[2rem] border p-6 sm:p-7 backdrop-blur"
+              style={{
+                borderColor: styles.border,
+                background:
+                  "linear-gradient(180deg, color-mix(in srgb, var(--card) 94%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
+              }}
+            >
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p
+                      className="text-xs font-semibold uppercase tracking-[0.24em]"
+                      style={{ color: styles.border }}
+                    >
+                      Battle HQ
+                    </p>
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.pill}`}
+                    >
+                      {data.active ? "Live" : "Inactive"}
+                    </span>
+                  </div>
 
-    const last24hPoints =
-      ourHistory.length >= 2
-        ? (asNumber(ourHistory[ourHistory.length - 1]?.battle_points) ?? 0) -
-          (asNumber(ourHistory[0]?.battle_points) ?? 0)
-        : 0;
+                  <h1 className="mt-2 text-3xl font-black text-white sm:text-4xl">
+                    {data.battleName ?? "No Active Battle"}
+                  </h1>
 
-    const pointsHistory = ourHistory
-      .map((row) => ({
-        capturedAt: toDate(row.captured_at) ?? snapshotTime,
-        points: asNumber(row.battle_points) ?? 0,
-      }))
-      .filter((row) => Number.isFinite(row.points))
-      .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">
+                    {data.summary.overview}
+                  </p>
 
-    const hourlyRate = ratePerHour(pointsHistory);
-    const avgRate = average(
-      pointsHistory.length >= 2
-        ? pointsHistory.slice(1).map((row, index) => {
-            const prev = pointsHistory[index];
-            const deltaPoints = row.points - prev.points;
-            const deltaHours = (row.capturedAt.getTime() - prev.capturedAt.getTime()) / 3_600_000;
-            return deltaHours > 0 ? deltaPoints / deltaHours : 0;
-          })
-        : []
-    );
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <HumanStat label="Current rank" value={rankText(rank)} />
+                    <HumanStat label="Battle points" value={formatNumber(points)} sub={gain24h ? `+${formatNumber(gain24h)} in 24h` : "24h gain pending"} />
+                    <HumanStat label="Projected finish" value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"} sub={`Confidence: ${data.stats.confidence.toUpperCase()}`} />
+                    <HumanStat label="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
+                  </div>
+                </div>
 
-    const above = pickClosestAbove(nearbyRows, currentRank, currentPoints);
-    const below = pickClosestBelow(nearbyRows, currentRank, currentPoints);
+                <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
+                  <HumanStat label="Clan" value={data.current.clanName} />
+                  <HumanStat label="Level" value={data.current.level !== null ? String(data.current.level) : "—"} />
+                  <HumanStat label="Kick cooldown" value={data.current.kickCooldown ?? "—"} />
+                  <HumanStat label="Last updated" value={data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"} />
+                </div>
+              </div>
 
-    const gapAbove =
-      above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
-    const gapBelow =
-      below && below.points < currentPoints ? currentPoints - below.points : null;
+              <ProgressBar value={data.current.progressPct} />
+            </section>
 
-    const etaAboveMs = projectEta(gapAbove ?? 0, hourlyRate);
-    const belowPressureRate =
-      hourlyRate !== null && below
-        ? (below.points - currentPoints) / 0.5
-        : null;
+            <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="space-y-6">
+                <Section title="Officer summary" subtitle="Like the bot command, but cleaner and easier to read.">
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Overview</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.overview}</p>
+                    </div>
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Pace</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.pace}</p>
+                    </div>
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Target</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.target}</p>
+                    </div>
+                    <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.18)" }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Threat</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{data.summary.threat}</p>
+                    </div>
+                  </div>
+                </Section>
 
-    const threatEtaMs =
-      below && gapBelow !== null && hourlyRate !== null
-        ? projectEta(gapBelow, Math.max(0.1, hourlyRate - (avgRate ?? 0)))
-        : null;
+                <Section title="Target pressure" subtitle="The next clan to pass, and the closest clan behind us.">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Next target</p>
+                      <p className="mt-2 text-lg font-bold text-white">{data.summary.target}</p>
+                      <p className="mt-2 text-sm text-[var(--foreground)]/75">
+                        Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}.
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--foreground)]/75">
+                        ETA: {etaText(data.stats.etaAboveMs)}
+                      </p>
+                    </div>
 
-    const projectedPlacement =
-      currentRank !== null
-        ? currentRank
-        : above
-          ? (above.rank ?? null)
-          : null;
+                    <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Closest threat</p>
+                      <p className="mt-2 text-lg font-bold text-white">{data.summary.threat}</p>
+                      <p className="mt-2 text-sm text-[var(--foreground)]/75">
+                        Gap below: {gapBelow === null ? "—" : formatNumber(gapBelow)}
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--foreground)]/75">
+                        Threat ETA: {etaText(data.stats.threatEtaMs)}
+                      </p>
+                    </div>
+                  </div>
+                </Section>
 
-    const confidence =
-      ourHistory.length >= 6 ? "high" : ourHistory.length >= 3 ? "medium" : "low";
+                <Section title="Nearby clans" subtitle="A small command-style snapshot of the current ladder.">
+                  {data.nearby.length === 0 ? (
+                    <p className="text-sm text-[var(--foreground)]/65">No nearby clans are available from the stored snapshots yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {data.nearby.map((clan) => {
+                        const isUs = clan.name.toLowerCase() === data.current.clanName.toLowerCase();
+                        return (
+                          <div
+                            key={`${clan.name}-${String(clan.rank ?? "x")}`}
+                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
+                            style={{
+                              borderColor: isUs ? styles.border : "var(--border)",
+                              background: isUs ? styles.soft : "rgba(0,0,0,0.16)",
+                            }}
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-white">
+                                {clan.rank !== null ? `#${clan.rank}` : "—"} · {clan.name}
+                              </p>
+                              <p className="mt-1 text-xs text-[var(--foreground)]/55">
+                                {isUs ? "MCWV" : clan.points > currentPoints ? "Ahead of us" : "Behind us"}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-white">{formatNumber(clan.points)}</p>
+                              <p className="text-xs text-[var(--foreground)]/55">Battle points</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Section>
+              </div>
 
-    const updateEveryMs = 5 * 60 * 1000;
-    const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
+              <div className="space-y-6">
+                <Section title="Forecast" subtitle="A simple, clean projection from your stored snapshots.">
+                  <div className="rounded-2xl border p-5" style={{ borderColor: styles.border, background: "rgba(0,0,0,0.18)" }}>
+                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Projected finish</p>
+                    <p className="mt-2 text-3xl font-black text-white">
+                      {data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-[var(--foreground)]/70">
+                      Confidence: {data.stats.confidence.toUpperCase()}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/70">
+                      {data.summary.overview}
+                    </p>
+                  </div>
+                </Section>
 
-    const summaryParts = [
-      currentRank !== null ? `${CLAN_NAME} is currently #${currentRank}.` : `${CLAN_NAME} rank is not available from the latest snapshot.`,
-      `Battle points: ${formatNumber(currentPoints)}.`,
-      last24hPoints ? `Last 24h gain: +${formatNumber(last24hPoints)}.` : `Last 24h gain is not available yet.`,
-      gapAbove !== null && above ? `Need ${formatNumber(gapAbove)} more points to pass ${above.name}.` : `No clan above could be resolved yet.`,
-      gapBelow !== null && below ? `Closest threat below is ${below.name}, trailing by ${formatNumber(gapBelow)} points.` : `No immediate threat below could be resolved yet.`,
-    ];
+                <Section title="Snapshot history" subtitle="Enough history to power graphs and trend lines later.">
+                  <div className="space-y-3">
+                    <HumanStat label="Snapshots stored" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
+                    <HumanStat label="Latest snapshot rank" value={rankText(data.diagnostics.latestSnapshotRank)} />
+                    <HumanStat label="Refresh interval" value={`${Math.round(data.timing.snapshotIntervalMs / 60000)} min`} />
+                    <HumanStat label="Next update in" value={formatDuration(nextUpdateLeft)} />
+                  </div>
+                </Section>
 
-    const overview = summaryParts.join(" ");
-
-    const response = {
-      success: true,
-      active: true,
-      battleId,
-      battleName: meta?.battle_name ?? null,
-      lastUpdatedAt: snapshotTime.toISOString(),
-      current: {
-        clanName: CLAN_NAME,
-        rank: currentRank,
-        points: currentPoints,
-        level: null,
-        kickCooldown: null,
-        progressPct: currentProgress,
-        participants: currentParticipants,
-        totalClans: currentTotalClans,
-        totalPoints: currentTotalPoints,
-      },
-      stats: {
-        gain24h: last24hPoints,
-        hourlyRate: hourlyRate,
-        averageRate: avgRate,
-        gapAbove,
-        gapBelow,
-        etaAboveMs,
-        threatEtaMs,
-        projectedPlacement,
-        confidence,
-        uiTone: statusTone(projectedPlacement),
-      },
-      nearby: nearbyRows.slice(0, 10).map((row) => ({
-        rank: asNumber(row.rank),
-        name: String(row.clan_name),
-        points: asNumber(row.points) ?? 0,
-      })),
-      summary: {
-        overview,
-        pace:
-          hourlyRate !== null
-            ? `Current pace is ${formatNumber(Math.round(hourlyRate))} points/hour.`
-            : `Current pace is not available yet.`,
-        target:
-          gapAbove !== null && above
-            ? `${above.name} is the next clan to pass.`
-            : `No next target could be resolved yet.`,
-        threat:
-          gapBelow !== null && below
-            ? `${below.name} is the closest danger from below.`
-            : `No close threat from below could be resolved yet.`,
-      },
-      timing: {
-        snapshotIntervalMs: updateEveryMs,
-        nextUpdateInMs: nextUpdateMs,
-        nextUpdateText: formatShortDuration(nextUpdateMs),
-      },
-      history: {
-        points24h: ourClanRows.map((row) => ({
-          capturedAt: toDate(row.captured_at)?.toISOString() ?? null,
-          points: asNumber(row.points) ?? 0,
-          rank: asNumber(row.rank),
-        })),
-      },
-      diagnostics: {
-        snapshotsAvailable: ourHistory.length,
-        latestSnapshotRank: currentRank,
-      },
-    };
-
-    return NextResponse.json(response, {
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Battle analyst failed",
-      },
-      { status: 500 }
-    );
-  }
+                <Section title="24h trend" subtitle="A simple history lane for later charts.">
+                  {pointsHistory.length === 0 ? (
+                    <p className="text-sm text-[var(--foreground)]/65">No history points yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {pointsHistory.slice(-8).map((row) => (
+                        <div key={`${row.capturedAt ?? "x"}-${row.points}`} className="flex items-center justify-between rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.14)" }}>
+                          <span className="text-xs text-[var(--foreground)]/60">{row.capturedAt ? new Date(row.capturedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                          <span className="text-xs font-semibold text-white">{formatNumber(row.points)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
 }
+
