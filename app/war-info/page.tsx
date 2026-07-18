@@ -113,6 +113,30 @@ function rewardMeta(reward: RewardLike | null) {
   return parts;
 }
 
+function rewardIconSource(reward: RewardLike | null): string | null {
+  if (!reward) return null;
+
+  const candidates = [
+    reward.icon,
+    reward.image,
+    reward.img,
+    reward.thumbnail,
+    reward.asset,
+    reward.assetId,
+    reward.asset_id,
+    reward.url,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return `https://res.cloudinary.com/dummy/image/upload/${candidate}.png`;
+    }
+  }
+
+  return null;
+}
+
 function ProgressBar({ value }: { value: number | null }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
   return (
@@ -169,6 +193,7 @@ function RewardCard({
   tone?: "default" | "accent";
 }) {
   const meta = rewardMeta(reward);
+  const icon = rewardIconSource(reward);
 
   return (
     <div
@@ -184,12 +209,39 @@ function RewardCard({
             : "rgba(0,0,0,0.16)",
       }}
     >
-      <p className="text-lg font-bold text-white">{rewardTitle(reward)}</p>
-      {meta.length > 0 ? (
-        <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[var(--foreground)]/55">
-          {meta.join(" • ")}
-        </p>
-      ) : null}
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border"
+          style={{
+            borderColor: "color-mix(in srgb, var(--border) 80%, transparent)",
+            background: "rgba(255,255,255,0.04)",
+          }}
+        >
+          {icon ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={icon}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = "none";
+              }}
+            />
+          ) : (
+            <span className="text-lg">🎁</span>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-lg font-bold text-white">{rewardTitle(reward)}</p>
+          {meta.length > 0 ? (
+            <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[var(--foreground)]/55">
+              {meta.join(" • ")}
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -311,10 +363,10 @@ export default function WarInfoPage() {
             >
               <div className="relative min-h-[240px] overflow-hidden">
                 <div
-                  className="absolute inset-0 bg-cover bg-center opacity-20"
+                  className="absolute inset-0 bg-cover bg-center opacity-35"
                   style={{ backgroundImage: `url(${HERO_IMAGE_URL})` }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/60 to-black/85" />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/55 to-black/85" />
                 <div className="relative flex min-h-[240px] flex-col justify-between p-6 sm:p-7">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
