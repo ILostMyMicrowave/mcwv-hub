@@ -65,6 +65,14 @@ function formatDateTime(value: number | string | null) {
   });
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function rewardText(value: unknown) {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") return value;
@@ -74,31 +82,27 @@ function rewardText(value: unknown) {
   return null;
 }
 
-function rewardTitle(reward: RewardLike | null) {
-  if (!reward) return "—";
-
-  const preferredKeys = ["name", "title", "displayName", "item", "pet", "reward", "label", "id"];
-  for (const key of preferredKeys) {
-    const value = rewardText(reward[key]);
-    if (value) return value;
+function collectStrings(value: unknown, depth = 0, maxDepth = 2): string[] {
+  if (depth > maxDepth || value === null || value === undefined) return [];
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectStrings(item, depth + 1, maxDepth));
   }
-
-  return "Reward";
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap((item) =>
+      collectStrings(item, depth + 1, maxDepth)
+    );
+  }
+  return [];
 }
 
-function rewardMeta(reward: RewardLike | null) {
-  if (!reward) return [] as string[];
-
-  const parts: string[] = [];
-  const variant = rewardText(reward.variant) ?? rewardText(reward.type);
-  const amount = rewardText(reward.amount) ?? rewardText(reward.count);
-  const tier = rewardText(reward.particleTier) ?? rewardText(reward.tier);
-
-  if (variant) parts.push(variant);
-  if (amount) parts.push(amount);
-  if (tier) parts.push(`Tier ${tier}`);
-
-  return parts;
+function hasImageLikeString(value: string) {
+  return (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("rbxassetid://") ||
+    value.startsWith("rbxthumb://")
+  );
 }
 
 function resolveRobloxImageUrl(src: string | null | undefined): string {
@@ -126,17 +130,89 @@ function getPetIconUrl(name: string, golden = false) {
   )}.png`;
 }
 
-function rewardIconSource(reward: RewardLike | null) {
-  if (!reward) return "";
+function rewardTitle(reward: RewardLike | null, fallback = "Reward") {
+  if (!reward) return fallback;
 
-  const direct = [reward.icon, reward.image, reward.img, reward.thumbnail, reward.asset, reward.url, reward.iconUrl];
-  for (const candidate of direct) {
-    if (typeof candidate === "string" && candidate.trim()) return resolveRobloxImageUrl(candidate);
+  const preferredKeys = [
+    "name",
+    "title",
+    "displayName",
+    "item",
+    "pet",
+    "reward",
+    "label",
+    "id",
+  ];
+
+  for (const key of preferredKeys) {
+    const value = rewardText(reward[key]);
+    if (value) {
+      const normalized = normalizeText(value);
+      if (normalized && !/^reward$/i.test(normalized)) return value;
+    }
   }
 
-  const title = rewardTitle(reward);
+  const strings = collectStrings(reward)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const meaningful = strings.find((s) => {
+    const t = normalizeText(s);
+    return t && !/^reward$/i.test(t) && !/^item$/i.test(t) && !/^unknown$/i.test(t);
+  });
+
+  return meaningful ?? fallback;
+}
+
+function rewardMeta(reward: RewardLike | null) {
+  if (!reward) return [] as string[];
+
+  const parts: string[] = [];
+  const variant = rewardText(reward.variant) ?? rewardText(reward.type);
+  const amount = rewardText(reward.amount) ?? rewardText(reward.count);
+  const tier = rewardText(reward.particleTier) ?? rewardText(reward.tier);
+
+  if (variant) parts.push(variant);
+  if (amount) parts.push(amount);
+  if (tier) parts.push(`Tier ${tier}`);
+
+  return parts;
+}
+
+function rewardIconSource(reward: RewardLike | null) {
+  if (!reward) return null;
+
+  const keys = [
+    "icon",
+    "image",
+    "img",
+    "thumbnail",
+    "asset",
+    "url",
+    "iconUrl",
+    "imageUrl",
+    "image_url",
+    "assetUrl",
+    "asset_url",
+  ];
+
+  for (const key of keys) {
+    const value = reward[key];
+    if (typeof value === "string" && hasImageLikeString(value.trim())) {
+      return resolveRobloxImageUrl(value);
+    }
+  }
+
+  const nestedCandidates = collectStrings(reward);
+  const imageCandidate = nestedCandidates.find((s) => hasImageLikeString(s.trim()));
+  if (imageCandidate) return resolveRobloxImageUrl(imageCandidate);
+
+  const title = rewardTitle(reward, "");
   const rawType = String(reward.variant ?? reward.type ?? reward.name ?? reward.title ?? "");
   const golden = /golden/i.test(rawType);
+
+  if (!title) return null;
+
   return getPetIconUrl(title, golden);
 }
 
@@ -187,11 +263,9 @@ function ProgressBar({ value }: { value: number | null }) {
 
 function Card({
   title,
-  subtitle,
   children,
 }: {
   title: string;
-  subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -202,13 +276,10 @@ function Card({
         background: "color-mix(in srgb, var(--card) 92%, transparent)",
       }}
     >
-      <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
-          {title}
-        </p>
-        {subtitle ? <p className="mt-1 text-sm text-[var(--foreground)]/65">{subtitle}</p> : null}
-      </div>
-      {children}
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
+        {title}
+      </p>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
@@ -222,10 +293,15 @@ function DetailPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RewardCard({ reward }: { reward: RewardLike | null }) {
+function RewardCard({
+  reward,
+  fallbackLabel = "Reward",
+}: {
+  reward: RewardLike | null;
+  fallbackLabel?: string;
+}) {
   const icon = rewardIconSource(reward);
-  const title = rewardTitle(reward);
-  const meta = rewardMeta(reward);
+  const title = rewardTitle(reward, fallbackLabel);
 
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-black/14 p-3 transition duration-200 hover:-translate-y-0.5">
@@ -248,11 +324,6 @@ function RewardCard({ reward }: { reward: RewardLike | null }) {
 
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold text-white">{title}</p>
-        {meta.length > 0 ? (
-          <p className="mt-1 truncate text-xs uppercase tracking-[0.18em] text-[var(--foreground)]/55">
-            {meta.join(" • ")}
-          </p>
-        ) : null}
       </div>
     </div>
   );
@@ -295,8 +366,9 @@ export default function WarInfoPage() {
 
   const state = war?.state ?? (war?.active ? "live" : "inactive");
   const finalPlacement = placementLabel(war?.clanRank ?? null);
-  const rewards = war?.rewards ?? { headlineReward: null, placementRewards: [], tieredRewards: null };
   const durationText = valid ? formatDuration(endMs - startMs) : "—";
+  const statusText = valid ? stateLabel(state) : "Completed";
+  const rewards = war?.rewards ?? { headlineReward: null, placementRewards: [], tieredRewards: null };
 
   const rewardGroups = useMemo(() => {
     const tiers = war?.rewards?.tieredRewards;
@@ -309,8 +381,6 @@ export default function WarInfoPage() {
         items,
       }));
   }, [war?.rewards?.tieredRewards]);
-
-  const statusText = valid ? stateLabel(state) : "Completed";
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -381,7 +451,7 @@ export default function WarInfoPage() {
               </div>
             </section>
 
-            <Card title="Battle progress" subtitle="The main countdown and status for the war.">
+            <Card title="Battle progress">
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <DetailPill label="Current placement" value={finalPlacement} />
@@ -398,9 +468,9 @@ export default function WarInfoPage() {
               </div>
             </Card>
 
-            <Card title="Rewards" subtitle="Small, visual cards with item icons where available.">
+            <Card title="Rewards">
               <div className="space-y-4">
-                <RewardCard reward={rewards.headlineReward} />
+                <RewardCard reward={rewards.headlineReward} fallbackLabel="Headline reward" />
 
                 {rewards.placementRewards.length > 0 ? (
                   <div>
@@ -409,7 +479,11 @@ export default function WarInfoPage() {
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {rewards.placementRewards.map((reward, index) => (
-                        <RewardCard key={`placement-${index}`} reward={reward} />
+                        <RewardCard
+                          key={`placement-${index}`}
+                          reward={reward}
+                          fallbackLabel={`Reward ${index + 1}`}
+                        />
                       ))}
                     </div>
                   </div>
@@ -426,7 +500,11 @@ export default function WarInfoPage() {
                           <p className="text-sm font-semibold text-white">{group.label}</p>
                           <div className="mt-3 grid gap-3 sm:grid-cols-2">
                             {group.items.map((reward, index) => (
-                              <RewardCard key={`${group.label}-${index}`} reward={reward} />
+                              <RewardCard
+                                key={`${group.label}-${index}`}
+                                reward={reward}
+                                fallbackLabel="Reward"
+                              />
                             ))}
                           </div>
                         </div>
