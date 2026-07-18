@@ -42,9 +42,7 @@ function asNumber(value: unknown): number | null {
 
 function toMs(value: number | string | null): number | null {
   if (value === null || value === undefined) return null;
-  if (typeof value === "number") {
-    return value < 1e12 ? value * 1000 : value;
-  }
+  if (typeof value === "number") return value < 1e12 ? value * 1000 : value;
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
 }
@@ -79,7 +77,7 @@ function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("en-GB").format(value);
 }
 
-function formatRewardValue(value: unknown) {
+function rewardText(value: unknown) {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") return value;
   if (typeof value === "number") return formatNumber(value);
@@ -88,41 +86,31 @@ function formatRewardValue(value: unknown) {
   return null;
 }
 
-function rewardSummary(reward: RewardLike | null) {
+function rewardTitle(reward: RewardLike | null) {
   if (!reward) return "—";
 
-  const preferredKeys = ["name", "title", "displayName", "item", "pet", "reward", "label"];
+  const preferredKeys = ["name", "title", "displayName", "item", "pet", "reward", "label", "id"];
   for (const key of preferredKeys) {
-    const value = formatRewardValue(reward[key]);
+    const value = rewardText(reward[key]);
     if (value) return value;
   }
-
-  const firstString = Object.values(reward).find((v) => typeof v === "string");
-  if (typeof firstString === "string") return firstString;
 
   return "Reward";
 }
 
-function rewardDetails(reward: RewardLike | null) {
-  if (!reward) return [] as Array<{ label: string; value: string }>;
+function rewardMeta(reward: RewardLike | null) {
+  if (!reward) return [] as string[];
 
-  const entries = Object.entries(reward)
-    .filter(([key, value]) => {
-      if (value === null || value === undefined) return false;
-      if (Array.isArray(value) && value.length === 0) return false;
-      if (typeof value === "object" && !Array.isArray(value)) return Object.keys(value as object).length > 0;
-      return true;
-    })
-    .slice(0, 4)
-    .map(([key, value]) => ({
-      label: key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " "),
-      value:
-        typeof value === "object" && !Array.isArray(value)
-          ? JSON.stringify(value)
-          : String(formatRewardValue(value) ?? value),
-    }));
+  const parts: string[] = [];
+  const variant = rewardText(reward.variant) ?? rewardText(reward.type);
+  const amount = rewardText(reward.amount) ?? rewardText(reward.count);
+  const tier = rewardText(reward.particleTier) ?? rewardText(reward.tier);
 
-  return entries;
+  if (variant) parts.push(variant);
+  if (amount) parts.push(amount);
+  if (tier) parts.push(`Tier ${tier}`);
+
+  return parts;
 }
 
 function ProgressBar({ value }: { value: number | null }) {
@@ -174,19 +162,17 @@ function Card({
 }
 
 function RewardCard({
-  title,
   reward,
   tone = "default",
 }: {
-  title: string;
   reward: RewardLike | null;
   tone?: "default" | "accent";
 }) {
-  const details = rewardDetails(reward);
+  const meta = rewardMeta(reward);
 
   return (
     <div
-      className="rounded-2xl border p-4"
+      className="rounded-2xl border p-4 transition duration-200 hover:-translate-y-0.5"
       style={{
         borderColor:
           tone === "accent"
@@ -198,30 +184,18 @@ function RewardCard({
             : "rgba(0,0,0,0.16)",
       }}
     >
-      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-        {title}
-      </p>
-      <p className="mt-2 text-lg font-bold text-white">{rewardSummary(reward)}</p>
-      {details.length > 0 ? (
-        <div className="mt-3 space-y-2">
-          {details.map((item) => (
-            <div key={`${title}-${item.label}`} className="flex items-start justify-between gap-3">
-              <span className="text-xs uppercase tracking-[0.18em] text-[var(--foreground)]/45">
-                {item.label}
-              </span>
-              <span className="max-w-[55%] text-right text-xs text-[var(--foreground)]/75 break-words">
-                {item.value}
-              </span>
-            </div>
-          ))}
-        </div>
+      <p className="text-lg font-bold text-white">{rewardTitle(reward)}</p>
+      {meta.length > 0 ? (
+        <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[var(--foreground)]/55">
+          {meta.join(" • ")}
+        </p>
       ) : null}
     </div>
   );
 }
 
 function placementLabel(rank: number | null) {
-  if (rank === null) return "Unranked";
+  if (rank === null) return "Unavailable";
   return `#${rank}`;
 }
 
@@ -236,6 +210,15 @@ function stateLabel(state: WarApiData["state"]) {
     default:
       return "Inactive";
   }
+}
+
+function DetailPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
+      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
 }
 
 export default function WarInfoPage() {
@@ -272,7 +255,6 @@ export default function WarInfoPage() {
   const valid = startMs !== null && endMs !== null && endMs > startMs;
   const timeLeftMs = valid ? Math.max(0, endMs! - now) : null;
   const progress = valid ? Math.min(100, ((now - startMs!) / (endMs! - startMs!)) * 100) : 0;
-
   const state = war?.state ?? (war?.active ? "live" : "inactive");
   const rewards = war?.rewards ?? { headlineReward: null, placementRewards: [], tieredRewards: null };
 
@@ -287,6 +269,9 @@ export default function WarInfoPage() {
         items,
       }));
   }, [war?.rewards?.tieredRewards]);
+
+  const finalPlacement = placementLabel(war?.clanRank ?? null);
+  const durationText = valid ? formatDuration(endMs! - startMs!) : "—";
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -324,13 +309,13 @@ export default function WarInfoPage() {
                   "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
               }}
             >
-              <div className="relative min-h-[220px] overflow-hidden">
+              <div className="relative min-h-[240px] overflow-hidden">
                 <div
                   className="absolute inset-0 bg-cover bg-center opacity-20"
                   style={{ backgroundImage: `url(${HERO_IMAGE_URL})` }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/60 to-black/80" />
-                <div className="relative flex min-h-[220px] flex-col justify-between p-6 sm:p-7">
+                <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/60 to-black/85" />
+                <div className="relative flex min-h-[240px] flex-col justify-between p-6 sm:p-7">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
                       className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]"
@@ -372,7 +357,7 @@ export default function WarInfoPage() {
                           Current placement
                         </p>
                         <p className="mt-2 text-4xl font-black text-white">
-                          {placementLabel(war.clanRank)}
+                          {finalPlacement}
                         </p>
                       </div>
                       <div className="text-right">
@@ -387,38 +372,18 @@ export default function WarInfoPage() {
 
                     <ProgressBar value={progress} />
 
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                        <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                          Total clans
-                        </p>
-                        <p className="mt-1 text-xl font-black text-white">
-                          {formatNumber(war.totalClans)}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                        <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                          Participants
-                        </p>
-                        <p className="mt-1 text-xl font-black text-white">
-                          {formatNumber(war.participants)}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                        <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                          Progress
-                        </p>
-                        <p className="mt-1 text-xl font-black text-white">
-                          {progress.toFixed(1)}%
-                        </p>
-                      </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <DetailPill label="Starts" value={formatDateTime(war.startTime)} />
+                      <DetailPill label="Ends" value={formatDateTime(war.endTime)} />
+                      <DetailPill label="Duration" value={durationText} />
+                      <DetailPill label="Status" value={stateLabel(state)} />
                     </div>
                   </div>
                 </Card>
 
                 <Card title="Rewards">
                   <div className="space-y-4">
-                    <RewardCard title="Headline reward" reward={rewards.headlineReward} tone="accent" />
+                    <RewardCard reward={rewards.headlineReward} tone="accent" />
 
                     {rewards.placementRewards.length > 0 ? (
                       <div>
@@ -427,11 +392,7 @@ export default function WarInfoPage() {
                         </p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {rewards.placementRewards.map((reward, index) => (
-                            <RewardCard
-                              key={`placement-${index}`}
-                              title={`Placement ${index + 1}`}
-                              reward={reward}
-                            />
+                            <RewardCard key={`placement-${index}`} reward={reward} />
                           ))}
                         </div>
                       </div>
@@ -448,7 +409,7 @@ export default function WarInfoPage() {
                               <p className="text-sm font-semibold text-white">{group.label}</p>
                               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                 {group.items.map((reward, index) => (
-                                  <RewardCard key={`${group.label}-${index}`} title={`Item ${index + 1}`} reward={reward} />
+                                  <RewardCard key={`${group.label}-${index}`} reward={reward} />
                                 ))}
                               </div>
                             </div>
@@ -463,55 +424,19 @@ export default function WarInfoPage() {
               <div className="space-y-6">
                 <Card title="Battle snapshot">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        War name
-                      </p>
-                      <p className="mt-1 text-lg font-bold text-white">{war.warName ?? "—"}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Current placement
-                      </p>
-                      <p className="mt-1 text-lg font-bold text-white">{placementLabel(war.clanRank)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Starts
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-white">{formatDateTime(war.startTime)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Ends
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-white">{formatDateTime(war.endTime)}</p>
-                    </div>
+                    <DetailPill label="War name" value={war.warName ?? "—"} />
+                    <DetailPill label="Current placement" value={finalPlacement} />
+                    <DetailPill label="Starts" value={formatDateTime(war.startTime)} />
+                    <DetailPill label="Ends" value={formatDateTime(war.endTime)} />
                   </div>
                 </Card>
 
-                <Card title="Battle progress details">
+                <Card title="Battle details">
                   <div className="space-y-3">
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Duration
-                      </p>
-                      <p className="mt-1 text-xl font-black text-white">
-                        {formatDuration(valid ? (endMs! - startMs!) : null)}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Live progress
-                      </p>
-                      <p className="mt-1 text-xl font-black text-white">{progress.toFixed(1)}%</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Battle status
-                      </p>
-                      <p className="mt-1 text-xl font-black text-white">{stateLabel(state)}</p>
-                    </div>
+                    <DetailPill label="Battle ID" value={war.battleId ?? "—"} />
+                    <DetailPill label="Battle status" value={stateLabel(state)} />
+                    <DetailPill label="Live progress" value={`${progress.toFixed(1)}%`} />
+                    <DetailPill label="Total points" value={formatNumber(war.totalPoints)} />
                   </div>
                 </Card>
               </div>
@@ -522,3 +447,4 @@ export default function WarInfoPage() {
     </main>
   );
 }
+
