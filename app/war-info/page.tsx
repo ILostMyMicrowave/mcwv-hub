@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
-type RewardLike = Record<string, unknown>;
-
 type WarApiData = {
   success?: boolean;
   active: boolean;
@@ -21,11 +19,6 @@ type WarApiData = {
   participants: number;
   maxParticipants: number;
   progressPct: number | null;
-  rewards: {
-    headlineReward: RewardLike | null;
-    placementRewards: RewardLike[];
-    tieredRewards: Record<string, RewardLike[]> | null;
-  };
 };
 
 function formatNumber(value: number | null | undefined) {
@@ -63,132 +56,6 @@ function formatDateTime(value: number | string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function normalizeText(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .replace(/[^a-zA-Z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function rewardText(value: unknown) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return formatNumber(value);
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (Array.isArray(value)) return `${value.length} items`;
-  return null;
-}
-
-function collectStrings(value: unknown, depth = 0, maxDepth = 2): string[] {
-  if (depth > maxDepth || value === null || value === undefined) return [];
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap((item) => collectStrings(item, depth + 1, maxDepth));
-  if (typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).flatMap((item) =>
-      collectStrings(item, depth + 1, maxDepth)
-    );
-  }
-  return [];
-}
-
-function hasImageLikeString(value: string) {
-  return (
-    value.startsWith("http://") ||
-    value.startsWith("https://") ||
-    value.startsWith("rbxassetid://") ||
-    value.startsWith("rbxthumb://")
-  );
-}
-
-function resolveRobloxImageUrl(src: string | null | undefined): string {
-  if (!src) return "";
-  const value = src.trim();
-  if (!value) return "";
-
-  if (value.startsWith("rbxassetid://")) {
-    const id = value.replace("rbxassetid://", "").trim();
-    return id ? `https://assetdelivery.roblox.com/v1/asset/?id=${encodeURIComponent(id)}` : "";
-  }
-
-  if (value.startsWith("rbxthumb://")) {
-    const match = value.match(/id=(\d+)/);
-    if (match?.[1]) return `https://assetdelivery.roblox.com/v1/asset/?id=${match[1]}`;
-  }
-
-  return value;
-}
-
-function getPetIconUrl(name: string, golden = false) {
-  const fileName = golden ? `${name} (Golden)` : name;
-  return `https://raw.githubusercontent.com/BIG-Games-LLC/ps99-public-api-docs/master/Pet%20Icons/${encodeURIComponent(
-    fileName
-  )}.png`;
-}
-
-function rewardTitle(reward: RewardLike | null, fallback = "Reward") {
-  if (!reward) return fallback;
-
-  const preferredKeys = ["name", "title", "displayName", "item", "pet", "reward", "label", "id"];
-  for (const key of preferredKeys) {
-    const value = rewardText(reward[key]);
-    if (value) {
-      const normalized = normalizeText(value);
-      if (normalized && !/^reward$/i.test(normalized)) return value;
-    }
-  }
-
-  const strings = collectStrings(reward).map((s) => s.trim()).filter(Boolean);
-
-  const meaningful = strings.find((s) => {
-    const t = normalizeText(s);
-    return t && !/^reward$/i.test(t) && !/^item$/i.test(t) && !/^unknown$/i.test(t);
-  });
-
-  return meaningful ?? fallback;
-}
-
-function rewardIconSource(reward: RewardLike | null) {
-  if (!reward) return null;
-
-  const keys = [
-    "icon",
-    "image",
-    "img",
-    "thumbnail",
-    "asset",
-    "url",
-    "iconUrl",
-    "imageUrl",
-    "image_url",
-    "assetUrl",
-    "asset_url",
-  ];
-
-  for (const key of keys) {
-    const value = reward[key];
-    if (typeof value === "string" && hasImageLikeString(value.trim())) {
-      return resolveRobloxImageUrl(value);
-    }
-  }
-
-  const nestedCandidates = collectStrings(reward);
-  const imageCandidate = nestedCandidates.find((s) => hasImageLikeString(s.trim()));
-  if (imageCandidate) return resolveRobloxImageUrl(imageCandidate);
-
-  const title = rewardTitle(reward, "");
-  const rawType = String(reward.variant ?? reward.type ?? reward.name ?? reward.title ?? "");
-  const golden = /golden/i.test(rawType);
-
-  if (!title) return null;
-
-  return getPetIconUrl(title, golden);
-}
-
-function formatGroupLabel(label: string) {
-  return label.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
 }
 
 function placementLabel(rank: number | null) {
@@ -269,49 +136,16 @@ function DetailPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RewardCard({
-  reward,
-  fallbackLabel = "Reward",
-}: {
-  reward: RewardLike | null;
-  fallbackLabel?: string;
-}) {
-  const icon = rewardIconSource(reward);
-  const title = rewardTitle(reward, fallbackLabel);
-
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-black/14 p-3 transition duration-200 hover:-translate-y-0.5">
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-        {icon ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={icon}
-            alt={title}
-            className="h-full w-full object-contain"
-            loading="lazy"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-        ) : (
-          <span className="text-lg">🎁</span>
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold text-white">{title}</p>
-      </div>
-    </div>
-  );
-}
-
 export default function WarInfoPage() {
   const [war, setWar] = useState<WarApiData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [now, setNow] = useState(Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
+    let mounted = true;
+    let intervalId: number | null = null;
+
     async function loadWar(initial = false) {
       if (initial) setLoading(true);
       else setRefreshing(true);
@@ -319,18 +153,34 @@ export default function WarInfoPage() {
       try {
         const res = await fetch("/api/war", { cache: "no-store" });
         const json = await res.json().catch(() => null);
-        setWar(json?.success ? json : null);
+
+        if (!mounted) return;
+
+        if (json?.success) {
+          setWar(json);
+        } else if (initial) {
+          setWar(null);
+        }
       } catch {
-        setWar(null);
+        if (mounted && initial) {
+          setWar(null);
+        }
       } finally {
+        if (!mounted) return;
         if (initial) setLoading(false);
         else setRefreshing(false);
       }
     }
 
     loadWar(true);
-    const i = window.setInterval(() => loadWar(false), 10_000);
-    return () => window.clearInterval(i);
+    intervalId = window.setInterval(() => {
+      void loadWar(false);
+    }, 10_000);
+
+    return () => {
+      mounted = false;
+      if (intervalId !== null) window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -342,24 +192,12 @@ export default function WarInfoPage() {
   const endMs = toMs(war?.endTime ?? null);
   const valid = startMs !== null && endMs !== null && endMs > startMs;
   const timeLeftMs = valid ? Math.max(0, endMs - now) : null;
-  const progress = valid ? Math.min(100, ((now - startMs) / (endMs - startMs)) * 100) : 0;
+  const computedProgress = valid ? Math.min(100, ((now - startMs) / (endMs - startMs)) * 100) : null;
+  const progress = war?.progressPct ?? computedProgress;
   const state = war?.state ?? (war?.active ? "live" : "inactive");
   const finalPlacement = placementLabel(war?.clanRank ?? null);
-  const durationText = valid ? formatDuration(endMs - startMs) : "—";
   const statusText = valid ? stateLabel(state) : "Completed";
-  const rewards = war?.rewards ?? { headlineReward: null, placementRewards: [], tieredRewards: null };
-
-  const rewardGroups = useMemo(() => {
-    const tiers = war?.rewards?.tieredRewards;
-    if (!tiers) return [] as Array<{ label: string; items: RewardLike[] }>;
-
-    return Object.entries(tiers)
-      .filter(([, items]) => Array.isArray(items) && items.length > 0)
-      .map(([label, items]) => ({
-        label: formatGroupLabel(label),
-        items,
-      }));
-  }, [war?.rewards?.tieredRewards]);
+  const durationText = valid ? formatDuration(endMs - startMs) : "—";
 
   if (loading && !war) {
     return (
@@ -466,63 +304,16 @@ export default function WarInfoPage() {
             </div>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            <Card title="Rewards">
-              <div className="space-y-4">
-                <RewardCard reward={rewards.headlineReward} fallbackLabel="Headline reward" />
-
-                {rewards.placementRewards.length > 0 ? (
-                  <div>
-                    <p className="mb-3 text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                      Placement rewards
-                    </p>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {rewards.placementRewards.map((reward, index) => (
-                        <RewardCard
-                          key={`placement-${index}`}
-                          reward={reward}
-                          fallbackLabel={`Reward ${index + 1}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {rewardGroups.length > 0 ? (
-                  <div>
-                    <p className="mb-3 text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                      Tiered rewards
-                    </p>
-                    <div className="space-y-3">
-                      {rewardGroups.map((group) => (
-                        <div key={group.label} className="rounded-2xl border border-[var(--border)] bg-black/12 p-4">
-                          <p className="text-sm font-semibold text-white">{group.label}</p>
-                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            {group.items.map((reward, index) => (
-                              <RewardCard
-                                key={`${group.label}-${index}`}
-                                reward={reward}
-                                fallbackLabel="Reward"
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </Card>
-
-            <Card title="Battle details">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <DetailPill label="Battle ID" value={war.battleId ?? "—"} />
-                <DetailPill label="Battle status" value={statusText} />
-                <DetailPill label="Live progress" value={`${progress.toFixed(1)}%`} />
-                <DetailPill label="Total points" value={formatNumber(war.totalPoints)} />
-              </div>
-            </Card>
-          </div>
+          <Card title="Battle details">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DetailPill label="Battle ID" value={war.battleId ?? "—"} />
+              <DetailPill label="Battle status" value={statusText} />
+              <DetailPill label="Live progress" value={progress === null ? "—" : `${progress.toFixed(1)}%`} />
+              <DetailPill label="Total points" value={formatNumber(war.totalPoints)} />
+              <DetailPill label="Total clans" value={formatNumber(war.totalClans)} />
+              <DetailPill label="Reward cards" value="Removed for now" />
+            </div>
+          </Card>
         </div>
       </div>
     </main>
