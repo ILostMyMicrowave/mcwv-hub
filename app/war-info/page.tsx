@@ -116,21 +116,25 @@ function rewardMeta(reward: RewardLike | null) {
 function rewardIconSource(reward: RewardLike | null): string | null {
   if (!reward) return null;
 
-  const candidates = [
+  const raw = [
     reward.icon,
     reward.image,
     reward.img,
     reward.thumbnail,
     reward.asset,
-    reward.assetId,
-    reward.asset_id,
     reward.url,
+    reward.iconUrl,
   ];
 
-  for (const candidate of candidates) {
+  for (const candidate of raw) {
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-    if (typeof candidate === "number" && Number.isFinite(candidate)) {
-      return `https://res.cloudinary.com/dummy/image/upload/${candidate}.png`;
+  }
+
+  const id = reward.id;
+  if (typeof id === "string") {
+    const trimmed = id.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("rbxassetid://")) {
+      return trimmed;
     }
   }
 
@@ -224,8 +228,7 @@ function RewardCard({
               alt=""
               className="h-full w-full object-cover"
               onError={(e) => {
-                const target = e.currentTarget;
-                target.style.display = "none";
+                e.currentTarget.style.display = "none";
               }}
             />
           ) : (
