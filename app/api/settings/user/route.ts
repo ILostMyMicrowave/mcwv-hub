@@ -14,12 +14,20 @@ const ALLOWED_THEMES = new Set(["default", "ice", "inferno"]);
 
 function normalizeTheme(value: unknown): string | null {
   if (typeof value !== "string") return null;
+
   const theme = value.trim().toLowerCase();
+
   return ALLOWED_THEMES.has(theme) ? theme : null;
 }
 
 async function getAuthedUserId() {
-  const session = await getIronSession<SessionData>(cookies(), sessionOptions);
+  const cookieStore = await cookies();
+
+  const session = await getIronSession<SessionData>(
+    cookieStore,
+    sessionOptions
+  );
+
   return session.user?.id ?? null;
 }
 
@@ -29,7 +37,10 @@ export async function GET(req: Request) {
     const authedUserId = await getAuthedUserId();
 
     if (!authedUserId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const url = new URL(req.url);
@@ -37,12 +48,19 @@ export async function GET(req: Request) {
 
     if (requestedUserIdRaw) {
       const requestedUserId = Number(requestedUserIdRaw);
-      if (!Number.isFinite(requestedUserId) || requestedUserId !== authedUserId) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+      if (
+        !Number.isFinite(requestedUserId) ||
+        requestedUserId !== authedUserId
+      ) {
+        return NextResponse.json(
+          { error: "Forbidden" },
+          { status: 403 }
+        );
       }
     }
 
-    const res = await pool.query(
+    const result = await pool.query(
       `
         SELECT theme
         FROM user_settings
@@ -52,12 +70,13 @@ export async function GET(req: Request) {
       [authedUserId]
     );
 
-    const row = res.rows[0];
+    const row = result.rows[0];
 
     return NextResponse.json({
       user_id: authedUserId,
       theme: row?.theme ?? "default",
     });
+
   } catch {
     return NextResponse.json(
       { error: "Failed to load user settings" },
@@ -72,21 +91,28 @@ export async function POST(req: Request) {
     const authedUserId = await getAuthedUserId();
 
     if (!authedUserId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const body = await req.json().catch(() => null);
 
-    const requestedUserIdRaw = body?.user_id;
-    const requestedTheme = normalizeTheme(body?.theme);
+    const requestedUserId = Number(body?.user_id);
+    const theme = normalizeTheme(body?.theme);
 
-    const requestedUserId = Number(requestedUserIdRaw);
-
-    if (!Number.isFinite(requestedUserId) || requestedUserId !== authedUserId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (
+      !Number.isFinite(requestedUserId) ||
+      requestedUserId !== authedUserId
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden" },
+        { status: 403 }
+      );
     }
 
-    if (!requestedTheme) {
+    if (!theme) {
       return NextResponse.json(
         { error: "Invalid theme" },
         { status: 400 }
@@ -95,17 +121,29 @@ export async function POST(req: Request) {
 
     await pool.query(
       `
-        INSERT INTO user_settings (user_id, theme, updated_at)
+        INSERT INTO user_settings (
+          user_id,
+          theme,
+          updated_at
+        )
         VALUES ($1, $2, NOW())
+
         ON CONFLICT (user_id)
         DO UPDATE SET
           theme = EXCLUDED.theme,
           updated_at = NOW()
       `,
-      [authedUserId, requestedTheme]
+      [
+        authedUserId,
+        theme,
+      ]
     );
 
-    return NextResponse.json({ success: true, theme: requestedTheme });
+    return NextResponse.json({
+      success: true,
+      theme,
+    });
+
   } catch {
     return NextResponse.json(
       { error: "Failed to update user settings" },
