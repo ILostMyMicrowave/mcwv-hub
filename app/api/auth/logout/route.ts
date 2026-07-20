@@ -1,13 +1,28 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { getIronSession } from "iron-session";
+import { sessionOptions, type SessionData } from "@/lib/session";
 
 export async function POST() {
-  const res = NextResponse.json({ success: true });
+  try {
+    const session = await getIronSession<SessionData>(
+      cookies(),
+      sessionOptions
+    );
 
-  res.cookies.set("mcwv_user", "", {
-    httpOnly: true,
-    path: "/",
-    maxAge: 0,
-  });
+    await session.destroy();
 
-  return res;
+    return NextResponse.json({
+      success: true,
+    });
+  } catch {
+    return NextResponse.json(
+      {
+        error: "Logout failed",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
 }
