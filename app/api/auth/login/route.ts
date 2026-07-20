@@ -22,6 +22,7 @@ export async function POST(req: Request) {
 
     const username =
       typeof body?.username === "string" ? body.username.trim() : "";
+
     const password =
       typeof body?.password === "string" ? body.password : "";
 
@@ -51,7 +52,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const match = await bcrypt.compare(password, user.password_hash);
+    const match = await bcrypt.compare(
+      password,
+      user.password_hash
+    );
 
     if (!match) {
       return NextResponse.json(
@@ -60,7 +64,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const session = await getIronSession<SessionData>(cookies(), sessionOptions);
+    const cookieStore = await cookies();
+
+    const session = await getIronSession<SessionData>(
+      cookieStore,
+      sessionOptions
+    );
 
     session.user = {
       id: Number(user.id),
@@ -78,6 +87,7 @@ export async function POST(req: Request) {
         role: user.role ?? null,
       },
     });
+
   } catch {
     return NextResponse.json(
       { error: "Login error" },
