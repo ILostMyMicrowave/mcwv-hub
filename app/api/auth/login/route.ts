@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import pg from "pg";
 import bcrypt from "bcryptjs";
+import { getIronSession } from "iron-session";
+import { sessionOptions, type SessionData } from "@/lib/session";
 
 const { Pool } = pg;
 
@@ -8,10 +11,19 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+type LoginBody = {
+  username?: unknown;
+  password?: unknown;
+};
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { username, password } = body;
+    const body = (await req.json().catch(() => null)) as LoginBody | null;
+
+    const username =
+      typeof body?.username === "string" ? body.username.trim() : "";
+    const password =
+      typeof body?.password === "string" ? body.password : "";
 
     if (!username || !password) {
       return NextResponse.json(
@@ -20,9 +32,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. find user
     const userRes = await pool.query(
-      "SELECT * FROM users WHERE username = $1",
+      `
+        SELECT id, username, password_hash, role
+        FROM users
+        WHERE LOWER(username) = LOWER($1)
+        LIMIT 1
+      `,
       [username]
     );
 
@@ -30,37 +46,39 @@ export async function POST(req: Request) {
 
     if (!user) {
       return NextResponse.json(
-        { error: "User not found" },
+        { error: "Invalid credentials" },
         { status: 401 }
       );
     }
 
-    // 2. check password
     const match = await bcrypt.compare(password, user.password_hash);
 
     if (!match) {
       return NextResponse.json(
-        { error: "Invalid password" },
+        { error: "Invalid credentials" },
         { status: 401 }
       );
     }
 
-    // 3. create session (simple version for now)
-    const res = NextResponse.json({
+    const session = await getIronSession<SessionData>(cookies(), sessionOptions);
+
+    session.user = {
+      id: Number(user.id),
+      username: String(user.username),
+      role: user.role ?? null,
+    };
+
+    await session.save();
+
+    return NextResponse.json({
       success: true,
       user: {
-        id: user.id,
-        username: user.username,
+        id: Number(user.id),
+        username: String(user.username),
+        role: user.role ?? null,
       },
     });
-
-    res.cookies.set("mcwv_user", String(user.id), {
-      httpOnly: true,
-      path: "/",
-    });
-
-    return res;
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { error: "Login error" },
       { status: 500 }
