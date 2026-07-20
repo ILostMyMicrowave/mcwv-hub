@@ -12,8 +12,10 @@ const pool = new Pool({
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+
     const session = await getIronSession<SessionData>(
-      cookies(),
+      cookieStore,
       sessionOptions
     );
 
