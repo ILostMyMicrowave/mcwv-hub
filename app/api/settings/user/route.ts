@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import pg from "pg";
+import { getIronSession } from "iron-session";
+import { sessionOptions, type SessionData } from "@/lib/session";
 
 const { Pool } = pg;
 
@@ -7,31 +10,55 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+const ALLOWED_THEMES = new Set(["default", "ice", "inferno"]);
+
+function normalizeTheme(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const theme = value.trim().toLowerCase();
+  return ALLOWED_THEMES.has(theme) ? theme : null;
+}
+
+async function getAuthedUserId() {
+  const session = await getIronSession<SessionData>(cookies(), sessionOptions);
+  return session.user?.id ?? null;
+}
+
 /* ---------------- GET USER THEME ---------------- */
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url);
-    const user_id = url.searchParams.get("user_id");
+    const authedUserId = await getAuthedUserId();
 
-    if (!user_id) {
-      return NextResponse.json(
-        { error: "Missing user_id" },
-        { status: 400 }
-      );
+    if (!authedUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const url = new URL(req.url);
+    const requestedUserIdRaw = url.searchParams.get("user_id");
+
+    if (requestedUserIdRaw) {
+      const requestedUserId = Number(requestedUserIdRaw);
+      if (!Number.isFinite(requestedUserId) || requestedUserId !== authedUserId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     const res = await pool.query(
-      `SELECT theme FROM user_settings WHERE user_id = $1`,
-      [user_id]
+      `
+        SELECT theme
+        FROM user_settings
+        WHERE user_id = $1
+        LIMIT 1
+      `,
+      [authedUserId]
     );
 
     const row = res.rows[0];
 
     return NextResponse.json({
-      user_id,
+      user_id: authedUserId,
       theme: row?.theme ?? "default",
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to load user settings" },
       { status: 500 }
@@ -42,41 +69,44 @@ export async function GET(req: Request) {
 /* ---------------- UPDATE USER THEME ---------------- */
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const authedUserId = await getAuthedUserId();
 
-    const user_id = body.user_id;
-    const theme = body.theme;
+    if (!authedUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (!user_id || !theme) {
+    const body = await req.json().catch(() => null);
+
+    const requestedUserIdRaw = body?.user_id;
+    const requestedTheme = normalizeTheme(body?.theme);
+
+    const requestedUserId = Number(requestedUserIdRaw);
+
+    if (!Number.isFinite(requestedUserId) || requestedUserId !== authedUserId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (!requestedTheme) {
       return NextResponse.json(
-        { error: "Missing user_id or theme" },
+        { error: "Invalid theme" },
         { status: 400 }
       );
     }
 
-    const existing = await pool.query(
-      `SELECT user_id FROM user_settings WHERE user_id = $1`,
-      [user_id]
+    await pool.query(
+      `
+        INSERT INTO user_settings (user_id, theme, updated_at)
+        VALUES ($1, $2, NOW())
+        ON CONFLICT (user_id)
+        DO UPDATE SET
+          theme = EXCLUDED.theme,
+          updated_at = NOW()
+      `,
+      [authedUserId, requestedTheme]
     );
 
-    if (existing.rows.length === 0) {
-      await pool.query(
-        `INSERT INTO user_settings (user_id, theme)
-         VALUES ($1, $2)`,
-        [user_id, theme]
-      );
-    } else {
-      await pool.query(
-        `UPDATE user_settings
-         SET theme = $2,
-             updated_at = NOW()
-         WHERE user_id = $1`,
-        [user_id, theme]
-      );
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (err) {
+    return NextResponse.json({ success: true, theme: requestedTheme });
+  } catch {
     return NextResponse.json(
       { error: "Failed to update user settings" },
       { status: 500 }
