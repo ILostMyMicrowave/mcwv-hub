@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import pg from "pg";
+import { getIronSession } from "iron-session";
+import { sessionOptions, type SessionData } from "@/lib/session";
 
 const { Pool } = pg;
 
@@ -7,26 +10,25 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const cookie = req.headers.get("cookie") || "";
-    const match = cookie.match(/mcwv_user=([^;]+)/);
+    const session = await getIronSession<SessionData>(
+      cookies(),
+      sessionOptions
+    );
 
-    if (!match) {
-      return NextResponse.json({ user: null });
-    }
-
-    const userId = Number(match[1]);
-    if (!Number.isFinite(userId)) {
+    if (!session.user?.id) {
       return NextResponse.json({ user: null });
     }
 
     const result = await pool.query(
-      `SELECT id, username, roblox_id, discord_id, role, theme
-       FROM users
-       WHERE id = $1
-       LIMIT 1`,
-      [userId]
+      `
+        SELECT id, username, roblox_id, discord_id, role, theme
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [session.user.id]
     );
 
     const user = result.rows[0] ?? null;
