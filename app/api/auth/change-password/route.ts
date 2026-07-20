@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import pg from "pg";
 import bcrypt from "bcryptjs";
+import { getIronSession } from "iron-session";
+import { sessionOptions, type SessionData } from "@/lib/session";
 
 const { Pool } = pg;
 
@@ -8,23 +11,28 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+type ChangePasswordBody = {
+  currentPassword?: unknown;
+  newPassword?: unknown;
+};
+
 export async function POST(req: Request) {
   try {
-    const cookie = req.headers.get("cookie") || "";
-    const match = cookie.match(/mcwv_user=([^;]+)/);
+    const session = await getIronSession<SessionData>(
+      cookies(),
+      sessionOptions
+    );
 
-    if (!match) {
+    if (!session.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = Number(match[1]);
-    if (!Number.isFinite(userId)) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 400 });
-    }
+    const body = (await req.json().catch(() => null)) as ChangePasswordBody | null;
 
-    const body = await req.json().catch(() => ({}));
-    const currentPassword = String(body.currentPassword || "");
-    const newPassword = String(body.newPassword || "");
+    const currentPassword =
+      typeof body?.currentPassword === "string" ? body.currentPassword : "";
+    const newPassword =
+      typeof body?.newPassword === "string" ? body.newPassword : "";
 
     if (!currentPassword || !newPassword) {
       return NextResponse.json(
@@ -41,8 +49,13 @@ export async function POST(req: Request) {
     }
 
     const userRes = await pool.query(
-      `SELECT id, password_hash FROM users WHERE id = $1 LIMIT 1`,
-      [userId]
+      `
+        SELECT id, password_hash
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [session.user.id]
     );
 
     const user = userRes.rows[0];
@@ -68,8 +81,12 @@ export async function POST(req: Request) {
     const newHash = await bcrypt.hash(newPassword, 10);
 
     await pool.query(
-      `UPDATE users SET password_hash = $1 WHERE id = $2`,
-      [newHash, userId]
+      `
+        UPDATE users
+        SET password_hash = $1
+        WHERE id = $2
+      `,
+      [newHash, session.user.id]
     );
 
     return NextResponse.json({ success: true });
