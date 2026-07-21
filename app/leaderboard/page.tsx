@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import WarHistoryDropdown from "@/components/WarHistoryDropdown";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export const dynamic = "force-dynamic";
@@ -139,13 +140,21 @@ export default function LeaderboardPage() {
   const [flash, setFlash] = useState(0);
   const [rankChange, setRankChange] = useState<Record<number, number>>({});
   const [now, setNow] = useState(Date.now());
+  const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
 
   const prevSnapshot = useRef<string>("");
   const prevRanksRef = useRef<Record<number, number>>({});
 
   async function load() {
     try {
-      const res = await fetch("/api/leaderboard", { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (selectedBattleId) {
+        params.set("battle_id", selectedBattleId);
+      }
+
+      const res = await fetch(`/api/leaderboard?${params.toString()}`, {
+        cache: "no-store",
+      });
       const json: ApiResponse = await res.json();
 
       if (!json.success) {
@@ -206,7 +215,7 @@ export default function LeaderboardPage() {
       clearInterval(interval);
       clearInterval(clock);
     };
-  }, []);
+  }, [selectedBattleId]);
 
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
@@ -236,15 +245,13 @@ export default function LeaderboardPage() {
               </p>
             </div>
 
-            <div className="text-sm text-zinc-400">
-              <div>
-                Total points:{" "}
-                <span className="font-semibold text-white">
-                  {formatNumber(totalPoints)}
-                </span>
-              </div>
+            <div className="flex flex-col items-end gap-4 text-sm text-zinc-400">
+              <div className="flex items-center gap-3">
+                <WarHistoryDropdown
+                  selectedBattleId={selectedBattleId}
+                  onSelect={setSelectedBattleId}
+                />
 
-              <div className="mt-1 flex items-center gap-2">
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
                   LIVE
@@ -255,6 +262,13 @@ export default function LeaderboardPage() {
                   {updatedAt
                     ? `${Math.max(1, Math.floor((now - new Date(updatedAt).getTime()) / 1000))}s ago`
                     : "—"}
+                </span>
+              </div>
+
+              <div>
+                Total points:{" "}
+                <span className="font-semibold text-white">
+                  {formatNumber(totalPoints)}
                 </span>
               </div>
             </div>
@@ -378,3 +392,4 @@ export default function LeaderboardPage() {
     </>
   );
 }
+
