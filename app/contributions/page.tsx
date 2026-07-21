@@ -2,7 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import ReactECharts from "echarts-for-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type AnalyticsResponse = {
   success: boolean;
@@ -151,14 +151,64 @@ function useThemeColors() {
   return theme;
 }
 
+// Animated number counter component
+function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
+  const [displayValue, setDisplayValue] = useState(0);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    if (hasAnimated.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasAnimated.current) {
+            hasAnimated.current = true;
+            const start = 0;
+            const end = value;
+            const duration = 1500;
+            const startTime = performance.now();
+
+            const updateValue = (currentTime: number) => {
+              const elapsed = currentTime - startTime;
+              const progress = Math.min(elapsed / duration, 1);
+              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
+
+              if (progress < 1) {
+                requestAnimationFrame(updateValue);
+              }
+            };
+
+            requestAnimationFrame(updateValue);
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    if (ref.current) {
+      observer.observe(ref.current);
+    }
+
+    return () => observer.disconnect();
+  }, [value]);
+
+  return <span ref={ref}>{formatter(displayValue)}</span>;
+}
+
 function Panel({
   title,
   children,
   right,
+  delay = "0ms",
 }: {
   title: string;
   children: React.ReactNode;
   right?: React.ReactNode;
+  delay?: string;
 }) {
   return (
     <section
@@ -166,6 +216,8 @@ function Panel({
       style={{
         background: "var(--card)",
         borderColor: "var(--border)",
+        animation: "fadeInUp 0.5s ease-out forwards",
+        animationDelay: delay,
       }}
     >
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -183,23 +235,37 @@ function KpiCard({
   title,
   value,
   sub,
+  animate = false,
+  numericValue,
+  delay = "0ms",
 }: {
   title: string;
   value: string | number;
   sub?: string;
+  animate?: boolean;
+  numericValue?: number;
+  delay?: string;
 }) {
   return (
     <div
-      className="rounded-2xl border p-4 backdrop-blur"
+      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
       style={{
         background: "var(--card)",
         borderColor: "var(--border)",
+        animation: "fadeInUp 0.5s ease-out forwards",
+        animationDelay: delay,
       }}
     >
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
         {title}
       </div>
-      <div className="mt-2 text-2xl font-bold text-white">{value}</div>
+      <div className="mt-2 text-2xl font-bold text-white">
+        {animate && numericValue !== undefined ? (
+          <CountUp value={numericValue} formatter={formatNumber} />
+        ) : (
+          value
+        )}
+      </div>
       {sub && <div className="mt-1 text-xs text-zinc-400">{sub}</div>}
     </div>
   );
@@ -428,11 +494,33 @@ export default function ContributionsPage() {
       >
         <Navbar />
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-10">
-          <div
-            className="rounded-3xl border p-6"
-            style={{ background: "var(--card)", borderColor: "var(--border)" }}
-          >
-            Loading analytics...
+          <div className="space-y-6">
+            {/* Header skeleton */}
+            <div
+              className="rounded-3xl border p-6 animate-pulse"
+              style={{ background: "var(--card)", borderColor: "var(--border)" }}
+            >
+              <div className="mb-4 h-4 w-3/4 animate-pulse rounded bg-zinc-800/50" />
+              <div className="h-8 w-1/2 animate-pulse rounded bg-zinc-800/50" />
+              <div className="mt-2 h-4 w-3/4 animate-pulse rounded bg-zinc-800/50" />
+            </div>
+
+            {/* KPI cards skeleton */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[...Array(4)].map((_, i) => (
+                <div
+                  key={i}
+                  className="h-28 animate-pulse rounded-2xl bg-zinc-800/50"
+                />
+              ))}
+            </div>
+
+            {/* Charts skeleton */}
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="h-96 animate-pulse rounded-3xl bg-zinc-800/50 lg:col-span-3" />
+              <div className="h-96 animate-pulse rounded-3xl bg-zinc-800/50" />
+              <div className="h-96 animate-pulse rounded-3xl bg-zinc-800/50" />
+            </div>
           </div>
         </div>
       </main>
@@ -448,7 +536,7 @@ export default function ContributionsPage() {
         <Navbar />
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-10">
           <div
-            className="rounded-3xl border p-6 text-red-200"
+            className="rounded-3xl border p-6 text-red-200 animate-fade-in"
             style={{
               background: "rgba(239,68,68,0.10)",
               borderColor: "rgba(239,68,68,0.30)",
@@ -502,7 +590,7 @@ export default function ContributionsPage() {
             <button
               type="button"
               onClick={() => load({ silent: false })}
-              className="rounded-full px-4 py-2 text-xs font-medium transition hover:opacity-90"
+              className="rounded-full px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 hover:scale-105"
               style={{
                 background: "var(--card)",
                 border: `1px solid var(--border)`,
@@ -532,21 +620,33 @@ export default function ContributionsPage() {
             title="Points Last Hour"
             value={formatNumber(data.stats.pointsLastHour)}
             sub={data.stats.growthVsPreviousHour >= 0 ? `+${formatNumber(data.stats.growthVsPreviousHour)} vs previous hour` : `${formatNumber(data.stats.growthVsPreviousHour)} vs previous hour`}
+            animate={true}
+            numericValue={data.stats.pointsLastHour}
+            delay="0.1s"
           />
           <KpiCard
             title="Points Today"
             value={formatNumber(data.stats.pointsToday)}
             sub="Current day total"
+            animate={true}
+            numericValue={data.stats.pointsToday}
+            delay="0.2s"
           />
           <KpiCard
             title="Clan Total"
             value={formatNumber(data.stats.clanTotal)}
             sub="All tracked gains"
+            animate={true}
+            numericValue={data.stats.clanTotal}
+            delay="0.3s"
           />
           <KpiCard
             title="Avg / Member"
             value={formatNumber(Math.round(data.stats.clanAverage))}
             sub={`${formatNumber(data.stats.trackedMembers)} tracked members`}
+            animate={true}
+            numericValue={Math.round(data.stats.clanAverage)}
+            delay="0.4s"
           />
         </div>
 
@@ -555,16 +655,20 @@ export default function ContributionsPage() {
             <Panel
               title="Hourly activity"
               right={<span className="text-xs text-zinc-400">last 24 hours</span>}
+              delay="0.2s"
             >
               {hourlyOption ? (
-                <ReactECharts
-                  option={hourlyOption}
-                  style={{ height: 340, width: "100%" }}
-                  notMerge
-                  lazyUpdate
-                />
+                <div className="transition-opacity duration-500">
+                  <ReactECharts
+                    option={hourlyOption}
+                    style={{ height: 340, width: "100%" }}
+                    notMerge
+                    lazyUpdate
+                  />
+                </div>
               ) : (
-                <div className="flex h-[340px] items-center justify-center rounded-2xl border border-dashed"
+                <div
+                  className="flex h-[340px] items-center justify-center rounded-2xl border border-dashed"
                   style={{
                     borderColor: "var(--border)",
                     color: "var(--foreground)",
@@ -580,16 +684,20 @@ export default function ContributionsPage() {
           <Panel
             title="Daily trend"
             right={<span className="text-xs text-zinc-400">7 days</span>}
+            delay="0.3s"
           >
             {dailyOption ? (
-              <ReactECharts
-                option={dailyOption}
-                style={{ height: 320, width: "100%" }}
-                notMerge
-                lazyUpdate
-              />
+              <div className="transition-opacity duration-500">
+                <ReactECharts
+                  option={dailyOption}
+                  style={{ height: 320, width: "100%" }}
+                  notMerge
+                  lazyUpdate
+                />
+              </div>
             ) : (
-              <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
+              <div
+                className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--foreground)",
@@ -604,16 +712,20 @@ export default function ContributionsPage() {
           <Panel
             title="Top contributors"
             right={<span className="text-xs text-zinc-400">top 10</span>}
+            delay="0.4s"
           >
             {topOption ? (
-              <ReactECharts
-                option={topOption}
-                style={{ height: 320, width: "100%" }}
-                notMerge
-                lazyUpdate
-              />
+              <div className="transition-opacity duration-500">
+                <ReactECharts
+                  option={topOption}
+                  style={{ height: 320, width: "100%" }}
+                  notMerge
+                  lazyUpdate
+                />
+              </div>
             ) : (
-              <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
+              <div
+                className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--foreground)",
@@ -627,17 +739,21 @@ export default function ContributionsPage() {
         </div>
 
         <div className="mt-6">
-          <Panel title="Insights">
+          <Panel title="Insights" delay="0.5s">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <KpiCard
                 title="Peak Hour"
                 value={data.insights.peakHour ?? "N/A"}
                 sub="Highest hourly gain"
+                delay="0.1s"
               />
               <KpiCard
                 title="Peak Hour Points"
                 value={formatNumber(data.insights.peakHourPoints)}
                 sub="Best hour total"
+                animate={true}
+                numericValue={data.insights.peakHourPoints}
+                delay="0.2s"
               />
               <KpiCard
                 title="Growth vs Prev Hour"
@@ -647,16 +763,33 @@ export default function ContributionsPage() {
                     : formatNumber(data.stats.growthVsPreviousHour)
                 }
                 sub="Net hourly change"
+                delay="0.3s"
               />
               <KpiCard
                 title="Tracked Members"
                 value={formatNumber(data.stats.trackedMembers)}
                 sub="Members with logs"
+                animate={true}
+                numericValue={data.stats.trackedMembers}
+                delay="0.4s"
               />
             </div>
           </Panel>
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </main>
   );
 }
