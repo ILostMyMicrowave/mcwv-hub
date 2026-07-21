@@ -158,7 +158,14 @@ export default function LeaderboardPage() {
       const json: ApiResponse = await res.json();
 
       if (!json.success) {
-        setError(json.error ?? "Failed to load leaderboard");
+        // Better error message for historical battles with no data
+        if (selectedBattleId && json.data?.length === 0) {
+          setError(
+            "No individual member data available for this historical battle. Data collection started after this war ended."
+          );
+        } else {
+          setError(json.error ?? "Failed to load leaderboard");
+        }
         setData([]);
         setTotalPoints(0);
         setLoading(false);
@@ -392,4 +399,3 @@ export default function LeaderboardPage() {
     </>
   );
 }
-
