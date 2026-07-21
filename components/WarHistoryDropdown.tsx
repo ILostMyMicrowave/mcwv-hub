@@ -74,21 +74,27 @@ export default function WarHistoryDropdown({
     return battle.battle_name || battle.battle_id || "Unknown War";
   }
 
+  // Check if battle has ended
+  function isBattleEnded(battle: Battle): boolean {
+    if (!battle.end_time) return false;
+    return new Date(battle.end_time) < new Date();
+  }
+
   return (
-    <div className="relative inline-block" ref={dropdownRef}>
+    <div className="relative inline-block w-full sm:w-auto" ref={dropdownRef}>
       {/* Trigger Button */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={loading}
-        className="group relative inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition-all duration-300 hover:border-[var(--primary)]/50 hover:bg-[var(--primary)]/5 hover:shadow-[0_0_20px_var(--glow)]"
+        className="group relative inline-flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition-all duration-300 hover:border-[var(--primary)]/50 hover:bg-[var(--primary)]/5 hover:shadow-[0_0_20px_var(--glow)] sm:w-auto"
       >
         {/* Animated background gradient on hover */}
         <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-[var(--primary)]/0 via-[var(--primary)]/5 to-[var(--primary)]/0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
 
         {/* Chevron with rotation animation */}
         <svg
-          className={`h-4 w-4 text-[var(--primary)] transition-transform duration-300 ${
+          className={`h-4 w-4 shrink-0 text-[var(--primary)] transition-transform duration-300 ${
             isOpen ? "rotate-180" : "rotate-0"
           }`}
           fill="none"
@@ -103,7 +109,7 @@ export default function WarHistoryDropdown({
           />
         </svg>
 
-        <span className="relative z-10 truncate max-w-[200px] sm:max-w-[280px]">
+        <span className="relative z-10 truncate">
           {loading ? "Loading..." : getSelectedName()}
         </span>
 
@@ -121,16 +127,16 @@ export default function WarHistoryDropdown({
       {/* Dropdown Menu with Animations */}
       {isOpen && (
         <>
-          {/* Backdrop with fade animation */}
+          {/* Backdrop with fade animation - only on mobile */}
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0 z-10 sm:hidden"
             onClick={() => setIsOpen(false)}
             style={{ animation: "fadeIn 0.2s ease-out" }}
           />
 
           {/* Dropdown Content */}
           <div
-            className="absolute top-full left-0 z-20 mt-2 w-full min-w-[280px] origin-top rounded-xl border border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-xl shadow-2xl"
+            className="absolute top-full left-0 right-0 z-20 mt-2 w-full min-w-[280px] origin-top rounded-xl border border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-xl shadow-2xl sm:left-0 sm:right-auto sm:w-auto"
             style={{
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.5), 0 0 30px var(--glow)",
               animation: "scaleIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)",
@@ -146,7 +152,7 @@ export default function WarHistoryDropdown({
                 !selectedBattleId
                   ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
                   : ""
-              }}`}
+              }`}
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -186,10 +192,17 @@ export default function WarHistoryDropdown({
                 >
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-[var(--foreground)]">
-                        {battle.battle_name ||
-                          `War #${battle.battle_id.slice(0, 8)}`}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="truncate font-semibold text-[var(--foreground)]">
+                          {battle.battle_name ||
+                            `War #${battle.battle_id.slice(0, 8)}`}
+                        </p>
+                        {isBattleEnded(battle) && (
+                          <span className="inline-flex items-center rounded-full bg-zinc-800/40 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                            Ended
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-400">
                         <span>Starts: {formatDate(battle.start_time)}</span>
                         {battle.end_time && (
@@ -198,7 +211,7 @@ export default function WarHistoryDropdown({
                       </div>
                     </div>
                     {selectedBattleId === battle.battle_id && (
-                      <span className="ml-2 text-[var(--primary)]">✓</span>
+                      <span className="ml-2 shrink-0 text-[var(--primary)]">✓</span>
                     )}
                   </div>
                 </div>
