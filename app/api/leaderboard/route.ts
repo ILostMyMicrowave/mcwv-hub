@@ -270,7 +270,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   const battle = battleRes.rows[0];
   const title = battle.battle_name || battle.battle_id || "Historical War";
 
-  // Get latest snapshot for this battle
+  // Get MCWV's clan snapshot for this battle
   const snapshotRes = await pool.query(
     `SELECT rank, battle_points, captured_at
      FROM war_snapshots
@@ -280,58 +280,61 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
     [battleId]
   );
 
-  if (!snapshotRes.rows[0]) {
-    return {
-      success: true,
-      active: false,
-      title,
-      total_points: 0,
-      updatedAt: new Date().toISOString(),
-      data: [],
-    };
-  }
-
-  // Get MCWV's clan history for this battle
-  const clanHistoryRes = await pool.query(
-    `SELECT rank, points, captured_at
-     FROM clan_history
-     WHERE battle_id = $1 AND LOWER(clan_name) = LOWER($2)
-     ORDER BY captured_at DESC
-     LIMIT 1`,
-    [battleId, CLAN_NAME]
-  );
-
-  // Get top 10 clans for this battle at the final snapshot
-  const topClansRes = await pool.query(
-    `SELECT clan_name, rank, points, captured_at
-     FROM clan_history
-     WHERE battle_id = $1
-     ORDER BY rank ASC, captured_at DESC
-     LIMIT 10`,
+  // Get individual member contributions from battle_user_contributions
+  const membersRes = await pool.query(
+    `SELECT buc.user_id, buc.username, buc.points, buc.captured_at,
+            u.roblox_id, u.discord_id
+     FROM battle_user_contributions buc
+     LEFT JOIN users u ON u.roblox_id = buc.user_id
+     WHERE buc.battle_id = $1
+     ORDER BY buc.points DESC, buc.captured_at DESC`,
     [battleId]
   );
 
-  // Build leaderboard entries from clan data
-  const entries: LeaderboardEntry[] = topClansRes.rows.map((row, index) => {
-    const clanName = String(row.clan_name || "Unknown");
+  // Get Roblox names and avatars for members
+  const robloxIds = membersRes.rows
+    .map((r) => Number(r.roblox_id))
+    .filter((id) => Number.isFinite(id));
+
+  const [nameMap, avatarMap] = await Promise.all([
+    getNames(robloxIds),
+    getAvatars(robloxIds),
+  ]);
+
+  // Get alt mappings
+  const discordIds = membersRes.rows
+    .map((r) => r.discord_id)
+    .filter(Boolean);
+
+  const altRes = await pool.query(
+    `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
+    [discordIds]
+  );
+
+  const altSet = new Set(altRes.rows.map((r) => String(r.roblox_id)));
+
+  // Build leaderboard entries from member data
+  const entries: LeaderboardEntry[] = membersRes.rows.map((row, index) => {
+    const user_id = Number(row.user_id);
     const points = Number(row.points || 0);
-    const rank = Number(row.rank || index + 1);
+    const robloxId = Number(row.roblox_id);
+    const discordId = row.discord_id;
 
     return {
-      rank,
-      user_id: 0, // Clan-level data, not individual users
-      name: clanName,
+      rank: index + 1,
+      user_id,
+      name: row.username || nameMap.get(robloxId) || `Unknown (${user_id})`,
       points,
-      avatar: null,
-      discord_id: null,
-      is_alt: false,
+      avatar: avatarMap.get(robloxId) ?? null,
+      discord_id: discordId ?? null,
+      is_alt: altSet.has(String(user_id)),
     };
   });
 
   return {
     success: true,
     active: false,
-    title: `${title} - Top Clans`,
+    title: `${title} - MCWV Members`,
     total_points: Number(snapshotRes.rows[0]?.battle_points ?? 0),
     updatedAt: new Date().toISOString(),
     data: entries,
