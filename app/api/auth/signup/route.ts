@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
+import { signupRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
 // Zod validation before database work - matches existing behaviour (min 3 for username, min 6 for password) + adds max limits for safety
 const signupSchema = z.object({
@@ -18,6 +19,13 @@ const signupSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    // Rate limiting
+    const clientIP = getClientIP(req)
+    const rateLimitResult = signupRateLimiter.check(clientIP)
+    if (!rateLimitResult.success) {
+      return rateLimitResponse(rateLimitResult)
+    }
+
     const body = await req.json().catch(() => null)
 
     // Validate input with Zod before any DB work
