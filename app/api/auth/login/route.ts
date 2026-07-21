@@ -4,28 +4,39 @@ import { getIronSession } from "iron-session"
 import { sessionOptions, type SessionData } from "@/lib/session"
 import { pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
+import { z } from "zod"
 
-type LoginBody = {
-  username?: unknown
-  password?: unknown
-}
+const loginSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(1, "Missing credentials")
+    .max(32, "Username must be at most 32 characters."),
+  password: z
+    .string()
+    .min(1, "Missing credentials")
+    .max(128, "Password must be at most 128 characters."),
+})
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => null)) as LoginBody | null
+    const body = await req.json().catch(() => null)
 
-    const username =
-      typeof body?.username === "string" ? body.username.trim() : ""
+    const result = loginSchema.safeParse({
+      username: body?.username,
+      password: body?.password,
+    })
 
-    const password =
-      typeof body?.password === "string" ? body.password : ""
-
-    if (!username || !password) {
+    if (!result.success) {
+      const firstError = result.error.errors[0]?.message ?? "Missing credentials"
+      // Keep existing behaviour: return 400 for missing, but generic message for security
       return NextResponse.json(
-        { error: "Missing credentials" },
+        { error: firstError },
         { status: 400 }
       )
     }
+
+    const { username, password } = result.data
 
     const userRes = await pool.query(
       `
@@ -82,7 +93,8 @@ export async function POST(req: Request) {
       },
     })
 
-  } catch {
+  } catch (err) {
+    console.error("[auth/login] error:", err)
     return NextResponse.json(
       { error: "Login error" },
       { status: 500 }
