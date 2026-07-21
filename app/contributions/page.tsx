@@ -17,7 +17,7 @@ type AnalyticsResponse = {
   };
   hourlyPoints: { hour: string; points: number }[];
   dailyPoints: { day: string; points: number }[];
-  topContributors: { user_id: number; points: number }[];
+  topContributors: { user_id: number; username: string; points: number }[];
   insights: {
     peakHour: string | null;
     peakHourPoints: number;
