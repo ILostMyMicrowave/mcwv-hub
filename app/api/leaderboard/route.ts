@@ -243,6 +243,121 @@ function pickBattle(
   return withContribs ?? candidates[0] ?? null;
 }
 
+/* ---------------- HISTORICAL LEADERBOARD (from DB) ---------------- */
+
+async function buildHistoricalLeaderboard(battleId: string): Promise<LeaderboardResponse> {
+  // Get battle info
+  const battleRes = await pool.query(
+    `SELECT battle_id, battle_name, start_time, end_time
+     FROM battles
+     WHERE battle_id = $1
+     LIMIT 1`,
+    [battleId]
+  );
+
+  if (!battleRes.rows[0]) {
+    return {
+      success: true,
+      active: false,
+      title: "Historical War",
+      total_points: 0,
+      updatedAt: new Date().toISOString(),
+      data: [],
+    };
+  }
+
+  const battle = battleRes.rows[0];
+  const title = battle.battle_name || battle.battle_id || "Historical War";
+
+  // Get latest snapshot for this battle
+  const snapshotRes = await pool.query(
+    `SELECT rank, battle_points, captured_at
+     FROM war_snapshots
+     WHERE battle_id = $1
+     ORDER BY captured_at DESC
+     LIMIT 1`,
+    [battleId]
+  );
+
+  if (!snapshotRes.rows[0]) {
+    return {
+      success: true,
+      active: false,
+      title,
+      total_points: 0,
+      updatedAt: new Date().toISOString(),
+      data: [],
+    };
+  }
+
+  // Get clan history for this battle (top contributors)
+  const historyRes = await pool.query(
+    `SELECT ch.clan_name, ch.rank, ch.points, ch.captured_at
+     FROM clan_history ch
+     WHERE ch.battle_id = $1
+     ORDER BY ch.rank ASC, ch.captured_at DESC`,
+    [battleId]
+  );
+
+  // Get user mapping from roblox_id to discord_id
+  const userIds = [...new Set(historyRes.rows.map((r) => String(r.clan_name)))];
+  const usersRes = await pool.query(
+    `SELECT roblox_id, discord_id, username
+     FROM users
+     WHERE roblox_id = ANY($1)`,
+    [userIds]
+  );
+
+  const userMap = new Map(
+    usersRes.rows.map((u) => [String(u.roblox_id), u])
+  );
+
+  // Get Roblox names and avatars
+  const robloxIds = userIds.map(Number).filter(Number.isFinite);
+  const [nameMap, avatarMap] = await Promise.all([
+    getNames(robloxIds),
+    getAvatars(robloxIds),
+  ]);
+
+  // Get alt mappings
+  const discordIds = Array.from(userMap.values())
+    .map((u) => u.discord_id)
+    .filter(Boolean);
+
+  const altRes = await pool.query(
+    `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
+    [discordIds]
+  );
+
+  const altSet = new Set(altRes.rows.map((r) => String(r.roblox_id)));
+
+  // Build leaderboard entries
+  const entries: LeaderboardEntry[] = historyRes.rows.map((row, index) => {
+    const user_id = Number(row.clan_name);
+    const points = Number(row.points || 0);
+    const user = userMap.get(String(user_id));
+
+    return {
+      rank: index + 1,
+      user_id,
+      name: user?.username || nameMap.get(user_id) || `Unknown (${user_id})`,
+      points,
+      avatar: avatarMap.get(user_id) ?? null,
+      discord_id: user?.discord_id ?? null,
+      is_alt: altSet.has(String(user_id)),
+    };
+  });
+
+  return {
+    success: true,
+    active: false,
+    title,
+    total_points: Number(snapshotRes.rows[0]?.battle_points ?? 0),
+    updatedAt: new Date().toISOString(),
+    data: entries,
+  };
+}
+
 /* ---------------- MAIN BUILDER ---------------- */
 
 async function buildLeaderboard(): Promise<LeaderboardResponse> {
@@ -416,7 +531,19 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const forceRefresh = url.searchParams.get("refresh") === "1";
+    const battleId = url.searchParams.get("battle_id");
 
+    // If battle_id is provided, return historical leaderboard
+    if (battleId) {
+      const payload = await buildHistoricalLeaderboard(battleId);
+      return NextResponse.json(payload, {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      });
+    }
+
+    // Otherwise, return current leaderboard
     const payload = await getCachedLeaderboard(forceRefresh);
 
     return NextResponse.json(payload, {
@@ -439,4 +566,4 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   }
-      }
+}
