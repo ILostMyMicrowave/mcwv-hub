@@ -184,6 +184,7 @@ export async function GET() {
       },
     });
   } catch (err) {
+    console.error("[contributions/analytics] error:", err);
     return NextResponse.json(
       {
         success: false,
@@ -207,7 +208,7 @@ export async function GET() {
           peakHour: null,
           peakHourPoints: 0,
         },
-        error: err instanceof Error ? err.message : String(err),
+        error: "Failed to load analytics data",
       },
       { status: 500 }
     );
