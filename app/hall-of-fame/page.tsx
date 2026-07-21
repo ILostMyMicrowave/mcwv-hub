@@ -1,7 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type HallOfFameEntry = {
   id: number;
@@ -63,6 +63,32 @@ export default function HallOfFamePage() {
   const isEditing = editId !== null;
 
   const featuredEntry = useMemo(() => entries[0] ?? null, [entries]);
+
+  // Animation state for staggered reveal
+  const [visibleCards, setVisibleCards] = useState<Set<number>>(new Set());
+  const cardRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const id = Number(entry.target.getAttribute("data-card-id"));
+            if (id) {
+              setVisibleCards((prev) => new Set(prev).add(id));
+            }
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    cardRefs.current.forEach((el) => {
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [entries]);
 
   useEffect(() => {
     async function load() {
@@ -258,17 +284,44 @@ export default function HallOfFamePage() {
 
         <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
           {loading ? (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-zinc-400">
-              Loading Hall of Fame...
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {[...Array(6)].map((_, i) => (
+                <div
+                  key={i}
+                  className="animate-pulse rounded-[2rem] border border-yellow-400/10 bg-[#0d0d0d] p-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-4">
+                      <div className="h-16 w-16 rounded-2xl bg-zinc-800/50" />
+                      <div className="space-y-2">
+                        <div className="h-4 w-24 rounded bg-zinc-800/50" />
+                        <div className="h-5 w-32 rounded bg-zinc-800/50" />
+                      </div>
+                    </div>
+                    <div className="h-6 w-12 rounded-full bg-zinc-800/50" />
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="h-4 w-full rounded bg-zinc-800/50" />
+                    <div className="h-4 w-3/4 rounded bg-zinc-800/50" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : entries.length === 0 ? (
             <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-zinc-300">
               No Hall of Fame entries yet.
             </div>
           ) : (
-            <>
+            <div className="space-y-8">
+              {/* Featured Entry with Animation */}
               {featuredEntry && (
-                <div className="mb-8 rounded-[2rem] border border-yellow-400/20 bg-yellow-400/5 p-5 shadow-[0_0_30px_rgba(234,179,8,0.08)] sm:p-6">
+                <div
+                  className="relative mb-8 overflow-hidden rounded-[2rem] border border-yellow-400/20 bg-yellow-400/5 p-5 shadow-[0_0_30px_rgba(234,179,8,0.08)] transition-all duration-500 sm:p-6"
+                  style={{
+                    animation: "fadeInUp 0.6s ease-out",
+                  }}
+                >
+                  <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 [background:radial-gradient(circle_at_top,rgba(250,204,21,0.12),transparent_40%)]" />
                   <p className="text-xs uppercase tracking-[0.28em] text-yellow-300">
                     Featured
                   </p>
@@ -278,7 +331,7 @@ export default function HallOfFamePage() {
                         <img
                           src={featuredEntry.image_url}
                           alt={featuredEntry.name}
-                          className="h-full w-full object-cover"
+                          className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-yellow-400/20 to-yellow-600/10 text-3xl font-black text-yellow-200">
@@ -309,18 +362,32 @@ export default function HallOfFamePage() {
                 </div>
               )}
 
+              {/* Cards Grid with Staggered Animation */}
               <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                 {entries.map((entry, index) => {
                   const isFeatured = index === 0;
+                  const isVisible = visibleCards.has(entry.id);
+                  const delay = `${index * 0.1}s`;
 
                   return (
                     <article
                       key={entry.id}
+                      data-card-id={entry.id}
+                      ref={(el) => cardRefs.current.set(entry.id, el)}
                       className={`
-                        group relative overflow-hidden rounded-[2rem] border bg-[#0d0d0d] p-5
-                        transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_28px_rgba(234,179,8,0.22)]
+                        relative overflow-hidden rounded-[2rem] border bg-[#0d0d0d] p-5
+                        transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_0_28px_rgba(234,179,8,0.22)]
                         ${isFeatured ? "border-yellow-400/30" : "border-yellow-400/15"}
+                        ${!isVisible ? "opacity-0 translate-y-4" : "opacity-100 translate-y-0"}
                       `}
+                      style={{
+                        transitionDelay: delay,
+                        transitionDuration: "0.5s",
+                        animation: isVisible
+                          ? "fadeInUp 0.5s ease-out forwards"
+                          : "none",
+                        animationDelay: delay,
+                      }}
                     >
                       <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 [background:radial-gradient(circle_at_top,rgba(250,204,21,0.12),transparent_40%)]" />
                       <div className="relative">
@@ -375,14 +442,14 @@ export default function HallOfFamePage() {
                             <button
                               type="button"
                               onClick={() => startEdit(entry)}
-                              className="rounded-full border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-semibold text-yellow-200 transition hover:bg-yellow-400/15"
+                              className="rounded-full border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-semibold text-yellow-200 transition-all duration-200 hover:bg-yellow-400/15 hover:scale-105"
                             >
                               Edit
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDelete(entry)}
-                              className="rounded-full border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-400/15"
+                              className="rounded-full border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-200 transition-all duration-200 hover:bg-red-400/15 hover:scale-105"
                             >
                               Remove
                             </button>
@@ -393,7 +460,7 @@ export default function HallOfFamePage() {
                   );
                 })}
               </div>
-            </>
+            </div>
           )}
         </section>
 
@@ -455,7 +522,7 @@ export default function HallOfFamePage() {
                     type="button"
                     onClick={handleSubmit}
                     disabled={saving}
-                    className="rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-600 px-5 py-3 font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-2xl bg-gradient-to-r from-yellow-400 to-yellow-600 px-5 py-3 font-bold text-black transition-all duration-200 hover:opacity-90 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {saving
                       ? isEditing
@@ -470,7 +537,7 @@ export default function HallOfFamePage() {
                     <button
                       type="button"
                       onClick={cancelEdit}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 font-semibold text-white transition-all duration-200 hover:bg-white/10 hover:scale-105"
                     >
                       Cancel Edit
                     </button>
@@ -481,6 +548,29 @@ export default function HallOfFamePage() {
           </section>
         )}
       </main>
+
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes pulse {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.5;
+          }
+        }
+      `}</style>
     </>
   );
 }
