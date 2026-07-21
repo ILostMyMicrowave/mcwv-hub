@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -126,70 +126,18 @@ function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
   }
 }
 
-// Animated number counter component
-function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
-  const [displayValue, setDisplayValue] = useState(0);
-  const ref = useRef<HTMLSpanElement | null>(null);
-  const hasAnimated = useRef(false);
-
-  useEffect(() => {
-    if (hasAnimated.current) return;
-    
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !hasAnimated.current) {
-            hasAnimated.current = true;
-            const start = 0;
-            const end = value;
-            const duration = 1500;
-            const startTime = performance.now();
-
-            const updateValue = (currentTime: number) => {
-              const elapsed = currentTime - startTime;
-              const progress = Math.min(elapsed / duration, 1);
-              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
-
-              if (progress < 1) {
-                requestAnimationFrame(updateValue);
-              }
-            };
-
-            requestAnimationFrame(updateValue);
-            observer.disconnect();
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-
-    return () => observer.disconnect();
-  }, [value]);
-
-  return <span ref={ref}>{formatter(displayValue)}</span>;
-}
-
 function Card({
   title,
   value,
   sub,
-  animate = false,
-  numericValue,
 }: {
   title: string;
   value: string;
   sub?: string;
-  animate?: boolean;
-  numericValue?: number;
 }) {
   return (
     <div
-      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      className="rounded-2xl border p-4 backdrop-blur"
       style={{
         borderColor: "var(--border)",
         background: "color-mix(in srgb, var(--card) 92%, transparent)",
@@ -198,13 +146,7 @@ function Card({
       <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
         {title}
       </p>
-      <p className="mt-1 text-xl font-black text-white">
-        {animate && numericValue !== undefined ? (
-          <CountUp value={numericValue} formatter={formatNumber} />
-        ) : (
-          value
-        )}
-      </p>
+      <p className="mt-1 text-xl font-black text-white">{value}</p>
       {sub ? <p className="mt-1 text-xs text-[var(--foreground)]/55">{sub}</p> : null}
     </div>
   );
@@ -213,11 +155,9 @@ function Card({
 function Panel({
   title,
   children,
-  delay = "0ms",
 }: {
   title: string;
   children: React.ReactNode;
-  delay?: string;
 }) {
   return (
     <section
@@ -225,8 +165,6 @@ function Panel({
       style={{
         borderColor: "var(--border)",
         background: "color-mix(in srgb, var(--card) 92%, transparent)",
-        animation: "fadeInUp 0.5s ease-out forwards",
-        animationDelay: delay,
       }}
     >
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
@@ -238,58 +176,14 @@ function Panel({
 }
 
 function ProgressBar({ value, accent, track }: { value: number | null; accent: string; track: string }) {
-  const [animatedWidth, setAnimatedWidth] = useState(0);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const hasAnimated = useRef(false);
-
-  useEffect(() => {
-    if (hasAnimated.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !hasAnimated.current && value !== null) {
-            hasAnimated.current = true;
-            const safe = Math.max(0, Math.min(100, value));
-            let start: number | null = null;
-            const duration = 1000;
-
-            const animate = (timestamp: number) => {
-              if (start === null) start = timestamp;
-              const elapsed = timestamp - start;
-              const progress = Math.min(elapsed / duration, 1);
-              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-              setAnimatedWidth(safe * easeOutQuart);
-
-              if (progress < 1) {
-                requestAnimationFrame(animate);
-              }
-            };
-
-            requestAnimationFrame(animate);
-            observer.disconnect();
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-
-    return () => observer.disconnect();
-  }, [value]);
-
   const safe = Math.max(0, Math.min(100, value ?? 0));
-
   return (
-    <div ref={ref}>
+    <div>
       <div className="h-3 overflow-hidden rounded-full" style={{ background: track }}>
         <div
           className="h-full rounded-full transition-all duration-500 animate-gradientMove gradient-bar"
           style={{
-            width: `${animatedWidth}%`,
+            width: `${safe}%`,
             background: `linear-gradient(90deg, ${accent}, var(--accent), ${accent})`,
             boxShadow: "0 0 20px var(--glow)",
           }}
@@ -356,34 +250,18 @@ export default function BattleHQPage() {
 
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
         {loading ? (
-          <div className="space-y-6">
-            {/* Header skeleton */}
-            <div className="rounded-[2rem] border p-6 sm:p-7 backdrop-blur animate-pulse">
-              <div className="mb-4 h-4 w-3/4 rounded bg-zinc-800/50" />
-              <div className="mb-2 h-8 w-1/2 rounded bg-zinc-800/50" />
-              <div className="h-4 w-3/4 rounded bg-zinc-800/50" />
-              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="h-24 rounded-2xl bg-zinc-800/50" />
-                ))}
-              </div>
-            </div>
-
-            {/* Panels skeleton */}
-            <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="space-y-6">
-                <div className="h-48 rounded-[2rem] bg-zinc-800/50 animate-pulse" />
-                <div className="h-64 rounded-[2rem] bg-zinc-800/50 animate-pulse" />
-              </div>
-              <div className="space-y-6">
-                <div className="h-48 rounded-[2rem] bg-zinc-800/50 animate-pulse" />
-                <div className="h-64 rounded-[2rem] bg-zinc-800/50 animate-pulse" />
-              </div>
-            </div>
+          <div
+            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
+            style={{
+              borderColor: "var(--border)",
+              background: "color-mix(in srgb, var(--card) 92%, transparent)",
+            }}
+          >
+            Loading Battle HQ...
           </div>
         ) : !data ? (
           <div
-            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70 animate-fade-in"
+            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
             style={{
               borderColor: "var(--border)",
               background: "color-mix(in srgb, var(--card) 92%, transparent)",
@@ -399,23 +277,15 @@ export default function BattleHQPage() {
                 borderColor: styles.border,
                 background:
                   "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
-                animation: "fadeInUp 0.6s ease-out",
               }}
             >
               <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p
-                      className="text-xs font-semibold uppercase tracking-[0.24em]"
-                      style={{ color: styles.accent }}
-                    >
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: styles.accent }}>
                       Battle HQ
                     </p>
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] transition-all duration-300 ${styles.pill} ${
-                        data.active ? "animate-pulse" : ""
-                      }`}
-                    >
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.pill}`}>
                       {data.active ? "Live" : "Inactive"}
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/70">
@@ -424,26 +294,18 @@ export default function BattleHQPage() {
                   </div>
 
                   <div className="mt-4 flex items-end gap-3">
-                    <h1 className="text-3xl font-black text-white sm:text-5xl">
-                      {data.current.clanName}
-                    </h1>
+                    <h1 className="text-3xl font-black text-white sm:text-5xl">{data.current.clanName}</h1>
                     <span className="pb-1 text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/45">
                       {data.current.level !== null ? `Lv ${data.current.level}` : ""}
                     </span>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Card
-                      title="Current rank"
-                      value={rank === null ? "—" : `#${rank}`}
-                      animate={false}
-                    />
+                    <Card title="Current rank" value={rank === null ? "—" : `#${rank}`} />
                     <Card
                       title="Battle points"
                       value={formatNumber(currentPoints)}
                       sub={data.stats.gain24h ? `+${formatNumber(data.stats.gain24h)} in 24h` : "24h gain pending"}
-                      animate={true}
-                      numericValue={currentPoints}
                     />
                     <Card
                       title="Projected finish"
@@ -452,13 +314,6 @@ export default function BattleHQPage() {
                     />
                     <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
                   </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
-                  <Card title="Participants" value={formatNumber(data.current.participants)} animate={true} numericValue={data.current.participants ?? 0} />
-                  <Card title="Kick cooldown" value={data.current.kickCooldown ?? "—"} />
-                  <Card title="Total clans" value={formatNumber(data.current.totalClans)} animate={true} numericValue={data.current.totalClans ?? 0} />
-                  <Card title="Last updated" value={data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"} />
                 </div>
               </div>
 
@@ -469,31 +324,19 @@ export default function BattleHQPage() {
 
             <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
               <div className="space-y-6">
-                <Panel title="Position" delay="0.2s">
+                <Panel title="Position">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div
-                      className="rounded-2xl border p-4 transition-all duration-300 hover:scale-[1.02]"
-                      style={{ borderColor: styles.border, background: styles.soft }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Next target
-                      </p>
+                    <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Next target</p>
                       <p className="mt-2 text-lg font-bold text-white">{data.summary.target}</p>
                       <p className="mt-2 text-sm text-[var(--foreground)]/75">
                         Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}
                       </p>
-                      <p className="mt-1 text-sm text-[var(--foreground)]/75">
-                        ETA: {etaText(data.stats.etaAboveMs)}
-                      </p>
+                      <p className="mt-1 text-sm text-[var(--foreground)]/75">ETA: {etaText(data.stats.etaAboveMs)}</p>
                     </div>
 
-                    <div
-                      className="rounded-2xl border p-4 transition-all duration-300 hover:scale-[1.02]"
-                      style={{ borderColor: styles.border, background: styles.soft }}
-                    >
-                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-                        Closest threat
-                      </p>
+                    <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Closest threat</p>
                       <p className="mt-2 text-lg font-bold text-white">{data.summary.threat}</p>
                       <p className="mt-2 text-sm text-[var(--foreground)]/75">
                         Gap below: {gapBelow === null ? "—" : formatNumber(gapBelow)}
@@ -505,11 +348,9 @@ export default function BattleHQPage() {
                   </div>
                 </Panel>
 
-                <Panel title="Nearby clans" delay="0.3s">
+                <Panel title="Nearby clans">
                   {data.nearby.length === 0 ? (
-                    <p className="text-sm text-[var(--foreground)]/65">
-                      No nearby clans available yet.
-                    </p>
+                    <p className="text-sm text-[var(--foreground)]/65">No nearby clans available yet.</p>
                   ) : (
                     <div className="space-y-2">
                       {data.nearby.map((clan) => {
@@ -517,7 +358,7 @@ export default function BattleHQPage() {
                         return (
                           <div
                             key={`${clan.name}-${String(clan.rank ?? "x")}`}
-                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 transition-all duration-200 hover:scale-[1.01]"
+                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
                             style={{
                               borderColor: isUs ? styles.border : "var(--border)",
                               background: isUs ? styles.soft : "rgba(0,0,0,0.14)",
@@ -532,9 +373,7 @@ export default function BattleHQPage() {
                               </p>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-bold text-white">
-                                {formatNumber(clan.points)}
-                              </p>
+                              <p className="text-sm font-bold text-white">{formatNumber(clan.points)}</p>
                               <p className="text-xs text-[var(--foreground)]/55">Battle points</p>
                             </div>
                           </div>
@@ -546,14 +385,12 @@ export default function BattleHQPage() {
               </div>
 
               <div className="space-y-6">
-                <Panel title="Performance" delay="0.4s">
+                <Panel title="Performance">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Card
                       title="24h gain"
                       value={`+${formatNumber(data.stats.gain24h)}`}
                       sub={showRate ? `${formatNumber(Math.round(data.stats.hourlyRate ?? 0))} / hour` : "Need more snapshots"}
-                      animate={true}
-                      numericValue={data.stats.gain24h}
                     />
                     <Card
                       title="Forecast"
@@ -563,23 +400,21 @@ export default function BattleHQPage() {
                   </div>
                 </Panel>
 
-                <Panel title="Snapshot history" delay="0.5s">
+                <Panel title="Snapshot history">
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <Card title="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} animate={true} numericValue={data.diagnostics.snapshotsAvailable} />
+                    <Card title="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
                     <Card title="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} />
                     <Card title="Next update" value={formatDuration(nextUpdateLeft)} />
                   </div>
 
                   <div className="mt-4 space-y-2">
                     {recentHistory.length === 0 ? (
-                      <p className="text-sm text-[var(--foreground)]/65">
-                        A few more snapshots are needed before the history row becomes useful.
-                      </p>
+                      <p className="text-sm text-[var(--foreground)]/65">A few more snapshots are needed before the history row becomes useful.</p>
                     ) : (
                       recentHistory.map((row) => (
                         <div
                           key={`${row.capturedAt ?? "x"}-${row.points}`}
-                          className="flex items-center justify-between rounded-xl border px-3 py-2 transition-all duration-200 hover:bg-black/20"
+                          className="flex items-center justify-between rounded-xl border px-3 py-2"
                           style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.12)" }}
                         >
                           <span className="text-xs text-[var(--foreground)]/60">
@@ -590,9 +425,7 @@ export default function BattleHQPage() {
                                 })
                               : "—"}
                           </span>
-                          <span className="text-xs font-semibold text-white">
-                            {formatNumber(row.points)}
-                          </span>
+                          <span className="text-xs font-semibold text-white">{formatNumber(row.points)}</span>
                         </div>
                       ))
                     )}
@@ -603,19 +436,6 @@ export default function BattleHQPage() {
           </div>
         )}
       </div>
-
-      <style jsx>{`
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
     </main>
   );
 }
