@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
+import { pool } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
-const DATABASE_URL = process.env.DATABASE_URL;
 const COLLECT_SECRET = process.env.WAR_COLLECT_SECRET ?? "";
-
-const pool = DATABASE_URL
-  ? new Pool({
-      connectionString: DATABASE_URL,
-    })
-  : null;
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 20;
