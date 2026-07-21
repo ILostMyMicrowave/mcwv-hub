@@ -157,7 +157,12 @@ export default function SettingsPage() {
       <Navbar />
 
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-10">
-        <div className="mb-8" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
+        <div
+          className="mb-8"
+          style={{
+            animation: "fadeInUp 0.5s ease-out forwards",
+          }}
+        >
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Settings</h1>
           <p className="mt-2 text-zinc-400">Manage your personal preferences and clan settings.</p>
         </div>
@@ -275,7 +280,6 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-500 transition-all duration-200 focus:outline-none focus:ring-2"
                   style={{
                     borderColor: focusedField === "discord_link" ? "var(--primary)" : "var(--border)",
-                    
                   }}
                 />
                 <p className="mt-1 text-xs text-zinc-400">Permanent invite link for the clan Discord server.</p>
@@ -296,7 +300,6 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-500 transition-all duration-200 focus:outline-none focus:ring-2 resize-none"
                   style={{
                     borderColor: focusedField === "requirements_text" ? "var(--primary)" : "var(--border)",
-                    
                     fontFamily: "inherit",
                   }}
                 />
@@ -318,7 +321,6 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-500 transition-all duration-200 focus:outline-none focus:ring-2"
                   style={{
                     borderColor: focusedField === "banner_text" ? "var(--primary)" : "var(--border)",
-                    
                   }}
                 />
                 <p className="mt-1 text-xs text-zinc-400">Scrolling banner text displayed on the dashboard.</p>
@@ -340,7 +342,6 @@ export default function SettingsPage() {
                   className="mt-2 w-full max-w-xs rounded-xl border bg-zinc-950/50 px-4 py-3 text-white transition-all duration-200 focus:outline-none focus:ring-2"
                   style={{
                     borderColor: focusedField === "banner_speed" ? "var(--primary)" : "var(--border)",
-                    
                   }}
                 />
                 <p className="mt-1 text-xs text-zinc-400">Scroll speed in pixels per second (1-60).</p>
