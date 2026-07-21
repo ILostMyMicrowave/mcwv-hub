@@ -4,6 +4,7 @@ import { getIronSession } from "iron-session"
 import { sessionOptions, type SessionData } from "@/lib/session"
 import { pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
+import { changePasswordRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
 type ChangePasswordBody = {
   currentPassword?: unknown
@@ -12,6 +13,13 @@ type ChangePasswordBody = {
 
 export async function POST(req: Request) {
   try {
+    // Rate limiting
+    const clientIP = getClientIP(req)
+    const rateLimitResult = changePasswordRateLimiter.check(clientIP)
+    if (!rateLimitResult.success) {
+      return rateLimitResponse(rateLimitResult)
+    }
+
     const cookieStore = await cookies()
 
     const session = await getIronSession<SessionData>(
@@ -96,7 +104,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true })
 
-  } catch {
+  } catch (err) {
+    console.error("[auth/change-password] error:", err)
     return NextResponse.json(
       { error: "Failed to change password" },
       { status: 500 }
