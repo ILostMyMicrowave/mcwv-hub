@@ -213,7 +213,7 @@ export default function LeaderboardPage() {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 pt-20 text-white sm:px-6 lg:px-10">
+      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
 
       <div className="mx-auto max-w-6xl">
 
