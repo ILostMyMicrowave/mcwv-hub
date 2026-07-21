@@ -69,8 +69,8 @@ export default function HallOfFamePage() {
   const cardRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
 
   // Helper function to set refs
-  function setCardRef(id: number, el: HTMLDivElement | null) {
-    cardRefs.current.set(id, el);
+  function setCardRef(id: number, el: HTMLElement | null) {
+    cardRefs.current.set(id, el as HTMLDivElement | null);
   }
 
   useEffect(() => {
