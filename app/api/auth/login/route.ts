@@ -5,6 +5,7 @@ import { sessionOptions, type SessionData } from "@/lib/session"
 import { pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
+import { loginRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
 const loginSchema = z.object({
   username: z
@@ -20,6 +21,13 @@ const loginSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    // Rate limiting
+    const clientIP = getClientIP(req)
+    const rateLimitResult = loginRateLimiter.check(clientIP)
+    if (!rateLimitResult.success) {
+      return rateLimitResponse(rateLimitResult)
+    }
+
     const body = await req.json().catch(() => null)
 
     const result = loginSchema.safeParse({
