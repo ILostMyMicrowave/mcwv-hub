@@ -1,7 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 type EquippedPet = {
@@ -279,15 +279,68 @@ function countObjectKeys(value: unknown): number {
   return Object.keys(value as Record<string, unknown>).length;
 }
 
+// Animated number counter component
+function CountUp({ value, formatter }: { value: number | null; formatter: (v: number) => string }) {
+  const [displayValue, setDisplayValue] = useState(0);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    if (value === null || hasAnimated.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasAnimated.current) {
+            hasAnimated.current = true;
+            const start = 0;
+            const end = value;
+            const duration = 1500;
+            const startTime = performance.now();
+
+            const updateValue = (currentTime: number) => {
+              const elapsed = currentTime - startTime;
+              const progress = Math.min(elapsed / duration, 1);
+              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
+
+              if (progress < 1) {
+                requestAnimationFrame(updateValue);
+              }
+            };
+
+            requestAnimationFrame(updateValue);
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    if (ref.current) {
+      observer.observe(ref.current);
+    }
+
+    return () => observer.disconnect();
+  }, [value]);
+
+  return <span ref={ref}>{formatter(displayValue)}</span>;
+}
+
 function Section({ title, defaultOpen = false, children, right }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur">
+    <section
+      className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur"
+      style={{
+        animation: "fadeInUp 0.5s ease-out forwards",
+      }}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 rounded-3xl px-5 py-4 text-left transition hover:bg-white/5"
+        className="flex w-full items-center justify-between gap-3 rounded-3xl px-5 py-4 text-left transition-all duration-300 hover:bg-white/5"
       >
         <div>
           <h2 className="text-lg font-bold text-white">{title}</h2>
@@ -297,11 +350,26 @@ function Section({ title, defaultOpen = false, children, right }: SectionProps) 
         </div>
         <div className="flex items-center gap-3">
           {right}
-          <span className="text-zinc-400">{open ? "−" : "+"}</span>
+          <span
+            className={`text-zinc-400 transition-transform duration-300 ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            −
+          </span>
         </div>
       </button>
 
-      {open && <div className="border-t border-white/10 p-5">{children}</div>}
+      {open && (
+        <div
+          className="border-t border-white/10 p-5"
+          style={{
+            animation: "fadeInDown 0.3s ease-out",
+          }}
+        >
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -309,14 +377,24 @@ function Section({ title, defaultOpen = false, children, right }: SectionProps) 
 function StatPill({
   label,
   value,
+  numericValue,
+  animate = false,
 }: {
   label: string;
   value: string | number;
+  numericValue?: number | null;
+  animate?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_15px_rgba(234,179,8,0.15)]">
       <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">{label}</p>
-      <p className="mt-1 text-lg font-bold text-white">{value}</p>
+      <p className="mt-1 text-lg font-bold text-white">
+        {animate && numericValue !== undefined && numericValue !== null ? (
+          <CountUp value={numericValue} formatter={formatNumber} />
+        ) : (
+          value
+        )}
+      </p>
     </div>
   );
 }
@@ -330,12 +408,57 @@ function ProgressBar({
   value: number | null;
   max?: number;
 }) {
+  const [animatedWidth, setAnimatedWidth] = useState(0);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const hasAnimated = useRef(false);
+
   const safe =
     value === null || !Number.isFinite(value) ? 0 : Math.max(0, Math.min(max, value));
   const pct = max > 0 ? Math.min(100, Math.max(0, (safe / max) * 100)) : 0;
 
+  useEffect(() => {
+    if (hasAnimated.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasAnimated.current) {
+            hasAnimated.current = true;
+            let start: number | null = null;
+            const duration = 1000;
+
+            const animate = (timestamp: number) => {
+              if (start === null) start = timestamp;
+              const elapsed = timestamp - start;
+              const progress = Math.min(elapsed / duration, 1);
+              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+              setAnimatedWidth(pct * easeOutQuart);
+
+              if (progress < 1) {
+                requestAnimationFrame(animate);
+              }
+            };
+
+            requestAnimationFrame(animate);
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    if (ref.current) {
+      observer.observe(ref.current);
+    }
+
+    return () => observer.disconnect();
+  }, [pct]);
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+    <div
+      ref={ref as React.RefObject<HTMLDivElement>}
+      className="rounded-2xl border border-white/10 bg-black/25 p-4"
+    >
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-white">{label}</p>
         <p className="text-sm text-zinc-400">
@@ -345,7 +468,7 @@ function ProgressBar({
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
         <div
           className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-yellow-400 transition-all"
-          style={{ width: `${pct}%` }}
+          style={{ width: `${animatedWidth}%` }}
         />
       </div>
     </div>
@@ -407,7 +530,13 @@ function PetCard({
     : null;
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+    <div
+      className="rounded-2xl border border-white/10 bg-black/25 p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      style={{
+        animation: "fadeInUp 0.4s ease-out forwards",
+        animationDelay: `${index * 0.05}s`,
+      }}
+    >
       <div className="flex items-center gap-4">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
           {src ? (
@@ -470,16 +599,24 @@ function CompactItemCard({
   meta,
   icon,
   badge,
+  index,
 }: {
   name: string;
   meta: string;
   icon?: string | null;
   badge?: string | null;
+  index: number;
 }) {
   const resolvedIcon = resolveRobloxImageUrl(icon);
 
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+    <div
+      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/25 p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_15px_rgba(234,179,8,0.15)]"
+      style={{
+        animation: "fadeInUp 0.3s ease-out forwards",
+        animationDelay: `${index * 0.03}s`,
+      }}
+    >
       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
         {resolvedIcon ? (
           <img
@@ -564,10 +701,41 @@ export default function ProfilePage() {
       <>
         <Navbar />
         <main className="min-h-screen bg-black px-4 py-8 text-white">
-          <div className="mx-auto max-w-6xl">
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-zinc-300">
-              Loading profile...
+          <div className="mx-auto max-w-6xl space-y-6">
+            {/* Header skeleton */}
+            <div className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/10 to-white/5 p-4 sm:p-6 backdrop-blur">
+              <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+                <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-start sm:text-left">
+                  <div className="h-24 w-24 animate-pulse rounded-3xl bg-zinc-800/50 sm:h-24 sm:w-24" />
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div className="h-8 w-3/4 animate-pulse rounded bg-zinc-800/50" />
+                    <div className="h-4 w-1/2 animate-pulse rounded bg-zinc-800/50" />
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="h-6 w-24 animate-pulse rounded-full bg-zinc-800/50" />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="h-20 animate-pulse rounded-2xl bg-zinc-800/50" />
+                  ))}
+                </div>
+              </div>
             </div>
+
+            {/* Stats skeleton */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-20 animate-pulse rounded-2xl bg-zinc-800/50" />
+              ))}
+            </div>
+
+            {/* Sections skeleton */}
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-64 animate-pulse rounded-[2rem] bg-zinc-800/50" />
+            ))}
           </div>
         </main>
       </>
@@ -582,7 +750,7 @@ export default function ProfilePage() {
         <Navbar />
         <main className="min-h-screen bg-black px-4 py-8 text-white">
           <div className="mx-auto max-w-6xl">
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-8">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-8 animate-fade-in">
               <h1 className="text-3xl font-bold">Profile</h1>
               <p className="mt-3 text-zinc-400">
                 {code === "player_not_found"
@@ -636,10 +804,13 @@ export default function ProfilePage() {
 
       <main className="min-h-screen bg-black px-4 py-8 text-white">
         <div className="mx-auto max-w-6xl space-y-6">
-          <div className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/10 to-white/5 p-4 sm:p-6 backdrop-blur">
+          <div
+            className="rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/10 to-white/5 p-4 sm:p-6 backdrop-blur animate-fade-in"
+            style={{ animationDelay: "0.1s" }}
+          >
             <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
               <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-start sm:text-left">
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-yellow-400/20 bg-yellow-400/10 sm:h-24 sm:w-24">
+                <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-yellow-400/20 bg-yellow-400/10 sm:h-24 sm:w-24">
                   {avatarSrc ? (
                     <img
                       src={avatarSrc}
@@ -656,7 +827,9 @@ export default function ProfilePage() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-                    <h1 className="text-2xl font-black text-white sm:text-3xl">{account.username}</h1>
+                    <h1 className="text-2xl font-black text-white sm:text-3xl">
+                      {account.username}
+                    </h1>
                     <span className="rounded-full border border-yellow-400/20 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
                       PS99 Profile
                     </span>
@@ -689,21 +862,23 @@ export default function ProfilePage() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <StatPill label="Rank" value={formatNumber(currentRank)} />
-                <StatPill label="Gems" value={formatNumber(gemValue)} />
-                <StatPill label="Rebirths" value={formatNumber(summary?.rebirths)} />
+                <StatPill label="Rank" value={formatNumber(currentRank)} numericValue={currentRank} animate={true} />
+                <StatPill label="Gems" value={formatNumber(gemValue)} numericValue={gemValue ?? 0} animate={true} />
+                <StatPill label="Rebirths" value={formatNumber(summary?.rebirths)} numericValue={summary?.rebirths ?? 0} animate={true} />
                 <StatPill
                   label="Mastery Avg"
                   value={masteryAverage === null ? "—" : formatNumber(masteryAverage)}
+                  numericValue={masteryAverage}
+                  animate={true}
                 />
               </div>
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatPill label="Eggs Hatched" value={formatNumber(summary?.eggsHatched)} />
-              <StatPill label="Sessions" value={formatNumber(summary?.totalSessions)} />
-              <StatPill label="Zones Unlocked" value={formatNumber(summary?.zonesUnlockedCount)} />
-              <StatPill label="Achievements" value={formatNumber(summary?.achievementsCount)} />
+              <StatPill label="Eggs Hatched" value={formatNumber(summary?.eggsHatched)} numericValue={summary?.eggsHatched ?? 0} animate={true} />
+              <StatPill label="Sessions" value={formatNumber(summary?.totalSessions)} numericValue={summary?.totalSessions ?? 0} animate={true} />
+              <StatPill label="Zones Unlocked" value={formatNumber(summary?.zonesUnlockedCount)} numericValue={summary?.zonesUnlockedCount ?? 0} animate={true} />
+              <StatPill label="Achievements" value={formatNumber(summary?.achievementsCount)} numericValue={summary?.achievementsCount ?? 0} animate={true} />
             </div>
           </div>
 
@@ -713,10 +888,10 @@ export default function ProfilePage() {
             right={<span className="text-xs text-zinc-400">Core stats</span>}
           >
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatPill label="Rank Stars" value={formatNumber(summary?.rankStars)} />
-              <StatPill label="Goals Completed" value={formatNumber(summary?.goalsCompleted)} />
-              <StatPill label="Egg Slots" value={formatNumber(summary?.eggSlotsPurchased)} />
-              <StatPill label="Pet Slots" value={formatNumber(summary?.petSlotsPurchased)} />
+              <StatPill label="Rank Stars" value={formatNumber(summary?.rankStars)} numericValue={summary?.rankStars ?? 0} animate={true} />
+              <StatPill label="Goals Completed" value={formatNumber(summary?.goalsCompleted)} numericValue={summary?.goalsCompleted ?? 0} animate={true} />
+              <StatPill label="Egg Slots" value={formatNumber(summary?.eggSlotsPurchased)} numericValue={summary?.eggSlotsPurchased ?? 0} animate={true} />
+              <StatPill label="Pet Slots" value={formatNumber(summary?.petSlotsPurchased)} numericValue={summary?.petSlotsPurchased ?? 0} animate={true} />
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -728,8 +903,10 @@ export default function ProfilePage() {
               <StatPill
                 label="Booth Diamonds Earned"
                 value={formatNumber(summary?.boothDiamondsEarned)}
+                numericValue={summary?.boothDiamondsEarned ?? 0}
+                animate={true}
               />
-              <StatPill label="Booth Slots" value={formatNumber(summary?.boothSlots)} />
+              <StatPill label="Booth Slots" value={formatNumber(summary?.boothSlots)} numericValue={summary?.boothSlots ?? 0} animate={true} />
             </div>
           </Section>
 
@@ -748,8 +925,16 @@ export default function ProfilePage() {
                     const right = Number(b[1] ?? 0);
                     return right - left;
                   })
-                  .map(([name, level]) => (
-                    <ProgressBar key={name} label={name} value={Number(level)} />
+                  .map(([name, level], index) => (
+                    <div
+                      key={name}
+                      style={{
+                        animation: "fadeInUp 0.4s ease-out forwards",
+                        animationDelay: `${index * 0.05}s`,
+                      }}
+                    >
+                      <ProgressBar key={name} label={name} value={Number(level)} />
+                    </div>
                   ))}
               </div>
             )}
@@ -789,7 +974,7 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={() => setShowAllPets((v) => !v)}
-                      className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                      className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-white/10 hover:scale-105"
                     >
                       {showAllPets ? "Show fewer pets" : `Show all pets (${equippedPets.length})`}
                     </button>
@@ -816,6 +1001,7 @@ export default function ProfilePage() {
                           meta={`Slot ${String(ench.slot ?? "—")} · Level ${String(ench.level ?? "—")}`}
                           icon={ench.icon || null}
                           badge={ench.paid ? "Paid" : "Free"}
+                          index={index}
                         />
                       ))}
                     </div>
@@ -825,7 +1011,7 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={() => setShowAllEnchants((v) => !v)}
-                      className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                      className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-white/10 hover:scale-105"
                     >
                       {showAllEnchants
                         ? "Show fewer enchants"
@@ -881,15 +1067,21 @@ export default function ProfilePage() {
                     value={formatNumber(
                       inventorySummary?.itemsOwned ?? inventoryView.data?.items?.length ?? 0
                     )}
+                    numericValue={inventorySummary?.itemsOwned ?? inventoryView.data?.items?.length ?? 0}
+                    animate={true}
                   />
                   <StatPill
                     label="Equipped Pets"
                     value={formatNumber(inventorySummary?.equippedPetsCount)}
+                    numericValue={inventorySummary?.equippedPetsCount ?? 0}
+                    animate={true}
                   />
-                  <StatPill label="Max Pets" value={formatNumber(inventorySummary?.maxPets)} />
+                  <StatPill label="Max Pets" value={formatNumber(inventorySummary?.maxPets)} numericValue={inventorySummary?.maxPets ?? 0} animate={true} />
                   <StatPill
                     label="Paid Enchants"
                     value={formatNumber(inventorySummary?.paidEnchantSlots)}
+                    numericValue={inventorySummary?.paidEnchantSlots ?? 0}
+                    animate={true}
                   />
                 </div>
 
@@ -914,6 +1106,8 @@ export default function ProfilePage() {
                   value={formatNumber(
                     typeof extendedRaw.RobuxSpent === "number" ? extendedRaw.RobuxSpent : null
                   )}
+                  numericValue={typeof extendedRaw.RobuxSpent === "number" ? extendedRaw.RobuxSpent : null}
+                  animate={true}
                 />
                 <StatPill
                   label="Gamepasses"
@@ -922,6 +1116,12 @@ export default function ProfilePage() {
                       ? Object.keys(extendedRaw.Gamepasses).length
                       : 0
                   )}
+                  numericValue={
+                    extendedRaw.Gamepasses && typeof extendedRaw.Gamepasses === "object"
+                      ? Object.keys(extendedRaw.Gamepasses).length
+                      : 0
+                  }
+                  animate={true}
                 />
                 <StatPill
                   label="Products"
@@ -930,6 +1130,12 @@ export default function ProfilePage() {
                       ? Object.keys(extendedRaw.Products).length
                       : 0
                   )}
+                  numericValue={
+                    extendedRaw.Products && typeof extendedRaw.Products === "object"
+                      ? Object.keys(extendedRaw.Products).length
+                      : 0
+                  }
+                  animate={true}
                 />
               </div>
             )}
@@ -953,6 +1159,30 @@ export default function ProfilePage() {
           </Section>
         </div>
       </main>
+
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes fadeInDown {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </>
   );
-            }
+}
