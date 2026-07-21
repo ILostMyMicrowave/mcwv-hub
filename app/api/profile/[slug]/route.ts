@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
-import pg from "pg";
-
-const { Pool } = pg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+import { cookies } from "next/headers";
+import { getIronSession } from "iron-session";
+import { sessionOptions, type SessionData } from "@/lib/session";
+import { pool } from "@/lib/db";
 
 type McwvUser = {
   id: number;
@@ -68,26 +65,24 @@ const MASTERY_MAX_LEVEL = 99;
 const MASTERY_98_XP_CAP = 13_034_431;
 const masteryXpCache = new Map<number, number>();
 
-function getCookieUserId(req: Request): number | null {
-  const cookie = req.headers.get("cookie") || "";
-  const match = cookie.match(/mcwv_user=([^;]+)/);
-
-  if (!match) return null;
-
-  const userId = Number(match[1]);
-  return Number.isFinite(userId) ? userId : null;
+async function getCookieUserId(): Promise<number | null> {
+  const cookieStore = await cookies()
+  const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
+  if (!session.user?.id) return null
+  const userId = Number(session.user.id)
+  return Number.isFinite(userId) ? userId : null
 }
 
-async function getAuthUser(req: Request): Promise<McwvUser> {
-  const userId = getCookieUserId(req);
-  if (!userId) return null;
+async function getAuthUser(): Promise<McwvUser> {
+  const userId = await getCookieUserId()
+  if (!userId) return null
 
   const result = await pool.query(
     "SELECT id, username, roblox_id, discord_id, role, theme FROM users WHERE id = $1 LIMIT 1",
     [userId]
-  );
+  )
 
-  return result.rows[0] ?? null;
+  return result.rows[0] ?? null
 }
 
 async function resolveMcwvUser(slug: string): Promise<McwvUser> {
@@ -525,7 +520,7 @@ export async function GET(
     let targetSlug = slug;
 
     if (slug === "me") {
-      mcwvUser = await getAuthUser(req);
+      mcwvUser = await getAuthUser();
 
       if (!mcwvUser?.roblox_id) {
         return NextResponse.json(
@@ -667,3 +662,4 @@ export async function GET(
     );
   }
 }
+
