@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
+import { pool } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-const DATABASE_URL = process.env.DATABASE_URL;
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
-
-const pool = DATABASE_URL
-  ? new Pool({
-      connectionString: DATABASE_URL,
-    })
-  : null;
 
 type SnapshotRow = {
   battle_id: string;
