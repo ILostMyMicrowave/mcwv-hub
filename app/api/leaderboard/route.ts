@@ -425,6 +425,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (err) {
+    console.error("[leaderboard] error:", err);
     return NextResponse.json(
       {
         success: false,
@@ -433,7 +434,7 @@ export async function GET(req: Request) {
         total_points: 0,
         updatedAt: new Date().toISOString(),
         data: [],
-        error: err instanceof Error ? err.message : String(err),
+        error: "Failed to load leaderboard data",
       },
       { status: 500 }
     );
