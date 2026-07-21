@@ -202,7 +202,6 @@ export default function SettingsPage() {
                       borderColor: formData.theme === theme.id ? "var(--primary)" : "var(--border)",
                       borderWidth: formData.theme === theme.id ? "2px" : "1px",
                       color: "var(--foreground)",
-                      focusRingColor: "var(--primary)",
                     }}
                     onFocus={() => setFocusedField(`theme-${theme.id}`)}
                     onBlur={() => setFocusedField(null)}
@@ -276,7 +275,7 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-500 transition-all duration-200 focus:outline-none focus:ring-2"
                   style={{
                     borderColor: focusedField === "discord_link" ? "var(--primary)" : "var(--border)",
-                    focusRingColor: "var(--primary)",
+                    
                   }}
                 />
                 <p className="mt-1 text-xs text-zinc-400">Permanent invite link for the clan Discord server.</p>
@@ -297,7 +296,7 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-500 transition-all duration-200 focus:outline-none focus:ring-2 resize-none"
                   style={{
                     borderColor: focusedField === "requirements_text" ? "var(--primary)" : "var(--border)",
-                    focusRingColor: "var(--primary)",
+                    
                     fontFamily: "inherit",
                   }}
                 />
@@ -319,7 +318,7 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-500 transition-all duration-200 focus:outline-none focus:ring-2"
                   style={{
                     borderColor: focusedField === "banner_text" ? "var(--primary)" : "var(--border)",
-                    focusRingColor: "var(--primary)",
+                    
                   }}
                 />
                 <p className="mt-1 text-xs text-zinc-400">Scrolling banner text displayed on the dashboard.</p>
@@ -341,7 +340,7 @@ export default function SettingsPage() {
                   className="mt-2 w-full max-w-xs rounded-xl border bg-zinc-950/50 px-4 py-3 text-white transition-all duration-200 focus:outline-none focus:ring-2"
                   style={{
                     borderColor: focusedField === "banner_speed" ? "var(--primary)" : "var(--border)",
-                    focusRingColor: "var(--primary)",
+                    
                   }}
                 />
                 <p className="mt-1 text-xs text-zinc-400">Scroll speed in pixels per second (1-60).</p>
