@@ -68,6 +68,11 @@ export default function HallOfFamePage() {
   const [visibleCards, setVisibleCards] = useState<Set<number>>(new Set());
   const cardRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
 
+  // Helper function to set refs
+  function setCardRef(id: number, el: HTMLDivElement | null) {
+    cardRefs.current.set(id, el);
+  }
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -373,7 +378,7 @@ export default function HallOfFamePage() {
                     <article
                       key={entry.id}
                       data-card-id={entry.id}
-                      ref={(el) => cardRefs.current.set(entry.id, el)}
+                      ref={(el) => setCardRef(entry.id, el)}
                       className={`
                         relative overflow-hidden rounded-[2rem] border bg-[#0d0d0d] p-5
                         transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_0_28px_rgba(234,179,8,0.22)]
