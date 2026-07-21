@@ -452,7 +452,7 @@ export default function ContributionsPage() {
         textStyle: { color: theme.foreground },
       },
       grid: {
-        left: 92,
+        left: 120,
         right: 18,
         top: 20,
         bottom: 18,
@@ -466,7 +466,7 @@ export default function ContributionsPage() {
       },
       yAxis: {
         type: "category",
-        data: data.topContributors.map((d) => `#${d.user_id}`),
+        data: data.topContributors.map((d) => d.username),
         axisLine: { lineStyle: { color: theme.border } },
         axisLabel: { color: theme.muted },
       },
@@ -681,61 +681,63 @@ export default function ContributionsPage() {
             </Panel>
           </div>
 
-          <Panel
-            title="Daily trend"
-            right={<span className="text-xs text-zinc-400">7 days</span>}
-            delay="0.3s"
-          >
-            {dailyOption ? (
-              <div className="transition-opacity duration-500">
-                <ReactECharts
-                  option={dailyOption}
-                  style={{ height: 320, width: "100%" }}
-                  notMerge
-                  lazyUpdate
-                />
-              </div>
-            ) : (
-              <div
-                className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--foreground)",
-                  opacity: 0.6,
-                }}
-              >
-                No daily data yet
-              </div>
-            )}
-          </Panel>
+          <div className="lg:col-span-3 lg:grid lg:grid-cols-2 gap-4">
+            <Panel
+              title="Daily trend"
+              right={<span className="text-xs text-zinc-400">7 days</span>}
+              delay="0.3s"
+            >
+              {dailyOption ? (
+                <div className="transition-opacity duration-500">
+                  <ReactECharts
+                    option={dailyOption}
+                    style={{ height: 320, width: "100%" }}
+                    notMerge
+                    lazyUpdate
+                  />
+                </div>
+              ) : (
+                <div
+                  className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--foreground)",
+                    opacity: 0.6,
+                  }}
+                >
+                  No daily data yet
+                </div>
+              )}
+            </Panel>
 
-          <Panel
-            title="Top contributors"
-            right={<span className="text-xs text-zinc-400">top 10</span>}
-            delay="0.4s"
-          >
-            {topOption ? (
-              <div className="transition-opacity duration-500">
-                <ReactECharts
-                  option={topOption}
-                  style={{ height: 320, width: "100%" }}
-                  notMerge
-                  lazyUpdate
-                />
-              </div>
-            ) : (
-              <div
-                className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--foreground)",
-                  opacity: 0.6,
-                }}
-              >
-                No contributor data yet
-              </div>
-            )}
-          </Panel>
+            <Panel
+              title="Top contributors"
+              right={<span className="text-xs text-zinc-400">top 10</span>}
+              delay="0.4s"
+            >
+              {topOption ? (
+                <div className="transition-opacity duration-500">
+                  <ReactECharts
+                    option={topOption}
+                    style={{ height: 320, width: "100%" }}
+                    notMerge
+                    lazyUpdate
+                  />
+                </div>
+              ) : (
+                <div
+                  className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--foreground)",
+                    opacity: 0.6,
+                  }}
+                >
+                  No contributor data yet
+                </div>
+              )}
+            </Panel>
+          </div>
         </div>
 
         <div className="mt-6">
