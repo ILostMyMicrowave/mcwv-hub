@@ -1,5 +1,6 @@
 "use client";
 
+import Navbar from "@/components/Navbar";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export const dynamic = "force-dynamic";
@@ -210,7 +211,9 @@ export default function LeaderboardPage() {
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 pt-20 text-white sm:px-6 lg:px-10">
 
       <div className="mx-auto max-w-6xl">
 
@@ -372,5 +375,6 @@ export default function LeaderboardPage() {
         )}
       </div>
     </main>
+    </>
   );
-                                                                }
+}
