@@ -81,7 +81,7 @@ function StateChip({ state, refreshing }: { state: string; refreshing: boolean }
 
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium transition-all duration-300 ${live ? "animate-pulse" : ""}`}
+      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${live ? "animate-pulse" : ""}`}
       style={{
         background: live ? "rgba(52, 211, 153, 0.2)" : "rgba(148, 163, 184, 0.15)",
         color: live ? "#34d399" : "#94a3b8",
@@ -94,94 +94,36 @@ function StateChip({ state, refreshing }: { state: string; refreshing: boolean }
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  sub,
-  delay = "0s",
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  delay?: string;
-}) {
+function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div
-      className="rounded-2xl border p-5 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
-      style={{
-        background: "var(--card)",
-        borderColor: "var(--border)",
-        animation: "fadeInUp 0.5s ease-out forwards",
-        animationDelay: delay,
-        opacity: 0,
-      }}
-    >
+    <div className="rounded-2xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">{label}</div>
       <div className="mt-2 text-3xl font-bold text-white">{value}</div>
-      {sub ? (
-        <div className="mt-1 text-sm text-zinc-500">{sub}</div>
-      ) : null}
+      {sub ? <div className="mt-1 text-sm text-zinc-500">{sub}</div> : null}
     </div>
   );
 }
 
-function Section({
-  title,
-  subtitle,
-  children,
-  delay = "0s",
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-  delay?: string;
-}) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section
-      className="rounded-3xl border p-4 sm:p-6"
-      style={{
-        background: "var(--card)",
-        borderColor: "var(--border)",
-        animation: "fadeInUp 0.5s ease-out forwards",
-        animationDelay: delay,
-        opacity: 0,
-      }}
-    >
+    <section className="rounded-3xl border p-4 sm:p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          {title}
-        </h2>
-        {subtitle && (
-          <span className="text-xs text-zinc-400 whitespace-nowrap">{subtitle}</span>
-        )}
+        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">{title}</h2>
+        {subtitle && <span className="text-xs text-zinc-400 whitespace-nowrap">{subtitle}</span>}
       </div>
       {children}
     </section>
   );
 }
 
-function ProgressBar({
-  value,
-  delay = "0s",
-}: {
-  value: number | null;
-  delay?: string;
-}) {
+function ProgressBar({ value }: { value: number | null }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
 
   return (
-    <div
-      style={{
-        animation: "fadeInUp 0.5s ease-out forwards",
-        animationDelay: delay,
-        opacity: 0,
-      }}
-    >
+    <div>
       <div className="mb-2 flex items-center justify-between text-sm">
         <span className="text-zinc-400">Live progress</span>
-        <span style={{ color: "var(--foreground)" }}>
-          {value === null ? "—" : `${safe.toFixed(1)}% complete`}
-        </span>
+        <span style={{ color: "var(--foreground)" }}>{value === null ? "—" : `${safe.toFixed(1)}% complete`}</span>
       </div>
       <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
         <div
@@ -249,9 +191,7 @@ export default function WarInfoPage() {
   const startMs = toMs(war?.startTime ?? null);
   const endMs = toMs(war?.endTime ?? null);
   const valid = startMs !== null && endMs !== null && endMs > startMs;
-  const progressFromTime = valid
-    ? Math.min(100, ((now - startMs) / (endMs - startMs)) * 100)
-    : null;
+  const progressFromTime = valid ? Math.min(100, ((now - startMs) / (endMs - startMs)) * 100) : null;
   const progress = war?.progressPct ?? progressFromTime;
   const timeLeftMs = valid ? Math.max(0, endMs - now) : null;
   const durationText = valid ? formatDuration(endMs - startMs) : "—";
@@ -264,7 +204,7 @@ export default function WarInfoPage() {
         <Navbar />
         <AnimatedBackground />
         <div className="relative z-10 mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-10">
-          <div className="text-center animate-pulse">
+          <div className="text-center animate-pulse" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
             <div className="h-8 w-48 mx-auto rounded bg-zinc-800/50" />
             <div className="mt-8 h-4 w-32 mx-auto rounded bg-zinc-800/50" />
             <div className="mt-12 grid gap-4 sm:grid-cols-3">
@@ -284,22 +224,9 @@ export default function WarInfoPage() {
         <Navbar />
         <AnimatedBackground />
         <div className="relative z-10 mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-10">
-          <div
-            className="text-center py-20"
-            style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
-          >
-            <svg
-              className="mx-auto h-16 w-16 text-zinc-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
+          <div className="text-center py-20" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
+            <svg className="mx-auto h-16 w-16 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <h2 className="mt-4 text-xl font-semibold">No war data available right now.</h2>
             <p className="mt-2 text-zinc-400">Check back later or contact an officer.</p>
@@ -319,46 +246,26 @@ export default function WarInfoPage() {
       <AnimatedBackground />
 
       <div className="relative z-10 mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-10">
-        <header
-          className="mb-8 text-center"
-          style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
-        >
+        <header className="mb-8 text-center" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{warTitle}</h1>
           <p className="mt-2 text-zinc-400">{dateRange}</p>
         </header>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <MetricCard
-            label="Clan Placement"
-            value={placement}
-            sub={war.totalClans ? `of ${formatNumber(war.totalClans)} clans` : undefined}
-            delay="0.1s"
-          />
-          <MetricCard
-            label="Total Points"
-            value={formatNumber(war.totalPoints)}
-            sub={war.progressPct !== null ? `${progressText} complete` : undefined}
-            delay="0.15s"
-          />
-          <MetricCard
-            label="Participants"
-            value={`${formatNumber(war.participants)} / ${formatNumber(war.maxParticipants)}`}
-            sub={`Duration: ${durationText}`}
-            delay="0.2s"
-          />
+          <MetricCard label="Clan Placement" value={placement} sub={war.totalClans ? `of ${formatNumber(war.totalClans)} clans` : undefined} />
+          <MetricCard label="Total Points" value={formatNumber(war.totalPoints)} sub={war.progressPct !== null ? `${progressText} complete` : undefined} />
+          <MetricCard label="Participants" value={`${formatNumber(war.participants)} / ${formatNumber(war.maxParticipants)}`} sub={`Duration: ${durationText}`} />
         </div>
 
-        <Section title="Status" delay="0.25s">
+        <Section title="Status">
           <div className="flex flex-wrap items-center gap-3">
             <StateChip state={war.state} refreshing={refreshing} />
-            {war.battleId && (
-              <span className="text-xs text-zinc-400 font-mono">Battle ID: {war.battleId}</span>
-            )}
+            {war.battleId && <span className="text-xs text-zinc-400 font-mono">Battle ID: {war.battleId}</span>}
           </div>
         </Section>
 
-        <Section title="Progress" subtitle="Real-time war progress" delay="0.3s">
-          <ProgressBar value={progress} delay="0.05s" />
+        <Section title="Progress" subtitle="Real-time war progress">
+          <ProgressBar value={progress} />
           {timeLeftMs !== null && (
             <p className="mt-3 text-sm text-zinc-400">
               Time remaining: <span style={{ color: "var(--foreground)" }}>{formatDuration(timeLeftMs)}</span>
@@ -369,14 +276,8 @@ export default function WarInfoPage() {
 
       <style jsx>{`
         @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </main>
