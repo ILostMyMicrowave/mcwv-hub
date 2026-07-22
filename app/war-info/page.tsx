@@ -186,6 +186,8 @@ function MetricCard({
 
   sub,
 
+  style,
+
 }: {
 
   label: string;
@@ -193,6 +195,8 @@ function MetricCard({
   value: string;
 
   sub?: string;
+
+  style?: React.CSSProperties;
 
 }) {
 
@@ -202,7 +206,7 @@ function MetricCard({
 
       className="rounded-2xl border border-[var(--border)] bg-black/14 p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
 
-      style={{ animation: "fadeInUp 0.4s ease-out forwards", opacity: 0 }}
+      style={{ animation: "fadeInUp 0.4s ease-out forwards", opacity: 0, ...style }}
 
     >
 
@@ -226,6 +230,8 @@ function Section({
 
   children,
 
+  style,
+
 }: {
 
   title: string;
@@ -233,6 +239,8 @@ function Section({
   subtitle?: string;
 
   children: React.ReactNode;
+
+  style?: React.CSSProperties;
 
 }) {
 
@@ -251,6 +259,8 @@ function Section({
         animation: "fadeInUp 0.5s ease-out forwards",
 
         opacity: 0,
+
+        ...style,
 
       }}
 
