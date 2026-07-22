@@ -659,7 +659,7 @@ export default function HomePage() {
                     <p className="text-sm text-white">{item.text}</p>
                   </div>
                 );
-              })}
+              })
             )}
           </div>
         </Panel>
