@@ -104,15 +104,17 @@ function MetricCard({
   label,
   value,
   sub,
+  style,
 }: {
   label: string;
   value: string;
   sub?: string;
+  style?: React.CSSProperties;
 }) {
   return (
     <div
       className="rounded-2xl border border-[var(--border)] bg-black/14 p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
-      style={{ animation: "fadeInUp 0.4s ease-out forwards", opacity: 0 }}
+      style={{ animation: "fadeInUp 0.4s ease-out forwards", opacity: 0, ...style }}
     >
       <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">{label}</p>
       <p className="mt-1 text-xl font-black text-white">{value}</p>
@@ -125,10 +127,12 @@ function Section({
   title,
   subtitle,
   children,
+  style,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+  style?: React.CSSProperties;
 }) {
   return (
     <section
@@ -138,6 +142,7 @@ function Section({
         background: "color-mix(in srgb, var(--card) 92%, transparent)",
         animation: "fadeInUp 0.5s ease-out forwards",
         opacity: 0,
+        ...style,
       }}
     >
       <div className="mb-4">
