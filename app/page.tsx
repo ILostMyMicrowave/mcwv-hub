@@ -1,4 +1,4 @@
-"use client"; e
+"use client";
 
 import {
   useEffect,
