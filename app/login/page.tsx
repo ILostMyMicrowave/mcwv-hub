@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -19,14 +20,9 @@ export default function LoginPage() {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          username,
-          password,
-        }),
+        body: JSON.stringify({ username, password }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -46,55 +42,120 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-black text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(255,255,255,0.08),_transparent_55%)]" />
+    <main
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: "var(--background)" }}
+    >
+      <div
+        className="w-full max-w-md"
+        style={{ animation: "fadeInUp 0.6s ease-out forwards" }}
+      >
+        <div className="text-center mb-10">
+          <h1
+            className="text-4xl font-bold tracking-tight"
+            style={{ color: "var(--foreground)" }}
+          >
+            MCWV
+          </h1>
+        </div>
 
-      <div className="relative mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4 py-10">
-        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/40 backdrop-blur">
-          <div className="mb-8 text-center">
-            <Link
-              href="/"
-              className="text-sm font-semibold tracking-[0.35em] text-zinc-300"
-            >
-              MCWV
-            </Link>
-            <h1 className="mt-4 text-3xl font-bold">Welcome back</h1>
-            <p className="mt-2 text-sm text-zinc-400">
+        <div
+          className="rounded-3xl border p-8"
+          style={{
+            background: "var(--card)",
+            borderColor: "var(--border)",
+            animation: "fadeInUp 0.6s ease-out forwards",
+            animationDelay: "0.1s",
+            opacity: 0,
+          }}
+        >
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-semibold">Welcome back</h2>
+            <p className="mt-2 text-zinc-400">
               Log in to access your account and keep your settings in sync.
             </p>
           </div>
 
-          <form className="space-y-4" onSubmit={handleLogin}>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-zinc-200">
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div
+              className="relative"
+              style={{
+                animation: "fadeInUp 0.4s ease-out forwards",
+                animationDelay: "0.2s",
+                opacity: 0,
+              }}
+            >
+              <label
+                htmlFor="username"
+                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
+                style={{
+                  background: "var(--card)",
+                  color: focusedField === "username" ? "var(--primary)" : "var(--foreground)",
+                }}
+              >
                 Username
               </label>
               <input
+                id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onFocus={() => setFocusedField("username")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="Enter your username"
-                className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40"
+                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
+                style={{
+                  borderColor: focusedField === "username" ? "var(--primary)" : "var(--border)",
+                }}
                 autoComplete="username"
+                disabled={loading}
               />
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-zinc-200">
+            <div
+              className="relative"
+              style={{
+                animation: "fadeInUp 0.4s ease-out forwards",
+                animationDelay: "0.3s",
+                opacity: 0,
+              }}
+            >
+              <label
+                htmlFor="password"
+                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
+                style={{
+                  background: "var(--card)",
+                  color: focusedField === "password" ? "var(--primary)" : "var(--foreground)",
+                }}
+              >
                 Password
               </label>
               <input
+                id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => setFocusedField("password")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="Enter your password"
-                className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40"
+                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
+                style={{
+                  borderColor: focusedField === "password" ? "var(--primary)" : "var(--border)",
+                }}
                 autoComplete="current-password"
+                disabled={loading}
               />
             </div>
 
             {error && (
-              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              <div
+                className="rounded-xl p-3 text-sm text-red-200 animate-shake"
+                style={{
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                }}
+                role="alert"
+              >
                 {error}
               </div>
             )}
@@ -102,23 +163,41 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-2xl bg-emerald-400 px-4 py-3 font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-full py-3 text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{
+                background: "var(--primary)",
+                color: "#000",
+              }}
             >
               {loading ? "Logging in..." : "Log In"}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-zinc-400">
+          <p className="mt-6 text-center text-sm text-zinc-400" style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.4s", opacity: 0 }}>
             Don&apos;t have an account?{" "}
             <Link
               href="/signup"
-              className="font-semibold text-emerald-300 hover:underline"
+              className="font-medium hover:underline transition-colors"
+              style={{ color: "var(--primary)" }}
             >
               Sign up
             </Link>
           </p>
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+          20%, 40%, 60%, 80% { transform: translateX(4px); }
+        }
+        .animate-shake { animation: shake 0.5s ease-in-out; }
+      `}</style>
     </main>
   );
 }
