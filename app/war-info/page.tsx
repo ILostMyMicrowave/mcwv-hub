@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -49,7 +50,11 @@ function formatDateTime(value: number | string | null) {
   const ms = toMs(value);
   if (ms === null) return "—";
   return new Date(ms).toLocaleString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -60,21 +65,32 @@ function placementLabel(rank: number | null) {
 
 function stateLabel(state: WarApiData["state"]) {
   switch (state) {
-    case "live": return "Live";
-    case "upcoming": return "Upcoming";
-    case "past": return "Completed";
-    default: return "Inactive";
+    case "live":
+      return "Live";
+    case "upcoming":
+      return "Upcoming";
+    case "past":
+      return "Completed";
+    default:
+      return "Inactive";
   }
 }
 
 // CountUp component - matches contributions page
-function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
+function CountUp({
+  value,
+  formatter,
+}: {
+  value: number;
+  formatter: (v: number) => string;
+}) {
   const [displayValue, setDisplayValue] = useState(0);
   const ref = useRef<HTMLSpanElement | null>(null);
   const hasAnimated = useRef(false);
 
   useEffect(() => {
     if (hasAnimated.current) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -84,6 +100,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
             const end = value;
             const duration = 1500;
             const startTime = performance.now();
+
             const updateValue = (currentTime: number) => {
               const elapsed = currentTime - startTime;
               const progress = Math.min(elapsed / duration, 1);
@@ -91,6 +108,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
               setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
               if (progress < 1) requestAnimationFrame(updateValue);
             };
+
             requestAnimationFrame(updateValue);
             observer.disconnect();
           }
@@ -98,6 +116,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
       },
       { threshold: 0.5 }
     );
+
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
   }, [value]);
@@ -106,7 +125,17 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
 }
 
 // Panel component - matches contributions page
-function Panel({ title, children, right, delay = "0ms" }: { title: string; children: React.ReactNode; right?: React.ReactNode; delay?: string }) {
+function Panel({
+  title,
+  children,
+  right,
+  delay = "0ms",
+}: {
+  title: string;
+  children: ReactNode;
+  right?: ReactNode;
+  delay?: string;
+}) {
   return (
     <section
       className="rounded-3xl border p-4 backdrop-blur sm:p-6"
@@ -119,7 +148,9 @@ function Panel({ title, children, right, delay = "0ms" }: { title: string; child
       }}
     >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">{title}</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+          {title}
+        </h2>
         {right}
       </div>
       {children}
@@ -135,7 +166,14 @@ function KpiCard({
   animate = false,
   numericValue,
   delay = "0ms",
-}: { title: string; value: string | number; sub?: string; animate?: boolean; numericValue?: number; delay?: string }) {
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+  animate?: boolean;
+  numericValue?: number;
+  delay?: string;
+}) {
   return (
     <div
       className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
@@ -185,6 +223,7 @@ function StateChip({ state, refreshing }: { state: string; refreshing: boolean }
 
 function ProgressBar({ value }: { value: number | null }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
+
   return (
     <div className="transition-opacity duration-500">
       <div className="h-3 overflow-hidden rounded-full bg-black/30">
@@ -206,13 +245,55 @@ function ProgressBar({ value }: { value: number | null }) {
   );
 }
 
-function stateLabel(state: WarApiData["state"]) {
-  switch (state) {
-    case "live": return "Live";
-    case "upcoming": return "Upcoming";
-    case "past": return "Completed";
-    default: return "Inactive";
-  }
+function PageStyles() {
+  return (
+    <style jsx>{`
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes gradientMove {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .animate-gradientMove {
+        animation: gradientMove 3s ease infinite;
+      }
+
+      .animate-fade-in {
+        animation: fadeInUp 0.5s ease-out forwards;
+      }
+
+      .animate-pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+    `}</style>
+  );
 }
 
 export default function WarInfoPage() {
@@ -224,24 +305,42 @@ export default function WarInfoPage() {
 
   useEffect(() => {
     let alive = true;
+
     async function loadWar(initial = false) {
-      if (initial) setLoading(true); else setRefreshing(true);
+      if (initial) setLoading(true);
+      else setRefreshing(true);
+
       try {
         const res = await fetch("/api/war", { cache: "no-store" });
         const json = await res.json().catch(() => null);
+
         if (!alive) return;
-        if (json?.success) { setWar(json); setError(null); }
-        else if (initial) { setWar(null); }
+
+        if (json?.success) {
+          setWar(json);
+          setError(null);
+        } else if (initial) {
+          setWar(null);
+        }
       } catch (err) {
-        if (alive && initial) { setWar(null); setError(err instanceof Error ? err.message : "Failed to load"); }
+        if (alive && initial) {
+          setWar(null);
+          setError(err instanceof Error ? err.message : "Failed to load");
+        }
       } finally {
         if (!alive) return;
-        if (initial) setLoading(false); else setRefreshing(false);
+        if (initial) setLoading(false);
+        else setRefreshing(false);
       }
     }
+
     void loadWar(true);
     const timer = window.setInterval(() => void loadWar(false), 10_000);
-    return () => { alive = false; window.clearInterval(timer); };
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -278,24 +377,7 @@ export default function WarInfoPage() {
             </div>
           </div>
         </div>
-      </main>
-    );
-  }
-
-  if (!war) {
-    return (
-      <main className="min-h-screen text-white" style={{ background: "var(--background)" }}>
-        <AnimatedBackground />
-        <Navbar />
-        <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-          <div className="rounded-3xl border p-6 text-center" style={{ background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.30)" }}>
-            <svg className="mx-auto h-16 w-16 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h2 className="mt-4 text-xl font-semibold">No war data available right now.</h2>
-            <p className="mt-2 text-zinc-400">Check back later or contact an officer.</p>
-          </div>
-        </div>
+        <PageStyles />
       </main>
     );
   }
@@ -306,10 +388,41 @@ export default function WarInfoPage() {
         <AnimatedBackground />
         <Navbar />
         <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-          <div className="rounded-3xl border p-6 text-red-200" style={{ background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.30)" }}>
+          <div
+            className="rounded-3xl border p-6 text-red-200"
+            style={{ background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.30)" }}
+          >
             {error}
           </div>
         </div>
+        <PageStyles />
+      </main>
+    );
+  }
+
+  if (!war) {
+    return (
+      <main className="min-h-screen text-white" style={{ background: "var(--background)" }}>
+        <AnimatedBackground />
+        <Navbar />
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
+          <div
+            className="rounded-3xl border p-6 text-center"
+            style={{ background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.30)" }}
+          >
+            <svg className="mx-auto h-16 w-16 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <h2 className="mt-4 text-xl font-semibold">No war data available right now.</h2>
+            <p className="mt-2 text-zinc-400">Check back later or contact an officer.</p>
+          </div>
+        </div>
+        <PageStyles />
       </main>
     );
   }
@@ -324,12 +437,12 @@ export default function WarInfoPage() {
       <Navbar />
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
         <div className="space-y-6" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
-
           <section
             className="overflow-hidden rounded-[2rem] border backdrop-blur"
             style={{
               borderColor: "var(--border)",
-              background: "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
+              background:
+                "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
             }}
           >
             <div className="relative p-6 sm:p-7">
@@ -358,7 +471,11 @@ export default function WarInfoPage() {
             </div>
           </section>
 
-          <Panel title="Battle progress" right={<span className="text-xs text-zinc-400">Clean view of the live battle status</span>} delay="0.2s">
+          <Panel
+            title="Battle progress"
+            right={<span className="text-xs text-zinc-400">Clean view of the live battle status</span>}
+            delay="0.2s"
+          >
             <div className="space-y-5">
               <ProgressBar value={progress} />
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -370,7 +487,10 @@ export default function WarInfoPage() {
             </div>
           </Panel>
 
-          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]" style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}>
+          <div
+            className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]"
+            style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}
+          >
             <Panel title="Clan summary" right={<span className="text-xs text-zinc-400">The important numbers only</span>} delay="0.3s">
               <div className="grid gap-3 sm:grid-cols-2">
                 <KpiCard title="Current placement" value={placement} delay="0.3s" />
@@ -389,25 +509,9 @@ export default function WarInfoPage() {
               </div>
             </Panel>
           </div>
-
         </div>
       </div>
+      <PageStyles />
     </main>
   );
 }
-
-<style jsx>{`
-  @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes gradientMove {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-  .animate-gradientMove { animation: gradientMove 3s ease infinite; }
-  .animate-fade-in { animation: fadeInUp 0.5s ease-out forwards; }
-  .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-`}</style>
