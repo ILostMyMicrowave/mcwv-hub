@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -126,59 +126,104 @@ function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
   }
 }
 
-function Card({
-  title,
-  value,
-  sub,
-}: {
-  title: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div
-      className="rounded-2xl border p-4 backdrop-blur"
-      style={{
-        borderColor: "var(--border)",
-        background: "color-mix(in srgb, var(--card) 92%, transparent)",
-      }}
-    >
-      <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">
-        {title}
-      </p>
-      <p className="mt-1 text-xl font-black text-white">{value}</p>
-      {sub ? <p className="mt-1 text-xs text-[var(--foreground)]/55">{sub}</p> : null}
-    </div>
-  );
+// CountUp component - matches contributions page
+function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
+  const [displayValue, setDisplayValue] = useState(0);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    if (hasAnimated.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasAnimated.current) {
+            hasAnimated.current = true;
+            const start = 0;
+            const end = value;
+            const duration = 1500;
+            const startTime = performance.now();
+            const updateValue = (currentTime: number) => {
+              const elapsed = currentTime - startTime;
+              const progress = Math.min(elapsed / duration, 1);
+              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
+              if (progress < 1) requestAnimationFrame(updateValue);
+            };
+            requestAnimationFrame(updateValue);
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return <span ref={ref}>{formatter(displayValue)}</span>;
 }
 
-function Panel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+// Panel component - matches contributions page
+function Panel({ title, children, right, delay = "0ms" }: { title: string; children: React.ReactNode; right?: React.ReactNode; delay?: string }) {
   return (
     <section
-      className="rounded-[2rem] border p-5 sm:p-6 backdrop-blur"
+      className="rounded-3xl border p-4 sm:p-6"
       style={{
+        background: "var(--card)",
         borderColor: "var(--border)",
-        background: "color-mix(in srgb, var(--card) 92%, transparent)",
+        animation: "fadeInUp 0.5s ease-out forwards",
+        animationDelay: delay,
+        opacity: 0,
       }}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--foreground)]/55">
-        {title}
-      </p>
-      <div className="mt-4">{children}</div>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">{title}</h2>
+        {right}
+      </div>
+      {children}
     </section>
   );
 }
 
+// KpiCard component - matches contributions page
+function KpiCard({
+  title,
+  value,
+  sub,
+  animate = false,
+  numericValue,
+  delay = "0ms",
+}: { title: string; value: string | number; sub?: string; animate?: boolean; numericValue?: number; delay?: string }) {
+  return (
+    <div
+      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      style={{
+        background: "var(--card)",
+        borderColor: "var(--border)",
+        animation: "fadeInUp 0.5s ease-out forwards",
+        animationDelay: delay,
+        opacity: 0,
+      }}
+    >
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">{title}</div>
+      <div className="mt-2 text-2xl font-bold text-white">
+        {animate && numericValue !== undefined ? (
+          <CountUp value={numericValue} formatter={formatNumber} />
+        ) : (
+          value
+        )}
+      </div>
+      {sub && <div className="mt-1 text-xs text-zinc-400">{sub}</div>}
+    </div>
+  );
+}
+
+// ProgressBar - matches contributions page
 function ProgressBar({ value, accent, track }: { value: number | null; accent: string; track: string }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
   return (
-    <div>
+    <div className="transition-opacity duration-500">
       <div className="h-3 overflow-hidden rounded-full" style={{ background: track }}>
         <div
           className="h-full rounded-full transition-all duration-500 animate-gradientMove gradient-bar"
@@ -193,6 +238,24 @@ function ProgressBar({ value, accent, track }: { value: number | null; accent: s
         <span>{value === null ? "—" : `${safe.toFixed(1)}% complete`}</span>
         <span>Live progress</span>
       </div>
+    </div>
+  );
+}
+
+function Card({ title, value, sub }: { title: string; value: string; sub?: string }) {
+  return (
+    <div
+      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      style={{
+        borderColor: "var(--border)",
+        background: "var(--card)",
+        animation: "fadeInUp 0.5s ease-out forwards",
+        opacity: 0,
+      }}
+    >
+      <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">{title}</p>
+      <p className="mt-1 text-xl font-bold text-white">{value}</p>
+      {sub ? <p className="mt-1 text-xs text-zinc-400">{sub}</p> : null}
     </div>
   );
 }
@@ -250,33 +313,35 @@ export default function BattleHQPage() {
 
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
         {loading ? (
-          <div
-            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
-            style={{
-              borderColor: "var(--border)",
-              background: "color-mix(in srgb, var(--card) 92%, transparent)",
-            }}
-          >
-            Loading Battle HQ...
+          <div className="space-y-6 animate-pulse">
+            <div className="rounded-3xl border p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+              <div className="h-8 w-48 rounded bg-zinc-800/50" />
+              <div className="mt-4 h-4 w-32 rounded bg-zinc-800/50" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="h-28 rounded-2xl bg-zinc-800/50" />
+            </div>
           </div>
         ) : !data ? (
-          <div
-            className="rounded-[2rem] border p-6 text-sm text-[var(--foreground)]/70"
-            style={{
-              borderColor: "var(--border)",
-              background: "color-mix(in srgb, var(--card) 92%, transparent)",
-            }}
-          >
-            No battle data available right now.
+          <div className="rounded-3xl border p-6 text-center" style={{ background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.30)" }}>
+            <svg className="mx-auto h-16 w-16 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h2 className="mt-4 text-xl font-semibold">No battle data available right now.</h2>
+            <p className="mt-2 text-zinc-400">Check back later or contact an officer.</p>
           </div>
         ) : (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-6" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
             <section
               className="rounded-[2rem] border p-6 sm:p-7 backdrop-blur"
               style={{
                 borderColor: styles.border,
-                background:
-                  "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
+                background: "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
+                animation: "fadeInUp 0.5s ease-out forwards",
+                opacity: 0,
               }}
             >
               <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -301,18 +366,20 @@ export default function BattleHQPage() {
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Card title="Current rank" value={rank === null ? "—" : `#${rank}`} />
+                    <Card title="Current rank" value={rank === null ? "—" : `#${rank}`} delay="0.1s" />
                     <Card
                       title="Battle points"
                       value={formatNumber(currentPoints)}
                       sub={data.stats.gain24h ? `+${formatNumber(data.stats.gain24h)} in 24h` : "24h gain pending"}
+                      delay="0.15s"
                     />
                     <Card
                       title="Projected finish"
                       value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
+                      delay="0.2s"
                     />
-                    <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" />
+                    <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" delay="0.25s" />
                   </div>
                 </div>
               </div>
@@ -324,7 +391,7 @@ export default function BattleHQPage() {
 
             <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
               <div className="space-y-6">
-                <Panel title="Position">
+                <Panel title="Position" delay="0.2s">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
                       <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Next target</p>
@@ -348,7 +415,7 @@ export default function BattleHQPage() {
                   </div>
                 </Panel>
 
-                <Panel title="Nearby clans">
+                <Panel title="Nearby clans" delay="0.3s">
                   {data.nearby.length === 0 ? (
                     <p className="text-sm text-[var(--foreground)]/65">No nearby clans available yet.</p>
                   ) : (
@@ -358,10 +425,12 @@ export default function BattleHQPage() {
                         return (
                           <div
                             key={`${clan.name}-${String(clan.rank ?? "x")}`}
-                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
+                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
                             style={{
                               borderColor: isUs ? styles.border : "var(--border)",
                               background: isUs ? styles.soft : "rgba(0,0,0,0.14)",
+                              animation: "fadeInUp 0.4s ease-out forwards",
+                              opacity: 0,
                             }}
                           >
                             <div className="min-w-0">
@@ -385,26 +454,28 @@ export default function BattleHQPage() {
               </div>
 
               <div className="space-y-6">
-                <Panel title="Performance">
+                <Panel title="Performance" delay="0.4s">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Card
                       title="24h gain"
                       value={`+${formatNumber(data.stats.gain24h)}`}
                       sub={showRate ? `${formatNumber(Math.round(data.stats.hourlyRate ?? 0))} / hour` : "Need more snapshots"}
+                      delay="0.4s"
                     />
                     <Card
                       title="Forecast"
                       value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
+                      delay="0.45s"
                     />
                   </div>
                 </Panel>
 
-                <Panel title="Snapshot history">
+                <Panel title="Snapshot history" delay="0.5s">
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <Card title="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} />
-                    <Card title="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} />
-                    <Card title="Next update" value={formatDuration(nextUpdateLeft)} />
+                    <Card title="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} delay="0.5s" />
+                    <Card title="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} delay="0.55s" />
+                    <Card title="Next update" value={formatDuration(nextUpdateLeft)} delay="0.6s" />
                   </div>
 
                   <div className="mt-4 space-y-2">
@@ -414,8 +485,8 @@ export default function BattleHQPage() {
                       recentHistory.map((row) => (
                         <div
                           key={`${row.capturedAt ?? "x"}-${row.points}`}
-                          className="flex items-center justify-between rounded-xl border px-3 py-2"
-                          style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.12)" }}
+                          className="flex items-center justify-between rounded-xl border px-3 py-2 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+                          style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.12)", animation: "fadeInUp 0.3s ease-out forwards", opacity: 0 }}
                         >
                           <span className="text-xs text-[var(--foreground)]/60">
                             {row.capturedAt
@@ -439,3 +510,22 @@ export default function BattleHQPage() {
     </main>
   );
 }
+
+<style jsx>{`
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes gradientMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .5; }
+  }
+  .animate-gradientMove { animation: gradientMove 3s ease infinite; }
+  .animate-fade-in { animation: fadeInUp 0.5s ease-out forwards; }
+  .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+`}</style>
