@@ -53,6 +53,13 @@ type RequirementBlock =
   | { type: "paragraph"; text: string }
   | { type: "spacer" };
 
+function createId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
@@ -155,7 +162,7 @@ function renderInlineFormatting(text: string): ReactNode[] {
 function makeIdleActivity(active: boolean): EventItem[] {
   return [
     {
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "join",
       text: active
         ? "⏳ War is active. Waiting for the first live update..."
@@ -169,12 +176,12 @@ function buildSeedEvents(players: LeaderboardEntry[]): EventItem[] {
 
   const items: EventItem[] = [
     {
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "join",
       text: `✅ Tracking ${players.length} live players`,
     },
     {
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "crown",
       text: `👑 Current leader: ${players[0].name} with ${formatNumber(players[0].points)} points`,
     },
@@ -182,7 +189,7 @@ function buildSeedEvents(players: LeaderboardEntry[]): EventItem[] {
 
   players.slice(0, 3).forEach((player) => {
     items.push({
-      id: crypto.randomUUID(),
+      id: createId(),
       type: "join",
       text: `• ${player.name} is currently ranked #${player.rank}`,
     });
@@ -200,7 +207,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (!old) {
       events.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "join",
         text: `🎉 ${entry.name} joined the live roster`,
       });
@@ -211,7 +218,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (diff > 0) {
       events.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "points",
         text: `🔥 ${entry.name} +${formatNumber(diff)} points`,
       });
@@ -219,7 +226,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (old.rank && entry.rank < old.rank) {
       events.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "rankup",
         text: `📈 ${entry.name} moved to #${entry.rank}`,
       });
@@ -227,7 +234,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (old.rank && entry.rank > old.rank) {
       events.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "rankdown",
         text: `📉 ${entry.name} dropped to #${entry.rank}`,
       });
@@ -235,7 +242,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (entry.rank === 1 && old.rank !== 1) {
       events.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "crown",
         text: `👑 NEW LEADER: ${entry.name}`,
       });
@@ -253,6 +260,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
 
   useEffect(() => {
     if (hasAnimated.current) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -262,6 +270,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
             const end = value;
             const duration = 1500;
             const startTime = performance.now();
+
             const updateValue = (currentTime: number) => {
               const elapsed = currentTime - startTime;
               const progress = Math.min(elapsed / duration, 1);
@@ -269,6 +278,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
               setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
               if (progress < 1) requestAnimationFrame(updateValue);
             };
+
             requestAnimationFrame(updateValue);
             observer.disconnect();
           }
@@ -276,6 +286,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
       },
       { threshold: 0.5 }
     );
+
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
   }, [value]);
@@ -289,7 +300,12 @@ function Panel({
   children,
   right,
   delay = "0ms",
-}: { title: string; children: React.ReactNode; right?: React.ReactNode; delay?: string }) {
+}: {
+  title: string;
+  children: React.ReactNode;
+  right?: React.ReactNode;
+  delay?: string;
+}) {
   return (
     <section
       className="rounded-3xl border p-4 sm:p-6"
@@ -318,8 +334,14 @@ function StatCard({
   animate = false,
   numericValue,
   delay = "0ms",
-  accent,
-}: { title: string; value: string | number; sub?: string; animate?: boolean; numericValue?: number; delay?: string; accent?: string }) {
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+  animate?: boolean;
+  numericValue?: number;
+  delay?: string;
+}) {
   return (
     <div
       className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
@@ -371,7 +393,7 @@ function RequirementRenderer({ text }: { text: string }) {
 
         if (block.type === "heading1") {
           return (
-            <h3 key={index} className="text-xl font-bold text-white mt-4 mb-2">
+            <h3 key={index} className="mt-4 mb-2 text-xl font-bold text-white">
               {renderInlineFormatting(block.text)}
             </h3>
           );
@@ -379,7 +401,7 @@ function RequirementRenderer({ text }: { text: string }) {
 
         if (block.type === "heading2") {
           return (
-            <h4 key={index} className="text-lg font-semibold text-white mt-3 mb-1">
+            <h4 key={index} className="mt-3 mb-1 text-lg font-semibold text-white">
               {renderInlineFormatting(block.text)}
             </h4>
           );
@@ -387,7 +409,7 @@ function RequirementRenderer({ text }: { text: string }) {
 
         if (block.type === "heading3") {
           return (
-            <h5 key={index} className="text-base font-medium text-white mt-2 mb-1">
+            <h5 key={index} className="mt-2 mb-1 text-base font-medium text-white">
               {renderInlineFormatting(block.text)}
             </h5>
           );
@@ -395,7 +417,7 @@ function RequirementRenderer({ text }: { text: string }) {
 
         if (block.type === "bullet") {
           return (
-            <p key={index} className="ml-4 text-sm text-zinc-300 flex items-center gap-2">
+            <p key={index} className="ml-4 flex items-center gap-2 text-sm text-zinc-300">
               <span className="text-primary">•</span>
               {renderInlineFormatting(block.text)}
             </p>
@@ -404,14 +426,14 @@ function RequirementRenderer({ text }: { text: string }) {
 
         if (block.type === "quote") {
           return (
-            <blockquote key={index} className="border-l-4 border-primary/30 pl-4 italic text-zinc-300 my-2">
+            <blockquote key={index} className="my-2 border-l-4 border-primary/30 pl-4 italic text-zinc-300">
               {renderInlineFormatting(block.text)}
             </blockquote>
           );
         }
 
         return (
-          <p key={index} className="text-sm text-zinc-300 leading-relaxed">
+          <p key={index} className="text-sm leading-relaxed text-zinc-300">
             {renderInlineFormatting(block.text)}
           </p>
         );
@@ -456,7 +478,6 @@ export default function HomePage() {
   }, []);
 
   const bannerText = global.banner_text;
-  const bannerSpeed = Math.min(40, Math.max(8, toNumber(global.banner_speed) || 18));
   const discordLink = global.discord_link;
   const requirementsText = global.requirements_text;
 
@@ -490,9 +511,7 @@ export default function HomePage() {
 
         if (!next.length) {
           prevRef.current = [];
-          setActivity((prev) =>
-            prev.length ? prev : makeIdleActivity(Boolean(data.active))
-          );
+          setActivity((prev) => (prev.length ? prev : makeIdleActivity(Boolean(data.active))));
           return;
         }
 
@@ -522,21 +541,14 @@ export default function HomePage() {
     };
   }, []);
 
-  const pillStyle = {
-    background: "color-mix(in srgb, var(--primary) 12%, transparent)",
-    border: "1px solid color-mix(in srgb, var(--primary) 28%, transparent)",
-    color: "var(--primary)",
-  } as const;
-
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <AnimatedBackground />
       <Navbar />
 
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-        {/* Banner */}
         <div
-          className="overflow-hidden rounded-[2rem] border relative"
+          className="relative overflow-hidden rounded-[2rem] border"
           style={{
             borderColor: "var(--border)",
             background: "color-mix(in srgb, var(--card) 92%, transparent)",
@@ -545,25 +557,28 @@ export default function HomePage() {
           }}
         >
           <div className="absolute inset-0 flex" aria-hidden="true">
-            {bannerText}•{bannerText}•{bannerText}
+            <div
+              className="whitespace-nowrap text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400/70"
+              style={{
+                transform: "translateX(0)",
+                animation: `marquee ${Math.max(8, Math.min(40, toNumber(global.banner_speed) || 18))}s linear infinite`,
+              }}
+            >
+              {bannerText} • {bannerText} • {bannerText} • {bannerText} • {bannerText}
+            </div>
           </div>
-          <div className="absolute inset-0 flex" aria-hidden="true">
-            {bannerText}•{bannerText}•{bannerText}
-          </div>
-          <div
-            className="relative flex h-[40px] items-center justify-center px-4 text-sm font-medium uppercase tracking-[0.2em]"
-            style={{ color: "var(--foreground)" }}
-          >
+
+          <div className="relative flex h-[40px] items-center justify-center px-4 text-sm font-medium uppercase tracking-[0.2em] text-[var(--foreground)]">
             {active ? "Tracking active" : "Waiting for the next battle"}
           </div>
         </div>
 
-        {/* Hero */}
         <section
-          className="mt-8 rounded-[2rem] border p-6 sm:p-8 backdrop-blur"
+          className="mt-8 rounded-[2rem] border p-6 backdrop-blur sm:p-8"
           style={{
             borderColor: "var(--border)",
-            background: "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
+            background:
+              "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
             animation: "fadeInUp 0.5s ease-out forwards",
             animationDelay: "0.1s",
             opacity: 0,
@@ -579,6 +594,7 @@ export default function HomePage() {
                 and live updates that actually feel alive.
               </p>
             </div>
+
             <div className="flex flex-wrap gap-3">
               <a
                 href="/leaderboard"
@@ -598,8 +614,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Live Status */}
-        <Panel title="Live Status" right={<span className="text-xs text-zinc-400">Real-time war tracking</span>} delay="0.15s">
+        <Panel
+          title="Live Status"
+          right={<span className="text-xs text-zinc-400">Real-time war tracking</span>}
+          delay="0.15s"
+        >
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               title="Status"
@@ -634,11 +653,17 @@ export default function HomePage() {
           </div>
         </Panel>
 
-        {/* Activity Feed */}
-        <Panel title="Activity Feed" right={<span className="text-xs text-zinc-400">Live updates</span>} delay="0.2s">
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+        <Panel
+          title="Activity Feed"
+          right={<span className="text-xs text-zinc-400">Live updates</span>}
+          delay="0.2s"
+        >
+          <div className="max-h-96 space-y-2 overflow-y-auto">
             {activity.length === 0 ? (
-              <div className="text-center py-8 text-zinc-400" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
+              <div
+                className="py-8 text-center text-zinc-400"
+                style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
+              >
                 Waiting for live activity...
               </div>
             ) : (
@@ -659,14 +684,24 @@ export default function HomePage() {
                     <p className="text-sm text-white">{item.text}</p>
                   </div>
                 );
-              })}
+              })
             )}
           </div>
         </Panel>
 
-        {/* Discord & Requirements */}
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.5fr]" style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}>
-          <Panel title="Discord" right={<span className="text-xs text-zinc-400">Community link</span>} delay="0.3s">
+        <div
+          className="grid gap-6 lg:grid-cols-[1fr_1.5fr]"
+          style={{
+            animation: "fadeInUp 0.5s ease-out forwards",
+            animationDelay: "0.25s",
+            opacity: 0,
+          }}
+        >
+          <Panel
+            title="Discord"
+            right={<span className="text-xs text-zinc-400">Community link</span>}
+            delay="0.3s"
+          >
             <div className="space-y-4">
               <a
                 href={discordHref}
@@ -687,51 +722,110 @@ export default function HomePage() {
                   </svg>
                 </div>
               </a>
+
               {!hasDiscordLink && (
                 <p className="text-xs text-zinc-400">Add your Discord invite link in Settings.</p>
               )}
             </div>
           </Panel>
 
-          <Panel title="Requirements" right={<span className="text-xs text-zinc-400">Join criteria</span>} delay="0.35s">
+          <Panel
+            title="Requirements"
+            right={<span className="text-xs text-zinc-400">Join criteria</span>}
+            delay="0.35s"
+          >
             <RequirementRenderer text={requirementsText} />
           </Panel>
         </div>
 
-        {/* Podium */}
-        <Panel title="Top 3" right={<span className="text-xs text-zinc-400">Current leaders</span>} delay="0.4s">
+        <Panel
+          title="Top 3"
+          right={<span className="text-xs text-zinc-400">Current leaders</span>}
+          delay="0.4s"
+        >
           <Podium players={players.slice(0, 3)} />
         </Panel>
 
-        {/* Hall of Fame Preview */}
-        <Panel title="Hall of Fame" right={<a href="/hall-of-fame" className="text-xs text-primary hover:underline">View all →</a>} delay="0.45s">
+        <Panel
+          title="Hall of Fame"
+          right={
+            <a href="/hall-of-fame" className="text-xs text-primary hover:underline">
+              View all →
+            </a>
+          }
+          delay="0.45s"
+        >
           <HallOfFamePreview />
         </Panel>
 
-        {/* Achievements Preview */}
-        <Panel title="Recent Achievements" right={<a href="/achievements" className="text-xs text-primary hover:underline">View all →</a>} delay="0.5s">
+        <Panel
+          title="Recent Achievements"
+          right={
+            <a href="/achievements" className="text-xs text-primary hover:underline">
+              View all →
+            </a>
+          }
+          delay="0.5s"
+        >
           <AchievementsPreview />
         </Panel>
       </div>
+
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes gradientMove {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
+
+        @keyframes pulse {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.5;
+          }
+        }
+
+        @keyframes marquee {
+          0% {
+            transform: translateX(0%);
+          }
+          100% {
+            transform: translateX(-50%);
+          }
+        }
+
+        .animate-gradientMove {
+          animation: gradientMove 3s ease infinite;
+        }
+
+        .animate-fade-in {
+          animation: fadeInUp 0.5s ease-out forwards;
+        }
+
+        .animate-pulse {
+          animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+      `}</style>
     </main>
   );
 }
-
-<style jsx>{`
-  @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes gradientMove {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: .5; }
-  }
-  .animate-gradientMove { animation: gradientMove 3s ease infinite; }
-  .animate-fade-in { animation: fadeInUp 0.5s ease-out forwards; }
-  .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-`}</style>
