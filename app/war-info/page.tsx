@@ -110,7 +110,10 @@ function MetricCard({
   sub?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-black/14 p-4">
+    <div
+      className="rounded-2xl border border-[var(--border)] bg-black/14 p-4 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      style={{ animation: "fadeInUp 0.4s ease-out forwards", opacity: 0 }}
+    >
       <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--foreground)]/50">{label}</p>
       <p className="mt-1 text-xl font-black text-white">{value}</p>
       {sub ? <p className="mt-1 text-xs text-[var(--foreground)]/60">{sub}</p> : null}
@@ -133,6 +136,8 @@ function Section({
       style={{
         borderColor: "var(--border)",
         background: "color-mix(in srgb, var(--card) 92%, transparent)",
+        animation: "fadeInUp 0.5s ease-out forwards",
+        opacity: 0,
       }}
     >
       <div className="mb-4">
@@ -148,7 +153,7 @@ function ProgressBar({ value }: { value: number | null }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
 
   return (
-    <div>
+    <div style={{ animation: "fadeInUp 0.5s ease-out forwards", opacity: 0 }}>
       <div className="h-3 overflow-hidden rounded-full bg-black/30">
         <div
           className="h-full rounded-full transition-all duration-500 animate-gradientMove gradient-bar"
@@ -238,6 +243,7 @@ export default function WarInfoPage() {
             style={{
               borderColor: "var(--border)",
               background: "color-mix(in srgb, var(--card) 92%, transparent)",
+              animation: "fadeInUp 0.5s ease-out forwards",
             }}
           >
             Loading War Info...
@@ -258,6 +264,7 @@ export default function WarInfoPage() {
             style={{
               borderColor: "var(--border)",
               background: "color-mix(in srgb, var(--card) 92%, transparent)",
+              animation: "fadeInUp 0.5s ease-out forwards",
             }}
           >
             No war data available right now.
@@ -275,15 +282,17 @@ export default function WarInfoPage() {
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <AnimatedBackground />
       <Navbar />
-
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
         <div className="space-y-6 animate-fade-in">
+
           <section
             className="overflow-hidden rounded-[2rem] border backdrop-blur"
             style={{
               borderColor: "var(--border)",
               background:
                 "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
+              animation: "fadeInUp 0.5s ease-out forwards",
+              opacity: 0,
             }}
           >
             <div className="relative p-6 sm:p-7">
@@ -296,62 +305,77 @@ export default function WarInfoPage() {
                     </span>
                     <StateChip state={war.state} refreshing={refreshing} />
                   </div>
-
                   <h1 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-5xl">
                     {warTitle}
                   </h1>
-
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">
                     {dateRange}
                   </p>
                 </div>
-
                 <div className="grid min-w-[280px] gap-3 sm:grid-cols-2 lg:w-[440px]">
-                  <MetricCard label="Placement" value={placement} />
+                  <MetricCard label="Placement" value={placement} style={{ animationDelay: "0.1s" }} />
                   <MetricCard
                     label="Countdown"
                     value={timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
                     sub={war.state === "live" ? "Until war ends" : "War completed"}
+                    style={{ animationDelay: "0.15s" }}
                   />
                 </div>
               </div>
             </div>
           </section>
 
-          <Section title="Battle progress">
+          <Section title="Battle progress" subtitle="Clean view of the live battle status.">
             <div className="space-y-5">
               <ProgressBar value={progress} />
-
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <MetricCard label="Starts" value={formatDateTime(war.startTime)} />
-                <MetricCard label="Ends" value={formatDateTime(war.endTime)} />
-                <MetricCard label="Duration" value={durationText} />
-                <MetricCard label="Status" value={status} />
+                <MetricCard label="Starts" value={formatDateTime(war.startTime)} style={{ animationDelay: "0.25s" }} />
+                <MetricCard label="Ends" value={formatDateTime(war.endTime)} style={{ animationDelay: "0.3s" }} />
+                <MetricCard label="Duration" value={durationText} style={{ animationDelay: "0.35s" }} />
+                <MetricCard label="Status" value={status} style={{ animationDelay: "0.4s" }} />
               </div>
             </div>
           </Section>
 
-          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            <Section title="Clan summary">
+          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]" style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}>
+            <Section title="Clan summary" subtitle="The important numbers only.">
               <div className="grid gap-3 sm:grid-cols-2">
-                <MetricCard label="Current placement" value={placement} />
-                <MetricCard label="Total points" value={formatNumber(war.totalPoints)} />
-                <MetricCard label="Total clans" value={formatNumber(war.totalClans)} />
-                <MetricCard label="Participants" value={formatNumber(war.participants)} />
+                <MetricCard label="Current placement" value={placement} style={{ animationDelay: "0.3s" }} />
+                <MetricCard label="Total points" value={formatNumber(war.totalPoints)} style={{ animationDelay: "0.35s" }} />
+                <MetricCard label="Total clans" value={formatNumber(war.totalClans)} style={{ animationDelay: "0.4s" }} />
+                <MetricCard label="Participants" value={formatNumber(war.participants)} style={{ animationDelay: "0.45s" }} />
               </div>
             </Section>
-
-            <Section title="Battle details">
+            <Section title="Battle details" subtitle="Just enough context without noise.">
               <div className="grid gap-3 sm:grid-cols-2">
-                <MetricCard label="Battle ID" value={war.battleId ?? "—"} />
-                <MetricCard label="Battle status" value={status} />
-                <MetricCard label="Progress" value={progressText} />
-                <MetricCard label="Max participants" value={formatNumber(war.maxParticipants)} />
+                <MetricCard label="Battle ID" value={war.battleId ?? "—"} style={{ animationDelay: "0.3s" }} />
+                <MetricCard label="Battle status" value={status} style={{ animationDelay: "0.35s" }} />
+                <MetricCard label="Progress" value={progressText} style={{ animationDelay: "0.4s" }} />
+                <MetricCard label="Max participants" value={formatNumber(war.maxParticipants)} style={{ animationDelay: "0.45s" }} />
               </div>
             </Section>
           </div>
+
         </div>
       </div>
     </main>
   );
 }
+
+<style jsx>{`
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes gradientMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .animate-gradientMove {
+    animation: gradientMove 3s ease infinite;
+  }
+  .animate-fade-in {
+    animation: fadeInUp 0.5s ease-out forwards;
+  }
+`}</style>
