@@ -242,7 +242,17 @@ function ProgressBar({ value, accent, track }: { value: number | null; accent: s
   );
 }
 
-function Card({ title, value, sub }: { title: string; value: string; sub?: string }) {
+function Card({
+  title,
+  value,
+  sub,
+  delay = "0ms",
+}: {
+  title: string;
+  value: string;
+  sub?: string;
+  delay?: string;
+}) {
   return (
     <div
       className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
@@ -250,6 +260,7 @@ function Card({ title, value, sub }: { title: string; value: string; sub?: strin
         borderColor: "var(--border)",
         background: "var(--card)",
         animation: "fadeInUp 0.5s ease-out forwards",
+        animationDelay: delay,
         opacity: 0,
       }}
     >
