@@ -100,6 +100,25 @@ type InviteEvent = {
   reward?: string | null;
 };
 
+type AdminChannel = {
+  id: string;
+  name: string;
+  label?: string;
+  guildName?: string;
+  parentName?: string | null;
+  canSendMessages?: boolean;
+  canCreateInvite?: boolean;
+  usableForGiveaways?: boolean;
+  usableForInvites?: boolean;
+};
+
+type ToastState = {
+  message: string;
+  tone: "success" | "error" | "info";
+} | null;
+
+type AdminAction = (endpoint: string, body?: UnknownRecord) => Promise<boolean>;
+
 type AdminSection =
   | "overview"
   | "bot"
@@ -541,6 +560,35 @@ function parseDiscordChannelInput(value: string | null) {
   return null;
 }
 
+function normalizeChannel(value: unknown): AdminChannel | null {
+  if (!isRecord(value)) return null;
+
+  const id = valueToString(pickRecordValue(value, ["id", "channel_id", "channelId"]), null);
+  const name = valueToString(pickRecordValue(value, ["name", "channelName", "channel_name"]), null);
+
+  if (!id || !name) return null;
+
+  const parentName = valueToString(pickRecordValue(value, ["parentName", "parent_name", "category"]), null);
+  const guildName = valueToString(pickRecordValue(value, ["guildName", "guild_name", "guild"]), null) ?? undefined;
+  const label = valueToString(pickRecordValue(value, ["label"]), null) ?? `${parentName ? `${parentName} / ` : ""}#${name}`;
+
+  return {
+    id,
+    name,
+    label,
+    guildName,
+    parentName,
+    canSendMessages: Boolean(value.canSendMessages ?? value.can_send_messages),
+    canCreateInvite: Boolean(value.canCreateInvite ?? value.can_create_invite),
+    usableForGiveaways: Boolean(value.usableForGiveaways ?? value.usable_for_giveaways ?? value.canSendMessages ?? value.can_send_messages),
+    usableForInvites: Boolean(value.usableForInvites ?? value.usable_for_invites ?? value.canCreateInvite ?? value.can_create_invite),
+  };
+}
+
+function channelDisplayName(channel: AdminChannel) {
+  return channel.label ?? `${channel.parentName ? `${channel.parentName} / ` : ""}#${channel.name}`;
+}
+
 export default function AdminPage() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -552,20 +600,25 @@ export default function AdminPage() {
   const [invites, setInvites] = useState<InviteEvent[]>([]);
   const [inviteLeaderboard, setInviteLeaderboard] = useState<UnknownRecord[]>([]);
   const [logs, setLogs] = useState<ActivityItem[]>([]);
+  const [channels, setChannels] = useState<AdminChannel[]>([]);
   const [search, setSearch] = useState("");
   const [logFilter, setLogFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [actionStatus, setActionStatus] = useState("");
+  const [toast, setToast] = useState<ToastState>(null);
+  const [giveawayCreateOpen, setGiveawayCreateOpen] = useState(false);
+  const [inviteCreateOpen, setInviteCreateOpen] = useState(false);
 
   const loadAdminData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, playersRes, giveawaysRes, invitesRes, logsRes] = await Promise.all([
+      const [statusRes, playersRes, giveawaysRes, invitesRes, logsRes, channelsRes] = await Promise.all([
         fetch("/api/admin/status", { cache: "no-store" }),
         fetch("/api/admin/players", { cache: "no-store" }),
         fetch("/api/admin/giveaways", { cache: "no-store" }),
         fetch("/api/admin/invites", { cache: "no-store" }),
         fetch("/api/admin/logs", { cache: "no-store" }),
+        fetch("/api/admin/channels", { cache: "no-store" }),
       ]);
 
       if (statusRes.ok) {
@@ -606,6 +659,14 @@ export default function AdminPage() {
         const data = (await logsRes.json()) as UnknownRecord;
         setLogs(asArray<ActivityItem>(data.logs));
       }
+
+      if (channelsRes.ok) {
+        const data = (await channelsRes.json().catch(() => ({}))) as UnknownRecord;
+        const nextChannels = firstArray(data, ["channels", "textChannels", "data"])
+          .map(normalizeChannel)
+          .filter((channel): channel is AdminChannel => channel !== null);
+        setChannels(nextChannels);
+      }
     } catch (err) {
       console.error("[admin] load failed", err);
     } finally {
@@ -644,6 +705,11 @@ export default function AdminPage() {
     return () => window.clearTimeout(timer);
   }, [authLoaded, currentUser?.role, loadAdminData]);
 
+  function showToast(message: string, tone: "success" | "error" | "info" = "info") {
+    setToast({ message, tone });
+    window.setTimeout(() => setToast(null), 3500);
+  }
+
   async function postAction(endpoint: string, body: UnknownRecord = {}) {
     setActionStatus("Running action...");
     try {
@@ -666,56 +732,48 @@ export default function AdminPage() {
         throw new Error(String(message));
       }
 
-      setActionStatus(String(data.message ?? "Action completed"));
+      const message = String(data.message ?? "Action completed");
+      setActionStatus(message);
+      showToast(message, "success");
       await loadAdminData();
+      return true;
     } catch (err) {
-      setActionStatus(err instanceof Error ? err.message : "Action failed");
+      const message = err instanceof Error ? err.message : "Action failed";
+      setActionStatus(message);
+      showToast(message, "error");
+      return false;
     } finally {
       window.setTimeout(() => setActionStatus(""), 3500);
     }
   }
 
   function createGiveaway() {
-    const channelId = parseDiscordChannelInput(
-      window.prompt("Discord channel ID or channel mention to send the giveaway in?", "")
-    );
+    setGiveawayCreateOpen(true);
+  }
 
-    if (!channelId) {
-      setActionStatus("Giveaway channel is required. Enter a valid Discord channel ID or #channel mention.");
-      window.setTimeout(() => setActionStatus(""), 3500);
-      return;
-    }
-
-    const prize = window.prompt("Giveaway prize?");
-    if (!prize) return;
-    const winners = Number(window.prompt("Winner count?", "1") || "1");
-    const invitesPerEntry = Number(window.prompt("Invites per entry?", "2") || "2");
-    void postAction("/api/admin/giveaway/create", {
-      channel_id: channelId,
-      prize,
-      winners: Number.isFinite(winners) ? winners : 1,
-      invites_per_entry: Number.isFinite(invitesPerEntry) ? invitesPerEntry : 2,
-    });
+  async function submitGiveaway(values: {
+    channel_id: string;
+    prize: string;
+    winners: number;
+    invites_per_entry: number;
+    duration_minutes: number;
+    thumbnail?: string;
+  }) {
+    const success = await postAction("/api/admin/giveaway/create", values);
+    if (success) setGiveawayCreateOpen(false);
   }
 
   function startInviteEvent() {
-    const channelId = parseDiscordChannelInput(
-      window.prompt("Discord channel ID or channel mention to send the invite event in?", "")
-    );
+    setInviteCreateOpen(true);
+  }
 
-    if (!channelId) {
-      setActionStatus("Invite event channel is required. Enter a valid Discord channel ID or #channel mention.");
-      window.setTimeout(() => setActionStatus(""), 3500);
-      return;
-    }
-
-    const durationHours = Number(window.prompt("Invite event duration in hours?", "24") || "24");
-    const reward = window.prompt("Reward text?", "Giveaway entries") || "Giveaway entries";
-    void postAction("/api/admin/invite/start", {
-      channel_id: channelId,
-      duration_hours: Number.isFinite(durationHours) ? durationHours : 24,
-      reward,
-    });
+  async function submitInviteEvent(values: {
+    channel_id: string;
+    duration_hours: number;
+    reward: string;
+  }) {
+    const success = await postAction("/api/admin/invite/start", values);
+    if (success) setInviteCreateOpen(false);
   }
 
   const canAdmin = currentUser?.role === "owner" || currentUser?.role === "officer";
@@ -951,6 +1009,22 @@ export default function AdminPage() {
         </div>
       </main>
 
+      <CreateGiveawayModal
+        open={giveawayCreateOpen}
+        channels={channels}
+        onClose={() => setGiveawayCreateOpen(false)}
+        onSubmit={submitGiveaway}
+      />
+
+      <CreateInviteEventModal
+        open={inviteCreateOpen}
+        channels={channels}
+        onClose={() => setInviteCreateOpen(false)}
+        onSubmit={submitInviteEvent}
+      />
+
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
+
       <style jsx global>{`
         .admin-button {
           border: 1px solid var(--border);
@@ -975,6 +1049,284 @@ export default function AdminPage() {
         }
       `}</style>
     </>
+  );
+}
+
+function ModalShell({
+  open,
+  title,
+  children,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+        aria-label="Close modal"
+      />
+      <div className="relative z-10 w-full max-w-xl rounded-3xl border border-white/10 bg-[#10141d] p-5 text-white shadow-2xl sm:p-6">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Admin Action</div>
+            <h3 className="mt-1 text-2xl font-bold">{title}</h3>
+          </div>
+          <button
+            type="button"
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300 transition hover:bg-white/10"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ChannelField({
+  channels,
+  value,
+  onChange,
+  purpose,
+}: {
+  channels: AdminChannel[];
+  value: string;
+  onChange: (value: string) => void;
+  purpose: "giveaway" | "invite";
+}) {
+  const usableChannels = channels.filter((channel) =>
+    purpose === "invite"
+      ? channel.usableForInvites || channel.canCreateInvite
+      : channel.usableForGiveaways || channel.canSendMessages
+  );
+
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+        Discord Channel
+      </label>
+      {usableChannels.length > 0 && (
+        <select
+          className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          <option value="">Select a channel...</option>
+          {usableChannels.map((channel) => (
+            <option key={channel.id} value={channel.id}>
+              {channelDisplayName(channel)}
+              {channel.guildName ? ` · ${channel.guildName}` : ""}
+            </option>
+          ))}
+        </select>
+      )}
+      <input
+        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-zinc-600"
+        placeholder="Or paste channel ID / #channel mention"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <p className="text-xs text-zinc-500">
+        {usableChannels.length
+          ? "Channels are loaded from the bot. You can still paste an ID manually."
+          : "No channels were loaded from the bot, so paste a channel ID or channel mention."}
+      </p>
+    </div>
+  );
+}
+
+function CreateGiveawayModal({
+  open,
+  channels,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  channels: AdminChannel[];
+  onClose: () => void;
+  onSubmit: (values: {
+    channel_id: string;
+    prize: string;
+    winners: number;
+    invites_per_entry: number;
+    duration_minutes: number;
+    thumbnail?: string;
+  }) => Promise<void>;
+}) {
+  const [channelId, setChannelId] = useState("");
+  const [prize, setPrize] = useState("");
+  const [winners, setWinners] = useState(1);
+  const [invitesPerEntry, setInvitesPerEntry] = useState(2);
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [thumbnail, setThumbnail] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit() {
+    const parsedChannel = parseDiscordChannelInput(channelId);
+
+    if (!parsedChannel) {
+      setError("Choose a Discord channel or paste a valid channel ID / channel mention.");
+      return;
+    }
+
+    if (!prize.trim()) {
+      setError("Prize is required.");
+      return;
+    }
+
+    setError("");
+    await onSubmit({
+      channel_id: parsedChannel,
+      prize: prize.trim(),
+      winners: Math.max(1, Number(winners) || 1),
+      invites_per_entry: Math.max(1, Number(invitesPerEntry) || 1),
+      duration_minutes: Math.max(1, Number(durationMinutes) || 60),
+      thumbnail: thumbnail.trim() || undefined,
+    });
+  }
+
+  return (
+    <ModalShell open={open} title="Create Giveaway" onClose={onClose}>
+      <div className="space-y-4">
+        <ChannelField channels={channels} value={channelId} onChange={setChannelId} purpose="giveaway" />
+        <LabeledInput label="Prize" value={prize} onChange={setPrize} placeholder="Huge pet, gems, booth, etc." />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <LabeledNumber label="Winners" value={winners} onChange={setWinners} min={1} />
+          <LabeledNumber label="Invites / Entry" value={invitesPerEntry} onChange={setInvitesPerEntry} min={1} />
+          <LabeledNumber label="Duration Minutes" value={durationMinutes} onChange={setDurationMinutes} min={1} />
+        </div>
+        <LabeledInput label="Thumbnail URL" value={thumbnail} onChange={setThumbnail} placeholder="Optional image URL" />
+        {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="admin-button" onClick={onClose}>Cancel</button>
+          <button type="button" className="admin-button" onClick={() => void submit()}>Create Giveaway</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CreateInviteEventModal({
+  open,
+  channels,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  channels: AdminChannel[];
+  onClose: () => void;
+  onSubmit: (values: { channel_id: string; duration_hours: number; reward: string }) => Promise<void>;
+}) {
+  const [channelId, setChannelId] = useState("");
+  const [durationHours, setDurationHours] = useState(24);
+  const [reward, setReward] = useState("Giveaway entries");
+  const [error, setError] = useState("");
+
+  async function submit() {
+    const parsedChannel = parseDiscordChannelInput(channelId);
+
+    if (!parsedChannel) {
+      setError("Choose a Discord channel or paste a valid channel ID / channel mention.");
+      return;
+    }
+
+    setError("");
+    await onSubmit({
+      channel_id: parsedChannel,
+      duration_hours: Math.max(1, Number(durationHours) || 24),
+      reward: reward.trim() || "Giveaway entries",
+    });
+  }
+
+  return (
+    <ModalShell open={open} title="Create Invite Event" onClose={onClose}>
+      <div className="space-y-4">
+        <ChannelField channels={channels} value={channelId} onChange={setChannelId} purpose="invite" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <LabeledNumber label="Duration Hours" value={durationHours} onChange={setDurationHours} min={1} />
+          <LabeledInput label="Reward" value={reward} onChange={setReward} placeholder="Giveaway entries" />
+        </div>
+        {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="admin-button" onClick={onClose}>Cancel</button>
+          <button type="button" className="admin-button" onClick={() => void submit()}>Create Invite Event</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function LabeledInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</span>
+      <input
+        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-zinc-600"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function LabeledNumber({
+  label,
+  value,
+  onChange,
+  min,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+}) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</span>
+      <input
+        type="number"
+        min={min}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+function Toast({ message, tone }: { message: string; tone: "success" | "error" | "info" }) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-100"
+      : tone === "error"
+      ? "border-red-500/30 bg-red-500/15 text-red-100"
+      : "border-white/10 bg-white/10 text-white";
+
+  return (
+    <div className={`fixed bottom-5 right-5 z-[90] max-w-sm rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur ${toneClass}`}>
+      {message}
+    </div>
   );
 }
 
@@ -1015,7 +1367,7 @@ function OverviewSection({
   cards: AdminCard[];
   loadedAt?: string;
   recentActivity: ActivityItem[];
-  onAction: (endpoint: string, body?: UnknownRecord) => Promise<void>;
+  onAction: AdminAction;
 }) {
   return (
     <div className="space-y-6">
@@ -1119,7 +1471,7 @@ function InvitesSection({
   invites: InviteEvent[];
   leaderboard: UnknownRecord[];
   onStart: () => void;
-  onAction: (endpoint: string, body?: UnknownRecord) => Promise<void>;
+  onAction: AdminAction;
 }) {
   return (
     <div className="space-y-6">
@@ -1225,7 +1577,7 @@ function GiveawaysSection({
 }: {
   giveaways: Giveaway[];
   onCreate: () => void;
-  onAction: (endpoint: string, body?: UnknownRecord) => Promise<void>;
+  onAction: AdminAction;
 }) {
   return (
     <Panel
@@ -1314,7 +1666,7 @@ function PlayersSection({
   players: Player[];
   search: string;
   setSearch: (value: string) => void;
-  onAction: (endpoint: string, body?: UnknownRecord) => Promise<void>;
+  onAction: AdminAction;
 }) {
   return (
     <Panel
@@ -1408,7 +1760,7 @@ function LinksSection({
   onAction,
 }: {
   rows: { discord: string; main: string; alts: string[] }[];
-  onAction: (endpoint: string, body?: UnknownRecord) => Promise<void>;
+  onAction: AdminAction;
 }) {
   return (
     <Panel title="Roblox Links">
