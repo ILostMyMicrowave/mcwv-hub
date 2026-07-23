@@ -236,6 +236,44 @@ function secondsUntil(value: unknown) {
   return Math.max(0, Math.floor((ms - Date.now()) / 1000));
 }
 
+function isActiveFlag(value: unknown) {
+  if (value === true || value === 1) return true;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "active";
+  }
+  return false;
+}
+
+function hasRealTimestamp(value: unknown) {
+  if (value === null || value === undefined || value === "") return false;
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return false;
+
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric)) return numeric > 0;
+
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function isRealInviteEvent(event: InviteEvent | null): event is InviteEvent {
+  if (!event) return false;
+
+  return (
+    isActiveFlag(event.active) ||
+    hasRealTimestamp(event.start_time) ||
+    hasRealTimestamp(event.end_time) ||
+    hasRealTimestamp(event.start) ||
+    hasRealTimestamp(event.end)
+  );
+}
+
 function levelTone(level?: string) {
   const normalized = String(level ?? "info").toLowerCase();
   if (normalized.includes("error")) return "text-red-300 border-red-500/30 bg-red-500/10";
@@ -306,9 +344,9 @@ export default function AdminPage() {
 
       if (invitesRes.ok) {
         const data = (await invitesRes.json()) as UnknownRecord;
-        const events = asArray<InviteEvent>(data.events);
+        const events = asArray<InviteEvent>(data.events).filter(isRealInviteEvent);
         const active = isRecord(data.active) ? (data.active as InviteEvent) : null;
-        setInvites(active && !events.length ? [active] : events);
+        setInvites(isRealInviteEvent(active) && !events.length ? [active] : events);
         setInviteLeaderboard(asArray<UnknownRecord>(data.leaderboard));
       }
 
@@ -837,7 +875,12 @@ function InvitesSection({
                   </tr>
                 );
               }) : (
-                <tr><td colSpan={7} className="py-8 text-center text-zinc-500">No invite events loaded.</td></tr>
+                <tr>
+                  <td colSpan={7} className="py-10 text-center text-zinc-500">
+                    <div className="font-medium text-zinc-300">No invite event running.</div>
+                    <div className="mt-1 text-sm">Create one to start tracking invite joins.</div>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
