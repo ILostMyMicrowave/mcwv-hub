@@ -817,21 +817,25 @@ export default function AdminPage() {
   }, [recentActivity, logFilter]);
 
   const linksByDiscord = useMemo(() => {
-    const map = new Map<string, { discord: string; main: string; alts: string[] }>();
+    const map = new Map<string, { discord: string; main: string; mainRobloxId: string | null; alts: string[] }>();
 
     for (const player of players) {
       const discord = String(player.discord ?? player.discord_id ?? "");
       if (!discord) continue;
-      const current = map.get(discord) ?? { discord, main: "—", alts: [] };
-      const name = String(player.username ?? player.robloxId ?? player.roblox_id ?? "—");
-      if (current.main === "—") current.main = name;
+      const current = map.get(discord) ?? { discord, main: "—", mainRobloxId: null, alts: [] };
+      const robloxId = player.robloxId ?? player.roblox_id ?? null;
+      const name = String(player.username ?? robloxId ?? "—");
+      if (current.main === "—") {
+        current.main = name;
+        current.mainRobloxId = robloxId ? String(robloxId) : null;
+      }
       map.set(discord, current);
     }
 
     for (const link of links) {
       const discord = String(link.discord ?? link.discord_id ?? "");
       if (!discord) continue;
-      const current = map.get(discord) ?? { discord, main: "—", alts: [] };
+      const current = map.get(discord) ?? { discord, main: "—", mainRobloxId: null, alts: [] };
       const altName = String(link.username ?? link.robloxId ?? link.roblox_id ?? "Alt");
       current.alts.push(altName);
       map.set(discord, current);
@@ -992,7 +996,13 @@ export default function AdminPage() {
               />
             )}
 
-            {section === "links" && <LinksSection rows={linksByDiscord} onAction={postAction} />}
+            {section === "links" && (
+              <LinksSection
+                rows={linksByDiscord}
+                onAction={postAction}
+                onNotice={(message) => showToast(message, "info")}
+              />
+            )}
 
             {section === "war" && <WarSection overview={overview} />}
 
@@ -1027,17 +1037,42 @@ export default function AdminPage() {
 
       <style jsx global>{`
         .admin-button {
-          border: 1px solid var(--border);
+          border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
           border-radius: 999px;
-          background: rgba(255, 255, 255, 0.08);
+          background: color-mix(in srgb, var(--primary) 13%, transparent);
           padding: 0.55rem 0.9rem;
-          color: white;
+          color: var(--foreground);
           font-size: 0.85rem;
-          transition: transform 0.2s ease, background 0.2s ease;
+          transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
         }
-        .admin-button:hover {
-          background: rgba(255, 255, 255, 0.13);
+        .admin-button:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--primary) 22%, transparent);
+          border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
           transform: translateY(-1px);
+        }
+        .admin-button:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+        .admin-input {
+          width: 100%;
+          border-radius: 1rem;
+          border: 1px solid var(--border);
+          background: var(--card);
+          color: var(--foreground);
+          padding: 0.75rem 1rem;
+          font-size: 0.875rem;
+          outline: none;
+        }
+        .admin-input:focus {
+          border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+        }
+        .admin-input::placeholder {
+          color: color-mix(in srgb, var(--foreground) 35%, transparent);
+        }
+        .admin-label {
+          color: color-mix(in srgb, var(--foreground) 55%, transparent);
         }
         .admin-button-danger {
           border: 1px solid rgba(248, 113, 113, 0.35);
@@ -1073,15 +1108,25 @@ function ModalShell({
         onClick={onClose}
         aria-label="Close modal"
       />
-      <div className="relative z-10 w-full max-w-xl rounded-3xl border border-white/10 bg-[#10141d] p-5 text-white shadow-2xl sm:p-6">
+      <div
+        className="relative z-10 w-full max-w-xl rounded-3xl border p-5 shadow-2xl sm:p-6"
+        style={{
+          background:
+            "linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, var(--primary) 8%), var(--background))",
+          borderColor: "var(--border)",
+          color: "var(--foreground)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.45), 0 0 40px var(--glow)",
+        }}
+      >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Admin Action</div>
-            <h3 className="mt-1 text-2xl font-bold">{title}</h3>
+            <div className="admin-label text-xs uppercase tracking-[0.25em]">Admin Action</div>
+            <h3 className="mt-1 text-2xl font-bold" style={{ color: "var(--foreground)" }}>{title}</h3>
           </div>
           <button
             type="button"
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300 transition hover:bg-white/10"
+            className="rounded-full border px-3 py-1 transition hover:scale-105"
+            style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--foreground)" }}
             onClick={onClose}
           >
             ×
@@ -1112,12 +1157,12 @@ function ChannelField({
 
   return (
     <div className="space-y-2">
-      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+      <label className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">
         Discord Channel
       </label>
       {usableChannels.length > 0 && (
         <select
-          className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none"
+          className="admin-input"
           value={value}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -1131,12 +1176,12 @@ function ChannelField({
         </select>
       )}
       <input
-        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-zinc-600"
+        className="admin-input"
         placeholder="Or paste channel ID / #channel mention"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-      <p className="text-xs text-zinc-500">
+      <p className="admin-label text-xs">
         {usableChannels.length
           ? "Channels are loaded from the bot. You can still paste an ID manually."
           : "No channels were loaded from the bot, so paste a channel ID or channel mention."}
@@ -1279,9 +1324,9 @@ function LabeledInput({
 }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</span>
+      <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">{label}</span>
       <input
-        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-zinc-600"
+        className="admin-input"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -1303,11 +1348,11 @@ function LabeledNumber({
 }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</span>
+      <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">{label}</span>
       <input
         type="number"
         min={min}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none"
+        className="admin-input"
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />
@@ -1758,9 +1803,11 @@ function PlayersSection({
 function LinksSection({
   rows,
   onAction,
+  onNotice,
 }: {
-  rows: { discord: string; main: string; alts: string[] }[];
+  rows: { discord: string; main: string; mainRobloxId: string | null; alts: string[] }[];
   onAction: AdminAction;
+  onNotice: (message: string) => void;
 }) {
   return (
     <Panel title="Roblox Links">
@@ -1802,8 +1849,25 @@ function LinksSection({
                 </td>
                 <td className="px-3 py-4 text-right">
                   <div className="flex justify-end gap-2 whitespace-nowrap">
-                    <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { discord_id: row.discord })}>Edit</button>
-                    <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { discord_id: row.discord, add_alt: true })}>Add Alt</button>
+                    <button
+                      className="admin-button"
+                      type="button"
+                      disabled={!row.mainRobloxId}
+                      onClick={() => {
+                        if (row.mainRobloxId) {
+                          void onAction("/api/admin/player/sync", { roblox_id: row.mainRobloxId });
+                        }
+                      }}
+                    >
+                      Sync
+                    </button>
+                    <button
+                      className="admin-button"
+                      type="button"
+                      onClick={() => onNotice("Add Alt from the Discord bot for now. The admin Add Alt flow is not wired yet.")}
+                    >
+                      Add Alt
+                    </button>
                     <button
                       className="admin-button-danger"
                       type="button"
