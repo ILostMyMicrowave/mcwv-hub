@@ -526,6 +526,21 @@ function shortenMiddle(value: unknown, start = 7, end = 5) {
   return `${text.slice(0, start)}…${text.slice(-end)}`;
 }
 
+function parseDiscordChannelInput(value: string | null) {
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const mentionMatch = trimmed.match(/^<#(\d{15,25})>$/);
+  if (mentionMatch) return mentionMatch[1];
+
+  const idMatch = trimmed.match(/^(\d{15,25})$/);
+  if (idMatch) return idMatch[1];
+
+  return null;
+}
+
 export default function AdminPage() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -661,11 +676,22 @@ export default function AdminPage() {
   }
 
   function createGiveaway() {
+    const channelId = parseDiscordChannelInput(
+      window.prompt("Discord channel ID or channel mention to send the giveaway in?", "")
+    );
+
+    if (!channelId) {
+      setActionStatus("Giveaway channel is required. Enter a valid Discord channel ID or #channel mention.");
+      window.setTimeout(() => setActionStatus(""), 3500);
+      return;
+    }
+
     const prize = window.prompt("Giveaway prize?");
     if (!prize) return;
     const winners = Number(window.prompt("Winner count?", "1") || "1");
     const invitesPerEntry = Number(window.prompt("Invites per entry?", "2") || "2");
     void postAction("/api/admin/giveaway/create", {
+      channel_id: channelId,
       prize,
       winners: Number.isFinite(winners) ? winners : 1,
       invites_per_entry: Number.isFinite(invitesPerEntry) ? invitesPerEntry : 2,
@@ -673,9 +699,20 @@ export default function AdminPage() {
   }
 
   function startInviteEvent() {
+    const channelId = parseDiscordChannelInput(
+      window.prompt("Discord channel ID or channel mention to send the invite event in?", "")
+    );
+
+    if (!channelId) {
+      setActionStatus("Invite event channel is required. Enter a valid Discord channel ID or #channel mention.");
+      window.setTimeout(() => setActionStatus(""), 3500);
+      return;
+    }
+
     const durationHours = Number(window.prompt("Invite event duration in hours?", "24") || "24");
     const reward = window.prompt("Reward text?", "Giveaway entries") || "Giveaway entries";
     void postAction("/api/admin/invite/start", {
+      channel_id: channelId,
       duration_hours: Number.isFinite(durationHours) ? durationHours : 24,
       reward,
     });
