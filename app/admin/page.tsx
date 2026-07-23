@@ -123,6 +123,27 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
+const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
+  overview:
+    "A quick operational summary of bot health, database status, tracked players, events, and recent admin activity.",
+  bot:
+    "Live runtime health, Discord latency, process usage, queue status, and background loop monitoring.",
+  invites:
+    "Create, pause, resume, and review invite competitions, leaderboards, invited members, and removed fake invites.",
+  giveaways:
+    "Manage Discord-style giveaways, entries, winner counts, rerolls, and invite-event-linked rewards.",
+  players:
+    "Review tracked Roblox accounts, Discord links, presence state, profile sync status, and removal actions.",
+  links:
+    "Audit and manage Discord-to-Roblox links, main accounts, alternate accounts, and unlink actions.",
+  war:
+    "Track current battle status, clan points, progress, contribution changes, and war sync actions.",
+  logs:
+    "Search recent admin, bot, API, database, presence, giveaway, invite, and runtime events.",
+  settings:
+    "Check runtime configuration, connection health, safe token status, intervals, channels, and admin API state.",
+};
+
 const QUICK_ACTIONS = [
   { label: "Sync War", endpoint: "/api/admin/sync", body: { target: "war" } },
   {
@@ -471,6 +492,7 @@ export default function AdminPage() {
 
   const canAdmin = currentUser?.role === "owner" || currentUser?.role === "officer";
   const isOwner = currentUser?.role === "owner";
+  const activeSection = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0];
 
   const overview = status?.overview;
   const bot = status?.bot;
@@ -615,11 +637,10 @@ export default function AdminPage() {
                 <div>
                   <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">MCWV Hub</div>
                   <h2 className="mt-1 text-3xl font-bold sm:text-4xl">
-                    {SECTIONS.find((item) => item.id === section)?.icon} {SECTIONS.find((item) => item.id === section)?.label}
+                    {activeSection.icon} {activeSection.label}
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-                    Monitor the Discord bot, manage invite events and giveaways, track Roblox players,
-                    and keep war operations in one protected place.
+                    {SECTION_DESCRIPTIONS[activeSection.id]}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
