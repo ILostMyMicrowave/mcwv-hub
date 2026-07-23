@@ -826,25 +826,27 @@ export default function AdminPage() {
   }, [recentActivity, logFilter]);
 
   const linksByDiscord = useMemo(() => {
-    const map = new Map<string, { discord: string; main: string; mainRobloxId: string | null; alts: string[] }>();
+    const map = new Map<string, { discord: string; main: string; mainRobloxId: string | null; role: string | null; alts: string[] }>();
 
     for (const player of players) {
       const discord = String(player.discord ?? player.discord_id ?? "");
       if (!discord) continue;
-      const current = map.get(discord) ?? { discord, main: "—", mainRobloxId: null, alts: [] };
+      const current = map.get(discord) ?? { discord, main: "—", mainRobloxId: null, role: null, alts: [] };
       const robloxId = player.robloxId ?? player.roblox_id ?? null;
       const name = String(player.username ?? robloxId ?? "—");
+      const role = String(player.clanRank ?? player.clan_rank ?? "").toLowerCase();
       if (current.main === "—") {
         current.main = name;
         current.mainRobloxId = robloxId ? String(robloxId) : null;
       }
+      if (role) current.role = role;
       map.set(discord, current);
     }
 
     for (const link of links) {
       const discord = String(link.discord ?? link.discord_id ?? "");
       if (!discord) continue;
-      const current = map.get(discord) ?? { discord, main: "—", mainRobloxId: null, alts: [] };
+      const current = map.get(discord) ?? { discord, main: "—", mainRobloxId: null, role: null, alts: [] };
       const altName = String(link.username ?? link.robloxId ?? link.roblox_id ?? "Alt");
       current.alts.push(altName);
       map.set(discord, current);
@@ -1818,6 +1820,7 @@ function PlayersSection({
               const username = player.username ?? "Unknown";
               const discord = player.discord ?? player.discord_id ?? null;
               const discordText = discord === null || discord === undefined || discord === "" ? "" : String(discord);
+              const protectedOwner = String(player.clanRank ?? player.clan_rank ?? "").toLowerCase() === "owner";
 
               return (
                 <tr key={safeId("player", id, index)} className="transition hover:bg-white/[0.03]">
@@ -1847,8 +1850,10 @@ function PlayersSection({
                       <Link className="admin-button" href={`/profile/${encodeURIComponent(String(username ?? id ?? ""))}`}>Profile</Link>
                       <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { roblox_id: id })}>Sync</button>
                       <button
-                        className="admin-button-danger"
+                        className="admin-button-danger disabled:cursor-not-allowed disabled:opacity-40"
                         type="button"
+                        disabled={protectedOwner}
+                        title={protectedOwner ? "Owner accounts cannot be removed from here." : undefined}
                         onClick={() => {
                           if (confirmAction(`Remove ${username} from tracking and unlink their Roblox account?`)) {
                             void onAction("/api/admin/player/remove", { roblox_id: id });
@@ -1876,9 +1881,9 @@ function LinksSection({
   onAction,
   onAddAlt,
 }: {
-  rows: { discord: string; main: string; mainRobloxId: string | null; alts: string[] }[];
+  rows: { discord: string; main: string; mainRobloxId: string | null; role: string | null; alts: string[] }[];
   onAction: AdminAction;
-  onAddAlt: (row: { discord: string; main: string; mainRobloxId: string | null; alts: string[] }) => void;
+  onAddAlt: (row: { discord: string; main: string; mainRobloxId: string | null; role: string | null; alts: string[] }) => void;
 }) {
   return (
     <Panel title="Roblox Links">
@@ -1893,7 +1898,10 @@ function LinksSection({
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
-            {rows.length ? rows.map((row, index) => (
+            {rows.length ? rows.map((row, index) => {
+              const protectedOwner = String(row.role ?? "").toLowerCase() === "owner";
+
+              return (
               <tr key={safeId("link", row.discord, index)} className="transition hover:bg-white/[0.03]">
                 <td className="px-3 py-4 font-mono text-xs text-zinc-400" title={row.discord}>
                   {shortenMiddle(row.discord)}
@@ -1940,8 +1948,10 @@ function LinksSection({
                       Add Alt
                     </button>
                     <button
-                      className="admin-button-danger"
+                      className="admin-button-danger disabled:cursor-not-allowed disabled:opacity-40"
                       type="button"
+                      disabled={protectedOwner}
+                      title={protectedOwner ? "Owner accounts cannot be unlinked from here." : undefined}
                       onClick={() => {
                         if (confirmAction(`Unlink all Roblox accounts for Discord ID ${row.discord}?`)) {
                           void onAction("/api/admin/player/remove", { discord_id: row.discord });
@@ -1953,7 +1963,8 @@ function LinksSection({
                   </div>
                 </td>
               </tr>
-            )) : (
+              );
+            }) : (
               <tr><td colSpan={4} className="py-8 text-center text-zinc-500">No Roblox links found.</td></tr>
             )}
           </tbody>
