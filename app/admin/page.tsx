@@ -41,6 +41,10 @@ type ActivityItem = {
   level?: string;
   event?: string;
   message?: string;
+  action?: string | null;
+  actorUsername?: string | null;
+  actorUserId?: number | string | null;
+  metadata?: UnknownRecord;
   createdAt?: string | null;
 };
 
@@ -2070,7 +2074,7 @@ function LogsSection({
         </div>
       }
     >
-      <ActivityList items={logs} />
+      <ActivityList items={logs} limit={500} showActor />
     </Panel>
   );
 }
@@ -2127,19 +2131,39 @@ function MiniStat({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function ActivityList({ items }: { items: ActivityItem[] }) {
+function ActivityList({
+  items,
+  limit = 12,
+  showActor = false,
+}: {
+  items: ActivityItem[];
+  limit?: number;
+  showActor?: boolean;
+}) {
   if (!items.length) {
     return <p className="text-sm text-zinc-500">No log entries yet.</p>;
   }
 
   return (
     <div className="space-y-3">
-      {items.slice(0, 12).map((item, index) => {
+      {items.slice(0, limit).map((item, index) => {
         const level = item.level ?? "info";
         return (
           <div key={safeId("activity", item.id, index)} className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <span className={`w-fit rounded-full border px-3 py-1 text-xs capitalize ${levelTone(level)}`}>{level}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`w-fit rounded-full border px-3 py-1 text-xs capitalize ${levelTone(level)}`}>{level}</span>
+                {showActor && item.actorUsername && (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
+                    By {item.actorUsername}
+                  </span>
+                )}
+                {showActor && item.action && (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-400">
+                    {item.action}
+                  </span>
+                )}
+              </div>
               <span className="text-xs text-zinc-500">{formatTime(item.createdAt)}</span>
             </div>
             <div className="mt-3 font-medium">{item.event ?? item.message ?? "Activity"}</div>
