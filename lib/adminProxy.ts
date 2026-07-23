@@ -7,6 +7,36 @@ type ProxyOptions = {
   method?: "POST" | "PATCH" | "DELETE"
 }
 
+const CHANNEL_REQUIRED_ACTIONS = new Set([
+  "/admin/giveaway/create",
+  "/admin/invite/start",
+])
+
+function parseDiscordChannelId(value: unknown) {
+  if (value === null || value === undefined) return null
+
+  const text = String(value).trim()
+  if (!text) return null
+
+  const mentionMatch = text.match(/^<#(\d{15,25})>$/)
+  if (mentionMatch) return mentionMatch[1]
+
+  const idMatch = text.match(/^(\d{15,25})$/)
+  if (idMatch) return idMatch[1]
+
+  return null
+}
+
+function channelIdFromBody(body: Record<string, unknown>) {
+  return parseDiscordChannelId(
+    body.channel_id ??
+      body.channelId ??
+      body.channel ??
+      body.discord_channel_id ??
+      body.discordChannelId
+  )
+}
+
 export async function proxyBotAdminMutation(
   req: Request,
   botPath: string,
@@ -16,10 +46,19 @@ export async function proxyBotAdminMutation(
   if (!auth.ok) return auth.response
 
   try {
-    const body = await req.json().catch(() => ({}))
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const channelId = channelIdFromBody(body)
+
+    if (CHANNEL_REQUIRED_ACTIONS.has(botPath) && !channelId) {
+      return NextResponse.json(
+        { error: "A Discord channel ID or channel mention is required for this action." },
+        { status: 400 }
+      )
+    }
+
     const data = await botAdminFetch(botPath, {
       method: options.method ?? "POST",
-      body: JSON.stringify({ ...body, requested_by: auth.user.username }),
+      body: JSON.stringify({ ...body, channel_id: channelId ?? body.channel_id, requested_by: auth.user.username }),
     })
 
     return NextResponse.json(data)
@@ -35,4 +74,3 @@ export async function proxyBotAdminMutation(
     )
   }
 }
-
