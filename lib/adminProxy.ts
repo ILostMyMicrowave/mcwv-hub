@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireAdminUser } from "@/lib/adminAuth"
 import { pool } from "@/lib/db"
 import { BotAdminApiError, botAdminFetch } from "@/lib/botAdminApi"
+import { logAdminAction } from "@/lib/adminAudit"
 
 type ProxyOptions = {
   minimumRole?: "officer" | "owner"
@@ -47,6 +48,34 @@ function bodyString(body: Record<string, unknown>, keys: string[]) {
   }
 
   return null
+}
+
+function actionLabel(botPath: string) {
+  const labels: Record<string, string> = {
+    "/admin/sync": "Sync Requested",
+    "/admin/restart": "Bot Restart Requested",
+    "/admin/giveaway/end": "Giveaway Ended",
+    "/admin/giveaway/create": "Giveaway Created",
+    "/admin/giveaway/reroll": "Giveaway Rerolled",
+    "/admin/giveaway/cancel": "Giveaway Cancelled",
+    "/admin/invite/start": "Invite Event Created",
+    "/admin/invite/end": "Invite Event Ended",
+    "/admin/invite/pause": "Invite Event Paused",
+    "/admin/invite/resume": "Invite Event Resumed",
+    "/admin/invite/delete": "Invite Event Deleted",
+    "/admin/player/sync": "Player Synced",
+    "/admin/player/add-alt": "Roblox Alt Added",
+    "/admin/player/remove": "Player Removed",
+  }
+
+  return labels[botPath] ?? botPath.replace(/^\/admin\//, "Admin Action: ")
+}
+
+function safeMetadata(body: Record<string, unknown>) {
+  const blocked = new Set(["password", "password_hash", "token", "bot_token", "api_key", "secret"])
+  return Object.fromEntries(
+    Object.entries(body).filter(([key]) => !blocked.has(key.toLowerCase()))
+  )
 }
 
 async function ownerRemovalTarget(body: Record<string, unknown>) {
@@ -120,44 +149,82 @@ export async function proxyBotAdminMutation(
   const auth = await requireAdminUser(options.minimumRole ?? "officer")
   if (!auth.ok) return auth.response
 
+  const label = actionLabel(botPath)
+  const action = botPath.replace(/^\/admin\/?/, "")
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+  const metadata = safeMetadata(body)
+
   try {
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const channelId = channelIdFromBody(body)
 
     if (CHANNEL_REQUIRED_ACTIONS.has(botPath) && !channelId) {
-      return NextResponse.json(
-        { error: "A Discord channel ID or channel mention is required for this action." },
-        { status: 400 }
-      )
+      const message = "A Discord channel ID or channel mention is required for this action."
+      await logAdminAction({
+        level: "warning",
+        event: `${label} Blocked`,
+        message: `${auth.user.username} attempted ${label}: ${message}`,
+        action,
+        actor: auth.user,
+        metadata,
+      })
+
+      return NextResponse.json({ error: message }, { status: 400 })
     }
 
     if (botPath === "/admin/player/remove") {
       const owner = await ownerRemovalTarget(body)
       if (owner) {
-        return NextResponse.json(
-          {
-            error: `Owner account ${owner.username ?? owner.id} cannot be removed from the database or Roblox links.`,
-          },
-          { status: 400 }
-        )
+        const message = `Owner account ${owner.username ?? owner.id} cannot be removed from the database or Roblox links.`
+        await logAdminAction({
+          level: "warning",
+          event: `${label} Blocked`,
+          message: `${auth.user.username} attempted ${label}: ${message}`,
+          action,
+          actor: auth.user,
+          metadata,
+        })
+
+        return NextResponse.json({ error: message }, { status: 400 })
       }
     }
 
-    const data = await botAdminFetch(botPath, {
+    const data = await botAdminFetch<Record<string, unknown>>(botPath, {
       method: options.method ?? "POST",
       body: JSON.stringify({ ...body, channel_id: channelId ?? body.channel_id, requested_by: auth.user.username }),
     })
 
+    const message = typeof data?.message === "string" && data.message.trim()
+      ? data.message.trim()
+      : `${label} completed`
+
+    await logAdminAction({
+      level: "info",
+      event: label,
+      message: `${auth.user.username}: ${message}`,
+      action,
+      actor: auth.user,
+      metadata: { ...metadata, result: data },
+    })
+
     return NextResponse.json(data)
   } catch (err) {
+    const status = err instanceof BotAdminApiError ? err.status : 500
+    const message = err instanceof Error ? err.message : "Bot admin action failed"
+
+    await logAdminAction({
+      level: "error",
+      event: `${label} Failed`,
+      message: `${auth.user.username}: ${message}`,
+      action,
+      actor: auth.user,
+      metadata,
+    })
+
     if (err instanceof BotAdminApiError) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
 
     console.error(`[admin proxy] ${botPath} error:`, err)
-    return NextResponse.json(
-      { error: "Bot admin action failed" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Bot admin action failed" }, { status })
   }
 }
