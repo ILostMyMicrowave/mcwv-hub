@@ -1233,19 +1233,36 @@ function LinksSection({
 }
 
 function WarSection({ overview }: { overview: UnknownRecord | undefined }) {
-  const progress = Math.max(0, Math.min(100, readNumber(overview, ["progressPct", "progress", "warProgress"], 0)));
-  const currentWar = readString(overview, ["currentWar"], "Current battle unknown");
+  const rawCurrentWar = readString(overview, ["currentWar"], "");
+  const normalizedWar = rawCurrentWar.trim().toLowerCase();
+  const hasActiveWar =
+    Boolean(normalizedWar) &&
+    !["—", "unknown", "mcwv", "no active war", "current battle unknown", "active battle unknown"].includes(normalizedWar);
+  const currentWar = hasActiveWar ? rawCurrentWar : "No active war detected";
+  const progress = hasActiveWar
+    ? Math.max(0, Math.min(100, readNumber(overview, ["progressPct", "progress", "warProgress"], 0)))
+    : 0;
 
   return (
     <div className="space-y-6">
       <Panel title="Current Battle">
         <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Battle</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Battle</div>
+              <span className={`rounded-full border px-3 py-1 text-xs ${statusTone(hasActiveWar ? "Active" : "Inactive")}`}>
+                {hasActiveWar ? "Active" : "Inactive"}
+              </span>
+            </div>
             <h3 className="mt-2 text-3xl font-bold">{currentWar}</h3>
+            {!hasActiveWar && (
+              <p className="mt-2 text-sm text-zinc-500">
+                The bot is online, but no active battle name has been reported yet.
+              </p>
+            )}
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <MiniStat label="Timer" value={readString(overview, ["timer", "endsIn"], "—")} />
-              <MiniStat label="Clan Points" value={readString(overview, ["clanPoints", "totalPoints"], "—")} />
+              <MiniStat label="Timer" value={hasActiveWar ? readString(overview, ["timer", "endsIn"], "—") : "—"} />
+              <MiniStat label="Clan Points" value={hasActiveWar ? readString(overview, ["clanPoints", "totalPoints"], "—") : "—"} />
               <MiniStat label="Tracked Players" value={readString(overview, ["trackedPlayers"], "—")} />
             </div>
             <div className="mt-6">
@@ -1264,8 +1281,17 @@ function WarSection({ overview }: { overview: UnknownRecord | undefined }) {
           <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
             <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Recent Changes</div>
             <div className="mt-4 space-y-3 text-sm text-zinc-400">
-              <p>Leaderboard, contribution graph, and battle history are ready to bind to the bot war API.</p>
-              <p>Use the Overview quick action to force a war sync.</p>
+              {hasActiveWar ? (
+                <>
+                  <p>War data is connected. Contribution deltas and battle history can be layered in next.</p>
+                  <p>Use the Overview quick action to force a fresh war sync.</p>
+                </>
+              ) : (
+                <>
+                  <p>No active war data is available yet, so leaderboard and contribution graphs are hidden.</p>
+                  <p>Use Sync War after the next battle starts to pull fresh battle state.</p>
+                </>
+              )}
             </div>
           </div>
         </div>
