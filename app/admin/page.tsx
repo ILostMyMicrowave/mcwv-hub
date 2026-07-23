@@ -1287,6 +1287,14 @@ function LogsSection({
 }
 
 function SettingsSection({ bot, isOwner }: { bot: UnknownRecord | undefined; isOwner: boolean }) {
+  const botConnected = bot?.connected === true;
+  const adminApiConfigured = bot?.configured === true;
+  const adminApiStatus = botConnected
+    ? "Connected"
+    : adminApiConfigured
+    ? "Configured, offline"
+    : "Not configured";
+
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       <Panel title="Bot Runtime Settings">
@@ -1300,9 +1308,9 @@ function SettingsSection({ bot, isOwner }: { bot: UnknownRecord | undefined; isO
       </Panel>
       <Panel title="Secrets & Webhooks">
         <div className="space-y-3 text-sm text-zinc-400">
-          <p>API keys, Discord webhooks, and bot token values stay server-side. This panel only shows connection health.</p>
-          <MiniStat label="Bot Token Status" value={readString(bot, ["connected"], "Hidden")} />
-          <MiniStat label="Admin API" value={readString(bot, ["configured"], "Not configured")} />
+          <p>API keys, Discord webhooks, and bot token values stay server-side. This panel only shows safe connection health.</p>
+          <MiniStat label="Bot Token" value={botConnected ? "Configured" : "Not visible"} />
+          <MiniStat label="Admin API" value={adminApiStatus} />
           {!isOwner && <p className="text-amber-300">Only owners can restart or remove players.</p>}
         </div>
       </Panel>
