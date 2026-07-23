@@ -9,6 +9,10 @@ export const revalidate = 0
 type PlayerRow = Record<string, unknown>
 
 type BotPlayersResponse = Record<string, unknown>
+type NormalizedPlayer = Record<string, unknown>
+
+const ROBLOX_PRESENCE_API = "https://presence.roblox.com/v1/presence/users"
+const ROBLOX_THUMB_API = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -50,13 +54,17 @@ function toStringOrFallback(value: unknown, fallback = "—") {
   return toStringOrNull(value) ?? fallback
 }
 
-function toNumberOrZero(value: unknown) {
+function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value
   if (typeof value === "string" && value.trim()) {
     const parsed = Number(value)
     if (Number.isFinite(parsed)) return parsed
   }
-  return 0
+  return null
+}
+
+function toNumberOrZero(value: unknown) {
+  return toNumber(value) ?? 0
 }
 
 function normalizePresence(value: unknown) {
@@ -190,6 +198,150 @@ function normalizeLink(value: unknown) {
   }
 }
 
+function uniqueRobloxIds(players: NormalizedPlayer[]) {
+  const ids = new Set<number>()
+
+  for (const player of players) {
+    const id = toNumber(
+      pickValue(player, [
+        "robloxId",
+        "roblox_id",
+        "robloxID",
+        "RobloxID",
+        "UserID",
+        "userId",
+        "user_id",
+        "targetId",
+        "id",
+      ])
+    )
+
+    if (id !== null) ids.add(id)
+  }
+
+  return Array.from(ids)
+}
+
+async function fetchPresenceMap(userIds: number[]) {
+  const map = new Map<number, Record<string, unknown>>()
+
+  for (let index = 0; index < userIds.length; index += 100) {
+    const chunk = userIds.slice(index, index + 100)
+    if (!chunk.length) continue
+
+    try {
+      const res = await fetch(ROBLOX_PRESENCE_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: chunk }),
+        cache: "no-store",
+      })
+
+      if (!res.ok) continue
+
+      const data = (await res.json().catch(() => null)) as unknown
+      const presences = firstArray(data, ["userPresences", "presences", "data"])
+
+      for (const presence of presences) {
+        if (!isRecord(presence)) continue
+        const userId = toNumber(pickValue(presence, ["userId", "user_id", "targetId", "id"]))
+        if (userId !== null) map.set(userId, presence)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return map
+}
+
+async function fetchAvatarMap(userIds: number[]) {
+  const map = new Map<number, string>()
+
+  for (let index = 0; index < userIds.length; index += 100) {
+    const chunk = userIds.slice(index, index + 100)
+    if (!chunk.length) continue
+
+    try {
+      const url =
+        `${ROBLOX_THUMB_API}?userIds=${chunk.join(",")}` +
+        "&size=150x150&format=Png&isCircular=true"
+      const res = await fetch(url, { cache: "no-store" })
+
+      if (!res.ok) continue
+
+      const data = (await res.json().catch(() => null)) as unknown
+      const thumbnails = firstArray(data, ["data", "thumbnails", "images"])
+
+      for (const thumbnail of thumbnails) {
+        if (!isRecord(thumbnail)) continue
+        const userId = toNumber(pickValue(thumbnail, ["targetId", "userId", "user_id", "id"]))
+        const imageUrl = toStringOrNull(pickValue(thumbnail, ["imageUrl", "image_url", "url"]))
+        if (userId !== null && imageUrl) map.set(userId, imageUrl)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return map
+}
+
+async function enrichPlayers(players: NormalizedPlayer[]) {
+  const userIds = uniqueRobloxIds(players)
+  if (!userIds.length) return players
+
+  const [presenceMap, avatarMap] = await Promise.all([
+    fetchPresenceMap(userIds),
+    fetchAvatarMap(userIds),
+  ])
+
+  return players.map((player) => {
+    const robloxId = toNumber(
+      pickValue(player, [
+        "robloxId",
+        "roblox_id",
+        "robloxID",
+        "RobloxID",
+        "UserID",
+        "userId",
+        "user_id",
+        "targetId",
+        "id",
+      ])
+    )
+
+    if (robloxId === null) return player
+
+    const presence = presenceMap.get(robloxId)
+    const avatar = avatarMap.get(robloxId) ?? toStringOrNull(player.avatar)
+
+    if (!presence) {
+      return {
+        ...player,
+        avatar,
+      }
+    }
+
+    const status = normalizePresence(pickValue(presence, ["userPresenceType", "presenceType", "status"]))
+    const currentWorld = toStringOrFallback(
+      pickValue(presence, ["lastLocation", "location", "currentWorld", "current_world"]),
+      "—"
+    )
+    const lastSeen = toStringOrNull(pickValue(presence, ["lastOnline", "lastSeen", "last_seen"]))
+
+    return {
+      ...player,
+      status,
+      currentWorld,
+      current_world: currentWorld,
+      lastSeen: lastSeen ?? player.lastSeen ?? null,
+      last_seen: lastSeen ?? player.last_seen ?? null,
+      avatar,
+    }
+  })
+}
+
 async function getColumns(tableName: string) {
   const result = await pool.query<{ column_name: string }>(
     `SELECT column_name
@@ -293,7 +445,7 @@ export async function GET() {
       if (botPlayers.length > 0) {
         return NextResponse.json({
           ...data,
-          players: botPlayers,
+          players: await enrichPlayers(botPlayers),
           links: botLinks,
         })
       }
@@ -312,7 +464,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       source: "hub-db",
-      players,
+      players: await enrichPlayers(players),
       links,
     })
   } catch (err) {
