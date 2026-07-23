@@ -189,17 +189,44 @@ function formatUptime(value: unknown) {
   return `${minutes}m`;
 }
 
-function formatTime(value: unknown) {
-  if (value === null || value === undefined || value === "") return "—";
+function timestampToMs(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
 
-  if (typeof value === "number") {
-    const ms = value < 10_000_000_000 ? value * 1000 : value;
-    return new Date(ms).toLocaleString();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 10_000_000_000 ? value * 1000 : value;
   }
 
   const parsed = Date.parse(String(value));
-  if (Number.isNaN(parsed)) return String(value);
-  return new Date(parsed).toLocaleString();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function formatTime(value: unknown) {
+  const ms = timestampToMs(value);
+  if (ms === null) return value === null || value === undefined || value === "" ? "—" : String(value);
+  return new Date(ms).toLocaleString();
+}
+
+function formatRelativeTime(value: unknown, referenceValue?: unknown) {
+  const ms = timestampToMs(value);
+  const referenceMs = timestampToMs(referenceValue);
+
+  if (ms === null) return "—";
+  if (referenceMs === null) return formatTime(value);
+
+  const seconds = Math.max(0, Math.floor((referenceMs - ms) / 1000));
+  if (seconds < 5) return "Just now";
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+
+  return formatTime(value);
 }
 
 function secondsUntil(value: unknown) {
@@ -315,11 +342,16 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!authLoaded) return;
-    if (currentUser?.role === "owner" || currentUser?.role === "officer") {
-      loadAdminData();
-    } else {
-      setLoading(false);
-    }
+
+    const timer = window.setTimeout(() => {
+      if (currentUser?.role === "owner" || currentUser?.role === "officer") {
+        void loadAdminData();
+      } else {
+        setLoading(false);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [authLoaded, currentUser?.role, loadAdminData]);
 
   async function postAction(endpoint: string, body: UnknownRecord = {}) {
@@ -544,6 +576,7 @@ export default function AdminPage() {
             {section === "overview" && (
               <OverviewSection
                 cards={cards}
+                loadedAt={status?.loadedAt}
                 recentActivity={recentActivity}
                 onAction={postAction}
               />
@@ -651,30 +684,43 @@ function Panel({ title, children, right }: { title: string; children: ReactNode;
 
 function OverviewSection({
   cards,
+  loadedAt,
   recentActivity,
   onAction,
 }: {
   cards: AdminCard[];
+  loadedAt?: string;
   recentActivity: ActivityItem[];
   onAction: (endpoint: string, body?: UnknownRecord) => Promise<void>;
 }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card, index) => (
-          <div
-            key={safeId("card", card.label, index)}
-            className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/10"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{card.label}</div>
-              <div className="text-2xl">{card.icon ?? "•"}</div>
+        {cards.map((card, index) => {
+          const label = card.label.toLowerCase();
+          const isHeartbeat = label.includes("heartbeat");
+          const value = label.includes("uptime")
+            ? formatUptime(card.value)
+            : isHeartbeat
+            ? formatRelativeTime(card.value, loadedAt)
+            : toDisplayValue(card.value);
+
+          return (
+            <div
+              key={safeId("card", card.label, index)}
+              className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/10"
+              title={isHeartbeat ? formatTime(card.value) : undefined}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{card.label}</div>
+                <div className="text-2xl">{card.icon ?? "•"}</div>
+              </div>
+              <div className="mt-4 break-words text-2xl font-bold tabular-nums">
+                {value}
+              </div>
             </div>
-            <div className="mt-4 text-2xl font-bold">
-              {card.label.toLowerCase().includes("uptime") ? formatUptime(card.value) : toDisplayValue(card.value)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
