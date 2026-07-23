@@ -31,6 +31,7 @@ export default function Navbar() {
       { href: "/war-info", label: "War Info" },
       { href: "/war-analyst", label: "Battle HQ" },
       { href: "/contributions", label: "Contributions" },
+      { href: "/admin", label: "Admin" },
       { href: "/settings", label: "Settings" },
     ],
     []
