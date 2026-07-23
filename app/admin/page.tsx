@@ -166,6 +166,68 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function firstArray(value: unknown, keys: string[]): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return [];
+
+  for (const key of keys) {
+    const candidate = value[key];
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  if (isRecord(value.data)) {
+    for (const key of keys) {
+      const candidate = value.data[key];
+      if (Array.isArray(candidate)) return candidate;
+    }
+  }
+
+  return [];
+}
+
+function normalizePlayerRow(value: unknown): Player | null {
+  if (isRecord(value)) return value as Player;
+
+  if (Array.isArray(value)) {
+    const robloxId = value[0];
+    const discord = value[1];
+    const username = value[2];
+
+    return {
+      id: robloxId === undefined ? undefined : String(robloxId),
+      robloxId: robloxId === undefined ? null : String(robloxId),
+      discord: discord === undefined ? null : String(discord),
+      username: username === undefined ? "Unknown" : String(username),
+      status: "Unknown",
+      currentWorld: "—",
+      lastSeen: null,
+      clanRank: "—",
+      points: 0,
+      avatar: null,
+    };
+  }
+
+  return null;
+}
+
+function normalizeLinkRow(value: unknown): LinkRow | null {
+  if (isRecord(value)) return value as LinkRow;
+
+  if (Array.isArray(value)) {
+    const discord = value[0];
+    const robloxId = value[1];
+    const username = value[2];
+
+    return {
+      discord_id: discord === undefined ? null : String(discord),
+      roblox_id: robloxId === undefined ? null : String(robloxId),
+      username: username === undefined ? null : String(username),
+    };
+  }
+
+  return null;
+}
+
 function readString(record: UnknownRecord | undefined, keys: string[], fallback = "—") {
   if (!record) return fallback;
   for (const key of keys) {
@@ -388,9 +450,16 @@ export default function AdminPage() {
       }
 
       if (playersRes.ok) {
-        const data = (await playersRes.json()) as UnknownRecord;
-        setPlayers(asArray<Player>(data.players));
-        setLinks(asArray<LinkRow>(data.links));
+        const data = (await playersRes.json().catch(() => ({}))) as unknown;
+        const nextPlayers = firstArray(data, ["players", "trackedPlayers", "users", "entries", "data"])
+          .map(normalizePlayerRow)
+          .filter((player): player is Player => player !== null);
+        const nextLinks = firstArray(data, ["links", "robloxLinks", "alts", "user_alts"])
+          .map(normalizeLinkRow)
+          .filter((link): link is LinkRow => link !== null);
+
+        setPlayers(nextPlayers);
+        setLinks(nextLinks);
       }
 
       if (giveawaysRes.ok) {
