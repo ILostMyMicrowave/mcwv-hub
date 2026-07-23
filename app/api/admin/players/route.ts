@@ -13,6 +13,7 @@ type NormalizedPlayer = Record<string, unknown>
 
 const ROBLOX_PRESENCE_API = "https://presence.roblox.com/v1/presence/users"
 const ROBLOX_THUMB_API = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
+const ROBLOX_USERS_API = "https://users.roblox.com/v1/usernames/users"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -198,11 +199,21 @@ function normalizeLink(value: unknown) {
   }
 }
 
-function uniqueRobloxIds(players: NormalizedPlayer[]) {
-  const ids = new Set<number>()
+function validRobloxId(value: unknown) {
+  const id = toNumber(value)
 
-  for (const player of players) {
-    const id = toNumber(
+  if (id === null || !Number.isInteger(id)) return null
+
+  // Discord snowflakes are much larger, and local auth ids are usually tiny.
+  // If a row only has a username, we resolve it below instead of trusting id.
+  if (id < 1_000 || id > 100_000_000_000) return null
+
+  return id
+}
+
+function playerRobloxId(player: NormalizedPlayer) {
+  return (
+    validRobloxId(
       pickValue(player, [
         "robloxId",
         "roblox_id",
@@ -212,14 +223,114 @@ function uniqueRobloxIds(players: NormalizedPlayer[]) {
         "userId",
         "user_id",
         "targetId",
-        "id",
       ])
-    )
+    ) ?? validRobloxId(player.id)
+  )
+}
 
+function playerUsername(player: NormalizedPlayer) {
+  const username = toStringOrNull(
+    pickValue(player, [
+      "username",
+      "name",
+      "Name",
+      "robloxUsername",
+      "roblox_username",
+      "robloxName",
+      "roblox_name",
+      "displayName",
+      "DisplayName",
+    ])
+  )
+
+  if (!username || username === "Unknown") return null
+  if (/^\d+$/.test(username)) return null
+
+  return username
+}
+
+function uniqueRobloxIds(players: NormalizedPlayer[]) {
+  const ids = new Set<number>()
+
+  for (const player of players) {
+    const id = playerRobloxId(player)
     if (id !== null) ids.add(id)
   }
 
   return Array.from(ids)
+}
+
+async function resolveUsernameIds(usernames: string[]) {
+  const map = new Map<string, number>()
+  const unique = Array.from(new Set(usernames.map((name) => name.trim()).filter(Boolean)))
+
+  for (let index = 0; index < unique.length; index += 100) {
+    const chunk = unique.slice(index, index + 100)
+    if (!chunk.length) continue
+
+    try {
+      const res = await fetch(ROBLOX_USERS_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: chunk, excludeBannedUsers: false }),
+        cache: "no-store",
+      })
+
+      if (!res.ok) continue
+
+      const data = (await res.json().catch(() => null)) as unknown
+      const users = firstArray(data, ["data", "users"])
+
+      for (const user of users) {
+        if (!isRecord(user)) continue
+        const id = validRobloxId(pickValue(user, ["id", "userId", "user_id", "UserID"]))
+        const name = toStringOrNull(pickValue(user, ["name", "username", "requestedUsername"]))
+        const requested = toStringOrNull(pickValue(user, ["requestedUsername"]))
+
+        if (id === null) continue
+        if (name) map.set(name.toLowerCase(), id)
+        if (requested) map.set(requested.toLowerCase(), id)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return map
+}
+
+async function attachResolvedRobloxIds(players: NormalizedPlayer[]) {
+  const usernamesToResolve = players
+    .filter((player) => playerRobloxId(player) === null)
+    .map(playerUsername)
+    .filter((username): username is string => Boolean(username))
+
+  if (!usernamesToResolve.length) return players
+
+  const resolved = await resolveUsernameIds(usernamesToResolve)
+
+  return players.map((player) => {
+    const existing = playerRobloxId(player)
+    if (existing !== null) {
+      return {
+        ...player,
+        robloxId: String(existing),
+        roblox_id: String(existing),
+      }
+    }
+
+    const username = playerUsername(player)
+    const resolvedId = username ? resolved.get(username.toLowerCase()) ?? null : null
+
+    if (resolvedId === null) return player
+
+    return {
+      ...player,
+      id: String(resolvedId),
+      robloxId: String(resolvedId),
+      roblox_id: String(resolvedId),
+    }
+  })
 }
 
 async function fetchPresenceMap(userIds: number[]) {
@@ -288,28 +399,17 @@ async function fetchAvatarMap(userIds: number[]) {
 }
 
 async function enrichPlayers(players: NormalizedPlayer[]) {
-  const userIds = uniqueRobloxIds(players)
-  if (!userIds.length) return players
+  const resolvedPlayers = await attachResolvedRobloxIds(players)
+  const userIds = uniqueRobloxIds(resolvedPlayers)
+  if (!userIds.length) return resolvedPlayers
 
   const [presenceMap, avatarMap] = await Promise.all([
     fetchPresenceMap(userIds),
     fetchAvatarMap(userIds),
   ])
 
-  return players.map((player) => {
-    const robloxId = toNumber(
-      pickValue(player, [
-        "robloxId",
-        "roblox_id",
-        "robloxID",
-        "RobloxID",
-        "UserID",
-        "userId",
-        "user_id",
-        "targetId",
-        "id",
-      ])
-    )
+  return resolvedPlayers.map((player) => {
+    const robloxId = playerRobloxId(player)
 
     if (robloxId === null) return player
 
