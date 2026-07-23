@@ -185,19 +185,56 @@ function firstArray(value: unknown, keys: string[]): unknown[] {
   return [];
 }
 
-function normalizePlayerRow(value: unknown): Player | null {
-  if (isRecord(value)) return value as Player;
+function pickRecordValue(record: UnknownRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== null && value !== undefined && value !== "") return value;
+  }
+  return null;
+}
 
+function valueToString(value: unknown, fallback: string | null = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value);
+}
+
+function pickRecordString(record: UnknownRecord, keys: string[], fallback: string | null = "—") {
+  return valueToString(pickRecordValue(record, keys), fallback);
+}
+
+function pickRecordNumber(record: UnknownRecord, keys: string[], fallback = 0) {
+  const value = pickRecordValue(record, keys);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function normalizePresence(value: unknown) {
+  if (typeof value === "number") {
+    if (value === 0) return "Offline";
+    if (value === 1) return "Online";
+    if (value === 2) return "In Game";
+    if (value === 3) return "In Studio";
+  }
+
+  if (typeof value === "string" && value.trim()) return value;
+  return "Unknown";
+}
+
+function normalizePlayerRow(value: unknown): Player | null {
   if (Array.isArray(value)) {
     const robloxId = value[0];
     const discord = value[1];
     const username = value[2];
 
     return {
-      id: robloxId === undefined ? undefined : String(robloxId),
-      robloxId: robloxId === undefined ? null : String(robloxId),
-      discord: discord === undefined ? null : String(discord),
-      username: username === undefined ? "Unknown" : String(username),
+      id: valueToString(robloxId, undefined) ?? undefined,
+      robloxId: valueToString(robloxId, null),
+      discord: valueToString(discord, null),
+      username: valueToString(username, "Unknown") ?? "Unknown",
       status: "Unknown",
       currentWorld: "—",
       lastSeen: null,
@@ -207,25 +244,98 @@ function normalizePlayerRow(value: unknown): Player | null {
     };
   }
 
-  return null;
+  if (!isRecord(value)) return null;
+
+  const robloxId = pickRecordValue(value, [
+    "robloxId",
+    "roblox_id",
+    "robloxID",
+    "RobloxID",
+    "UserID",
+    "userId",
+    "user_id",
+    "targetId",
+    "id",
+  ]);
+  const username = pickRecordString(value, [
+    "username",
+    "name",
+    "Name",
+    "robloxUsername",
+    "roblox_username",
+    "robloxName",
+    "roblox_name",
+    "displayName",
+    "DisplayName",
+    "player",
+    "user",
+  ], valueToString(robloxId, "Unknown"));
+  const discord = pickRecordValue(value, [
+    "discord",
+    "discord_id",
+    "discordId",
+    "DiscordID",
+    "discordUser",
+    "discord_user",
+    "memberId",
+    "member_id",
+  ]);
+
+  return {
+    ...value,
+    id: valueToString(pickRecordValue(value, ["id"]), valueToString(robloxId, username ?? undefined) ?? undefined) ?? undefined,
+    robloxId: valueToString(robloxId, null),
+    roblox_id: valueToString(robloxId, null),
+    username: username ?? "Unknown",
+    discord: valueToString(discord, null),
+    discord_id: valueToString(discord, null),
+    status: normalizePresence(
+      pickRecordValue(value, [
+        "status",
+        "presence",
+        "presenceStatus",
+        "presence_status",
+        "userPresenceType",
+        "presence_type",
+        "robloxStatus",
+      ])
+    ),
+    currentWorld: pickRecordString(value, ["currentWorld", "current_world", "world", "place", "location", "game"], "—") ?? "—",
+    current_world: pickRecordString(value, ["currentWorld", "current_world", "world", "place", "location", "game"], "—") ?? "—",
+    lastSeen: valueToString(pickRecordValue(value, ["lastSeen", "last_seen", "lastOnline", "last_online", "updatedAt", "updated_at"]), null),
+    last_seen: valueToString(pickRecordValue(value, ["lastSeen", "last_seen", "lastOnline", "last_online", "updatedAt", "updated_at"]), null),
+    clanRank: pickRecordString(value, ["clanRank", "clan_rank", "clanRole", "clan_role", "rank"], "—"),
+    clan_rank: pickRecordString(value, ["clanRank", "clan_rank", "clanRole", "clan_role", "rank"], "—"),
+    points: pickRecordNumber(value, ["points", "Points", "battlePoints", "battle_points", "totalPoints", "total_points"], 0),
+    avatar: pickRecordString(value, ["avatar", "avatarUrl", "avatar_url", "imageUrl", "image_url", "thumbnail", "thumbnailUrl"], null),
+  };
 }
 
 function normalizeLinkRow(value: unknown): LinkRow | null {
-  if (isRecord(value)) return value as LinkRow;
-
   if (Array.isArray(value)) {
     const discord = value[0];
     const robloxId = value[1];
     const username = value[2];
 
     return {
-      discord_id: discord === undefined ? null : String(discord),
-      roblox_id: robloxId === undefined ? null : String(robloxId),
-      username: username === undefined ? null : String(username),
+      discord_id: valueToString(discord, null),
+      roblox_id: valueToString(robloxId, null),
+      username: valueToString(username, null),
     };
   }
 
-  return null;
+  if (!isRecord(value)) return null;
+
+  const discord = pickRecordValue(value, ["discord", "discord_id", "discordId", "DiscordID"]);
+  const robloxId = pickRecordValue(value, ["robloxId", "roblox_id", "robloxID", "RobloxID", "UserID", "user_id"]);
+  const username = pickRecordString(value, ["username", "name", "robloxUsername", "roblox_username", "robloxName", "roblox_name"], null);
+
+  return {
+    ...value,
+    discord_id: valueToString(discord, null),
+    roblox_id: valueToString(robloxId, null),
+    username,
+  };
 }
 
 function readString(record: UnknownRecord | undefined, keys: string[], fallback = "—") {
