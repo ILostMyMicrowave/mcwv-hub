@@ -274,6 +274,25 @@ function isRealInviteEvent(event: InviteEvent | null): event is InviteEvent {
   );
 }
 
+function hasRealGiveawayPrize(prize: unknown) {
+  if (typeof prize !== "string") return false;
+
+  const normalized = prize.trim().toLowerCase();
+  return Boolean(normalized && normalized !== "unknown prize");
+}
+
+function isRealGiveaway(giveaway: Giveaway | null): giveaway is Giveaway {
+  if (!giveaway) return false;
+
+  return (
+    isActiveFlag(giveaway.active) ||
+    hasRealGiveawayPrize(giveaway.prize) ||
+    hasRealTimestamp(giveaway.end_time) ||
+    hasRealTimestamp(giveaway.endsAt) ||
+    hasRealTimestamp(giveaway.ends_at)
+  );
+}
+
 function levelTone(level?: string) {
   const normalized = String(level ?? "info").toLowerCase();
   if (normalized.includes("error")) return "text-red-300 border-red-500/30 bg-red-500/10";
@@ -337,9 +356,9 @@ export default function AdminPage() {
 
       if (giveawaysRes.ok) {
         const data = (await giveawaysRes.json()) as UnknownRecord;
-        const list = asArray<Giveaway>(data.giveaways);
+        const list = asArray<Giveaway>(data.giveaways).filter(isRealGiveaway);
         const active = isRecord(data.active) ? (data.active as Giveaway) : null;
-        setGiveaways(active && !list.length ? [active] : list);
+        setGiveaways(isRealGiveaway(active) && !list.length ? [active] : list);
       }
 
       if (invitesRes.ok) {
@@ -943,7 +962,8 @@ function GiveawaysSection({
           );
         }) : (
           <div className="rounded-3xl border border-dashed border-white/10 p-8 text-center text-zinc-500 md:col-span-2 xl:col-span-3">
-            No giveaways loaded. Connect the bot admin API or create a new giveaway.
+            <div className="font-medium text-zinc-300">No giveaway is currently running.</div>
+            <div className="mt-1 text-sm">Create a giveaway linked to an invite event.</div>
           </div>
         )}
       </div>
