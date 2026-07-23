@@ -66,6 +66,8 @@ npm start
 | `SESSION_SECRET` | Secret key for session encryption (min 32 chars) | Yes |
 | `PS99_API` | Pet Simulator 99 API endpoint | Yes |
 | `CLAN_API` | Clan API endpoint | Yes |
+| `BOT_ADMIN_API_URL` | Protected local/admin API exposed by MCWV-BOT | For admin bot controls |
+| `BOT_ADMIN_API_KEY` | Shared secret sent to MCWV-BOT as `X-Admin-API-Key` | For admin bot controls |
 | `NODE_ENV` | Node environment (development/production) | Yes |
 
 ## Project Structure
