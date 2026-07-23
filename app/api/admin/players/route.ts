@@ -33,6 +33,163 @@ function firstArray(value: unknown, keys: string[]) {
   return []
 }
 
+function pickValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    if (value !== null && value !== undefined && value !== "") return value
+  }
+  return null
+}
+
+function toStringOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null
+  return String(value)
+}
+
+function toStringOrFallback(value: unknown, fallback = "—") {
+  return toStringOrNull(value) ?? fallback
+}
+
+function toNumberOrZero(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function normalizePresence(value: unknown) {
+  if (typeof value === "number") {
+    if (value === 0) return "Offline"
+    if (value === 1) return "Online"
+    if (value === 2) return "In Game"
+    if (value === 3) return "In Studio"
+  }
+
+  if (typeof value === "string" && value.trim()) return value
+  return "Unknown"
+}
+
+function normalizePlayer(value: unknown) {
+  if (Array.isArray(value)) {
+    const robloxId = value[0]
+    const discord = value[1]
+    const username = value[2]
+
+    return {
+      id: toStringOrNull(robloxId) ?? toStringOrFallback(username, "Unknown"),
+      robloxId: toStringOrNull(robloxId),
+      roblox_id: toStringOrNull(robloxId),
+      discord: toStringOrNull(discord),
+      discord_id: toStringOrNull(discord),
+      username: toStringOrFallback(username, toStringOrFallback(robloxId, "Unknown")),
+      status: "Unknown",
+      currentWorld: "—",
+      current_world: "—",
+      lastSeen: null,
+      last_seen: null,
+      clanRank: "—",
+      clan_rank: "—",
+      points: 0,
+      avatar: null,
+    }
+  }
+
+  if (!isRecord(value)) return null
+
+  const robloxId = pickValue(value, [
+    "robloxId",
+    "roblox_id",
+    "robloxID",
+    "RobloxID",
+    "UserID",
+    "userId",
+    "user_id",
+    "targetId",
+    "id",
+  ])
+  const username = pickValue(value, [
+    "username",
+    "name",
+    "Name",
+    "robloxUsername",
+    "roblox_username",
+    "robloxName",
+    "roblox_name",
+    "displayName",
+    "DisplayName",
+    "player",
+    "user",
+  ])
+  const discord = pickValue(value, [
+    "discord",
+    "discord_id",
+    "discordId",
+    "DiscordID",
+    "discordUser",
+    "discord_user",
+    "memberId",
+    "member_id",
+  ])
+  const presence = pickValue(value, [
+    "status",
+    "presence",
+    "presenceStatus",
+    "presence_status",
+    "userPresenceType",
+    "presence_type",
+    "robloxStatus",
+  ])
+  const currentWorld = pickValue(value, ["currentWorld", "current_world", "world", "place", "location", "game"])
+  const lastSeen = pickValue(value, ["lastSeen", "last_seen", "lastOnline", "last_online", "updatedAt", "updated_at"])
+  const clanRank = pickValue(value, ["clanRank", "clan_rank", "clanRole", "clan_role", "rank"])
+  const points = pickValue(value, ["points", "Points", "battlePoints", "battle_points", "totalPoints", "total_points"])
+  const avatar = pickValue(value, ["avatar", "avatarUrl", "avatar_url", "imageUrl", "image_url", "thumbnail", "thumbnailUrl"])
+
+  return {
+    ...value,
+    id: toStringOrNull(pickValue(value, ["id"])) ?? toStringOrNull(robloxId) ?? toStringOrFallback(username, "Unknown"),
+    robloxId: toStringOrNull(robloxId),
+    roblox_id: toStringOrNull(robloxId),
+    username: toStringOrFallback(username, toStringOrFallback(robloxId, "Unknown")),
+    discord: toStringOrNull(discord),
+    discord_id: toStringOrNull(discord),
+    status: normalizePresence(presence),
+    currentWorld: toStringOrFallback(currentWorld, "—"),
+    current_world: toStringOrFallback(currentWorld, "—"),
+    lastSeen: toStringOrNull(lastSeen),
+    last_seen: toStringOrNull(lastSeen),
+    clanRank: toStringOrFallback(clanRank, "—"),
+    clan_rank: toStringOrFallback(clanRank, "—"),
+    points: toNumberOrZero(points),
+    avatar: toStringOrNull(avatar),
+  }
+}
+
+function normalizeLink(value: unknown) {
+  if (Array.isArray(value)) {
+    return {
+      discord_id: toStringOrNull(value[0]),
+      roblox_id: toStringOrNull(value[1]),
+      username: toStringOrNull(value[2]),
+    }
+  }
+
+  if (!isRecord(value)) return null
+
+  const discord = pickValue(value, ["discord", "discord_id", "discordId", "DiscordID"])
+  const robloxId = pickValue(value, ["robloxId", "roblox_id", "robloxID", "RobloxID", "UserID", "user_id"])
+  const username = pickValue(value, ["username", "name", "robloxUsername", "roblox_username", "robloxName", "roblox_name"])
+
+  return {
+    ...value,
+    discord_id: toStringOrNull(discord),
+    roblox_id: toStringOrNull(robloxId),
+    username: toStringOrNull(username),
+  }
+}
+
 async function getColumns(tableName: string) {
   const result = await pool.query<{ column_name: string }>(
     `SELECT column_name
@@ -78,9 +235,13 @@ async function getHubPlayers() {
   if (!columns.size) return []
 
   const select = pickSelect(columns)
+  const where = columns.has("roblox_id")
+    ? "WHERE roblox_id IS NOT NULL AND TRIM(CAST(roblox_id AS TEXT)) <> ''"
+    : ""
   const result = await pool.query<PlayerRow>(
     `SELECT ${select}
      FROM users
+     ${where}
      ORDER BY username ASC
      LIMIT 500`
   )
@@ -123,9 +284,18 @@ export async function GET() {
     try {
       const data = await botAdminFetch<BotPlayersResponse>("/admin/players")
       const botPlayers = firstArray(data, ["players", "trackedPlayers", "users", "entries", "data"])
+        .map(normalizePlayer)
+        .filter((player): player is NonNullable<ReturnType<typeof normalizePlayer>> => player !== null)
+      const botLinks = firstArray(data, ["links", "robloxLinks", "alts", "user_alts"])
+        .map(normalizeLink)
+        .filter((link): link is NonNullable<ReturnType<typeof normalizeLink>> => link !== null)
 
       if (botPlayers.length > 0) {
-        return NextResponse.json(data)
+        return NextResponse.json({
+          ...data,
+          players: botPlayers,
+          links: botLinks,
+        })
       }
 
       console.warn("[api/admin/players] bot returned no players; falling back to Hub DB")
