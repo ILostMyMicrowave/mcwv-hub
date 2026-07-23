@@ -33,7 +33,10 @@ function InitialAvatar({ name }: { name: string }) {
   const letter = (name?.trim()?.[0] ?? "?").toUpperCase();
 
   return (
-    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-800 text-lg font-bold text-white ring-1 ring-white/10">
+    <div
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 text-sm font-semibold"
+      aria-hidden="true"
+    >
       {letter}
     </div>
   );
@@ -57,74 +60,105 @@ function PodiumCard({
   const crowns = { 1: "🥇", 2: "🥈", 3: "🥉" }[place];
 
   return (
-    <div
-      className={`relative rounded-3xl border border-white/10 bg-gradient-to-b ${styles} p-5 shadow-2xl shadow-black/30 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-black/50 ${className}`}
-    >
-      {place === 1 && (
-        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-yellow-400/5" />
-      )}
+    <Animated delay={`${place * 0.1}s`}>
+      <div
+        className={`relative overflow-hidden rounded-3xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)] ${className}`}
+        style={{
+          background: `linear-gradient(180deg, ${styles})`,
+          borderColor: "var(--border)",
+        }}
+      >
+        {place === 1 && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-4xl animate-bounce" aria-hidden="true">
+            🏆
+          </div>
+        )}
 
-      {entry ? (
-        <>
-          <div className="mb-4 flex items-center justify-center">
-            <div className="relative flex items-center justify-center">
+        {entry ? (
+          <>
+            {place === 1 && (
+              <div className="absolute -top-4 right-4 text-3xl animate-pulse" aria-hidden="true">
+                👑
+              </div>
+            )}
 
-              {place === 1 && (
-                <div className="pointer-events-none absolute -z-10 h-28 w-28 animate-pulse rounded-full bg-yellow-300/20 blur-2xl" />
-              )}
-
-              {place === 1 && (
-                <div className="pointer-events-none absolute -top-4 animate-bounce text-2xl">
-                  👑
-                </div>
-              )}
-
-              {entry.avatar ? (
-                <img
-                  src={entry.avatar}
-                  alt={entry.name}
-                  className={`h-20 w-20 rounded-full object-cover ring-4 ${
-                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
-                  }`}
-                />
-              ) : (
-                <div
-                  className={`h-20 w-20 rounded-full ring-4 ${
-                    place === 1 ? "ring-yellow-300/30" : "ring-white/15"
-                  }`}
-                >
+            <div className="relative z-10">
+              <div className="mb-3 flex justify-center">
+                {entry.avatar ? (
+                  <img
+                    src={entry.avatar}
+                    alt={entry.name}
+                    className="h-24 w-24 rounded-full ring-4 ring-white/10 transition-all duration-300 hover:scale-105 hover:ring-primary/30"
+                    loading="lazy"
+                  />
+                ) : (
                   <InitialAvatar name={entry.name} />
-                </div>
-              )}
+                )}
+              </div>
+
+              <div className="mb-2 flex items-center justify-center gap-2 text-2xl">
+                {crowns}
+              </div>
+
+              <h3 className="text-xl font-bold text-white text-center">{entry.name}</h3>
+              <p className="mt-1 text-sm text-zinc-300 text-center">{formatNumber(entry.points)} points</p>
+
+              {/* ONLY CHANGE: pill styling */}
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
+                    entry.discord_id
+                      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                      : "bg-zinc-800 text-zinc-400 border-zinc-600/50"
+                  }`}
+                  style={{ borderWidth: "1px" }}
+                >
+                  {entry.discord_id ? "Discord linked" : "Not linked"}
+                </span>
+              </div>
             </div>
+          </>
+        ) : (
+          <div className="h-48 flex items-center justify-center text-zinc-500">
+            Waiting for data
           </div>
+        )}
+      </div>
+    </Animated>
+  );
+}
 
-          <div className="text-center">
-            <div className="mb-1 text-2xl">{crowns}</div>
-            <h3 className="text-lg font-semibold text-white">{entry.name}</h3>
-            <p className="mt-1 text-sm text-zinc-300">
-              {formatNumber(entry.points)} points
-            </p>
+// CountUp component
+function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
+  const [displayValue, setDisplayValue] = useState(0);
+  const previous = useRef(0);
 
-            {/* ONLY CHANGE: pill styling */}
-            <p className="mt-2 text-xs uppercase tracking-[0.25em]">
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] transition ${
-                  entry.discord_id
-                    ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
-                    : "bg-zinc-800/40 text-zinc-400 ring-1 ring-white/10"
-                }`}
-              >
-                {entry.discord_id ? "Discord linked" : "Not linked"}
-              </span>
-            </p>
-          </div>
-        </>
-      ) : (
-        <div className="py-10 text-center text-zinc-500">
-          Waiting for data
-        </div>
-      )}
+  useEffect(() => {
+    const start = previous.current;
+    const end = value;
+    previous.current = value;
+
+    const duration = 1500;
+    const startTime = performance.now();
+
+    const animate = (time: number) => {
+      const progress = Math.min((time - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 4);
+      setDisplayValue(Math.floor(start + (end - start) * eased));
+      if (progress < 1) requestAnimationFrame(animate);
+    };
+
+    requestAnimationFrame(animate);
+  }, [value]);
+
+  return <span>{formatter(displayValue)}</span>;
+}
+
+// Animated wrapper
+function Animated({ children, delay = "0ms" }: { children: React.ReactNode; delay?: string }) {
+  return (
+    <div className="animate-fade-in" style={{ animationDelay: delay }}>
+      {children}
     </div>
   );
 }
@@ -142,7 +176,7 @@ export default function LeaderboardPage() {
   const [now, setNow] = useState(Date.now());
   const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
 
-  const prevSnapshot = useRef<string>("");
+  const prevSnapshot = useRef("");
   const prevRanksRef = useRef<Record<number, number>>({});
 
   async function load() {
@@ -158,7 +192,6 @@ export default function LeaderboardPage() {
       const json: ApiResponse = await res.json();
 
       if (!json.success) {
-        // Better error message for historical battles with no data
         if (selectedBattleId && json.data?.length === 0) {
           setError(
             "No individual member data available for this historical battle. Data collection started after this war ended."
@@ -229,173 +262,167 @@ export default function LeaderboardPage() {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black px-4 py-8 text-white sm:px-6 lg:px-10">
-
-      <div className="mx-auto max-w-6xl">
-
-        <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-10">
+        <div className="mb-8" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                <span className={`h-2 w-2 rounded-full ${active ? "bg-emerald-400" : "bg-zinc-500"} animate-pulse`} />
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
                 {active ? "Live war tracking" : "No active war right now"}
-              </div>
-
-              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              </p>
+              <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">
                 {title}
               </h1>
-
               <p className="mt-2 max-w-2xl text-sm text-zinc-400">
                 Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges
                 appear automatically when the API provides them.
               </p>
             </div>
-
-            <div className="flex flex-col items-end gap-4 text-sm text-zinc-400">
-              <div className="flex items-center gap-3">
-                <WarHistoryDropdown
-                  selectedBattleId={selectedBattleId}
-                  onSelect={setSelectedBattleId}
-                />
-
-                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                  LIVE
-                </span>
-
-                <span className="text-sm text-zinc-300">
-                  updated{" "}
-                  {updatedAt
-                    ? `${Math.max(1, Math.floor((now - new Date(updatedAt).getTime()) / 1000))}s ago`
-                    : "—"}
-                </span>
-              </div>
-
-              <div>
-                Total points:{" "}
-                <span className="font-semibold text-white">
-                  {formatNumber(totalPoints)}
-                </span>
-              </div>
+            <div className="flex items-center gap-4">
+              <span
+                className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em]"
+                style={{
+                  background: active ? "rgba(52, 211, 153, 0.2)" : "rgba(148, 163, 184, 0.15)",
+                  color: active ? "#34d399" : "#94a3b8",
+                  border: active ? "1px solid rgba(52, 211, 153, 0.3)" : "1px solid rgba(148, 163, 184, 0.2)",
+                }}
+              >
+                {active && <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: "#34d399" }} />}
+                {active ? "Live" : "Inactive"}
+              </span>
+              <WarHistoryDropdown selectedBattleId={selectedBattleId} onSelect={setSelectedBattleId} />
             </div>
+          </div>
 
+          <div className="mt-6 flex flex-wrap items-center gap-4 text-sm text-zinc-400">
+            <span>
+              updated{" "}
+              {updatedAt
+                ? `${Math.max(1, Math.floor((now - new Date(updatedAt).getTime()) / 1000))}s ago`
+                : "—"}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="text-white font-semibold">{formatNumber(totalPoints)}</span>
+              Total points
+            </span>
           </div>
         </div>
 
         {loading ? (
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-zinc-300">
-            Loading leaderboard...
-          </div>
+          <Animated delay="0.1s">
+            <div
+              className="rounded-3xl border p-8 text-center animate-pulse"
+              style={{ background: "var(--card)", borderColor: "var(--border)" }}
+            >
+              <div className="h-8 w-48 mx-auto rounded bg-zinc-800/50" />
+              <div className="mt-4 h-4 w-32 mx-auto rounded bg-zinc-800/50" />
+              <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                <div className="h-28 rounded-2xl bg-zinc-800/50" />
+                <div className="h-28 rounded-2xl bg-zinc-800/50" />
+                <div className="h-28 rounded-2xl bg-zinc-800/50" />
+              </div>
+            </div>
+          </Animated>
         ) : error ? (
-          <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-8 text-center text-red-200">
-            {error}
-          </div>
+          <Animated delay="0.1s">
+            <div
+              className="rounded-3xl border p-6 text-center"
+              style={{ background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.30)" }}
+            >
+              <svg className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h2 className="mt-3 text-lg font-semibold text-red-200">{error}</h2>
+            </div>
+          </Animated>
         ) : (
           <>
-            <section className={`mb-16 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
-              <div className="mb-4 text-lg font-semibold text-zinc-100">
-                Top 3 podium
+            <Animated delay="0.1s">
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold">Top 3 podium</h2>
               </div>
-
-              <div className="grid gap-4 md:grid-cols-3 md:items-end">
-                <div className="md:order-1 md:translate-y-8">
-                  <PodiumCard entry={podium[1]} place={2} />
-                </div>
-
-                <div className="md:order-2 md:-translate-y-2">
-                  <PodiumCard entry={podium[0]} place={1} className="md:scale-[1.04]" />
-                </div>
-
-                <div className="md:order-3 md:translate-y-12">
-                  <PodiumCard entry={podium[2]} place={3} />
-                </div>
+            </Animated>
+            <Animated delay="0.15s">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <PodiumCard entry={podium[0]} place={1} />
+                <PodiumCard entry={podium[1]} place={2} />
+                <PodiumCard entry={podium[2]} place={3} />
               </div>
-            </section>
-
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Full leaderboard</h2>
-                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  Auto refresh
-                </span>
+            </Animated>
+            <Animated delay="0.25s">
+              <div className="mt-8 mb-4">
+                <h2 className="text-lg font-semibold">Full leaderboard</h2>
               </div>
+            </Animated>
+            <Animated delay="0.3s">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400">Auto refresh every 10s</span>
+                {flash > 0 && <span className="text-xs text-emerald-300 animate-pulse">Data updated</span>}
+              </div>
+            </Animated>
+            <div className="mt-4 space-y-2">
+              {data.map((entry, index) => {
+                const change = rankChange[entry.user_id] ?? 0;
+                const isTop3 = index < 3;
 
-              <div className="space-y-3">
-                {data.map((entry) => {
-                  const change = rankChange[entry.user_id] ?? 0;
-
-                  return (
-                    <a
-                      key={entry.user_id}
-                      href={`/profile?roblox_id=${entry.user_id}`}
-                      className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
+                return (
+                  <Animated key={entry.user_id} delay={`${Math.min(index * 0.02, 0.3)}s`}>
+                    <div
+                      className={`flex items-center gap-4 rounded-2xl border px-4 py-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)] ${isTop3 ? "bg-primary/5" : ""}`}
+                      style={{
+                        borderColor: isTop3 ? "var(--primary)" : "var(--border)",
+                        background: isTop3 ? "rgba(52, 211, 153, 0.05)" : "rgba(0,0,0,0.14)",
+                      }}
                     >
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
-                        #{entry.rank}
-
-                        {change > 0 && (
-                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
-                            ▲{change}
-                          </span>
-                        )}
-
-                        {change < 0 && (
-                          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
-                            ▼{Math.abs(change)}
-                          </span>
-                        )}
+                      <div className="w-10 text-center">
+                        <span className="font-bold text-white">#{entry.rank}</span>
+                        <CountUp value={change > 0 ? change : change < 0 ? Math.abs(change) : 0} formatter={formatNumber} />
+                        {change > 0 && <span className="text-emerald-300 text-xs">▲{change}</span>}
+                        {change < 0 && <span className="text-rose-300 text-xs">▼{Math.abs(change)}</span>}
                       </div>
-
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
+                      <div className="w-12 h-12 flex-shrink-0">
                         {entry.avatar ? (
-                          <img
-                            src={entry.avatar}
-                            alt={entry.name}
-                            className="h-full w-full object-cover"
-                          />
+                          <img src={entry.avatar} alt={entry.name} className="h-12 w-12 rounded-full ring-2 ring-white/10 transition-all duration-300 hover:scale-105 hover:ring-primary/30" loading="lazy" />
                         ) : (
                           <InitialAvatar name={entry.name} />
                         )}
                       </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate font-semibold text-white">
-                            {entry.name}
-                          </h3>
-
-                          {/* CHANGED ONLY THIS PILL */}
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] transition ${
-                              entry.discord_id
-                                ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
-                                : "bg-zinc-800/40 text-zinc-400 ring-1 ring-white/10"
-                            }`}
-                          >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-white truncate">{entry.name}</p>
+                        <div className="mt-1 flex items-center gap-2 text-xs">
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 font-semibold ${entry.discord_id ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20" : "bg-zinc-800 text-zinc-400 border-zinc-600/50"}`} style={{ borderWidth: "1px" }}>
                             {entry.discord_id ? "Discord linked" : "Not linked"}
                           </span>
+                          <span className="text-zinc-500">Roblox ID: {entry.user_id}</span>
                         </div>
-
-                        <p className="truncate text-sm text-zinc-400">
-                          Roblox ID: {entry.user_id}
-                        </p>
                       </div>
-
                       <div className="text-right">
-                        <div className="text-lg font-bold text-white">
-                          {formatNumber(entry.points)}
-                        </div>
+                        <p className="text-lg font-bold text-white">{formatNumber(entry.points)}</p>
+                        <p className="text-xs text-zinc-400">points</p>
                       </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </section>
+                    </div>
+                  </Animated>
+                );
+              })}
+            </div>
           </>
         )}
+
+        <style jsx global>{`
+          @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes gradientMove {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+          @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+          .animate-fade-in { opacity: 0; animation: fadeInUp .5s ease-out forwards; }
+          .animate-gradientMove { animation: gradientMove 3s ease infinite; }
+          @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+        `}</style>
       </div>
-    </main>
     </>
   );
 }
