@@ -1185,27 +1185,43 @@ function LinksSection({
   return (
     <Panel title="Roblox Links">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left text-sm">
+        <table className="w-full min-w-[820px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.18em] text-zinc-500">
             <tr>
-              <th className="pb-3">Discord User</th>
-              <th className="pb-3">Main Roblox</th>
-              <th className="pb-3">Alt 1</th>
-              <th className="pb-3">Alt 2</th>
-              <th className="pb-3">Alt 3</th>
-              <th className="pb-3 text-right">Actions</th>
+              <th className="w-44 px-3 pb-3">Discord User</th>
+              <th className="w-56 px-3 pb-3">Main Roblox</th>
+              <th className="px-3 pb-3">Alts</th>
+              <th className="w-64 px-3 pb-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
             {rows.length ? rows.map((row, index) => (
-              <tr key={safeId("link", row.discord, index)}>
-                <td className="py-4 font-medium">{row.discord}</td>
-                <td className="py-4">{row.main}</td>
-                <td className="py-4 text-zinc-400">{row.alts[0] ?? "—"}</td>
-                <td className="py-4 text-zinc-400">{row.alts[1] ?? "—"}</td>
-                <td className="py-4 text-zinc-400">{row.alts[2] ?? "—"}</td>
-                <td className="py-4 text-right">
-                  <div className="flex justify-end gap-2">
+              <tr key={safeId("link", row.discord, index)} className="transition hover:bg-white/[0.03]">
+                <td className="px-3 py-4 font-mono text-xs text-zinc-400" title={row.discord}>
+                  {shortenMiddle(row.discord)}
+                </td>
+                <td className="px-3 py-4 font-medium">
+                  <div className="max-w-[14rem] truncate" title={row.main}>{row.main}</div>
+                </td>
+                <td className="px-3 py-4">
+                  {row.alts.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {row.alts.map((alt, altIndex) => (
+                        <span
+                          key={safeId("alt", `${row.discord}-${alt}`, altIndex)}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300"
+                          title={alt}
+                        >
+                          {alt}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-zinc-500">No alts</span>
+                  )}
+                </td>
+                <td className="px-3 py-4 text-right">
+                  <div className="flex justify-end gap-2 whitespace-nowrap">
                     <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { discord_id: row.discord })}>Edit</button>
                     <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { discord_id: row.discord, add_alt: true })}>Add Alt</button>
                     <button
@@ -1223,7 +1239,7 @@ function LinksSection({
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan={6} className="py-8 text-center text-zinc-500">No Roblox links found.</td></tr>
+              <tr><td colSpan={4} className="py-8 text-center text-zinc-500">No Roblox links found.</td></tr>
             )}
           </tbody>
         </table>
