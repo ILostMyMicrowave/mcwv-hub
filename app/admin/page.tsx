@@ -608,6 +608,10 @@ export default function AdminPage() {
   const [toast, setToast] = useState<ToastState>(null);
   const [giveawayCreateOpen, setGiveawayCreateOpen] = useState(false);
   const [inviteCreateOpen, setInviteCreateOpen] = useState(false);
+  const [addAltTarget, setAddAltTarget] = useState<{
+    discord: string;
+    main: string;
+  } | null>(null);
 
   const loadAdminData = useCallback(async () => {
     setLoading(true);
@@ -774,6 +778,11 @@ export default function AdminPage() {
   }) {
     const success = await postAction("/api/admin/invite/start", values);
     if (success) setInviteCreateOpen(false);
+  }
+
+  async function submitAddAlt(values: { discord_id: string; roblox_username: string }) {
+    const success = await postAction("/api/admin/player/add-alt", values);
+    if (success) setAddAltTarget(null);
   }
 
   const canAdmin = currentUser?.role === "owner" || currentUser?.role === "officer";
@@ -1000,7 +1009,7 @@ export default function AdminPage() {
               <LinksSection
                 rows={linksByDiscord}
                 onAction={postAction}
-                onNotice={(message) => showToast(message, "info")}
+                onAddAlt={(row) => setAddAltTarget({ discord: row.discord, main: row.main })}
               />
             )}
 
@@ -1031,6 +1040,12 @@ export default function AdminPage() {
         channels={channels}
         onClose={() => setInviteCreateOpen(false)}
         onSubmit={submitInviteEvent}
+      />
+
+      <AddAltModal
+        target={addAltTarget}
+        onClose={() => setAddAltTarget(null)}
+        onSubmit={submitAddAlt}
       />
 
       {toast && <Toast message={toast.message} tone={toast.tone} />}
@@ -1305,6 +1320,62 @@ function CreateInviteEventModal({
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="admin-button" onClick={onClose}>Cancel</button>
           <button type="button" className="admin-button" onClick={() => void submit()}>Create Invite Event</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function AddAltModal({
+  target,
+  onClose,
+  onSubmit,
+}: {
+  target: { discord: string; main: string } | null;
+  onClose: () => void;
+  onSubmit: (values: { discord_id: string; roblox_username: string }) => Promise<void>;
+}) {
+  const [robloxUsername, setRobloxUsername] = useState("");
+  const [error, setError] = useState("");
+
+  const open = Boolean(target);
+
+  async function submit() {
+    const username = robloxUsername.trim();
+
+    if (!target) return;
+
+    if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
+      setError("Enter a valid Roblox username, 3-20 characters, letters, numbers, and underscores only.");
+      return;
+    }
+
+    setError("");
+    await onSubmit({
+      discord_id: target.discord,
+      roblox_username: username,
+    });
+  }
+
+  return (
+    <ModalShell open={open} title="Add Roblox Alt" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-2xl border p-4 text-sm" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+          <div className="admin-label text-xs uppercase tracking-[0.2em]">Discord User</div>
+          <div className="mt-1 font-mono text-sm">{target?.discord ?? "—"}</div>
+          <div className="admin-label mt-3 text-xs uppercase tracking-[0.2em]">Main Roblox</div>
+          <div className="mt-1 font-semibold">{target?.main ?? "—"}</div>
+        </div>
+        <LabeledInput
+          label="Alt Roblox Username"
+          value={robloxUsername}
+          onChange={setRobloxUsername}
+          placeholder="Roblox username to add as alt"
+        />
+        {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="admin-button" onClick={onClose}>Cancel</button>
+          <button type="button" className="admin-button" onClick={() => void submit()}>Add Alt</button>
         </div>
       </div>
     </ModalShell>
@@ -1803,11 +1874,11 @@ function PlayersSection({
 function LinksSection({
   rows,
   onAction,
-  onNotice,
+  onAddAlt,
 }: {
   rows: { discord: string; main: string; mainRobloxId: string | null; alts: string[] }[];
   onAction: AdminAction;
-  onNotice: (message: string) => void;
+  onAddAlt: (row: { discord: string; main: string; mainRobloxId: string | null; alts: string[] }) => void;
 }) {
   return (
     <Panel title="Roblox Links">
@@ -1864,7 +1935,7 @@ function LinksSection({
                     <button
                       className="admin-button"
                       type="button"
-                      onClick={() => onNotice("Add Alt from the Discord bot for now. The admin Add Alt flow is not wired yet.")}
+                      onClick={() => onAddAlt(row)}
                     >
                       Add Alt
                     </button>
