@@ -315,6 +315,15 @@ function safeId(prefix: string, value: unknown, index: number) {
   return `${prefix}-${String(value ?? index)}`;
 }
 
+function confirmTypedAction(action: string, phrase: string) {
+  const response = window.prompt(`${action}\n\nType ${phrase} to confirm.`);
+  return response === phrase;
+}
+
+function confirmAction(message: string) {
+  return window.confirm(message);
+}
+
 export default function AdminPage() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -613,7 +622,7 @@ export default function AdminPage() {
                       className="admin-button-danger"
                       type="button"
                       onClick={() => {
-                        if (window.confirm("Restart the bot process? Only use this if your host auto-restarts it.")) {
+                        if (confirmTypedAction("Restart the bot process? Only use this if your host auto-restarts it.", "RESTART")) {
                           void postAction("/api/admin/restart", { confirm: true });
                         }
                       }}
@@ -876,9 +885,12 @@ function InvitesSection({
             <tbody className="divide-y divide-white/10">
               {invites.length ? invites.map((event, index) => {
                 const status = event.status ?? (event.active ? "Active" : "Ended");
+                const active = isActiveFlag(event.active) || String(status).toLowerCase() === "active";
+                const inviteName = event.name ?? `Invite Event ${event.id ?? index + 1}`;
+
                 return (
                   <tr key={safeId("invite", event.id, index)}>
-                    <td className="py-4 font-medium">{event.name ?? `Invite Event ${event.id ?? index + 1}`}</td>
+                    <td className="py-4 font-medium">{inviteName}</td>
                     <td className="py-4"><span className={`rounded-full border px-3 py-1 text-xs ${statusTone(status)}`}>{status}</span></td>
                     <td className="py-4 text-zinc-400">{formatTime(event.start ?? event.start_time)}</td>
                     <td className="py-4 text-zinc-400">{formatTime(event.end ?? event.end_time)}</td>
@@ -886,9 +898,38 @@ function InvitesSection({
                     <td className="py-4 text-zinc-400">{event.reward ?? "—"}</td>
                     <td className="py-4 text-right">
                       <div className="flex justify-end gap-2">
-                        <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/invite/end", { id: event.id })}>End</button>
-                        <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/invite/pause", { id: event.id })}>Pause</button>
-                        <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/invite/resume", { id: event.id })}>Resume</button>
+                        <button
+                          className="admin-button disabled:cursor-not-allowed disabled:opacity-40"
+                          type="button"
+                          disabled={!active}
+                          onClick={() => {
+                            if (confirmAction(`End ${inviteName}? This stops invite tracking for the event.`)) {
+                              void onAction("/api/admin/invite/end", { id: event.id });
+                            }
+                          }}
+                        >
+                          End
+                        </button>
+                        <button
+                          className="admin-button disabled:cursor-not-allowed disabled:opacity-40"
+                          type="button"
+                          disabled={!active}
+                          onClick={() => {
+                            if (confirmAction(`Pause ${inviteName}? Invite counts will stop until resumed.`)) {
+                              void onAction("/api/admin/invite/pause", { id: event.id });
+                            }
+                          }}
+                        >
+                          Pause
+                        </button>
+                        <button
+                          className="admin-button disabled:cursor-not-allowed disabled:opacity-40"
+                          type="button"
+                          disabled={active}
+                          onClick={() => void onAction("/api/admin/invite/resume", { id: event.id })}
+                        >
+                          Resume
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -936,15 +977,18 @@ function GiveawaysSection({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {giveaways.length ? giveaways.map((giveaway, index) => {
           const ends = giveaway.endsAt ?? giveaway.ends_at ?? giveaway.end_time;
+          const active = isActiveFlag(giveaway.active);
+          const prize = giveaway.prize ?? "Unknown prize";
+
           return (
             <div key={safeId("giveaway", giveaway.id, index)} className="rounded-3xl border border-white/10 bg-black/20 p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Prize</div>
-                  <h4 className="mt-2 text-xl font-bold">{giveaway.prize ?? "Unknown prize"}</h4>
+                  <h4 className="mt-2 text-xl font-bold">{prize}</h4>
                 </div>
-                <span className={`rounded-full border px-3 py-1 text-xs ${statusTone(giveaway.active ? "Active" : "Ended")}`}>
-                  {giveaway.active ? "Active" : "Ended"}
+                <span className={`rounded-full border px-3 py-1 text-xs ${statusTone(active ? "Active" : "Ended")}`}>
+                  {active ? "Active" : "Ended"}
                 </span>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
@@ -954,9 +998,41 @@ function GiveawaysSection({
                 <MiniStat label="Invite Event" value={giveaway.linkedInviteEvent ?? giveaway.linked_invite_event ?? "Linked"} />
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
-                <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/giveaway/end", { id: giveaway.id })}>End</button>
-                <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/giveaway/reroll", { id: giveaway.id })}>Reroll</button>
-                <button className="admin-button-danger" type="button" onClick={() => void onAction("/api/admin/giveaway/cancel", { id: giveaway.id })}>Cancel</button>
+                <button
+                  className="admin-button disabled:cursor-not-allowed disabled:opacity-40"
+                  type="button"
+                  disabled={!active}
+                  onClick={() => {
+                    if (confirmAction(`End giveaway for ${prize}? Winners may be selected immediately.`)) {
+                      void onAction("/api/admin/giveaway/end", { id: giveaway.id });
+                    }
+                  }}
+                >
+                  End
+                </button>
+                <button
+                  className="admin-button"
+                  type="button"
+                  onClick={() => {
+                    if (confirmAction(`Reroll giveaway for ${prize}? This may announce a new winner.`)) {
+                      void onAction("/api/admin/giveaway/reroll", { id: giveaway.id });
+                    }
+                  }}
+                >
+                  Reroll
+                </button>
+                <button
+                  className="admin-button-danger disabled:cursor-not-allowed disabled:opacity-40"
+                  type="button"
+                  disabled={!active}
+                  onClick={() => {
+                    if (confirmAction(`Cancel giveaway for ${prize}? This cannot be undone.`)) {
+                      void onAction("/api/admin/giveaway/cancel", { id: giveaway.id });
+                    }
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           );
@@ -1013,6 +1089,8 @@ function PlayersSection({
             {players.length ? players.map((player, index) => {
               const id = player.robloxId ?? player.roblox_id ?? player.id;
               const status = player.status ?? "Unknown";
+              const username = player.username ?? "Unknown";
+
               return (
                 <tr key={safeId("player", id, index)}>
                   <td className="py-4">
@@ -1023,7 +1101,7 @@ function PlayersSection({
                       <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">👤</div>
                     )}
                   </td>
-                  <td className="py-4 font-medium">{player.username ?? "Unknown"}</td>
+                  <td className="py-4 font-medium">{username}</td>
                   <td className="py-4 text-zinc-400">{player.discord ?? player.discord_id ?? "—"}</td>
                   <td className="py-4"><span className={`rounded-full border px-3 py-1 text-xs ${statusTone(status)}`}>{status}</span></td>
                   <td className="py-4 text-zinc-400">{player.currentWorld ?? player.current_world ?? "—"}</td>
@@ -1032,9 +1110,19 @@ function PlayersSection({
                   <td className="py-4">{toDisplayValue(player.points ?? 0)}</td>
                   <td className="py-4 text-right">
                     <div className="flex justify-end gap-2">
-                      <Link className="admin-button" href={`/profile/${encodeURIComponent(String(player.username ?? id ?? ""))}`}>Profile</Link>
+                      <Link className="admin-button" href={`/profile/${encodeURIComponent(String(username ?? id ?? ""))}`}>Profile</Link>
                       <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { roblox_id: id })}>Sync</button>
-                      <button className="admin-button-danger" type="button" onClick={() => void onAction("/api/admin/player/remove", { roblox_id: id })}>Remove</button>
+                      <button
+                        className="admin-button-danger"
+                        type="button"
+                        onClick={() => {
+                          if (confirmAction(`Remove ${username} from tracking and unlink their Roblox account?`)) {
+                            void onAction("/api/admin/player/remove", { roblox_id: id });
+                          }
+                        }}
+                      >
+                        Remove
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1082,7 +1170,17 @@ function LinksSection({
                   <div className="flex justify-end gap-2">
                     <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { discord_id: row.discord })}>Edit</button>
                     <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { discord_id: row.discord, add_alt: true })}>Add Alt</button>
-                    <button className="admin-button-danger" type="button" onClick={() => void onAction("/api/admin/player/remove", { discord_id: row.discord })}>Unlink</button>
+                    <button
+                      className="admin-button-danger"
+                      type="button"
+                      onClick={() => {
+                        if (confirmAction(`Unlink all Roblox accounts for Discord ID ${row.discord}?`)) {
+                          void onAction("/api/admin/player/remove", { discord_id: row.discord });
+                        }
+                      }}
+                    >
+                      Unlink
+                    </button>
                   </div>
                 </td>
               </tr>
