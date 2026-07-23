@@ -28,17 +28,45 @@ async function databaseHealth() {
 
 async function countTrackedPlayers() {
   try {
-    const result = await pool.query(
-      `SELECT COUNT(*)::int AS count
+    const ids = new Set<string>()
+
+    const mainResult = await pool.query<{ roblox_id: string }>(
+      `SELECT DISTINCT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id
        FROM users
        WHERE roblox_id IS NOT NULL
          AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
     )
 
-    return Number(result.rows[0]?.count ?? 0)
+    for (const row of mainResult.rows) {
+      if (row.roblox_id) ids.add(row.roblox_id)
+    }
+
+    const altTable = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.user_alts') IS NOT NULL AS exists`
+    )
+
+    if (altTable.rows[0]?.exists) {
+      const altResult = await pool.query<{ roblox_id: string }>(
+        `SELECT DISTINCT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id
+         FROM user_alts
+         WHERE roblox_id IS NOT NULL
+           AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+      )
+
+      for (const row of altResult.rows) {
+        if (row.roblox_id) ids.add(row.roblox_id)
+      }
+    }
+
+    return ids.size
   } catch {
     return 0
   }
+}
+
+function positiveNumber(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
 function normalizeCurrentWar(value: unknown) {
@@ -112,6 +140,8 @@ export async function GET() {
     const botOverview = botStatus.data?.overview ?? {}
     const botInfo = botStatus.data?.bot ?? {}
     const currentWar = normalizeCurrentWar(botOverview.currentWar)
+    const botTrackedPlayers = positiveNumber(botOverview.trackedPlayers)
+    const effectiveTrackedPlayers = botTrackedPlayers ?? trackedPlayers
 
     return NextResponse.json({
       success: true,
@@ -123,7 +153,7 @@ export async function GET() {
         lastHeartbeat: botOverview.lastHeartbeat ?? botInfo.lastHeartbeat ?? null,
         databaseStatus: db.status,
         databaseLatencyMs: db.latencyMs,
-        trackedPlayers: botOverview.trackedPlayers ?? trackedPlayers,
+        trackedPlayers: effectiveTrackedPlayers,
         activeGiveaway: botOverview.activeGiveaway ?? false,
         activeInviteEvent: botOverview.activeInviteEvent ?? false,
         currentWar: currentWar ?? "No active war",
@@ -147,7 +177,7 @@ export async function GET() {
         { label: "Uptime", value: botOverview.uptimeSeconds ?? botInfo.uptimeSeconds ?? null, icon: "⏱" },
         { label: "Last Heartbeat", value: botOverview.lastHeartbeat ?? botInfo.lastHeartbeat ?? null, icon: "❤️" },
         { label: "Database", value: db.status, icon: "🗄" },
-        { label: "Tracked Players", value: botOverview.trackedPlayers ?? trackedPlayers, icon: "👥" },
+        { label: "Tracked Players", value: effectiveTrackedPlayers, icon: "👥" },
         { label: "Active Giveaway", value: botOverview.activeGiveaway ? "Active" : "None", icon: "🎉" },
         { label: "Invite Event", value: botOverview.activeInviteEvent ? "Active" : "None", icon: "📨" },
         { label: "Current War", value: currentWar ?? "No active war", icon: "⚔" },
