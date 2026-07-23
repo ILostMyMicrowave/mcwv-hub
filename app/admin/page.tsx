@@ -637,8 +637,20 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
-      if (!res.ok) throw new Error(String(data.error ?? "Action failed"));
+      const text = await res.text();
+      let data: UnknownRecord = {};
+
+      try {
+        data = text ? (JSON.parse(text) as UnknownRecord) : {};
+      } catch {
+        data = text.trim() ? { error: text.trim() } : {};
+      }
+
+      if (!res.ok) {
+        const message = data.error ?? data.message ?? `Action failed (HTTP ${res.status})`;
+        throw new Error(String(message));
+      }
+
       setActionStatus(String(data.message ?? "Action completed"));
       await loadAdminData();
     } catch (err) {
