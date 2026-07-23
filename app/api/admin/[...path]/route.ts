@@ -13,6 +13,7 @@ const OFFICER_ACTIONS = new Set([
   "invite/resume",
   "invite/delete",
   "player/sync",
+  "player/add-alt",
 ])
 
 const OWNER_ACTIONS = new Set([
