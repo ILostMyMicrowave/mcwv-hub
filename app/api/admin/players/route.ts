@@ -8,6 +8,31 @@ export const revalidate = 0
 
 type PlayerRow = Record<string, unknown>
 
+type BotPlayersResponse = Record<string, unknown>
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function firstArray(value: unknown, keys: string[]) {
+  if (Array.isArray(value)) return value
+  if (!isRecord(value)) return []
+
+  for (const key of keys) {
+    const candidate = value[key]
+    if (Array.isArray(candidate)) return candidate
+  }
+
+  if (isRecord(value.data)) {
+    for (const key of keys) {
+      const candidate = value.data[key]
+      if (Array.isArray(candidate)) return candidate
+    }
+  }
+
+  return []
+}
+
 async function getColumns(tableName: string) {
   const result = await pool.query<{ column_name: string }>(
     `SELECT column_name
@@ -96,8 +121,14 @@ export async function GET() {
 
   if (botAdminApiConfigured()) {
     try {
-      const data = await botAdminFetch("/admin/players")
-      return NextResponse.json(data)
+      const data = await botAdminFetch<BotPlayersResponse>("/admin/players")
+      const botPlayers = firstArray(data, ["players", "trackedPlayers", "users", "entries", "data"])
+
+      if (botPlayers.length > 0) {
+        return NextResponse.json(data)
+      }
+
+      console.warn("[api/admin/players] bot returned no players; falling back to Hub DB")
     } catch (err) {
       if (!(err instanceof BotAdminApiError)) {
         console.error("[api/admin/players] bot proxy error:", err)
@@ -122,4 +153,3 @@ export async function GET() {
     )
   }
 }
-
