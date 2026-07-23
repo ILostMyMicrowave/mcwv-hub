@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAdminUser } from "@/lib/adminAuth"
+import { pool } from "@/lib/db"
 import { BotAdminApiError, botAdminFetch } from "@/lib/botAdminApi"
 
 type ProxyOptions = {
@@ -37,6 +38,80 @@ function channelIdFromBody(body: Record<string, unknown>) {
   )
 }
 
+function bodyString(body: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = body[key]
+    if (value !== null && value !== undefined && String(value).trim()) {
+      return String(value).trim()
+    }
+  }
+
+  return null
+}
+
+async function ownerRemovalTarget(body: Record<string, unknown>) {
+  const discordId = bodyString(body, ["discord_id", "discordId", "discord"])
+  const robloxId = bodyString(body, ["roblox_id", "robloxId"])
+  const username = bodyString(body, ["username", "roblox_username", "robloxUsername"])
+
+  if (discordId) {
+    const result = await pool.query(
+      `SELECT id, username
+       FROM users
+       WHERE role = 'owner'
+         AND discord_id::text = $1
+       LIMIT 1`,
+      [discordId]
+    )
+
+    if (result.rows[0]) return result.rows[0]
+  }
+
+  if (robloxId) {
+    const direct = await pool.query(
+      `SELECT id, username
+       FROM users
+       WHERE role = 'owner'
+         AND roblox_id::text = $1
+       LIMIT 1`,
+      [robloxId]
+    )
+
+    if (direct.rows[0]) return direct.rows[0]
+
+    try {
+      const alt = await pool.query(
+        `SELECT u.id, u.username
+         FROM user_alts a
+         JOIN users u ON u.discord_id::text = a.discord_id::text
+         WHERE u.role = 'owner'
+           AND a.roblox_id::text = $1
+         LIMIT 1`,
+        [robloxId]
+      )
+
+      if (alt.rows[0]) return alt.rows[0]
+    } catch {
+      // user_alts may not exist in older deployments; ignore and let bot guard too.
+    }
+  }
+
+  if (username) {
+    const result = await pool.query(
+      `SELECT id, username
+       FROM users
+       WHERE role = 'owner'
+         AND LOWER(username) = LOWER($1)
+       LIMIT 1`,
+      [username]
+    )
+
+    if (result.rows[0]) return result.rows[0]
+  }
+
+  return null
+}
+
 export async function proxyBotAdminMutation(
   req: Request,
   botPath: string,
@@ -54,6 +129,18 @@ export async function proxyBotAdminMutation(
         { error: "A Discord channel ID or channel mention is required for this action." },
         { status: 400 }
       )
+    }
+
+    if (botPath === "/admin/player/remove") {
+      const owner = await ownerRemovalTarget(body)
+      if (owner) {
+        return NextResponse.json(
+          {
+            error: `Owner account ${owner.username ?? owner.id} cannot be removed from the database or Roblox links.`,
+          },
+          { status: 400 }
+        )
+      }
     }
 
     const data = await botAdminFetch(botPath, {
