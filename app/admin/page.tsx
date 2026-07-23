@@ -324,6 +324,15 @@ function confirmAction(message: string) {
   return window.confirm(message);
 }
 
+function shortenMiddle(value: unknown, start = 7, end = 5) {
+  if (value === null || value === undefined || value === "") return "—";
+
+  const text = String(value);
+  if (text.length <= start + end + 1) return text;
+
+  return `${text.slice(0, start)}…${text.slice(-end)}`;
+}
+
 export default function AdminPage() {
   const [section, setSection] = useState<AdminSection>("overview");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -1071,18 +1080,18 @@ function PlayersSection({
       }
     >
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-left text-sm">
+        <table className="w-full min-w-[1080px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.18em] text-zinc-500">
             <tr>
-              <th className="pb-3">Avatar</th>
-              <th className="pb-3">Username</th>
-              <th className="pb-3">Discord</th>
-              <th className="pb-3">Status</th>
-              <th className="pb-3">Current World</th>
-              <th className="pb-3">Last Seen</th>
-              <th className="pb-3">Clan Rank</th>
-              <th className="pb-3">Points</th>
-              <th className="pb-3 text-right">Actions</th>
+              <th className="w-16 px-3 pb-3">Avatar</th>
+              <th className="w-56 px-3 pb-3">Username</th>
+              <th className="w-44 px-3 pb-3">Discord</th>
+              <th className="w-32 px-3 pb-3">Status</th>
+              <th className="w-36 px-3 pb-3">Current World</th>
+              <th className="w-40 px-3 pb-3">Last Seen</th>
+              <th className="w-32 px-3 pb-3">Clan Rank</th>
+              <th className="w-24 px-3 pb-3">Points</th>
+              <th className="w-64 px-3 pb-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
@@ -1090,10 +1099,12 @@ function PlayersSection({
               const id = player.robloxId ?? player.roblox_id ?? player.id;
               const status = player.status ?? "Unknown";
               const username = player.username ?? "Unknown";
+              const discord = player.discord ?? player.discord_id ?? null;
+              const discordText = discord === null || discord === undefined || discord === "" ? "" : String(discord);
 
               return (
-                <tr key={safeId("player", id, index)}>
-                  <td className="py-4">
+                <tr key={safeId("player", id, index)} className="transition hover:bg-white/[0.03]">
+                  <td className="px-3 py-4">
                     {player.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={player.avatar} alt="" className="h-10 w-10 rounded-full border border-white/10" />
@@ -1101,15 +1112,21 @@ function PlayersSection({
                       <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">👤</div>
                     )}
                   </td>
-                  <td className="py-4 font-medium">{username}</td>
-                  <td className="py-4 text-zinc-400">{player.discord ?? player.discord_id ?? "—"}</td>
-                  <td className="py-4"><span className={`rounded-full border px-3 py-1 text-xs ${statusTone(status)}`}>{status}</span></td>
-                  <td className="py-4 text-zinc-400">{player.currentWorld ?? player.current_world ?? "—"}</td>
-                  <td className="py-4 text-zinc-400">{formatTime(player.lastSeen ?? player.last_seen)}</td>
-                  <td className="py-4">{player.clanRank ?? player.clan_rank ?? "—"}</td>
-                  <td className="py-4">{toDisplayValue(player.points ?? 0)}</td>
-                  <td className="py-4 text-right">
-                    <div className="flex justify-end gap-2">
+                  <td className="px-3 py-4 font-medium">
+                    <div className="max-w-[13rem] truncate" title={String(username)}>{username}</div>
+                  </td>
+                  <td className="px-3 py-4 font-mono text-xs text-zinc-400" title={discordText || undefined}>
+                    {shortenMiddle(discordText)}
+                  </td>
+                  <td className="px-3 py-4">
+                    <span className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs ${statusTone(status)}`}>{status}</span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-4 text-zinc-400">{player.currentWorld ?? player.current_world ?? "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-4 text-zinc-400">{formatTime(player.lastSeen ?? player.last_seen)}</td>
+                  <td className="whitespace-nowrap px-3 py-4">{player.clanRank ?? player.clan_rank ?? "—"}</td>
+                  <td className="px-3 py-4 tabular-nums">{toDisplayValue(player.points ?? 0)}</td>
+                  <td className="px-3 py-4 text-right">
+                    <div className="flex justify-end gap-2 whitespace-nowrap">
                       <Link className="admin-button" href={`/profile/${encodeURIComponent(String(username ?? id ?? ""))}`}>Profile</Link>
                       <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { roblox_id: id })}>Sync</button>
                       <button
