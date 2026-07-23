@@ -41,6 +41,29 @@ async function countTrackedPlayers() {
   }
 }
 
+function normalizeCurrentWar(value: unknown) {
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const normalized = trimmed.toLowerCase()
+  const clanName = (process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV").toLowerCase()
+
+  if (
+    normalized === clanName ||
+    normalized === "unknown" ||
+    normalized === "none" ||
+    normalized === "inactive" ||
+    normalized === "no active war" ||
+    normalized === "active battle unknown"
+  ) {
+    return null
+  }
+
+  return trimmed
+}
+
 async function fetchBotStatus() {
   if (!botAdminApiConfigured()) {
     return {
@@ -88,6 +111,7 @@ export async function GET() {
 
     const botOverview = botStatus.data?.overview ?? {}
     const botInfo = botStatus.data?.bot ?? {}
+    const currentWar = normalizeCurrentWar(botOverview.currentWar)
 
     return NextResponse.json({
       success: true,
@@ -102,7 +126,7 @@ export async function GET() {
         trackedPlayers: botOverview.trackedPlayers ?? trackedPlayers,
         activeGiveaway: botOverview.activeGiveaway ?? false,
         activeInviteEvent: botOverview.activeInviteEvent ?? false,
-        currentWar: botOverview.currentWar ?? null,
+        currentWar: currentWar ?? "No active war",
       },
       bot: {
         connected: botStatus.connected,
@@ -126,7 +150,7 @@ export async function GET() {
         { label: "Tracked Players", value: botOverview.trackedPlayers ?? trackedPlayers, icon: "👥" },
         { label: "Active Giveaway", value: botOverview.activeGiveaway ? "Active" : "None", icon: "🎉" },
         { label: "Invite Event", value: botOverview.activeInviteEvent ? "Active" : "None", icon: "📨" },
-        { label: "Current War", value: botOverview.currentWar ?? "Unknown", icon: "⚔" },
+        { label: "Current War", value: currentWar ?? "No active war", icon: "⚔" },
       ],
       recentActivity:
         Array.isArray(botStatus.data?.logs) && botStatus.data?.logs.length
@@ -162,4 +186,3 @@ export async function GET() {
     )
   }
 }
-
