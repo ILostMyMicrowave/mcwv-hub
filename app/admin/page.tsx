@@ -116,6 +116,28 @@ type AdminChannel = {
   usableForInvites?: boolean;
 };
 
+type AdminRoleOption = {
+  id: string;
+  name: string;
+  guildName?: string;
+  memberCount?: number;
+};
+
+type BroadcastRecipient = {
+  username?: string;
+  discord_id?: string | number;
+  points?: number;
+  rank?: number | null;
+};
+
+type BroadcastPreview = {
+  recipientCount: number;
+  deliverableCount: number;
+  missingTicketCount: number;
+  sampleRecipients: BroadcastRecipient[];
+  missingTicketRecipients: BroadcastRecipient[];
+};
+
 type ToastState = {
   message: string;
   tone: "success" | "error" | "info";
@@ -126,6 +148,7 @@ type AdminAction = (endpoint: string, body?: UnknownRecord) => Promise<boolean>;
 type AdminSection =
   | "overview"
   | "bot"
+  | "broadcast"
   | "invites"
   | "giveaways"
   | "players"
@@ -137,6 +160,7 @@ type AdminSection =
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "🏠" },
   { id: "bot", label: "Bot", icon: "🤖" },
+  { id: "broadcast", label: "Broadcast", icon: "📢" },
   { id: "invites", label: "Invite Events", icon: "📨" },
   { id: "giveaways", label: "Giveaways", icon: "🎉" },
   { id: "players", label: "Players", icon: "👥" },
@@ -151,6 +175,8 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
     "A quick operational summary of bot health, database status, tracked players, events, and recent admin activity.",
   bot:
     "Live runtime health, Discord latency, process usage, queue status, and background loop monitoring.",
+  broadcast:
+    "Send themed staff broadcasts to filtered clan audiences through DMs or saved ticket channels.",
   invites:
     "Create, pause, resume, and review invite competitions, leaderboards, invited members, and removed fake invites.",
   giveaways:
@@ -605,6 +631,7 @@ export default function AdminPage() {
   const [inviteLeaderboard, setInviteLeaderboard] = useState<UnknownRecord[]>([]);
   const [logs, setLogs] = useState<ActivityItem[]>([]);
   const [channels, setChannels] = useState<AdminChannel[]>([]);
+  const [roles, setRoles] = useState<AdminRoleOption[]>([]);
   const [search, setSearch] = useState("");
   const [logFilter, setLogFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -620,13 +647,14 @@ export default function AdminPage() {
   const loadAdminData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, playersRes, giveawaysRes, invitesRes, logsRes, channelsRes] = await Promise.all([
+      const [statusRes, playersRes, giveawaysRes, invitesRes, logsRes, channelsRes, rolesRes] = await Promise.all([
         fetch("/api/admin/status", { cache: "no-store" }),
         fetch("/api/admin/players", { cache: "no-store" }),
         fetch("/api/admin/giveaways", { cache: "no-store" }),
         fetch("/api/admin/invites", { cache: "no-store" }),
         fetch("/api/admin/logs", { cache: "no-store" }),
         fetch("/api/admin/channels", { cache: "no-store" }),
+        fetch("/api/admin/roles", { cache: "no-store" }),
       ]);
 
       if (statusRes.ok) {
@@ -674,6 +702,20 @@ export default function AdminPage() {
           .map(normalizeChannel)
           .filter((channel): channel is AdminChannel => channel !== null);
         setChannels(nextChannels);
+      }
+
+      if (rolesRes.ok) {
+        const data = (await rolesRes.json().catch(() => ({}))) as UnknownRecord;
+        const nextRoles = firstArray(data, ["roles", "data"])
+          .filter(isRecord)
+          .map((role) => ({
+            id: valueToString(pickRecordValue(role, ["id", "role_id", "roleId"]), "") ?? "",
+            name: valueToString(pickRecordValue(role, ["name", "roleName", "role_name"]), "Role") ?? "Role",
+            guildName: valueToString(pickRecordValue(role, ["guildName", "guild_name", "guild"]), null) ?? undefined,
+            memberCount: pickRecordNumber(role, ["memberCount", "member_count"], 0),
+          }))
+          .filter((role) => role.id);
+        setRoles(nextRoles);
       }
     } catch (err) {
       console.error("[admin] load failed", err);
@@ -984,6 +1026,13 @@ export default function AdminPage() {
             )}
 
             {section === "bot" && <BotSection bot={bot} />}
+
+            {section === "broadcast" && (
+              <BroadcastSection
+                roles={roles}
+                onToast={(message, tone) => showToast(message, tone)}
+              />
+            )}
 
             {section === "invites" && (
               <InvitesSection
@@ -1579,6 +1628,250 @@ function BotSection({ bot }: { bot: UnknownRecord | undefined }) {
             );
           })}
         </div>
+      </Panel>
+    </div>
+  );
+}
+
+function BroadcastSection({
+  roles,
+  onToast,
+}: {
+  roles: AdminRoleOption[];
+  onToast: (message: string, tone: "success" | "error" | "info") => void;
+}) {
+  const [audience, setAudience] = useState("everyone");
+  const [delivery, setDelivery] = useState("dm");
+  const [style, setStyle] = useState("plain");
+  const [value, setValue] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const [message, setMessage] = useState("");
+  const [preview, setPreview] = useState<BroadcastPreview | null>(null);
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const needsValue = ["below_points", "above_points", "bottom_n", "top_n", "custom_user"].includes(audience);
+  const needsRole = audience === "discord_role";
+
+  const payload = useMemo(
+    () => ({
+      audience,
+      delivery,
+      style,
+      value,
+      role_id: roleId,
+      message,
+    }),
+    [audience, delivery, message, roleId, style, value]
+  );
+
+  async function requestBroadcast(endpoint: string) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let data: UnknownRecord = {};
+
+    try {
+      data = text ? (JSON.parse(text) as UnknownRecord) : {};
+    } catch {
+      data = text.trim() ? { error: text.trim() } : {};
+    }
+
+    if (!res.ok) throw new Error(String(data.error ?? `Broadcast request failed (${res.status})`));
+    return data;
+  }
+
+  async function loadPreview() {
+    if (!message.trim()) {
+      setStatus("Message is required.");
+      onToast("Message is required.", "error");
+      return;
+    }
+    if (needsRole && !roleId) {
+      setStatus("Choose a Discord role.");
+      onToast("Choose a Discord role.", "error");
+      return;
+    }
+    if (needsValue && !value.trim()) {
+      setStatus("This audience needs a value.");
+      onToast("This audience needs a value.", "error");
+      return;
+    }
+
+    setLoading(true);
+    setStatus("Loading preview...");
+    try {
+      const data = await requestBroadcast("/api/admin/broadcast/preview");
+      setPreview({
+        recipientCount: Number(data.recipientCount ?? 0),
+        deliverableCount: Number(data.deliverableCount ?? 0),
+        missingTicketCount: Number(data.missingTicketCount ?? 0),
+        sampleRecipients: asArray<BroadcastRecipient>(data.sampleRecipients),
+        missingTicketRecipients: asArray<BroadcastRecipient>(data.missingTicketRecipients),
+      });
+      setStatus("Preview ready. Review it before sending.");
+      onToast("Broadcast preview ready", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Preview failed";
+      setStatus(msg);
+      onToast(msg, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendBroadcast() {
+    if (!preview) {
+      await loadPreview();
+      return;
+    }
+
+    const confirmText = preview.recipientCount > 25 ? "SEND" : "YES";
+    if (!confirmTypedAction(`Send this broadcast to ${preview.recipientCount} matched recipient(s)?`, confirmText)) {
+      return;
+    }
+
+    setLoading(true);
+    setStatus("Sending broadcast...");
+    try {
+      const data = await requestBroadcast("/api/admin/broadcast/send");
+      const sent = Number(data.sent ?? 0);
+      const failed = Number(data.failed ?? 0);
+      setStatus(`Broadcast complete: ${sent} sent, ${failed} failed.`);
+      onToast(`Broadcast complete: ${sent} sent, ${failed} failed.`, failed ? "info" : "success");
+      setPreview(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Broadcast failed";
+      setStatus(msg);
+      onToast(msg, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[1fr_0.85fr]">
+      <Panel title="Create Broadcast">
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Audience</span>
+              <select className="admin-input" value={audience} onChange={(event) => { setAudience(event.target.value); setPreview(null); }}>
+                <option value="everyone">Everyone</option>
+                <option value="below_points">Below X points</option>
+                <option value="above_points">Above X points</option>
+                <option value="zero_points">Exactly 0 points</option>
+                <option value="bottom_n">Bottom N players</option>
+                <option value="top_n">Top N players</option>
+                <option value="members">Members</option>
+                <option value="officers">Officers</option>
+                <option value="discord_role">Discord role</option>
+                <option value="custom_user">Custom user(s)</option>
+              </select>
+            </label>
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Delivery</span>
+              <select className="admin-input" value={delivery} onChange={(event) => { setDelivery(event.target.value); setPreview(null); }}>
+                <option value="dm">DM</option>
+                <option value="ticket">Ticket</option>
+              </select>
+            </label>
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Style</span>
+              <select className="admin-input" value={style} onChange={(event) => setStyle(event.target.value)}>
+                <option value="plain">Plain text</option>
+                <option value="embed">Embed</option>
+              </select>
+            </label>
+          </div>
+
+          {needsValue && (
+            <LabeledInput
+              label={audience === "custom_user" ? "Discord IDs / mentions" : "Filter Value"}
+              value={value}
+              onChange={(next) => { setValue(next); setPreview(null); }}
+              placeholder={audience === "custom_user" ? "Paste Discord IDs or mentions" : "Example: 15 or 1000"}
+            />
+          )}
+
+          {needsRole && (
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Discord Role</span>
+              <select className="admin-input" value={roleId} onChange={(event) => { setRoleId(event.target.value); setPreview(null); }}>
+                <option value="">Select a role...</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>{role.name}{role.guildName ? ` · ${role.guildName}` : ""}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="block space-y-2">
+            <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Message</span>
+            <textarea
+              className="admin-input min-h-36 resize-y"
+              value={message}
+              onChange={(event) => { setMessage(event.target.value); setPreview(null); }}
+              placeholder="Clan war starts soon. Please prepare, {username}."
+            />
+            <span className="admin-label text-xs">Placeholders: {"{username}"}, {"{points}"}, {"{rank}"}</span>
+          </label>
+
+          {status && (
+            <div className="rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+              {status}
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <button className="admin-button" type="button" disabled={loading} onClick={() => void loadPreview()}>
+              Preview
+            </button>
+            <button className="admin-button" type="button" disabled={loading || !preview} onClick={() => void sendBroadcast()}>
+              Send Broadcast
+            </button>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="Preview">
+        {preview ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <MiniStat label="Matched" value={preview.recipientCount} />
+              <MiniStat label="Will Attempt" value={preview.deliverableCount} />
+              <MiniStat label="No Ticket" value={preview.missingTicketCount} />
+            </div>
+            <div>
+              <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Sample Recipients</div>
+              <div className="space-y-2">
+                {preview.sampleRecipients.map((recipient, index) => (
+                  <div key={safeId("broadcast-sample", recipient.discord_id, index)} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
+                    <div className="font-medium">{recipient.username ?? "Unknown"}</div>
+                    <div className="text-xs text-zinc-500">{recipient.points ?? 0} pts · rank {recipient.rank ?? "—"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {preview.missingTicketRecipients.length > 0 && (
+              <div>
+                <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Missing Ticket</div>
+                <div className="space-y-2">
+                  {preview.missingTicketRecipients.slice(0, 8).map((recipient, index) => (
+                    <div key={safeId("broadcast-missing", recipient.discord_id, index)} className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                      {recipient.username ?? recipient.discord_id} — no saved ticket
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-500">Build a broadcast and click Preview to see recipient counts before sending.</p>
+        )}
       </Panel>
     </div>
   );
