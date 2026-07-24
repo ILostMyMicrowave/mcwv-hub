@@ -149,7 +149,7 @@ export async function GET() {
       loadedAt: now,
       user: auth.user,
       permissions: {
-        broadcast: canUseBroadcast(auth.user),
+        broadcast: await canUseBroadcast(auth.user),
       },
       overview: {
         botStatus: botStatus.connected ? "Online" : "Disconnected",
