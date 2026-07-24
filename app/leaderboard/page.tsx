@@ -96,7 +96,7 @@ const DEFAULT_STYLE: ProfileStyle = {
   framePreset: "none",
   framePrimaryColor: "#34d399",
   frameSecondaryColor: "#38bdf8",
-  frameEmoji: "✨",
+  frameEmoji: "",
   fontPreset: "default",
   bio: null,
   badges: [],
@@ -215,8 +215,30 @@ function safeFrameColor(value: string | null | undefined, fallback: string) {
   return /^#[0-9a-fA-F]{6}$/.test(String(value ?? "")) ? String(value) : fallback;
 }
 
+function emojiSegments(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    return Array.from(segmenter.segment(trimmed), (part) => part.segment);
+  }
+
+  return Array.from(trimmed);
+}
+
+function isSingleEmoji(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  const segments = emojiSegments(trimmed);
+  if (segments.length !== 1) return false;
+  if (/[A-Za-z0-9]/.test(trimmed)) return false;
+  return /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u.test(trimmed);
+}
+
 function safeFrameEmoji(value: string | null | undefined) {
-  return String(value ?? "✨").trim().slice(0, 4) || "✨";
+  const trimmed = String(value ?? "").trim();
+  return isSingleEmoji(trimmed) ? trimmed : "";
 }
 
 function fontStyle(style: ProfileStyle): CSSProperties {
@@ -1003,7 +1025,7 @@ function StyleEditorModal({
   const [framePreset, setFramePreset] = useState("none");
   const [framePrimaryColor, setFramePrimaryColor] = useState("#34d399");
   const [frameSecondaryColor, setFrameSecondaryColor] = useState("#38bdf8");
-  const [frameEmoji, setFrameEmoji] = useState("✨");
+  const [frameEmoji, setFrameEmoji] = useState("");
   const [fontPreset, setFontPreset] = useState("default");
   const [bio, setBio] = useState("");
   const [badgesText, setBadgesText] = useState("");
@@ -1046,7 +1068,7 @@ function StyleEditorModal({
           setFramePreset("none");
           setFramePrimaryColor("#34d399");
           setFrameSecondaryColor("#38bdf8");
-          setFrameEmoji("✨");
+          setFrameEmoji("");
           setFontPreset("default");
           setBio("");
           setBadgesText("");
@@ -1060,7 +1082,7 @@ function StyleEditorModal({
         setFramePreset(String(saved.framePreset ?? saved.frame_preset ?? "none"));
         setFramePrimaryColor(String(saved.framePrimaryColor ?? saved.frame_primary_color ?? "#34d399"));
         setFrameSecondaryColor(String(saved.frameSecondaryColor ?? saved.frame_secondary_color ?? "#38bdf8"));
-        setFrameEmoji(String(saved.frameEmoji ?? saved.frame_emoji ?? "✨"));
+        setFrameEmoji(safeFrameEmoji(String(saved.frameEmoji ?? saved.frame_emoji ?? "")));
         const savedFont = String(saved.fontPreset ?? saved.font_preset ?? "default");
         setFontPreset(FONT_PRESETS[savedFont] ? savedFont : "default");
         setBio(String(saved.bio ?? ""));
@@ -1096,7 +1118,7 @@ function StyleEditorModal({
           framePreset,
           framePrimaryColor,
           frameSecondaryColor,
-          frameEmoji: frameEmoji.trim() || "✨",
+          frameEmoji: frameEmoji.trim() || null,
           fontPreset,
           bio: bio.trim() || null,
           badges: canEditBadges ? badgesText.split(",").map((badge) => badge.trim()).filter(Boolean) : [],
@@ -1196,7 +1218,16 @@ function StyleEditorModal({
               </label>
               <label className="space-y-2">
                 <span className="admin-label">Emoji</span>
-                <input className="admin-input text-center text-xl" value={frameEmoji} onChange={(event) => setFrameEmoji(event.target.value.slice(0, 4))} placeholder="✨" />
+                <input
+                  className="admin-input text-center text-xl"
+                  value={frameEmoji}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (isSingleEmoji(next)) setFrameEmoji(next.trim());
+                  }}
+                  placeholder="Optional"
+                />
+                <p className="text-xs text-zinc-500">One emoji only, or leave blank.</p>
               </label>
             </div>
           )}
