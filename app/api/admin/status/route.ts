@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireAdminUser } from "@/lib/adminAuth"
 import { pool } from "@/lib/db"
 import { BotAdminApiError, botAdminFetch, botAdminApiConfigured } from "@/lib/botAdminApi"
+import { canUseBroadcast } from "@/lib/broadcastAccess"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -147,6 +148,9 @@ export async function GET() {
       success: true,
       loadedAt: now,
       user: auth.user,
+      permissions: {
+        broadcast: canUseBroadcast(auth.user),
+      },
       overview: {
         botStatus: botStatus.connected ? "Online" : "Disconnected",
         uptimeSeconds: botOverview.uptimeSeconds ?? botInfo.uptimeSeconds ?? null,
