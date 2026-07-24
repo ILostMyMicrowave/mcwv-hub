@@ -12,6 +12,9 @@ type ProfileStyle = {
   backgroundPreset: string;
   accentColor: string;
   framePreset: string;
+  framePrimaryColor?: string | null;
+  frameSecondaryColor?: string | null;
+  frameEmoji?: string | null;
   bio: string | null;
   badges: string[];
 };
@@ -90,6 +93,9 @@ const DEFAULT_STYLE: ProfileStyle = {
   backgroundPreset: "default",
   accentColor: "#34d399",
   framePreset: "none",
+  framePrimaryColor: "#34d399",
+  frameSecondaryColor: "#38bdf8",
+  frameEmoji: "✨",
   bio: null,
   badges: [],
 };
@@ -134,11 +140,12 @@ const FRAME_PRESETS: Record<string, { label: string; className: string; frameCla
   violet: { label: "Violet Ring", className: "ring-violet-300/70", frameClass: "profile-frame-violet" },
   owner: { label: "Owner Crown", className: "ring-yellow-300/90", frameClass: "profile-frame-owner", ornament: "👑", ornamentClass: "profile-frame-ornament-crown" },
   officer: { label: "Officer Shield", className: "ring-emerald-300/90", frameClass: "profile-frame-officer", ornament: "◆", ornamentClass: "profile-frame-ornament-shield" },
-  crown: { label: "Royal Crown", className: "ring-amber-200/95", frameClass: "profile-frame-owner", ornament: "👑", ornamentClass: "profile-frame-ornament-crown" },
+  crown: { label: "Royal Crown", className: "ring-amber-200/95", frameClass: "profile-frame-royal", ornament: "♛", ornamentClass: "profile-frame-ornament-crown" },
   laurel: { label: "Golden Laurel", className: "ring-yellow-200/90", frameClass: "profile-frame-laurel", ornament: "✦", ornamentClass: "profile-frame-ornament-br" },
   neon_pulse: { label: "Neon Pulse", className: "ring-fuchsia-300/80", frameClass: "profile-frame-neon", ornament: "✧", ornamentClass: "profile-frame-ornament-br" },
   galaxy_orbit: { label: "Galaxy Orbit", className: "ring-violet-200/80", frameClass: "profile-frame-galaxy", ornament: "✦", ornamentClass: "profile-frame-ornament-br" },
   diamond: { label: "Diamond Shine", className: "ring-cyan-100/90", frameClass: "profile-frame-diamond", ornament: "💎", ornamentClass: "profile-frame-ornament-br" },
+  custom: { label: "Custom Builder", className: "ring-white/80", frameClass: "profile-frame-custom", ornamentClass: "profile-frame-ornament-br" },
 };
 
 const ACCENT_PRESETS = ["#34d399", "#38bdf8", "#ef4444", "#a78bfa", "#facc15", "#ec4899"];
@@ -149,6 +156,14 @@ function getStyle(entry?: LeaderboardEntry | null) {
 
 function canManageCards(user: CurrentUser | null) {
   return user?.role === "officer" || user?.role === "owner";
+}
+
+function safeFrameColor(value: string | null | undefined, fallback: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value ?? "")) ? String(value) : fallback;
+}
+
+function safeFrameEmoji(value: string | null | undefined) {
+  return String(value ?? "✨").trim().slice(0, 4) || "✨";
 }
 
 function backgroundCss(style: ProfileStyle) {
@@ -579,10 +594,20 @@ function AvatarWithFrame({ entry, size = "md" }: { entry: LeaderboardEntry; size
   const frame = framePreset.className;
   const sizeClass = size === "lg" ? "h-24 w-24 ring-4" : "h-16 w-16 ring-4";
   const ornamentSize = size === "lg" ? "text-2xl" : "text-lg";
+  const primaryFrameColor = safeFrameColor(style.framePrimaryColor, style.accentColor);
+  const secondaryFrameColor = safeFrameColor(style.frameSecondaryColor, "#38bdf8");
+  const ornament = style.framePreset === "custom" ? safeFrameEmoji(style.frameEmoji) : framePreset.ornament;
 
   return (
     <div className={`profile-frame-wrap relative flex shrink-0 items-center justify-center ${size === "lg" ? "h-28 w-28" : "h-20 w-20"}`}>
-      <span className={`profile-frame-aura ${framePreset.frameClass ?? "profile-frame-basic"}`} style={{ "--frame-accent": style.accentColor } as CSSProperties} />
+      <span
+        className={`profile-frame-aura ${framePreset.frameClass ?? "profile-frame-basic"}`}
+        style={{
+          "--frame-accent": style.accentColor,
+          "--frame-primary": primaryFrameColor,
+          "--frame-secondary": secondaryFrameColor,
+        } as CSSProperties}
+      />
       <div
         className={`relative z-10 flex items-center justify-center overflow-hidden rounded-full ${sizeClass} ${frame}`}
         style={{ boxShadow: `0 0 28px ${style.accentColor}55` }}
@@ -593,9 +618,9 @@ function AvatarWithFrame({ entry, size = "md" }: { entry: LeaderboardEntry; size
           <InitialAvatar name={entry.name} />
         )}
       </div>
-      {framePreset.ornament && (
+      {ornament && (
         <span className={`profile-frame-ornament ${framePreset.ornamentClass ?? "profile-frame-ornament-br"} ${ornamentSize}`}>
-          {framePreset.ornament}
+          {ornament}
         </span>
       )}
     </div>
@@ -823,7 +848,7 @@ function PlayerMiniProfile({
               <div>
                 <div className="text-xs uppercase tracking-[0.28em]" style={{ color: style.accentColor }}>Rank #{entry.rank}</div>
                 <h2 className="mt-1 text-4xl font-bold text-white">{entry.name}</h2>
-                <p className="mt-2 max-w-xl text-sm italic text-zinc-300">{style.bio || "No bio yet. Customize your card to add one."}</p>
+                <p className="mt-2 max-w-xl text-sm italic text-zinc-300">{style.bio || "No bio yet. Customise your card to add one."}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {(style.badges?.length ? style.badges : [entry.discord_id ? "Discord linked" : "Roblox member"]).map((badge) => (
                     <span key={badge} className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">{badge}</span>
@@ -912,6 +937,9 @@ function StyleEditorModal({
   const [backgroundUrl, setBackgroundUrl] = useState("");
   const [accentColor, setAccentColor] = useState("#34d399");
   const [framePreset, setFramePreset] = useState("none");
+  const [framePrimaryColor, setFramePrimaryColor] = useState("#34d399");
+  const [frameSecondaryColor, setFrameSecondaryColor] = useState("#38bdf8");
+  const [frameEmoji, setFrameEmoji] = useState("✨");
   const [bio, setBio] = useState("");
   const [badgesText, setBadgesText] = useState("");
   const [status, setStatus] = useState("");
@@ -951,6 +979,9 @@ function StyleEditorModal({
           setBackgroundUrl("");
           setAccentColor("#34d399");
           setFramePreset("none");
+          setFramePrimaryColor("#34d399");
+          setFrameSecondaryColor("#38bdf8");
+          setFrameEmoji("✨");
           setBio("");
           setBadgesText("");
           setStatus("No saved style yet — pick your first look.");
@@ -961,6 +992,9 @@ function StyleEditorModal({
         setBackgroundUrl(String(saved.backgroundUrl ?? saved.background_url ?? ""));
         setAccentColor(String(saved.accentColor ?? saved.accent_color ?? "#34d399"));
         setFramePreset(String(saved.framePreset ?? saved.frame_preset ?? "none"));
+        setFramePrimaryColor(String(saved.framePrimaryColor ?? saved.frame_primary_color ?? "#34d399"));
+        setFrameSecondaryColor(String(saved.frameSecondaryColor ?? saved.frame_secondary_color ?? "#38bdf8"));
+        setFrameEmoji(String(saved.frameEmoji ?? saved.frame_emoji ?? "✨"));
         setBio(String(saved.bio ?? ""));
         const savedBadges = Array.isArray(saved.badges) ? saved.badges.map(String) : [];
         setBadgesText(savedBadges.join(", "));
@@ -992,6 +1026,9 @@ function StyleEditorModal({
           backgroundUrl: backgroundUrl.trim() || null,
           accentColor,
           framePreset,
+          framePrimaryColor,
+          frameSecondaryColor,
+          frameEmoji: frameEmoji.trim() || "✨",
           bio: bio.trim() || null,
           badges: canEditBadges ? badgesText.split(",").map((badge) => badge.trim()).filter(Boolean) : [],
         }),
@@ -1014,6 +1051,9 @@ function StyleEditorModal({
     backgroundPreset,
     accentColor,
     framePreset,
+    framePrimaryColor,
+    frameSecondaryColor,
+    frameEmoji,
     bio: bio || null,
     badges: badgesText.split(",").map((badge) => badge.trim()).filter(Boolean),
   };
@@ -1025,7 +1065,7 @@ function StyleEditorModal({
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Leaderboard Style</div>
-            <h2 className="mt-1 text-2xl font-bold text-white">{editingAnotherMember ? `Override ${targetEntry?.name}'s Card` : "Customize My Card"}</h2>
+            <h2 className="mt-1 text-2xl font-bold text-white">{editingAnotherMember ? `Override ${targetEntry?.name}'s Card` : "Customise My Card"}</h2>
             <p className="mt-2 text-sm text-zinc-400">
               Signed in as {currentUser?.username ?? "unknown"}. {editingAnotherMember ? "Officer tools are enabled for this card." : "Your Roblox account must be linked."}
             </p>
@@ -1041,11 +1081,18 @@ function StyleEditorModal({
             <p className="mt-2 max-w-lg text-sm italic text-zinc-200">{bio || "Your bio or quote will appear here."}</p>
             <div className="mt-4 flex items-center gap-3">
               <div className="profile-frame-wrap relative flex h-20 w-20 items-center justify-center">
-                <span className={`profile-frame-aura ${FRAME_PRESETS[framePreset]?.frameClass ?? "profile-frame-basic"}`} style={{ "--frame-accent": accentColor } as CSSProperties} />
+                <span
+                  className={`profile-frame-aura ${FRAME_PRESETS[framePreset]?.frameClass ?? "profile-frame-basic"}`}
+                  style={{
+                    "--frame-accent": accentColor,
+                    "--frame-primary": framePrimaryColor,
+                    "--frame-secondary": frameSecondaryColor,
+                  } as CSSProperties}
+                />
                 <div className={`relative z-10 h-14 w-14 rounded-full bg-black/45 ring-4 ${FRAME_PRESETS[framePreset]?.className ?? FRAME_PRESETS.none.className}`} style={{ boxShadow: `0 0 24px ${accentColor}66` }} />
-                {FRAME_PRESETS[framePreset]?.ornament && (
+                {(framePreset === "custom" ? safeFrameEmoji(frameEmoji) : FRAME_PRESETS[framePreset]?.ornament) && (
                   <span className={`profile-frame-ornament ${FRAME_PRESETS[framePreset]?.ornamentClass ?? "profile-frame-ornament-br"} text-lg`}>
-                    {FRAME_PRESETS[framePreset]?.ornament}
+                    {framePreset === "custom" ? safeFrameEmoji(frameEmoji) : FRAME_PRESETS[framePreset]?.ornament}
                   </span>
                 )}
               </div>
@@ -1067,6 +1114,22 @@ function StyleEditorModal({
               {Object.entries(FRAME_PRESETS).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
             </select>
           </label>
+          {framePreset === "custom" && (
+            <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2 sm:grid-cols-3">
+              <label className="space-y-2">
+                <span className="admin-label">Frame Colour 1</span>
+                <input type="color" value={framePrimaryColor} onChange={(event) => setFramePrimaryColor(event.target.value)} className="h-12 w-full rounded-2xl border border-white/10 bg-black/30" />
+              </label>
+              <label className="space-y-2">
+                <span className="admin-label">Frame Colour 2</span>
+                <input type="color" value={frameSecondaryColor} onChange={(event) => setFrameSecondaryColor(event.target.value)} className="h-12 w-full rounded-2xl border border-white/10 bg-black/30" />
+              </label>
+              <label className="space-y-2">
+                <span className="admin-label">Emoji</span>
+                <input className="admin-input text-center text-xl" value={frameEmoji} onChange={(event) => setFrameEmoji(event.target.value.slice(0, 4))} placeholder="✨" />
+              </label>
+            </div>
+          )}
           <label className="space-y-2">
             <span className="admin-label">Accent colour</span>
             <div className="flex gap-2">
@@ -1089,7 +1152,7 @@ function StyleEditorModal({
             <label className="space-y-2 sm:col-span-2">
               <span className="admin-label">Badges</span>
               <input className="admin-input" value={badgesText} onChange={(event) => setBadgesText(event.target.value)} placeholder="Donator, Whale, Elite Performer" />
-              <p className="text-xs text-zinc-500">Officer-only. Normal members can customize looks/bio, but badges are assigned by officers.</p>
+              <p className="text-xs text-zinc-500">Officer-only. Normal members can customise looks/bio, but badges are assigned by officers.</p>
             </label>
           ) : (
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
@@ -1276,7 +1339,7 @@ export default function LeaderboardPage() {
                         setStyleEditorOpen(true);
                       }}
                     >
-                      Customize My Card
+                      Customise My Card
                     </button>
                     <WarHistoryDropdown
                       selectedBattleId={selectedBattleId}
@@ -1550,10 +1613,22 @@ export default function LeaderboardPage() {
           }
 
           .profile-frame-basic { opacity: 0.35; }
-          .profile-frame-emerald { box-shadow: 0 0 28px rgba(52, 211, 153, 0.45), inset 0 0 18px rgba(52, 211, 153, 0.18); }
-          .profile-frame-ice { box-shadow: 0 0 28px rgba(125, 211, 252, 0.52), inset 0 0 18px rgba(186, 230, 253, 0.18); }
-          .profile-frame-gold { box-shadow: 0 0 34px rgba(250, 204, 21, 0.52), inset 0 0 18px rgba(250, 204, 21, 0.16); }
-          .profile-frame-violet { box-shadow: 0 0 30px rgba(167, 139, 250, 0.5), inset 0 0 18px rgba(167, 139, 250, 0.17); }
+          .profile-frame-emerald {
+            background: conic-gradient(from 120deg, rgba(16,185,129,0.95), rgba(6,95,70,0.45), rgba(52,211,153,0.95), rgba(16,185,129,0.95));
+            box-shadow: 0 0 28px rgba(52, 211, 153, 0.45), inset 0 0 18px rgba(52, 211, 153, 0.18);
+          }
+          .profile-frame-ice {
+            background: linear-gradient(135deg, rgba(255,255,255,0.88), rgba(125,211,252,0.88), rgba(37,99,235,0.42));
+            box-shadow: 0 0 28px rgba(125, 211, 252, 0.52), inset 0 0 18px rgba(186, 230, 253, 0.18);
+          }
+          .profile-frame-gold {
+            background: repeating-conic-gradient(from 0deg, rgba(250,204,21,0.95) 0deg 20deg, rgba(255,255,255,0.65) 20deg 30deg, rgba(180,83,9,0.78) 30deg 45deg);
+            box-shadow: 0 0 34px rgba(250, 204, 21, 0.52), inset 0 0 18px rgba(250, 204, 21, 0.16);
+          }
+          .profile-frame-violet {
+            background: radial-gradient(circle at 30% 20%, rgba(216,180,254,0.95), transparent 25%), conic-gradient(from 45deg, rgba(124,58,237,0.95), rgba(236,72,153,0.7), rgba(59,130,246,0.65), rgba(124,58,237,0.95));
+            box-shadow: 0 0 30px rgba(167, 139, 250, 0.5), inset 0 0 18px rgba(167, 139, 250, 0.17);
+          }
 
           .profile-frame-owner {
             background:
@@ -1568,6 +1643,14 @@ export default function LeaderboardPage() {
               radial-gradient(circle, rgba(52,211,153,0.20), transparent 60%),
               conic-gradient(from 90deg, rgba(16,185,129,0.9), rgba(125,211,252,0.7), rgba(16,185,129,0.9));
             box-shadow: 0 0 32px rgba(52, 211, 153, 0.55), inset 0 0 16px rgba(125,211,252,0.16);
+          }
+
+          .profile-frame-royal {
+            background:
+              repeating-conic-gradient(from 18deg, rgba(251,191,36,0.98) 0deg 18deg, rgba(255,255,255,0.78) 18deg 28deg, rgba(180,83,9,0.98) 28deg 44deg),
+              radial-gradient(circle, rgba(251,191,36,0.26), transparent 62%);
+            box-shadow: 0 0 42px rgba(251,191,36,0.68), 0 0 14px rgba(255,255,255,0.25), inset 0 0 20px rgba(255,255,255,0.22);
+            animation: framePulse 3.4s ease-in-out infinite;
           }
 
           .profile-frame-inferno {
@@ -1591,6 +1674,12 @@ export default function LeaderboardPage() {
           .profile-frame-diamond {
             background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(125,211,252,0.95), rgba(14,165,233,0.75), rgba(255,255,255,0.9));
             box-shadow: 0 0 34px rgba(125,211,252,0.68), inset 0 0 18px rgba(255,255,255,0.28);
+          }
+
+          .profile-frame-custom {
+            background: conic-gradient(from 0deg, var(--frame-primary), var(--frame-secondary), var(--frame-primary));
+            box-shadow: 0 0 34px color-mix(in srgb, var(--frame-primary) 58%, transparent), 0 0 20px color-mix(in srgb, var(--frame-secondary) 42%, transparent);
+            animation: frameOrbit 9s linear infinite;
           }
 
           .profile-frame-laurel {
