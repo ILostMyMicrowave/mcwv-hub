@@ -34,6 +34,19 @@ type CurrentUser = {
   roblox_id?: string | number | null;
 };
 
+type PlayerHistoryPoint = {
+  time: string;
+  value: number;
+  delta?: number;
+};
+
+type PlayerHistory = {
+  points: PlayerHistoryPoint[];
+  rank: PlayerHistoryPoint[];
+  disconnects: PlayerHistoryPoint[];
+  disconnects24h: number;
+};
+
 type ApiResponse = {
   success: boolean;
   active?: boolean;
@@ -636,14 +649,119 @@ function LeaderboardRow({
   );
 }
 
+function MiniLineChart({
+  points,
+  accentColor,
+  emptyLabel = "Not enough data yet",
+}: {
+  points: PlayerHistoryPoint[];
+  accentColor: string;
+  emptyLabel?: string;
+}) {
+  if (points.length < 2) {
+    return (
+      <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  const width = 720;
+  const height = 220;
+  const padding = 18;
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const coords = points.map((point, index) => {
+    const x = padding + (index / Math.max(points.length - 1, 1)) * (width - padding * 2);
+    const y = height - padding - ((point.value - min) / range) * (height - padding * 2);
+    return `${x},${y}`;
+  });
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-56 w-full overflow-visible">
+        <defs>
+          <linearGradient id="playerChartFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={accentColor} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={accentColor} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polyline
+          points={`${padding},${height - padding} ${coords.join(" ")} ${width - padding},${height - padding}`}
+          fill="url(#playerChartFill)"
+          stroke="none"
+        />
+        <polyline points={coords.join(" ")} fill="none" stroke={accentColor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        {coords.map((coord, index) => {
+          if (index !== coords.length - 1 && index !== 0) return null;
+          const [x, y] = coord.split(",").map(Number);
+          return <circle key={coord} cx={x} cy={y} r="5" fill={accentColor} />;
+        })}
+      </svg>
+      <div className="mt-2 flex justify-between text-xs text-zinc-500">
+        <span>{new Date(points[0].time).toLocaleDateString()}</span>
+        <span>{new Date(points[points.length - 1].time).toLocaleDateString()}</span>
+      </div>
+    </div>
+  );
+}
+
 function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null; onClose: () => void }) {
+  const [history, setHistory] = useState<PlayerHistory | null>(null);
+  const [historyTab, setHistoryTab] = useState<"points" | "rank" | "disconnects">("points");
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!entry) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setHistoryLoading(true);
+      setHistory(null);
+      setHistoryTab("points");
+
+      fetch(`/api/leaderboard/player/${entry.user_id}/history`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+      .then((res) => res.json())
+      .then((json) => {
+        if (controller.signal.aborted) return;
+        setHistory({
+          points: Array.isArray(json.points) ? json.points : [],
+          rank: Array.isArray(json.rank) ? json.rank : [],
+          disconnects: Array.isArray(json.disconnects) ? json.disconnects : [],
+          disconnects24h: Number(json.disconnects24h ?? 0),
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setHistory({ points: [], rank: [], disconnects: [], disconnects24h: 0 });
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoading(false);
+      });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [entry]);
+
   if (!entry) return null;
   const style = getStyle(entry);
+  const disconnects24h = history?.disconnects24h ?? entry.disconnects24h ?? 0;
+  const chartPoints = history?.[historyTab] ?? [];
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
       <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
-      <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
+      <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
         <BackgroundLayer style={style} />
         <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" />
         <div className="relative p-6 sm:p-8">
@@ -668,17 +786,39 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
             <MiniProfileStat label="Battle Points" value={formatNumber(entry.points)} />
             <MiniProfileStat label="PPH" value="—" />
             <MiniProfileStat label="Rank" value={`#${entry.rank}`} />
-            <MiniProfileStat label="Disconnects 24h" value={String(entry.disconnects24h ?? 0)} />
+            <MiniProfileStat label="Disconnects 24h" value={String(disconnects24h)} />
           </div>
 
           <div className="mt-6 rounded-3xl border border-white/10 bg-black/45 p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Battle History</h3>
-              <span className="text-xs text-zinc-500">Points • Rank • Disconnects</span>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Player History</h3>
+                <span className="text-xs text-zinc-500">Points • Rank • Disconnects</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(["points", "rank", "disconnects"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    className="rounded-full border px-3 py-1 text-xs capitalize"
+                    style={{
+                      borderColor: historyTab === tab ? `${style.accentColor}88` : "rgba(255,255,255,0.12)",
+                      background: historyTab === tab ? `${style.accentColor}22` : "rgba(255,255,255,0.04)",
+                      color: historyTab === tab ? style.accentColor : "rgb(212 212 216)",
+                    }}
+                    onClick={() => setHistoryTab(tab)}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
-              Not enough data yet
-            </div>
+            {historyLoading ? (
+              <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
+                Loading history...
+              </div>
+            ) : (
+              <MiniLineChart points={chartPoints} accentColor={style.accentColor} />
+            )}
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
