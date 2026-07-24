@@ -1,38 +1,28 @@
 import { NextResponse } from "next/server"
 import { getCurrentAdminUser, type AdminUser } from "@/lib/adminAuth"
+import { BotAdminApiError, botAdminFetch, botAdminApiConfigured } from "@/lib/botAdminApi"
 
-function allowedBroadcastUsernames() {
-  return new Set(
-    (process.env.BROADCAST_ADMIN_USERNAMES ?? "")
-      .split(",")
-      .map((username) => username.trim().toLowerCase())
-      .filter(Boolean)
-  )
+async function botAllowsBroadcast(discordId: string) {
+  if (!botAdminApiConfigured()) return false
+
+  try {
+    const data = await botAdminFetch<{ allowed?: boolean }>("/admin/broadcast/access", {
+      method: "POST",
+      body: JSON.stringify({ discord_id: discordId }),
+    })
+
+    return data.allowed === true
+  } catch (err) {
+    if (!(err instanceof BotAdminApiError)) {
+      console.error("[broadcast access] bot check failed:", err)
+    }
+    return false
+  }
 }
 
-function allowedBroadcastUserIds() {
-  return new Set(
-    (process.env.BROADCAST_ADMIN_USER_IDS ?? "")
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-  )
-}
-
-export function canUseBroadcast(user: AdminUser | null | undefined) {
-  if (!user) return false
-  if (user.role === "owner") return true
-  if (user.role !== "officer") return false
-
-  const usernames = allowedBroadcastUsernames()
-  const userIds = allowedBroadcastUserIds()
-
-  // If no allowlist is configured, officers can use broadcast.
-  // Add BROADCAST_ADMIN_USERNAMES or BROADCAST_ADMIN_USER_IDS
-  // to restrict broadcast access to specific officers.
-  if (!usernames.size && !userIds.size) return true
-
-  return usernames.has(user.username.toLowerCase()) || userIds.has(String(user.id))
+export async function canUseBroadcast(user: AdminUser | null | undefined) {
+  if (!user?.discordId) return false
+  return botAllowsBroadcast(user.discordId)
 }
 
 export async function requireBroadcastUser() {
@@ -46,7 +36,9 @@ export async function requireBroadcastUser() {
       }
     }
 
-    if (!canUseBroadcast(user)) {
+    const allowed = await canUseBroadcast(user)
+
+    if (!allowed) {
       return {
         ok: false as const,
         response: NextResponse.json(
