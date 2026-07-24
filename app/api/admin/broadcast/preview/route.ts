@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
-import { requireAdminUser } from "@/lib/adminAuth"
+import { requireBroadcastUser } from "@/lib/broadcastAccess"
 import { BotAdminApiError, botAdminFetch } from "@/lib/botAdminApi"
 
 export async function POST(req: Request) {
-  const auth = await requireAdminUser("officer")
+  const auth = await requireBroadcastUser()
   if (!auth.ok) return auth.response
 
   try {
