@@ -2,7 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import WarHistoryDropdown from "@/components/WarHistoryDropdown";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -125,15 +125,20 @@ const BACKGROUND_PRESETS: Record<string, { label: string; css: string }> = {
   },
 };
 
-const FRAME_PRESETS: Record<string, { label: string; className: string }> = {
-  none: { label: "None", className: "ring-white/10" },
-  emerald: { label: "Emerald Ring", className: "ring-emerald-300/70" },
-  ice: { label: "Ice Ring", className: "ring-sky-300/70" },
-  inferno: { label: "Inferno Ring", className: "ring-orange-400/70" },
-  gold: { label: "Gold Ring", className: "ring-yellow-300/80" },
-  violet: { label: "Violet Ring", className: "ring-violet-300/70" },
-  owner: { label: "Owner Frame", className: "ring-yellow-300/90" },
-  officer: { label: "Officer Frame", className: "ring-emerald-300/90" },
+const FRAME_PRESETS: Record<string, { label: string; className: string; frameClass?: string; ornament?: string; ornamentClass?: string }> = {
+  none: { label: "None", className: "ring-white/10", frameClass: "profile-frame-basic" },
+  emerald: { label: "Emerald Ring", className: "ring-emerald-300/70", frameClass: "profile-frame-emerald" },
+  ice: { label: "Ice Ring", className: "ring-sky-300/70", frameClass: "profile-frame-ice" },
+  inferno: { label: "Inferno Ring", className: "ring-orange-400/70", frameClass: "profile-frame-inferno", ornament: "🔥", ornamentClass: "profile-frame-ornament-br" },
+  gold: { label: "Gold Ring", className: "ring-yellow-300/80", frameClass: "profile-frame-gold" },
+  violet: { label: "Violet Ring", className: "ring-violet-300/70", frameClass: "profile-frame-violet" },
+  owner: { label: "Owner Crown", className: "ring-yellow-300/90", frameClass: "profile-frame-owner", ornament: "👑", ornamentClass: "profile-frame-ornament-crown" },
+  officer: { label: "Officer Shield", className: "ring-emerald-300/90", frameClass: "profile-frame-officer", ornament: "◆", ornamentClass: "profile-frame-ornament-shield" },
+  crown: { label: "Royal Crown", className: "ring-amber-200/95", frameClass: "profile-frame-owner", ornament: "👑", ornamentClass: "profile-frame-ornament-crown" },
+  laurel: { label: "Golden Laurel", className: "ring-yellow-200/90", frameClass: "profile-frame-laurel", ornament: "✦", ornamentClass: "profile-frame-ornament-br" },
+  neon_pulse: { label: "Neon Pulse", className: "ring-fuchsia-300/80", frameClass: "profile-frame-neon", ornament: "✧", ornamentClass: "profile-frame-ornament-br" },
+  galaxy_orbit: { label: "Galaxy Orbit", className: "ring-violet-200/80", frameClass: "profile-frame-galaxy", ornament: "✦", ornamentClass: "profile-frame-ornament-br" },
+  diamond: { label: "Diamond Shine", className: "ring-cyan-100/90", frameClass: "profile-frame-diamond", ornament: "💎", ornamentClass: "profile-frame-ornament-br" },
 };
 
 const ACCENT_PRESETS = ["#34d399", "#38bdf8", "#ef4444", "#a78bfa", "#facc15", "#ec4899"];
@@ -570,18 +575,28 @@ function BackgroundLayer({ style }: { style: ProfileStyle }) {
 
 function AvatarWithFrame({ entry, size = "md" }: { entry: LeaderboardEntry; size?: "md" | "lg" }) {
   const style = getStyle(entry);
-  const frame = FRAME_PRESETS[style.framePreset]?.className ?? FRAME_PRESETS.none.className;
+  const framePreset = FRAME_PRESETS[style.framePreset] ?? FRAME_PRESETS.none;
+  const frame = framePreset.className;
   const sizeClass = size === "lg" ? "h-24 w-24 ring-4" : "h-16 w-16 ring-4";
+  const ornamentSize = size === "lg" ? "text-2xl" : "text-lg";
 
   return (
-    <div
-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full ${sizeClass} ${frame}`}
-      style={{ boxShadow: `0 0 28px ${style.accentColor}55` }}
-    >
-      {entry.avatar ? (
-        <img src={entry.avatar} alt={entry.name} className="h-full w-full object-cover" />
-      ) : (
-        <InitialAvatar name={entry.name} />
+    <div className={`profile-frame-wrap relative flex shrink-0 items-center justify-center ${size === "lg" ? "h-28 w-28" : "h-20 w-20"}`}>
+      <span className={`profile-frame-aura ${framePreset.frameClass ?? "profile-frame-basic"}`} style={{ "--frame-accent": style.accentColor } as CSSProperties} />
+      <div
+        className={`relative z-10 flex items-center justify-center overflow-hidden rounded-full ${sizeClass} ${frame}`}
+        style={{ boxShadow: `0 0 28px ${style.accentColor}55` }}
+      >
+        {entry.avatar ? (
+          <img src={entry.avatar} alt={entry.name} className="h-full w-full object-cover" />
+        ) : (
+          <InitialAvatar name={entry.name} />
+        )}
+      </div>
+      {framePreset.ornament && (
+        <span className={`profile-frame-ornament ${framePreset.ornamentClass ?? "profile-frame-ornament-br"} ${ornamentSize}`}>
+          {framePreset.ornament}
+        </span>
       )}
     </div>
   );
@@ -1025,7 +1040,15 @@ function StyleEditorModal({
             <div className="mt-2 text-3xl font-bold" style={{ color: accentColor }}>{targetEntry?.name ?? currentUser?.username ?? "Your Card"}</div>
             <p className="mt-2 max-w-lg text-sm italic text-zinc-200">{bio || "Your bio or quote will appear here."}</p>
             <div className="mt-4 flex items-center gap-3">
-              <div className={`h-14 w-14 rounded-full bg-black/45 ring-4 ${FRAME_PRESETS[framePreset]?.className ?? FRAME_PRESETS.none.className}`} style={{ boxShadow: `0 0 24px ${accentColor}66` }} />
+              <div className="profile-frame-wrap relative flex h-20 w-20 items-center justify-center">
+                <span className={`profile-frame-aura ${FRAME_PRESETS[framePreset]?.frameClass ?? "profile-frame-basic"}`} style={{ "--frame-accent": accentColor } as CSSProperties} />
+                <div className={`relative z-10 h-14 w-14 rounded-full bg-black/45 ring-4 ${FRAME_PRESETS[framePreset]?.className ?? FRAME_PRESETS.none.className}`} style={{ boxShadow: `0 0 24px ${accentColor}66` }} />
+                {FRAME_PRESETS[framePreset]?.ornament && (
+                  <span className={`profile-frame-ornament ${FRAME_PRESETS[framePreset]?.ornamentClass ?? "profile-frame-ornament-br"} text-lg`}>
+                    {FRAME_PRESETS[framePreset]?.ornament}
+                  </span>
+                )}
+              </div>
               <span className="text-xs uppercase tracking-[0.2em] text-zinc-300">{FRAME_PRESETS[framePreset]?.label ?? "Frame preview"}</span>
             </div>
           </div>
@@ -1487,7 +1510,127 @@ export default function LeaderboardPage() {
             animation: cardGlowSweep 0.85s ease-out;
           }
 
-          .admin-button {
+          @keyframes framePulse {
+            0%, 100% { transform: scale(1); opacity: 0.78; }
+            50% { transform: scale(1.08); opacity: 1; }
+          }
+
+          @keyframes frameOrbit {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+
+          @keyframes crownFloat {
+            0%, 100% { transform: translate(-50%, -12%) rotate(-8deg); }
+            50% { transform: translate(-50%, -26%) rotate(6deg); }
+          }
+
+          .profile-frame-wrap {
+            isolation: isolate;
+          }
+
+          .profile-frame-aura {
+            position: absolute;
+            z-index: 0;
+            inset: 0.25rem;
+            border-radius: 999px;
+            pointer-events: none;
+            background: radial-gradient(circle, color-mix(in srgb, var(--frame-accent) 26%, transparent), transparent 62%);
+            border: 1px solid color-mix(in srgb, var(--frame-accent) 34%, rgba(255,255,255,0.18));
+            box-shadow: 0 0 24px color-mix(in srgb, var(--frame-accent) 55%, transparent);
+          }
+
+          .profile-frame-aura::before,
+          .profile-frame-aura::after {
+            content: "";
+            position: absolute;
+            inset: -0.22rem;
+            border-radius: inherit;
+            pointer-events: none;
+          }
+
+          .profile-frame-basic { opacity: 0.35; }
+          .profile-frame-emerald { box-shadow: 0 0 28px rgba(52, 211, 153, 0.45), inset 0 0 18px rgba(52, 211, 153, 0.18); }
+          .profile-frame-ice { box-shadow: 0 0 28px rgba(125, 211, 252, 0.52), inset 0 0 18px rgba(186, 230, 253, 0.18); }
+          .profile-frame-gold { box-shadow: 0 0 34px rgba(250, 204, 21, 0.52), inset 0 0 18px rgba(250, 204, 21, 0.16); }
+          .profile-frame-violet { box-shadow: 0 0 30px rgba(167, 139, 250, 0.5), inset 0 0 18px rgba(167, 139, 250, 0.17); }
+
+          .profile-frame-owner {
+            background:
+              radial-gradient(circle, rgba(250,204,21,0.24), transparent 61%),
+              conic-gradient(from 15deg, rgba(250,204,21,0.95), rgba(255,255,255,0.55), rgba(245,158,11,0.95), rgba(250,204,21,0.95));
+            box-shadow: 0 0 36px rgba(250, 204, 21, 0.65), inset 0 0 18px rgba(255,255,255,0.2);
+            animation: framePulse 2.8s ease-in-out infinite;
+          }
+
+          .profile-frame-officer {
+            background:
+              radial-gradient(circle, rgba(52,211,153,0.20), transparent 60%),
+              conic-gradient(from 90deg, rgba(16,185,129,0.9), rgba(125,211,252,0.7), rgba(16,185,129,0.9));
+            box-shadow: 0 0 32px rgba(52, 211, 153, 0.55), inset 0 0 16px rgba(125,211,252,0.16);
+          }
+
+          .profile-frame-inferno {
+            background: conic-gradient(from 180deg, rgba(239,68,68,0.95), rgba(251,146,60,0.95), rgba(250,204,21,0.65), rgba(239,68,68,0.95));
+            box-shadow: 0 0 34px rgba(249,115,22,0.6), inset 0 0 16px rgba(239,68,68,0.22);
+            animation: framePulse 2.4s ease-in-out infinite;
+          }
+
+          .profile-frame-neon {
+            background: conic-gradient(from 0deg, #22d3ee, #a78bfa, #ec4899, #22d3ee);
+            box-shadow: 0 0 34px rgba(236,72,153,0.62), 0 0 18px rgba(34,211,238,0.42);
+            animation: frameOrbit 7s linear infinite;
+          }
+
+          .profile-frame-galaxy {
+            background: conic-gradient(from 45deg, #60a5fa, #a78bfa, #f0abfc, #22d3ee, #60a5fa);
+            box-shadow: 0 0 34px rgba(167,139,250,0.62), inset 0 0 20px rgba(96,165,250,0.20);
+            animation: frameOrbit 11s linear infinite;
+          }
+
+          .profile-frame-diamond {
+            background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(125,211,252,0.95), rgba(14,165,233,0.75), rgba(255,255,255,0.9));
+            box-shadow: 0 0 34px rgba(125,211,252,0.68), inset 0 0 18px rgba(255,255,255,0.28);
+          }
+
+          .profile-frame-laurel {
+            background: conic-gradient(from 0deg, rgba(250,204,21,0.95), rgba(255,255,255,0.55), rgba(202,138,4,0.95), rgba(250,204,21,0.95));
+            box-shadow: 0 0 32px rgba(250,204,21,0.56);
+          }
+
+          .profile-frame-ornament {
+            position: absolute;
+            z-index: 20;
+            display: grid;
+            place-items: center;
+            width: 1.8em;
+            height: 1.8em;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.26);
+            background: rgba(2,6,23,0.88);
+            box-shadow: 0 0 18px rgba(0,0,0,0.45);
+            line-height: 1;
+          }
+
+          .profile-frame-ornament-crown {
+            left: 50%;
+            top: -0.35rem;
+            transform: translate(-50%, -12%) rotate(-8deg);
+            animation: crownFloat 2.6s ease-in-out infinite;
+          }
+
+          .profile-frame-ornament-br {
+            right: 0.05rem;
+            bottom: 0.05rem;
+          }
+
+          .profile-frame-ornament-shield {
+            right: -0.1rem;
+            bottom: 0.25rem;
+            color: #34d399;
+          }
+
+.admin-button {
             border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
             border-radius: 999px;
             background: color-mix(in srgb, var(--primary) 13%, transparent);
