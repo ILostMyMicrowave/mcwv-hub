@@ -194,6 +194,14 @@ export default function OnboardingTour() {
     setBusy(false);
   }
 
+  async function customiseAndFinish() {
+    setBusy(true);
+    await updateOnboarding("complete");
+    setOpen(false);
+    router.push(currentStep.href);
+    setBusy(false);
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-[120] p-4 sm:bottom-5 sm:right-5 sm:left-auto sm:w-[420px]">
       <div
@@ -271,7 +279,7 @@ export default function OnboardingTour() {
                   type="button"
                   className="rounded-full px-4 py-2 text-sm font-semibold text-black transition hover:scale-[1.02] disabled:opacity-50"
                   style={{ background: "var(--primary)" }}
-                  onClick={() => void goToStep(currentStep)}
+                  onClick={() => void customiseAndFinish()}
                   disabled={busy}
                 >
                   Customise my card
