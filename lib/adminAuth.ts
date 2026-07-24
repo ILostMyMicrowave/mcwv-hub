@@ -10,6 +10,7 @@ export type AdminUser = {
   id: number
   username: string
   role: AdminRole
+  discordId?: string | null
 }
 
 type AdminCheck =
@@ -35,7 +36,7 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
   if (!Number.isFinite(userId)) return null
 
   const result = await pool.query(
-    `SELECT id, username, role
+    `SELECT id, username, role, discord_id
      FROM users
      WHERE id = $1
      LIMIT 1`,
@@ -49,6 +50,7 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
     id: Number(row.id),
     username: String(row.username ?? ""),
     role: normalizeRole(row.role),
+    discordId: row.discord_id === null || row.discord_id === undefined ? null : String(row.discord_id),
   }
 }
 
@@ -84,4 +86,3 @@ export async function requireAdminUser(
     }
   }
 }
-
