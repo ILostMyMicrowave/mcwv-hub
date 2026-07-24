@@ -26,6 +26,9 @@ type StatusData = {
   user?: AdminUser;
   overview?: UnknownRecord;
   bot?: UnknownRecord;
+  permissions?: {
+    broadcast?: boolean;
+  };
   cards?: AdminCard[];
   recentActivity?: ActivityItem[];
 };
@@ -833,7 +836,19 @@ export default function AdminPage() {
 
   const canAdmin = currentUser?.role === "owner" || currentUser?.role === "officer";
   const isOwner = currentUser?.role === "owner";
-  const activeSection = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0];
+  const canBroadcast = status?.permissions?.broadcast ?? isOwner;
+  const visibleSections = useMemo(
+    () => (canBroadcast ? SECTIONS : SECTIONS.filter((item) => item.id !== "broadcast")),
+    [canBroadcast]
+  );
+  const activeSection = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
+
+  useEffect(() => {
+    if (canBroadcast || section !== "broadcast") return;
+
+    const timer = window.setTimeout(() => setSection("overview"), 0);
+    return () => window.clearTimeout(timer);
+  }, [canBroadcast, section]);
 
   const overview = status?.overview;
   const bot = status?.bot;
@@ -956,7 +971,7 @@ export default function AdminPage() {
                 </p>
               </div>
               <nav className="grid gap-1">
-                {SECTIONS.map((item) => {
+                {visibleSections.map((item) => {
                   const active = section === item.id;
                   return (
                     <button
