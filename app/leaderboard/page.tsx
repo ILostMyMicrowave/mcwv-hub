@@ -25,6 +25,8 @@ type LeaderboardEntry = {
   discord_id: string | null;
   is_alt?: boolean;
   disconnects24h?: number;
+  change5m?: number;
+  pph?: number;
   style?: ProfileStyle;
 };
 
@@ -646,7 +648,7 @@ function LeaderboardRow({
         </div>
         <div className="hidden text-right sm:block">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">5m Change</div>
-          <div className="mt-1 text-xl font-bold text-white">—</div>
+          <div className="mt-1 text-xl font-bold text-white">{entry.change5m && entry.change5m > 0 ? `+${formatNumber(entry.change5m)}` : "—"}</div>
         </div>
         <div className="hidden text-right sm:block">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Disconnects 24h</div>
@@ -666,7 +668,7 @@ function MiniLineChart({
   accentColor: string;
   emptyLabel?: string;
 }) {
-  if (points.length < 2) {
+  if (points.length < 1) {
     return (
       <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
         {emptyLabel}
@@ -674,16 +676,23 @@ function MiniLineChart({
     );
   }
 
+  const chartSeries = points.length === 1
+    ? [
+        { ...points[0], time: new Date(new Date(points[0].time).getTime() - 60_000).toISOString() },
+        points[0],
+      ]
+    : points;
+
   const width = 720;
   const height = 220;
   const padding = 18;
-  const values = points.map((point) => point.value);
+  const values = chartSeries.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
 
-  const coords = points.map((point, index) => {
-    const x = padding + (index / Math.max(points.length - 1, 1)) * (width - padding * 2);
+  const coords = chartSeries.map((point, index) => {
+    const x = padding + (index / Math.max(chartSeries.length - 1, 1)) * (width - padding * 2);
     const y = height - padding - ((point.value - min) / range) * (height - padding * 2);
     return `${x},${y}`;
   });
@@ -710,8 +719,8 @@ function MiniLineChart({
         })}
       </svg>
       <div className="mt-2 flex justify-between text-xs text-zinc-500">
-        <span>{new Date(points[0].time).toLocaleDateString()}</span>
-        <span>{new Date(points[points.length - 1].time).toLocaleDateString()}</span>
+        <span>{new Date(chartSeries[0].time).toLocaleDateString()}</span>
+        <span>{points.length === 1 ? "First snapshot" : new Date(chartSeries[chartSeries.length - 1].time).toLocaleDateString()}</span>
       </div>
     </div>
   );
@@ -766,8 +775,8 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
   if (!entry) return null;
   const style = getStyle(entry);
   const disconnects24h = history?.disconnects24h ?? entry.disconnects24h ?? 0;
-  const change5m = history?.change5m ?? 0;
-  const pph = history?.pph ?? 0;
+  const change5m = history?.change5m ?? entry.change5m ?? 0;
+  const pph = history?.pph ?? entry.pph ?? 0;
   const chartPoints = history?.[historyTab] ?? [];
 
   return (
@@ -835,7 +844,7 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
 
           <div className="mt-6 flex flex-wrap gap-3">
             <a className="admin-button" href={`https://www.roblox.com/users/${entry.user_id}/profile`} target="_blank" rel="noreferrer">Open Roblox Profile ↗</a>
-            <a className="admin-button" href={`/profile?roblox_id=${entry.user_id}`}>Open MCWV Profile</a>
+            <a className="admin-button" href={`/profile/${entry.user_id}`}>Open MCWV Profile</a>
           </div>
         </div>
       </div>
