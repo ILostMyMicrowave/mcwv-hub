@@ -109,6 +109,7 @@ type ProfileStyle = {
   framePrimaryColor?: string | null;
   frameSecondaryColor?: string | null;
   frameEmoji?: string | null;
+  fontPreset?: string | null;
   bio: string | null;
   badges: string[];
 };
@@ -177,6 +178,7 @@ const DEFAULT_PROFILE_STYLE: ProfileStyle = {
   framePrimaryColor: "#34d399",
   frameSecondaryColor: "#38bdf8",
   frameEmoji: "✨",
+  fontPreset: "default",
   bio: null,
   badges: [],
 };
@@ -194,6 +196,7 @@ async function ensureProfileStylesTable() {
       frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
       frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
       frame_emoji TEXT NOT NULL DEFAULT '✨',
+      font_preset TEXT NOT NULL DEFAULT 'default',
       bio TEXT,
       badges JSONB NOT NULL DEFAULT '[]'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -210,6 +213,7 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT '✨'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS font_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
@@ -225,6 +229,7 @@ type ProfileStyleRow = {
   frame_primary_color?: string | null;
   frame_secondary_color?: string | null;
   frame_emoji?: string | null;
+  font_preset?: string | null;
   bio?: string | null;
   badges?: unknown;
 };
@@ -249,6 +254,7 @@ function normalizeProfileStyle(row: ProfileStyleRow | null | undefined): Profile
     framePrimaryColor: String(row.frame_primary_color ?? "#34d399"),
     frameSecondaryColor: String(row.frame_secondary_color ?? "#38bdf8"),
     frameEmoji: String(row.frame_emoji ?? "✨"),
+    fontPreset: String(row.font_preset ?? "default"),
     bio: row.bio ?? null,
     badges,
   };
@@ -270,6 +276,7 @@ async function attachProfileStyles(entries: LeaderboardEntry[]) {
               frame_primary_color,
               frame_secondary_color,
               frame_emoji,
+              font_preset,
               bio,
               badges
        FROM user_profile_styles
