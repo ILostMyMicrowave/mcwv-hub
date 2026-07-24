@@ -37,13 +37,30 @@ const FRAME_PRESETS = new Set([
 
 const FONT_PRESETS = new Set([
   "default",
-  "gg_sans",
-  "display",
-  "rounded",
-  "mono",
-  "serif",
-  "comic",
+  "nitro_block",
+  "terminal_mono",
+  "royal_serif",
+  "rounded_bold",
+  "varsity",
+  "tech",
 ]);
+
+const FONT_PRESET_ALIASES: Record<string, string> = {
+  gg_sans: "default",
+  display: "nitro_block",
+  rounded: "rounded_bold",
+  mono: "terminal_mono",
+  mono_terminal: "terminal_mono",
+  serif: "royal_serif",
+  comic: "rounded_bold",
+  handwritten: "rounded_bold",
+  blackletter: "varsity",
+  arcade: "tech",
+};
+
+function normalizeFontPreset(value: string) {
+  return FONT_PRESET_ALIASES[value] ?? value;
+}
 
 const styleSchema = z.object({
   backgroundUrl: z.string().trim().max(500).nullable().optional(),
@@ -236,7 +253,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unknown frame preset." }, { status: 400 });
     }
 
-    if (!FONT_PRESETS.has(parsed.data.fontPreset)) {
+    const fontPreset = normalizeFontPreset(parsed.data.fontPreset);
+    if (!FONT_PRESETS.has(fontPreset)) {
       return NextResponse.json({ error: "Unknown font preset." }, { status: 400 });
     }
 
@@ -311,7 +329,7 @@ export async function POST(req: Request) {
         parsed.data.framePrimaryColor,
         parsed.data.frameSecondaryColor,
         parsed.data.frameEmoji || "✨",
-        parsed.data.fontPreset,
+        fontPreset,
         parsed.data.bio || null,
         JSON.stringify(badges),
       ]
