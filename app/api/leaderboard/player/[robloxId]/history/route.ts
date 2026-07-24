@@ -9,6 +9,14 @@ type PointRow = {
   created_at: Date | string;
 };
 
+type SnapshotRow = {
+  points: number | string | null;
+  rank: number | string | null;
+  pph: number | string | null;
+  change_5m: number | string | null;
+  captured_at: Date | string;
+};
+
 type DisconnectRow = {
   created_at: Date | string;
 };
@@ -26,6 +34,11 @@ async function tableExists(tableName: string) {
   return Boolean(result.rows[0]?.exists);
 }
 
+function asNumber(value: number | string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ robloxId: string }> }
@@ -38,13 +51,54 @@ export async function GET(
       return NextResponse.json({ error: "Invalid Roblox ID" }, { status: 400 });
     }
 
-    const pointHistoryExists = await tableExists("point_history");
-    const points: Array<{ time: string; value: number; delta: number }> = [];
+    const points: Array<{ time: string; value: number; delta?: number }> = [];
+    const rank: Array<{ time: string; value: number }> = [];
 
     let change5m = 0;
     let pph = 0;
 
-    if (pointHistoryExists) {
+    const snapshotHistoryExists = await tableExists("player_leaderboard_history");
+
+    if (snapshotHistoryExists) {
+      const snapshotResult = await pool.query<SnapshotRow>(
+        `SELECT points, rank, pph, change_5m, captured_at
+         FROM player_leaderboard_history
+         WHERE roblox_id::text = $1
+         ORDER BY captured_at ASC
+         LIMIT 500`,
+        [String(userId)]
+      );
+
+      let previousPoints: number | null = null;
+      for (const row of snapshotResult.rows) {
+        const value = asNumber(row.points);
+        const ranked = asNumber(row.rank);
+        const iso = toIso(row.captured_at);
+
+        points.push({
+          time: iso,
+          value,
+          delta: previousPoints === null ? 0 : Math.max(0, value - previousPoints),
+        });
+
+        if (ranked > 0) {
+          rank.push({ time: iso, value: ranked });
+        }
+
+        previousPoints = value;
+      }
+
+      const latest = snapshotResult.rows[snapshotResult.rows.length - 1];
+      if (latest) {
+        change5m = asNumber(latest.change_5m);
+        pph = asNumber(latest.pph);
+      }
+    }
+
+    const pointHistoryExists = await tableExists("point_history");
+
+    // Fallback for older installs before snapshot history existed.
+    if (!points.length && pointHistoryExists) {
       const result = await pool.query<PointRow>(
         `SELECT points_added, created_at
          FROM point_history
@@ -57,18 +111,17 @@ export async function GET(
       let running = 0;
       const now = Date.now();
       for (const row of result.rows) {
-        const delta = Number(row.points_added ?? 0);
-        const safeDelta = Number.isFinite(delta) ? delta : 0;
+        const delta = asNumber(row.points_added);
         const createdAtMs = new Date(row.created_at).getTime();
-        running += safeDelta;
+        running += delta;
 
-        if (now - createdAtMs <= 5 * 60 * 1000) change5m += safeDelta;
-        if (now - createdAtMs <= 60 * 60 * 1000) pph += safeDelta;
+        if (now - createdAtMs <= 5 * 60 * 1000) change5m += delta;
+        if (now - createdAtMs <= 60 * 60 * 1000) pph += delta;
 
         points.push({
           time: toIso(row.created_at),
           value: running,
-          delta: safeDelta,
+          delta,
         });
       }
     }
@@ -111,7 +164,7 @@ export async function GET(
       success: true,
       robloxId: String(userId),
       points,
-      rank: [],
+      rank,
       disconnects,
       disconnects24h,
       change5m,
