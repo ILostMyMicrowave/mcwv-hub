@@ -36,7 +36,7 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
   if (!Number.isFinite(userId)) return null
 
   const result = await pool.query(
-    `SELECT id, username, role
+    `SELECT id, username, role, discord_id
      FROM users
      WHERE id = $1
      LIMIT 1`,
