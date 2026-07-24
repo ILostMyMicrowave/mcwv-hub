@@ -32,7 +32,10 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/");
+      const next = new URLSearchParams(window.location.search).get("next");
+      const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+
+      router.push(safeNext);
       router.refresh();
     } catch {
       setError("Something went wrong");
