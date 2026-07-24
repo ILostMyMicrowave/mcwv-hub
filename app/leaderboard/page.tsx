@@ -152,14 +152,55 @@ const FRAME_PRESETS: Record<string, { label: string; className: string; frameCla
 
 const ACCENT_PRESETS = ["#34d399", "#38bdf8", "#ef4444", "#a78bfa", "#facc15", "#ec4899"];
 
-const FONT_PRESETS: Record<string, { label: string; family: string; letterSpacing?: string; textTransform?: "none" | "uppercase" }> = {
+const FONT_PRESETS: Record<
+  string,
+  {
+    label: string;
+    family: string;
+    letterSpacing?: string;
+    textTransform?: "none" | "uppercase";
+    fontWeight?: number | string;
+    fontStyle?: "normal" | "italic";
+  }
+> = {
   default: { label: "Default", family: "inherit" },
-  gg_sans: { label: "GG Sans Style", family: "gg sans, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" },
-  display: { label: "Nitro Display", family: "ABC Ginto Nord, Ginto Nord, Impact, Haettenschweiler, Arial Narrow Bold, sans-serif", letterSpacing: "0.02em" },
-  rounded: { label: "Rounded Soft", family: "Nunito, Avenir Next Rounded Std, Avenir Next, ui-rounded, system-ui, sans-serif" },
-  mono: { label: "Mono Tag", family: "JetBrains Mono, SFMono-Regular, Consolas, Liberation Mono, monospace", letterSpacing: "0.02em" },
-  serif: { label: "Elegant Serif", family: "Georgia, Cambria, Times New Roman, serif" },
-  comic: { label: "Playful", family: "Comic Sans MS, Comic Sans, Chalkboard SE, cursive" },
+  nitro_block: {
+    label: "Nitro Block",
+    family: "Impact, Haettenschweiler, 'Arial Black', 'Arial Narrow Bold', sans-serif",
+    letterSpacing: "0.035em",
+    textTransform: "uppercase",
+    fontWeight: 900,
+  },
+  mono_terminal: {
+    label: "Terminal Mono",
+    family: "'Courier New', Courier, 'Lucida Console', monospace",
+    letterSpacing: "0.045em",
+    fontWeight: 800,
+  },
+  royal_serif: {
+    label: "Royal Serif",
+    family: "Georgia, 'Times New Roman', Times, serif",
+    fontWeight: 700,
+    fontStyle: "italic",
+  },
+  handwritten: {
+    label: "Handwritten",
+    family: "'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive",
+    fontWeight: 700,
+  },
+  blackletter: {
+    label: "Blackletter",
+    family: "'Old English Text MT', 'UnifrakturCook', 'Blackletter', fantasy",
+    letterSpacing: "0.025em",
+    fontWeight: 800,
+  },
+  arcade: {
+    label: "Arcade",
+    family: "'Copperplate', 'Copperplate Gothic Light', 'Lucida Console', fantasy",
+    letterSpacing: "0.075em",
+    textTransform: "uppercase",
+    fontWeight: 900,
+  },
 };
 
 function getStyle(entry?: LeaderboardEntry | null) {
@@ -184,6 +225,8 @@ function fontStyle(style: ProfileStyle): CSSProperties {
     fontFamily: preset.family,
     letterSpacing: preset.letterSpacing,
     textTransform: preset.textTransform,
+    fontWeight: preset.fontWeight,
+    fontStyle: preset.fontStyle,
   };
 }
 
@@ -1018,7 +1061,8 @@ function StyleEditorModal({
         setFramePrimaryColor(String(saved.framePrimaryColor ?? saved.frame_primary_color ?? "#34d399"));
         setFrameSecondaryColor(String(saved.frameSecondaryColor ?? saved.frame_secondary_color ?? "#38bdf8"));
         setFrameEmoji(String(saved.frameEmoji ?? saved.frame_emoji ?? "✨"));
-        setFontPreset(String(saved.fontPreset ?? saved.font_preset ?? "default"));
+        const savedFont = String(saved.fontPreset ?? saved.font_preset ?? "default");
+        setFontPreset(FONT_PRESETS[savedFont] ? savedFont : "default");
         setBio(String(saved.bio ?? ""));
         const savedBadges = Array.isArray(saved.badges) ? saved.badges.map(String) : [];
         setBadgesText(savedBadges.join(", "));
