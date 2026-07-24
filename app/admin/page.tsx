@@ -141,6 +141,13 @@ type BroadcastPreview = {
   missingTicketRecipients: BroadcastRecipient[];
 };
 
+function renderBroadcastPreviewMessage(template: string, recipient?: BroadcastRecipient) {
+  return template
+    .replaceAll("{username}", String(recipient?.username ?? "ExampleUser"))
+    .replaceAll("{points}", String(recipient?.points ?? 0))
+    .replaceAll("{rank}", String(recipient?.rank ?? "—"));
+}
+
 type ToastState = {
   message: string;
   tone: "success" | "error" | "info";
