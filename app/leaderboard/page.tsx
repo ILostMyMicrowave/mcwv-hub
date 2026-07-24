@@ -167,39 +167,39 @@ const FONT_PRESETS: Record<
   nitro_block: {
     label: "Nitro Block",
     family: "Impact, Haettenschweiler, 'Arial Black', 'Arial Narrow Bold', sans-serif",
-    letterSpacing: "0.035em",
+    letterSpacing: "0.03em",
     textTransform: "uppercase",
     fontWeight: 900,
   },
-  mono_terminal: {
+  terminal_mono: {
     label: "Terminal Mono",
     family: "'Courier New', Courier, 'Lucida Console', monospace",
-    letterSpacing: "0.045em",
+    letterSpacing: "0.035em",
     fontWeight: 800,
   },
   royal_serif: {
     label: "Royal Serif",
     family: "Georgia, 'Times New Roman', Times, serif",
-    fontWeight: 700,
-    fontStyle: "italic",
-  },
-  handwritten: {
-    label: "Handwritten",
-    family: "'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive",
-    fontWeight: 700,
-  },
-  blackletter: {
-    label: "Blackletter",
-    family: "'Old English Text MT', 'UnifrakturCook', 'Blackletter', fantasy",
-    letterSpacing: "0.025em",
     fontWeight: 800,
   },
-  arcade: {
-    label: "Arcade",
-    family: "'Copperplate', 'Copperplate Gothic Light', 'Lucida Console', fantasy",
-    letterSpacing: "0.075em",
+  rounded_bold: {
+    label: "Rounded Bold",
+    family: "Arial Rounded MT Bold, Trebuchet MS, Verdana, ui-rounded, system-ui, sans-serif",
+    fontWeight: 800,
+  },
+  varsity: {
+    label: "Varsity",
+    family: "Rockwell, 'Roboto Slab', Georgia, serif",
+    letterSpacing: "0.04em",
     textTransform: "uppercase",
     fontWeight: 900,
+  },
+  tech: {
+    label: "Tech Wide",
+    family: "Eurostile, 'Arial Narrow', 'Trebuchet MS', Arial, sans-serif",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    fontWeight: 800,
   },
 };
 
