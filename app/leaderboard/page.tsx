@@ -637,7 +637,7 @@ function LeaderboardRow({
   onOpen: () => void;
 }) {
   const style = getStyle(entry);
-  const badges = [entry.discord_id ? "Discord" : null, entry.is_alt ? "Alt" : null, ...(style.badges ?? [])].filter(Boolean);
+  const badges = [entry.is_alt ? "Alt" : null, ...(style.badges ?? [])].filter(Boolean);
 
   return (
     <button
