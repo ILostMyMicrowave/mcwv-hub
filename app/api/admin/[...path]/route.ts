@@ -14,6 +14,7 @@ const OFFICER_ACTIONS = new Set([
   "invite/delete",
   "player/sync",
   "player/add-alt",
+  "broadcast/send",
 ])
 
 const OWNER_ACTIONS = new Set([
