@@ -182,19 +182,19 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
 
 const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   overview:
-    "A quick operational summary of bot health, database status, tracked players, events, and recent admin activity.",
+    "A quick summary of bot health, database status, tracked players, events, and recent admin activity.",
   bot:
     "Live runtime health, Discord latency, process usage, queue status, and background loop monitoring.",
   broadcast:
-    "Send themed staff broadcasts to filtered clan audiences through DMs or saved ticket channels.",
+    "Send broadcasts to filtered clan members through DMs or their tickets.",
   invites:
-    "Create, pause, resume, and review invite competitions, leaderboards, invited members, and removed fake invites.",
+    "Create, pause, resume, and review invite events, leaderboards, invited members, fake invites etc.",
   giveaways:
-    "Manage Discord-style giveaways, entries, winner counts, rerolls, and invite-event-linked rewards.",
+    "Manage giveaways, entries, winner counts, rerolls, and invite-event-linked rewards.",
   players:
     "Review tracked Roblox accounts, Discord links, presence state, profile sync status, and removal actions.",
   links:
-    "Audit and manage Discord-to-Roblox links, main accounts, alternate accounts, and unlink actions.",
+    "Audit and manage Discord-to-Roblox links, main accounts, alt accounts, and unlink actions.",
   war:
     "Track current battle status, clan points, progress, contribution changes, and war sync actions.",
   logs:
