@@ -374,8 +374,6 @@ export default function WarInfoPage() {
 
   const warTitle = war.warName ?? "War Info";
   const dateRange = `${formatDateTime(war.startTime)} — ${formatDateTime(war.endTime)}`;
-  const progressText = progress === null ? "—" : `${progress.toFixed(1)}%`;
-
   return (
     <main className="min-h-screen text-white" style={{ background: "var(--background)" }}>
       <AnimatedBackground />
@@ -419,40 +417,18 @@ export default function WarInfoPage() {
             </div>
           </section>
 
-          <div className="grid gap-5 lg:grid-cols-3">
-            <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Timeline</h2>
-              <div className="mt-4">
-                <InfoRow label="Starts" value={formatDateTime(war.startTime)} />
-                <InfoRow label="Ends" value={formatDateTime(war.endTime)} />
-                <InfoRow label="Duration" value={durationText} />
-                <InfoRow
-                  label={war.state === "live" ? "Time left" : "Countdown"}
-                  value={war.state === "live" && timeLeftMs !== null ? formatDuration(timeLeftMs) : status}
-                />
-              </div>
-            </section>
-
-            <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Clan</h2>
-              <div className="mt-4">
-                <InfoRow label="Current placement" value={placement} />
-                <InfoRow label="Total points" value={formatNumber(war.totalPoints)} />
-                <InfoRow label="Total clans" value={formatNumber(war.totalClans)} />
-                <InfoRow label="Participants" value={formatNumber(war.participants)} />
-              </div>
-            </section>
-
-            <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Battle</h2>
-              <div className="mt-4">
-                <InfoRow label="Battle ID" value={war.battleId ?? "—"} />
-                <InfoRow label="Status" value={status} />
-                <InfoRow label="Progress" value={progressText} />
-                <InfoRow label="Max participants" value={formatNumber(war.maxParticipants)} />
-              </div>
-            </section>
-          </div>
+          <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Timeline</h2>
+            <div className="mt-4 grid gap-x-8 sm:grid-cols-2">
+              <InfoRow label="Starts" value={formatDateTime(war.startTime)} />
+              <InfoRow label="Ends" value={formatDateTime(war.endTime)} />
+              <InfoRow label="Duration" value={durationText} />
+              <InfoRow
+                label={war.state === "live" ? "Time left" : "Status"}
+                value={war.state === "live" && timeLeftMs !== null ? formatDuration(timeLeftMs) : status}
+              />
+            </div>
+          </section>
         </div>
       </div>
       <PageStyles />
