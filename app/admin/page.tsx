@@ -2,7 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -634,13 +634,15 @@ function isAdminSection(value: string | null): value is AdminSection {
   return SECTIONS.some((item) => item.id === value);
 }
 
+function getInitialAdminSection(): AdminSection {
+  if (typeof window === "undefined") return "overview";
+  const requested = new URLSearchParams(window.location.search).get("section");
+  return isAdminSection(requested) ? requested : "overview";
+}
+
 export default function AdminPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [section, setSection] = useState<AdminSection>(() => {
-    const requested = searchParams.get("section");
-    return isAdminSection(requested) ? requested : "overview";
-  });
+  const [section, setSection] = useState<AdminSection>(getInitialAdminSection);
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [status, setStatus] = useState<StatusData | null>(null);
@@ -861,15 +863,16 @@ export default function AdminPage() {
   const activeSection = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
 
   useEffect(() => {
-    const requested = searchParams.get("section");
+    if (typeof window === "undefined") return;
+    const requested = new URLSearchParams(window.location.search).get("section");
     if (!isAdminSection(requested)) return;
     if (!visibleSections.some((item) => item.id === requested)) return;
     setSection(requested);
-  }, [searchParams, visibleSections]);
+  }, [visibleSections]);
 
   function selectSection(nextSection: AdminSection) {
     setSection(nextSection);
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
     params.set("section", nextSection);
     router.replace(`/admin?${params.toString()}`, { scroll: false });
   }
