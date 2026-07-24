@@ -34,6 +34,7 @@ type CurrentUser = {
   id: number;
   username: string;
   roblox_id?: string | number | null;
+  role?: "member" | "officer" | "owner" | string | null;
 };
 
 type PlayerHistoryPoint = {
@@ -139,6 +140,10 @@ const ACCENT_PRESETS = ["#34d399", "#38bdf8", "#ef4444", "#a78bfa", "#facc15", "
 
 function getStyle(entry?: LeaderboardEntry | null) {
   return entry?.style ?? DEFAULT_STYLE;
+}
+
+function canManageCards(user: CurrentUser | null) {
+  return user?.role === "officer" || user?.role === "owner";
 }
 
 function backgroundCss(style: ProfileStyle) {
@@ -598,7 +603,7 @@ function LeaderboardRow({
     <button
       type="button"
       onClick={onOpen}
-      className="group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5"
+      className="smooth-card group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5"
       style={{ borderColor: `${style.accentColor}55` }}
     >
       <BackgroundLayer style={style} />
@@ -726,7 +731,17 @@ function MiniLineChart({
   );
 }
 
-function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null; onClose: () => void }) {
+function PlayerMiniProfile({
+  entry,
+  currentUser,
+  onClose,
+  onEditCard,
+}: {
+  entry: LeaderboardEntry | null;
+  currentUser: CurrentUser | null;
+  onClose: () => void;
+  onEditCard: (entry: LeaderboardEntry) => void;
+}) {
   const [history, setHistory] = useState<PlayerHistory | null>(null);
   const [historyTab, setHistoryTab] = useState<"points" | "rank" | "disconnects">("points");
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -774,6 +789,7 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
 
   if (!entry) return null;
   const style = getStyle(entry);
+  const officerTools = canManageCards(currentUser);
   const disconnects24h = history?.disconnects24h ?? entry.disconnects24h ?? 0;
   const change5m = history?.change5m ?? entry.change5m ?? 0;
   const pph = history?.pph ?? entry.pph ?? 0;
@@ -781,8 +797,8 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
-      <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
-      <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
+      <button className="modal-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
+      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
         <BackgroundLayer style={style} />
         <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" />
         <div className="relative p-6 sm:p-8">
@@ -845,6 +861,9 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
           <div className="mt-6 flex flex-wrap gap-3">
             <a className="admin-button" href={`https://www.roblox.com/users/${entry.user_id}/profile`} target="_blank" rel="noreferrer">Open Roblox Profile ↗</a>
             <a className="admin-button" href={`/profile/${entry.user_id}`}>Open MCWV Profile</a>
+            {officerTools && (
+              <button type="button" className="admin-button" onClick={() => onEditCard(entry)}>Officer Override Card</button>
+            )}
           </div>
         </div>
       </div>
@@ -864,11 +883,13 @@ function MiniProfileStat({ label, value }: { label: string; value: string }) {
 function StyleEditorModal({
   open,
   currentUser,
+  targetEntry,
   onClose,
   onSaved,
 }: {
   open: boolean;
   currentUser: CurrentUser | null;
+  targetEntry: LeaderboardEntry | null;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
@@ -880,6 +901,10 @@ function StyleEditorModal({
   const [badgesText, setBadgesText] = useState("");
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const officerTools = canManageCards(currentUser);
+  const targetRobloxId = targetEntry ? String(targetEntry.user_id) : currentUser?.roblox_id ? String(currentUser.roblox_id) : "";
+  const editingAnotherMember = Boolean(targetEntry && targetRobloxId !== String(currentUser?.roblox_id ?? ""));
+  const canEditBadges = officerTools;
 
   useEffect(() => {
     if (!open) return;
@@ -889,7 +914,10 @@ function StyleEditorModal({
     async function loadSavedStyle() {
       setStatus("Loading saved style...");
       try {
-        const res = await fetch("/api/leaderboard/style", {
+        const params = new URLSearchParams();
+        if (targetEntry) params.set("robloxId", String(targetEntry.user_id));
+
+        const res = await fetch(`/api/leaderboard/style?${params.toString()}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -932,7 +960,7 @@ function StyleEditorModal({
     void loadSavedStyle();
 
     return () => controller.abort();
-  }, [open]);
+  }, [open, targetEntry]);
 
   if (!open) return null;
 
@@ -944,12 +972,13 @@ function StyleEditorModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          targetRobloxId: targetEntry ? String(targetEntry.user_id) : undefined,
           backgroundPreset,
           backgroundUrl: backgroundUrl.trim() || null,
           accentColor,
           framePreset,
           bio: bio.trim() || null,
-          badges: badgesText.split(",").map((badge) => badge.trim()).filter(Boolean),
+          badges: canEditBadges ? badgesText.split(",").map((badge) => badge.trim()).filter(Boolean) : [],
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -976,13 +1005,15 @@ function StyleEditorModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center px-4 py-6">
-      <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close editor" />
-      <div className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border p-5 shadow-2xl sm:p-6" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
+      <button className="modal-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close editor" />
+      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border p-5 shadow-2xl sm:p-6" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Leaderboard Style</div>
-            <h2 className="mt-1 text-2xl font-bold text-white">Customize My Card</h2>
-            <p className="mt-2 text-sm text-zinc-400">Signed in as {currentUser?.username ?? "unknown"}. Your Roblox account must be linked.</p>
+            <h2 className="mt-1 text-2xl font-bold text-white">{editingAnotherMember ? `Override ${targetEntry?.name}'s Card` : "Customize My Card"}</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Signed in as {currentUser?.username ?? "unknown"}. {editingAnotherMember ? "Officer tools are enabled for this card." : "Your Roblox account must be linked."}
+            </p>
           </div>
           <button className="admin-button" onClick={onClose}>×</button>
         </div>
@@ -991,8 +1022,12 @@ function StyleEditorModal({
           <div className="absolute" />
           <div className="rounded-2xl p-5" style={{ background: backgroundCss(previewStyle) }}>
             <div className="text-xs uppercase tracking-[0.2em]" style={{ color: accentColor }}>Preview</div>
-            <div className="mt-2 text-3xl font-bold" style={{ color: accentColor }}>{currentUser?.username ?? "Your Card"}</div>
+            <div className="mt-2 text-3xl font-bold" style={{ color: accentColor }}>{targetEntry?.name ?? currentUser?.username ?? "Your Card"}</div>
             <p className="mt-2 max-w-lg text-sm italic text-zinc-200">{bio || "Your bio or quote will appear here."}</p>
+            <div className="mt-4 flex items-center gap-3">
+              <div className={`h-14 w-14 rounded-full bg-black/45 ring-4 ${FRAME_PRESETS[framePreset]?.className ?? FRAME_PRESETS.none.className}`} style={{ boxShadow: `0 0 24px ${accentColor}66` }} />
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-300">{FRAME_PRESETS[framePreset]?.label ?? "Frame preview"}</span>
+            </div>
           </div>
         </div>
 
@@ -1027,10 +1062,18 @@ function StyleEditorModal({
             <span className="admin-label">Bio / quote</span>
             <textarea className="admin-input min-h-24" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={220} />
           </label>
-          <label className="space-y-2 sm:col-span-2">
-            <span className="admin-label">Badges</span>
-            <input className="admin-input" value={badgesText} onChange={(event) => setBadgesText(event.target.value)} placeholder="Donator, Whale, Elite Performer" />
-          </label>
+          {canEditBadges ? (
+            <label className="space-y-2 sm:col-span-2">
+              <span className="admin-label">Badges</span>
+              <input className="admin-input" value={badgesText} onChange={(event) => setBadgesText(event.target.value)} placeholder="Donator, Whale, Elite Performer" />
+              <p className="text-xs text-zinc-500">Officer-only. Normal members can customize looks/bio, but badges are assigned by officers.</p>
+            </label>
+          ) : (
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
+              <span className="admin-label">Badges</span>
+              <p className="text-sm text-zinc-400">Badges are assigned by officers. Your current badges will be kept when you save.</p>
+            </div>
+          )}
         </div>
 
         {status && <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-200">{status}</div>}
@@ -1057,6 +1100,7 @@ export default function LeaderboardPage() {
   const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<LeaderboardEntry | null>(null);
   const [styleEditorOpen, setStyleEditorOpen] = useState(false);
+  const [selectedStyleTarget, setSelectedStyleTarget] = useState<LeaderboardEntry | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [activity, setActivity] = useState<Array<{ id: string; type: "points" | "rankup" | "rankdown" | "crown" | "join"; text: string }>>([]);
 
@@ -1204,7 +1248,10 @@ export default function LeaderboardPage() {
                     <button
                       type="button"
                       className="admin-button"
-                      onClick={() => setStyleEditorOpen(true)}
+                      onClick={() => {
+                        setSelectedStyleTarget(null);
+                        setStyleEditorOpen(true);
+                      }}
                     >
                       Customize My Card
                     </button>
@@ -1342,10 +1389,20 @@ export default function LeaderboardPage() {
           )}
         </div>
 
-        <PlayerMiniProfile entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
+        <PlayerMiniProfile
+          entry={selectedEntry}
+          currentUser={currentUser}
+          onClose={() => setSelectedEntry(null)}
+          onEditCard={(entry) => {
+            setSelectedStyleTarget(entry);
+            setSelectedEntry(null);
+            setStyleEditorOpen(true);
+          }}
+        />
         <StyleEditorModal
           open={styleEditorOpen}
           currentUser={currentUser}
+          targetEntry={selectedStyleTarget}
           onClose={() => setStyleEditorOpen(false)}
           onSaved={() => load(true)}
         />
@@ -1373,6 +1430,29 @@ export default function LeaderboardPage() {
             }
           }
 
+          @keyframes modalBackdropIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+
+          @keyframes modalPanelIn {
+            from {
+              opacity: 0;
+              transform: translateY(18px) scale(0.97);
+              filter: blur(8px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+              filter: blur(0);
+            }
+          }
+
+          @keyframes cardGlowSweep {
+            from { transform: translateX(-120%) rotate(12deg); }
+            to { transform: translateX(220%) rotate(12deg); }
+          }
+
           .animate-fade-in {
             opacity: 0;
             animation: fadeInUp 0.5s ease-out forwards;
@@ -1380,6 +1460,31 @@ export default function LeaderboardPage() {
 
           .feed-pop {
             animation: feedPop 0.4s ease-out forwards;
+          }
+
+          .modal-backdrop {
+            animation: modalBackdropIn 0.22s ease-out forwards;
+          }
+
+          .modal-panel {
+            transform-origin: center;
+            animation: modalPanelIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          }
+
+          .smooth-card::before {
+            content: "";
+            position: absolute;
+            inset: -45% auto -45% -35%;
+            width: 28%;
+            pointer-events: none;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+            opacity: 0;
+            transform: translateX(-120%) rotate(12deg);
+          }
+
+          .smooth-card:hover::before {
+            opacity: 1;
+            animation: cardGlowSweep 0.85s ease-out;
           }
 
           .admin-button {
