@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import UserSync from "@/components/UserSync";
+import OnboardingTour from "@/components/OnboardingTour";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,6 +48,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <UserSync />
         {children}
+        <OnboardingTour />
       </body>
     </html>
   );
