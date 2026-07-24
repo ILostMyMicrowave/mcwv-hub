@@ -6,6 +6,16 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
+type ProfileStyle = {
+  backgroundUrl: string | null;
+  backgroundType: "image" | "gif" | "video" | null;
+  backgroundPreset: string;
+  accentColor: string;
+  framePreset: string;
+  bio: string | null;
+  badges: string[];
+};
+
 type LeaderboardEntry = {
   rank: number;
   user_id: number;
@@ -13,6 +23,15 @@ type LeaderboardEntry = {
   points: number;
   avatar: string | null;
   discord_id: string | null;
+  is_alt?: boolean;
+  disconnects24h?: number;
+  style?: ProfileStyle;
+};
+
+type CurrentUser = {
+  id: number;
+  username: string;
+  roblox_id?: string | number | null;
 };
 
 type ApiResponse = {
@@ -41,6 +60,68 @@ function formatAgo(timestamp: string | null, nowMs: number) {
 
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
+}
+
+const DEFAULT_STYLE: ProfileStyle = {
+  backgroundUrl: null,
+  backgroundType: null,
+  backgroundPreset: "default",
+  accentColor: "#34d399",
+  framePreset: "none",
+  bio: null,
+  badges: [],
+};
+
+const BACKGROUND_PRESETS: Record<string, { label: string; css: string }> = {
+  default: {
+    label: "Default Glass",
+    css: "radial-gradient(circle at top left, rgba(52,211,153,0.16), transparent 36%), linear-gradient(135deg, rgba(24,24,27,0.96), rgba(3,7,18,0.98))",
+  },
+  emerald_forest: {
+    label: "Emerald Forest",
+    css: "radial-gradient(circle at 20% 10%, rgba(34,197,94,0.35), transparent 28%), linear-gradient(135deg, rgba(6,78,59,0.85), rgba(2,6,23,0.98))",
+  },
+  ice: {
+    label: "Ice",
+    css: "radial-gradient(circle at 80% 0%, rgba(56,189,248,0.35), transparent 30%), linear-gradient(135deg, rgba(12,74,110,0.72), rgba(2,6,23,0.98))",
+  },
+  inferno: {
+    label: "Inferno",
+    css: "radial-gradient(circle at 20% 0%, rgba(249,115,22,0.38), transparent 30%), linear-gradient(135deg, rgba(127,29,29,0.72), rgba(2,6,23,0.98))",
+  },
+  galaxy: {
+    label: "Galaxy",
+    css: "radial-gradient(circle at 30% 20%, rgba(168,85,247,0.34), transparent 30%), radial-gradient(circle at 80% 10%, rgba(59,130,246,0.22), transparent 28%), linear-gradient(135deg, rgba(30,27,75,0.82), rgba(2,6,23,0.98))",
+  },
+  neon: {
+    label: "Neon",
+    css: "linear-gradient(135deg, rgba(16,185,129,0.20), rgba(99,102,241,0.18)), radial-gradient(circle at 85% 20%, rgba(236,72,153,0.28), transparent 28%), rgba(2,6,23,0.98)",
+  },
+  glass: {
+    label: "Dark Glass",
+    css: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)), rgba(2,6,23,0.98)",
+  },
+};
+
+const FRAME_PRESETS: Record<string, { label: string; className: string }> = {
+  none: { label: "None", className: "ring-white/10" },
+  emerald: { label: "Emerald Ring", className: "ring-emerald-300/70" },
+  ice: { label: "Ice Ring", className: "ring-sky-300/70" },
+  inferno: { label: "Inferno Ring", className: "ring-orange-400/70" },
+  gold: { label: "Gold Ring", className: "ring-yellow-300/80" },
+  violet: { label: "Violet Ring", className: "ring-violet-300/70" },
+  owner: { label: "Owner Frame", className: "ring-yellow-300/90" },
+  officer: { label: "Officer Frame", className: "ring-emerald-300/90" },
+};
+
+const ACCENT_PRESETS = ["#34d399", "#38bdf8", "#ef4444", "#a78bfa", "#facc15", "#ec4899"];
+
+function getStyle(entry?: LeaderboardEntry | null) {
+  return entry?.style ?? DEFAULT_STYLE;
+}
+
+function backgroundCss(style: ProfileStyle) {
+  return BACKGROUND_PRESETS[style.backgroundPreset]?.css ?? BACKGROUND_PRESETS.default.css;
 }
 
 function createId() {
@@ -433,63 +514,318 @@ function RequirementRenderer({ text }: { text: string }) {
   );
 }
 
+function BackgroundLayer({ style }: { style: ProfileStyle }) {
+  if (style.backgroundUrl && style.backgroundType === "video") {
+    return (
+      <video
+        className="absolute inset-0 h-full w-full object-cover opacity-35"
+        src={style.backgroundUrl}
+        autoPlay
+        muted
+        loop
+        playsInline
+      />
+    );
+  }
+
+  if (style.backgroundUrl) {
+    return (
+      <div
+        className="absolute inset-0 bg-cover bg-center opacity-35"
+        style={{ backgroundImage: `url(${style.backgroundUrl})` }}
+      />
+    );
+  }
+
+  return <div className="absolute inset-0" style={{ background: backgroundCss(style), opacity: 0.9 }} />;
+}
+
+function AvatarWithFrame({ entry, size = "md" }: { entry: LeaderboardEntry; size?: "md" | "lg" }) {
+  const style = getStyle(entry);
+  const frame = FRAME_PRESETS[style.framePreset]?.className ?? FRAME_PRESETS.none.className;
+  const sizeClass = size === "lg" ? "h-24 w-24 ring-4" : "h-16 w-16 ring-4";
+
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full ${sizeClass} ${frame}`}
+      style={{ boxShadow: `0 0 28px ${style.accentColor}55` }}
+    >
+      {entry.avatar ? (
+        <img src={entry.avatar} alt={entry.name} className="h-full w-full object-cover" />
+      ) : (
+        <InitialAvatar name={entry.name} />
+      )}
+    </div>
+  );
+}
+
 function LeaderboardRow({
   entry,
   change,
+  onOpen,
 }: {
   entry: LeaderboardEntry;
   change: number;
+  onOpen: () => void;
 }) {
+  const style = getStyle(entry);
+  const badges = [entry.discord_id ? "Discord" : null, entry.is_alt ? "Alt" : null, ...(style.badges ?? [])].filter(Boolean);
+
   return (
-    <a
-      href={`/profile?roblox_id=${entry.user_id}`}
-      className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-black/30"
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5"
+      style={{ borderColor: `${style.accentColor}55` }}
     >
-      <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-lg font-bold text-zinc-300">
-        #{entry.rank}
+      <BackgroundLayer style={style} />
+      <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px] transition group-hover:bg-black/45" />
+      <div className="absolute inset-x-0 bottom-0 h-px" style={{ background: style.accentColor }} />
 
-        {change > 0 && (
-          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-green-400">
-            ▲{change}
-          </span>
-        )}
-
-        {change < 0 && (
-          <span className="absolute -top-2 -right-2 animate-pulse text-xs font-bold text-red-400">
-            ▼{Math.abs(change)}
-          </span>
-        )}
-      </div>
-
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-white/10">
-        {entry.avatar ? (
-          <img src={entry.avatar} alt={entry.name} className="h-full w-full object-cover" />
-        ) : (
-          <InitialAvatar name={entry.name} />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="truncate font-semibold text-white">{entry.name}</h3>
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] transition ${
-              entry.discord_id
-                ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
-                : "bg-zinc-800/40 text-zinc-400 ring-1 ring-white/10"
-            }`}
-          >
-            {entry.discord_id ? "Discord linked" : "Not linked"}
-          </span>
+      <div className="relative grid min-h-28 grid-cols-[4.5rem_1fr] items-center gap-4 p-4 sm:grid-cols-[5rem_5rem_1.6fr_1fr_1fr_1fr] sm:gap-5">
+        <div className="relative flex h-14 w-14 items-center justify-center rounded-full border bg-black/35 text-lg font-bold text-zinc-100 sm:h-16 sm:w-16" style={{ borderColor: `${style.accentColor}55` }}>
+          {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : `#${entry.rank}`}
+          {change !== 0 && (
+            <span className={`absolute -right-2 -top-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${change > 0 ? "bg-emerald-400 text-black" : "bg-red-400 text-black"}`}>
+              {change > 0 ? `▲${change}` : `▼${Math.abs(change)}`}
+            </span>
+          )}
         </div>
 
-        <p className="truncate text-sm text-zinc-400">Roblox ID: {entry.user_id}</p>
-      </div>
+        <div className="hidden sm:block">
+          <AvatarWithFrame entry={entry} />
+        </div>
 
-      <div className="text-right">
-        <div className="text-lg font-bold text-white">{formatNumber(entry.points)}</div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 sm:hidden">
+            <AvatarWithFrame entry={entry} />
+            <div className="min-w-0">
+              <h3 className="truncate text-xl font-bold" style={{ color: style.accentColor }}>{entry.name}</h3>
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Rank #{entry.rank}</p>
+            </div>
+          </div>
+
+          <div className="hidden sm:block">
+            <h3 className="truncate text-2xl font-bold" style={{ color: style.accentColor }}>{entry.name}</h3>
+            <p className="mt-1 text-xs uppercase tracking-[0.22em] text-zinc-400">{entry.discord_id ? "Linked member" : "Roblox member"}</p>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {badges.slice(0, 4).map((badge) => (
+              <span key={String(badge)} className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-zinc-200">
+                {badge}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="hidden text-right sm:block">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Points</div>
+          <div className="mt-1 text-xl font-bold text-white">{formatNumber(entry.points)}</div>
+        </div>
+        <div className="hidden text-right sm:block">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">5m Change</div>
+          <div className="mt-1 text-xl font-bold text-white">—</div>
+        </div>
+        <div className="hidden text-right sm:block">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Disconnects 24h</div>
+          <div className="mt-1 text-xl font-bold text-white">{entry.disconnects24h ?? 0}</div>
+        </div>
       </div>
-    </a>
+    </button>
+  );
+}
+
+function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null; onClose: () => void }) {
+  if (!entry) return null;
+  const style = getStyle(entry);
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
+      <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
+      <div className="relative z-10 max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
+        <BackgroundLayer style={style} />
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" />
+        <div className="relative p-6 sm:p-8">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+              <AvatarWithFrame entry={entry} size="lg" />
+              <div>
+                <div className="text-xs uppercase tracking-[0.28em]" style={{ color: style.accentColor }}>Rank #{entry.rank}</div>
+                <h2 className="mt-1 text-4xl font-bold text-white">{entry.name}</h2>
+                <p className="mt-2 max-w-xl text-sm italic text-zinc-300">{style.bio || "No bio yet. Customize your card to add one."}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(style.badges?.length ? style.badges : [entry.discord_id ? "Discord linked" : "Roblox member"]).map((badge) => (
+                    <span key={badge} className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">{badge}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button className="admin-button" onClick={onClose}>×</button>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-4">
+            <MiniProfileStat label="Battle Points" value={formatNumber(entry.points)} />
+            <MiniProfileStat label="PPH" value="—" />
+            <MiniProfileStat label="Rank" value={`#${entry.rank}`} />
+            <MiniProfileStat label="Disconnects 24h" value={String(entry.disconnects24h ?? 0)} />
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-white/10 bg-black/45 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Battle History</h3>
+              <span className="text-xs text-zinc-500">Points • Rank • Disconnects</span>
+            </div>
+            <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
+              Not enough data yet
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a className="admin-button" href={`https://www.roblox.com/users/${entry.user_id}/profile`} target="_blank" rel="noreferrer">Open Roblox Profile ↗</a>
+            <a className="admin-button" href={`/profile?roblox_id=${entry.user_id}`}>Open MCWV Profile</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniProfileStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{label}</div>
+      <div className="mt-2 text-xl font-bold text-white">{value}</div>
+    </div>
+  );
+}
+
+function StyleEditorModal({
+  open,
+  currentUser,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  currentUser: CurrentUser | null;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [backgroundPreset, setBackgroundPreset] = useState("default");
+  const [backgroundUrl, setBackgroundUrl] = useState("");
+  const [accentColor, setAccentColor] = useState("#34d399");
+  const [framePreset, setFramePreset] = useState("none");
+  const [bio, setBio] = useState("");
+  const [badgesText, setBadgesText] = useState("");
+  const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  async function save() {
+    setSaving(true);
+    setStatus("Saving...");
+    try {
+      const res = await fetch("/api/leaderboard/style", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backgroundPreset,
+          backgroundUrl: backgroundUrl.trim() || null,
+          accentColor,
+          framePreset,
+          bio: bio.trim() || null,
+          badges: badgesText.split(",").map((badge) => badge.trim()).filter(Boolean),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to save style");
+      setStatus("Saved. Refreshing leaderboard...");
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save style");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const previewStyle: ProfileStyle = {
+    backgroundUrl: backgroundUrl.trim() || null,
+    backgroundType: backgroundUrl.endsWith(".mp4") || backgroundUrl.endsWith(".webm") ? "video" : backgroundUrl.endsWith(".gif") ? "gif" : backgroundUrl ? "image" : null,
+    backgroundPreset,
+    accentColor,
+    framePreset,
+    bio: bio || null,
+    badges: badgesText.split(",").map((badge) => badge.trim()).filter(Boolean),
+  };
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center px-4 py-6">
+      <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close editor" />
+      <div className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border p-5 shadow-2xl sm:p-6" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Leaderboard Style</div>
+            <h2 className="mt-1 text-2xl font-bold text-white">Customize My Card</h2>
+            <p className="mt-2 text-sm text-zinc-400">Signed in as {currentUser?.username ?? "unknown"}. Your Roblox account must be linked.</p>
+          </div>
+          <button className="admin-button" onClick={onClose}>×</button>
+        </div>
+
+        <div className="mb-6 overflow-hidden rounded-3xl border border-white/10 p-5" style={{ borderColor: `${accentColor}55` }}>
+          <div className="absolute" />
+          <div className="rounded-2xl p-5" style={{ background: backgroundCss(previewStyle) }}>
+            <div className="text-xs uppercase tracking-[0.2em]" style={{ color: accentColor }}>Preview</div>
+            <div className="mt-2 text-3xl font-bold" style={{ color: accentColor }}>{currentUser?.username ?? "Your Card"}</div>
+            <p className="mt-2 max-w-lg text-sm italic text-zinc-200">{bio || "Your bio or quote will appear here."}</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-2">
+            <span className="admin-label">Background preset</span>
+            <select className="admin-input" value={backgroundPreset} onChange={(event) => setBackgroundPreset(event.target.value)}>
+              {Object.entries(BACKGROUND_PRESETS).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="admin-label">Frame</span>
+            <select className="admin-input" value={framePreset} onChange={(event) => setFramePreset(event.target.value)}>
+              {Object.entries(FRAME_PRESETS).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="admin-label">Accent colour</span>
+            <div className="flex gap-2">
+              <input className="admin-input" value={accentColor} onChange={(event) => setAccentColor(event.target.value)} />
+              <input type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value)} className="h-12 w-14 rounded-2xl border border-white/10 bg-black/30" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ACCENT_PRESETS.map((color) => <button key={color} type="button" className="h-7 w-7 rounded-full border border-white/20" style={{ background: color }} onClick={() => setAccentColor(color)} />)}
+            </div>
+          </label>
+          <label className="space-y-2">
+            <span className="admin-label">Custom background URL</span>
+            <input className="admin-input" value={backgroundUrl} onChange={(event) => setBackgroundUrl(event.target.value)} placeholder="https://...jpg, gif, mp4, webm" />
+          </label>
+          <label className="space-y-2 sm:col-span-2">
+            <span className="admin-label">Bio / quote</span>
+            <textarea className="admin-input min-h-24" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={220} />
+          </label>
+          <label className="space-y-2 sm:col-span-2">
+            <span className="admin-label">Badges</span>
+            <input className="admin-input" value={badgesText} onChange={(event) => setBadgesText(event.target.value)} placeholder="Donator, Whale, Elite Performer" />
+          </label>
+        </div>
+
+        {status && <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-200">{status}</div>}
+        <div className="mt-6 flex justify-end gap-2">
+          <button className="admin-button" onClick={onClose}>Cancel</button>
+          <button className="admin-button" disabled={saving} onClick={() => void save()}>{saving ? "Saving..." : "Save Style"}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -503,8 +839,11 @@ export default function LeaderboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
   const [rankChange, setRankChange] = useState<Record<number, number>>({});
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
   const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<LeaderboardEntry | null>(null);
+  const [styleEditorOpen, setStyleEditorOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [activity, setActivity] = useState<Array<{ id: string; type: "points" | "rankup" | "rankdown" | "crown" | "join"; text: string }>>([]);
 
   const prevSnapshot = useRef<string>("");
@@ -588,15 +927,28 @@ export default function LeaderboardPage() {
   }
 
   useEffect(() => {
-    load();
+    const initial = window.setTimeout(() => void load(), 0);
     const interval = setInterval(load, 10000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
+      window.clearTimeout(initial);
       clearInterval(interval);
       clearInterval(clock);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBattleId]);
+
+  useEffect(() => {
+    async function loadMe() {
+      const res = await fetch("/api/auth/me", { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const json = await res.json().catch(() => ({}));
+      setCurrentUser(json.user ?? null);
+    }
+
+    loadMe();
+  }, []);
 
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
@@ -633,7 +985,14 @@ export default function LeaderboardPage() {
                 </div>
 
                 <div className="flex flex-col items-end gap-4 text-sm text-zinc-400">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      className="admin-button"
+                      onClick={() => setStyleEditorOpen(true)}
+                    >
+                      Customize My Card
+                    </button>
                     <WarHistoryDropdown
                       selectedBattleId={selectedBattleId}
                       onSelect={setSelectedBattleId}
@@ -713,7 +1072,7 @@ export default function LeaderboardPage() {
 
                       return (
                         <Animated key={entry.user_id} delay="0s">
-                          <LeaderboardRow entry={entry} change={change} />
+                          <LeaderboardRow entry={entry} change={change} onOpen={() => setSelectedEntry(entry)} />
                         </Animated>
                       );
                     })}
@@ -766,6 +1125,14 @@ export default function LeaderboardPage() {
           )}
         </div>
 
+        <PlayerMiniProfile entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
+        <StyleEditorModal
+          open={styleEditorOpen}
+          currentUser={currentUser}
+          onClose={() => setStyleEditorOpen(false)}
+          onSaved={load}
+        />
+
         <style jsx global>{`
           @keyframes fadeInUp {
             from {
@@ -796,6 +1163,47 @@ export default function LeaderboardPage() {
 
           .feed-pop {
             animation: feedPop 0.4s ease-out forwards;
+          }
+
+          .admin-button {
+            border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--primary) 13%, transparent);
+            padding: 0.55rem 0.9rem;
+            color: var(--foreground);
+            font-size: 0.85rem;
+            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+          }
+          .admin-button:hover:not(:disabled) {
+            background: color-mix(in srgb, var(--primary) 22%, transparent);
+            border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+            transform: translateY(-1px);
+          }
+          .admin-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+          }
+          .admin-input {
+            width: 100%;
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--foreground);
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+            outline: none;
+          }
+          .admin-input:focus {
+            border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+          }
+          .admin-label {
+            display: block;
+            color: color-mix(in srgb, var(--foreground) 55%, transparent);
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
           }
 
           @media (prefers-reduced-motion: reduce) {
