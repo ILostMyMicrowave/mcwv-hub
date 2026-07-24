@@ -182,19 +182,19 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
 
 const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   overview:
-    "A quick summary of bot health, database status, tracked players, events, and recent admin activity.",
+    "A quick operational summary of bot health, database status, tracked players, events, and recent admin activity.",
   bot:
     "Live runtime health, Discord latency, process usage, queue status, and background loop monitoring.",
   broadcast:
-    "Send broadcasts to filtered clan members through DMs or their tickets.",
+    "Send themed staff broadcasts to filtered clan audiences through DMs or saved ticket channels.",
   invites:
-    "Create, pause, resume, and review invite events, leaderboards, invited members, fake invites etc.",
+    "Create, pause, resume, and review invite competitions, leaderboards, invited members, and removed fake invites.",
   giveaways:
-    "Manage giveaways, entries, winner counts, rerolls, and invite-event-linked rewards.",
+    "Manage Discord-style giveaways, entries, winner counts, rerolls, and invite-event-linked rewards.",
   players:
     "Review tracked Roblox accounts, Discord links, presence state, profile sync status, and removal actions.",
   links:
-    "Audit and manage Discord-to-Roblox links, main accounts, alt accounts, and unlink actions.",
+    "Audit and manage Discord-to-Roblox links, main accounts, alternate accounts, and unlink actions.",
   war:
     "Track current battle status, clan points, progress, contribution changes, and war sync actions.",
   logs:
@@ -1868,14 +1868,31 @@ function BroadcastSection({
               <MiniStat label="No Ticket" value={preview.missingTicketCount} />
             </div>
             <div>
+              <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Message Preview</div>
+              <div
+                className="rounded-2xl border p-4 text-sm whitespace-pre-wrap"
+                style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--foreground)" }}
+              >
+                {style === "embed" && <div className="mb-2 font-semibold">📢 MCWV Broadcast</div>}
+                {renderBroadcastPreviewMessage(message, preview.sampleRecipients[0])}
+              </div>
+            </div>
+
+            <div>
               <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Sample Recipients</div>
               <div className="space-y-2">
-                {preview.sampleRecipients.map((recipient, index) => (
-                  <div key={safeId("broadcast-sample", recipient.discord_id, index)} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
-                    <div className="font-medium">{recipient.username ?? "Unknown"}</div>
-                    <div className="text-xs text-zinc-500">{recipient.points ?? 0} pts · rank {recipient.rank ?? "—"}</div>
+                {preview.sampleRecipients.length ? (
+                  preview.sampleRecipients.map((recipient, index) => (
+                    <div key={safeId("broadcast-sample", recipient.discord_id, index)} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
+                      <div className="font-medium">{recipient.username ?? "Unknown"}</div>
+                      <div className="text-xs text-zinc-500">{recipient.points ?? 0} pts · rank {recipient.rank ?? "—"}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    No recipients matched this filter. If Everyone shows 0, the bot is not seeing linked users in its database.
                   </div>
-                ))}
+                )}
               </div>
             </div>
             {preview.missingTicketRecipients.length > 0 && (
