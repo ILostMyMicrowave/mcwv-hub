@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 
 const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = "MCWV";
+const CLAN_API = process.env.CLAN_API ?? "";
 
 function toMs(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -61,6 +63,71 @@ function findOurClan(topClans: any[]) {
     topClans.find((c) => String(c?.clanName ?? "").trim().toLowerCase() === target) ??
     null
   );
+}
+
+
+function getClanPoints(clan: any): number | null {
+  return (
+    asNumber(clan?.Points) ??
+    asNumber(clan?.points) ??
+    asNumber(clan?.BattlePoints) ??
+    asNumber(clan?.battlePoints) ??
+    asNumber(clan?.Score) ??
+    asNumber(clan?.score) ??
+    asNumber(clan?.Value) ??
+    asNumber(clan?.value) ??
+    null
+  );
+}
+
+function contributionPoints(entry: any): number {
+  return asNumber(entry?.Points ?? entry?.points ?? entry?.BattlePoints ?? entry?.battlePoints) ?? 0;
+}
+
+function pickClanBattle(clanJson: any, battleId: string, warName?: string | null) {
+  const battles = clanJson?.data?.Battles ?? clanJson?.Battles ?? {};
+  const entries = Object.entries(battles) as Array<[string, any]>;
+  if (!entries.length) return null;
+
+  const targetIds = new Set(
+    [battleId, warName]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, ""))
+  );
+
+  const exact = entries.find(([key, battle]) => {
+    const candidates = [key, battle?.BattleID, battle?.battleId, battle?.configName, battle?.Title, battle?.title]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, ""));
+    return candidates.some((candidate) => targetIds.has(candidate));
+  });
+
+  return exact?.[1] ?? null;
+}
+
+async function getMcwvBattleStats(battleId: string, warName?: string | null) {
+  if (!CLAN_API) return null;
+
+  try {
+    const res = await fetch(CLAN_API, { cache: "no-store" });
+    if (!res.ok) return null;
+
+    const clanJson = await res.json().catch(() => null);
+    const battle = pickClanBattle(clanJson, battleId, warName);
+    if (!battle) return null;
+
+    const contributions = asArray(battle?.PointContributions ?? battle?.pointContributions);
+    const membersWithPoints = contributions.filter((entry) => contributionPoints(entry) > 0).length;
+    const summedPoints = contributions.reduce((total, entry) => total + contributionPoints(entry), 0);
+    const battlePoints = asNumber(battle?.Points ?? battle?.points ?? battle?.BattlePoints ?? battle?.battlePoints);
+
+    return {
+      points: battlePoints ?? summedPoints,
+      participants: membersWithPoints,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function deriveState(meta: any, startTime: string | null, endTime: string | null) {
@@ -169,12 +236,21 @@ export async function GET() {
 
     const state = deriveState(meta, startTime, endTime);
     const topContributor = topPlayers[0] ?? null;
+    const warName = meta?.title ?? meta?.name ?? meta?.id ?? battleId;
+    const mcwvStats = await getMcwvBattleStats(battleId, warName);
+    const mcwvTotalPoints =
+      mcwvStats?.points ??
+      getClanPoints(ourClan) ??
+      asNumber(ourClan?.totalPoints) ??
+      asNumber(ourClan?.TotalPoints) ??
+      0;
+    const mcwvParticipants = mcwvStats?.participants ?? asNumber(ourClan?.participants) ?? asNumber(ourClan?.contributors) ?? 0;
 
     return NextResponse.json({
       success: true,
       active: state === "live" || Boolean(battleId),
       battleId,
-      warName: meta?.title ?? meta?.name ?? meta?.id ?? battleId,
+      warName,
       startTime,
       endTime,
       durationSeconds,
@@ -186,8 +262,8 @@ export async function GET() {
         ourClan?.position ??
         null,
       totalClans: asNumber(stats?.participatingClans) ?? asNumber(stats?.sampledClans) ?? topClans.length ?? 0,
-      totalPoints: asNumber(stats?.totalClanPoints) ?? 0,
-      participants: asNumber(stats?.totalContributors) ?? 0,
+      totalPoints: mcwvTotalPoints,
+      participants: mcwvParticipants,
       maxParticipants: asNumber(stats?.sampledClans) ?? topClans.length ?? 0,
       progressPct,
       topContributor,
