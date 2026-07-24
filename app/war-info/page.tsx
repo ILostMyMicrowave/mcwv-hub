@@ -412,7 +412,7 @@ export default function WarInfoPage() {
                   value={<CountUp value={Number(war.totalPoints)} formatter={formatNumber} />}
                 />
                 <MetricTile label="Placement" value={placement} sub={war.clanRank === null ? "Not provided by API" : undefined} />
-                <MetricTile label="Participants" value={formatNumber(war.participants)} sub={`Max ${formatNumber(war.maxParticipants)}`} />
+                <MetricTile label="Participants" value={formatNumber(war.participants)} sub="MCWV members with points" />
               </div>
             </div>
           </section>
