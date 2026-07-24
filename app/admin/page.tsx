@@ -878,6 +878,19 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
+    function handleTourSection(event: Event) {
+      const detail = (event as CustomEvent<{ section?: string }>).detail;
+      const requested = detail?.section ?? null;
+      if (!isAdminSection(requested)) return;
+      if (!visibleSections.some((item) => item.id === requested)) return;
+      setSection(requested);
+    }
+
+    window.addEventListener("mcwv-admin-section", handleTourSection);
+    return () => window.removeEventListener("mcwv-admin-section", handleTourSection);
+  }, [visibleSections]);
+
+  useEffect(() => {
     if (canBroadcast || section !== "broadcast") return;
 
     const timer = window.setTimeout(() => setSection("overview"), 0);
