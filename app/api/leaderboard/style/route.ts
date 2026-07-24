@@ -27,6 +27,11 @@ const FRAME_PRESETS = new Set([
   "violet",
   "owner",
   "officer",
+  "crown",
+  "laurel",
+  "neon_pulse",
+  "galaxy_orbit",
+  "diamond",
 ]);
 
 const styleSchema = z.object({
