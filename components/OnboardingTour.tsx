@@ -127,6 +127,20 @@ async function updateOnboarding(action: "complete" | "skip" | "reset" | "step", 
   }).catch(() => null);
 }
 
+function adminSectionFromHref(href: string) {
+  if (!href.startsWith("/admin")) return null;
+  const query = href.split("?")[1] ?? "";
+  return new URLSearchParams(query).get("section");
+}
+
+function tellAdminPageToOpen(section: string | null) {
+  if (!section || typeof window === "undefined") return;
+
+  const event = new CustomEvent("mcwv-admin-section", { detail: { section } });
+  window.dispatchEvent(event);
+  window.setTimeout(() => window.dispatchEvent(event), 150);
+}
+
 export default function OnboardingTour() {
   const router = useRouter();
   const pathname = usePathname();
@@ -176,7 +190,12 @@ export default function OnboardingTour() {
     setBusy(true);
     setStepId(step.id);
     await updateOnboarding("step", step.id);
+
+    const adminSection = adminSectionFromHref(step.href);
+    tellAdminPageToOpen(adminSection);
     router.push(step.href);
+    tellAdminPageToOpen(adminSection);
+
     setBusy(false);
   }
 
