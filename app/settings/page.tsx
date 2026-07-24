@@ -197,6 +197,23 @@ export default function Settings() {
     }
   }
 
+  async function restartTutorial() {
+    setStatus("Restarting tutorial...");
+    try {
+      const res = await fetch("/api/onboarding", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset" }),
+      });
+
+      if (!res.ok) throw new Error("restart failed");
+      window.location.href = "/";
+    } catch {
+      setStatus("Could not restart tutorial");
+      window.setTimeout(() => setStatus(""), 1800);
+    }
+  }
+
   async function updateRole(userId: number, nextRole: "member" | "officer") {
     if (!canManageRoles) {
       setRolesStatus("You do not have permission to manage roles");
@@ -296,6 +313,24 @@ export default function Settings() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-6 text-left backdrop-blur">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">Website tutorial</h2>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Want a quick refresher? Restart the guided tour whenever you like.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void restartTutorial()}
+                  className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-black transition hover:scale-105 hover:opacity-90"
+                >
+                  Restart Tutorial
+                </button>
               </div>
             </div>
           </div>
@@ -615,6 +650,13 @@ underline`}
                 className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 hover:scale-105"
               >
                 Change Password
+              </button>
+              <button
+                type="button"
+                onClick={() => void restartTutorial()}
+                className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:scale-105 hover:bg-emerald-400/15"
+              >
+                Restart Tutorial
               </button>
               <button
                 type="button"
