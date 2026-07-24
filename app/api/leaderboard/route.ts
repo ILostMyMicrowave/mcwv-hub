@@ -106,7 +106,7 @@ type LeaderboardEntry = {
   rank: number;
   user_id: number;
   name: string;
-  points: number;
+  points: number | null;
   avatar: string | null;
   discord_id: string | null;
   is_alt?: boolean;
@@ -191,6 +191,7 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_styles_roblox_id_key ON user_profile_styles (roblox_id)`);
 }
 
 type ProfileStyleRow = {
@@ -462,6 +463,90 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   };
 }
 
+/* ---------------- INACTIVE ROSTER FALLBACK ---------------- */
+
+async function buildInactiveRoster(title = "MCWV Roster"): Promise<LeaderboardResponse> {
+  const rows: Array<{
+    roblox_id: string;
+    username: string | null;
+    discord_id: string | null;
+    is_alt: boolean;
+  }> = [];
+
+  const mainRes = await pool.query(
+    `SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id,
+            username::text AS username,
+            discord_id::text AS discord_id,
+            false AS is_alt
+     FROM users
+     WHERE roblox_id IS NOT NULL
+       AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+  );
+
+  rows.push(...mainRes.rows);
+
+  const altTable = await pool.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.user_alts') IS NOT NULL AS exists`
+  );
+
+  if (altTable.rows[0]?.exists) {
+    const altRes = await pool.query(
+      `SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id,
+              username::text AS username,
+              discord_id::text AS discord_id,
+              true AS is_alt
+       FROM user_alts
+       WHERE roblox_id IS NOT NULL
+         AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+    );
+
+    rows.push(...altRes.rows);
+  }
+
+  const deduped = new Map<string, typeof rows[number]>();
+  for (const row of rows) {
+    if (!row.roblox_id) continue;
+    const existing = deduped.get(row.roblox_id);
+    if (!existing || (existing.is_alt && !row.is_alt)) {
+      deduped.set(row.roblox_id, row);
+    }
+  }
+
+  const rosterRows = Array.from(deduped.values()).sort((a, b) =>
+    String(a.username ?? a.roblox_id).localeCompare(String(b.username ?? b.roblox_id))
+  );
+
+  const robloxIds = rosterRows.map((row) => Number(row.roblox_id)).filter(Number.isFinite);
+  const [nameMap, avatarMap] = await Promise.all([
+    getNames(robloxIds),
+    getAvatars(robloxIds),
+  ]);
+
+  const entries: LeaderboardEntry[] = rosterRows.map((row, index) => {
+    const user_id = Number(row.roblox_id);
+
+    return {
+      rank: index + 1,
+      user_id,
+      name: row.username || nameMap.get(user_id) || `Unknown (${row.roblox_id})`,
+      points: null,
+      avatar: avatarMap.get(user_id) ?? null,
+      discord_id: row.discord_id ?? null,
+      is_alt: row.is_alt,
+      disconnects24h: 0,
+    };
+  });
+
+  return {
+    success: true,
+    active: false,
+    title: `${title} - No Active War`,
+    total_points: 0,
+    updatedAt: new Date().toISOString(),
+    data: await attachProfileStyles(entries),
+  };
+}
+
 /* ---------------- MAIN BUILDER ---------------- */
 
 async function buildLeaderboard(): Promise<LeaderboardResponse> {
@@ -481,14 +566,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
   if (!active) {
     resetPointHistoryTracking();
-    return {
-      success: true,
-      active: false,
-      title,
-      total_points: 0,
-      updatedAt: new Date().toISOString(),
-      data: [],
-    };
+    return buildInactiveRoster(title);
   }
 
   const battles = (clan?.data?.Battles ?? {}) as Record<string, Battle>;
