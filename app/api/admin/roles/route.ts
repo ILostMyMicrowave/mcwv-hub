@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
-import { requireAdminUser } from "@/lib/adminAuth"
+import { requireBroadcastUser } from "@/lib/broadcastAccess"
 import { BotAdminApiError, botAdminFetch, botAdminApiConfigured } from "@/lib/botAdminApi"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 export async function GET() {
-  const auth = await requireAdminUser("officer")
+  const auth = await requireBroadcastUser()
   if (!auth.ok) return auth.response
 
   if (!botAdminApiConfigured()) {
@@ -27,4 +27,3 @@ export async function GET() {
     )
   }
 }
-
