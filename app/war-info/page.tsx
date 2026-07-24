@@ -124,80 +124,6 @@ function CountUp({
   return <span ref={ref}>{formatter(displayValue)}</span>;
 }
 
-// Panel component - matches contributions page
-function Panel({
-  title,
-  children,
-  right,
-  delay = "0ms",
-}: {
-  title: string;
-  children: ReactNode;
-  right?: ReactNode;
-  delay?: string;
-}) {
-  return (
-    <section
-      className="rounded-3xl border p-4 backdrop-blur sm:p-6"
-      style={{
-        background: "var(--card)",
-        borderColor: "var(--border)",
-        animation: "fadeInUp 0.5s ease-out forwards",
-        animationDelay: delay,
-        opacity: 0,
-      }}
-    >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          {title}
-        </h2>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-// KpiCard component - matches contributions page
-function KpiCard({
-  title,
-  value,
-  sub,
-  animate = false,
-  numericValue,
-  delay = "0ms",
-}: {
-  title: string;
-  value: string | number;
-  sub?: string;
-  animate?: boolean;
-  numericValue?: number;
-  delay?: string;
-}) {
-  return (
-    <div
-      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
-      style={{
-        background: "var(--card)",
-        borderColor: "var(--border)",
-        animation: "fadeInUp 0.5s ease-out forwards",
-        animationDelay: delay,
-        opacity: 0,
-      }}
-    >
-      <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">{title}</div>
-      <div className="mt-2 text-2xl font-bold text-white">
-        {animate && numericValue !== undefined ? (
-          <CountUp value={numericValue} formatter={formatNumber} />
-        ) : (
-          value
-        )}
-      </div>
-      {sub && <div className="mt-1 text-xs text-zinc-400">{sub}</div>}
-    </div>
-  );
-}
-
 function StateChip({ state, refreshing }: { state: string; refreshing: boolean }) {
   const live = state === "live";
   return (
@@ -221,14 +147,18 @@ function StateChip({ state, refreshing }: { state: string; refreshing: boolean }
   );
 }
 
-function ProgressBar({ value }: { value: number | null }) {
+function ProgressBar({ value, label = "Progress" }: { value: number | null; label?: string }) {
   const safe = Math.max(0, Math.min(100, value ?? 0));
 
   return (
     <div className="transition-opacity duration-500">
+      <div className="mb-2 flex items-center justify-between text-xs text-[var(--foreground)]/60">
+        <span>{label}</span>
+        <span>{value === null ? "—" : `${safe.toFixed(1)}%`}</span>
+      </div>
       <div className="h-3 overflow-hidden rounded-full bg-black/30">
         <div
-          className="h-full rounded-full transition-all duration-500 animate-gradientMove gradient-bar"
+          className="h-full rounded-full transition-all duration-700 animate-gradientMove gradient-bar"
           style={{
             width: `${safe}%`,
             background: "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
@@ -237,10 +167,25 @@ function ProgressBar({ value }: { value: number | null }) {
           }}
         />
       </div>
-      <div className="mt-2 flex items-center justify-between text-xs text-[var(--foreground)]/55">
-        <span>{value === null ? "—" : `${safe.toFixed(1)}% complete`}</span>
-        <span>Live progress</span>
-      </div>
+    </div>
+  );
+}
+
+function MetricTile({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/45">{label}</div>
+      <div className="mt-2 text-2xl font-black text-white">{value}</div>
+      {sub && <div className="mt-1 text-xs text-[var(--foreground)]/45">{sub}</div>}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-white/10 py-3 last:border-b-0">
+      <span className="text-sm text-[var(--foreground)]/55">{label}</span>
+      <span className="text-right text-sm font-semibold text-white">{value}</span>
     </div>
   );
 }
@@ -436,78 +381,77 @@ export default function WarInfoPage() {
       <AnimatedBackground />
       <Navbar />
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-        <div className="space-y-6" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
+        <div className="space-y-5" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
           <section
-            className="overflow-hidden rounded-[2rem] border backdrop-blur"
+            className="relative overflow-hidden rounded-[2rem] border p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-7"
             style={{
               borderColor: "var(--border)",
               background:
-                "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 86%, transparent))",
+                "linear-gradient(135deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 82%, transparent))",
             }}
           >
-            <div className="relative p-6 sm:p-7">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(96,165,250,0.10),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(52,211,153,0.08),transparent_34%)]" />
-              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/70">
-                      MCWV War Info
-                    </span>
-                    <StateChip state={war.state} refreshing={refreshing} />
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-5xl">{warTitle}</h1>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--foreground)]/70">{dateRange}</p>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(52,211,153,0.13),transparent_34%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.12),transparent_36%)]" />
+            <div className="relative grid gap-7 lg:grid-cols-[1.25fr_0.75fr] lg:items-center">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/70">
+                    War Info
+                  </span>
+                  <StateChip state={war.state} refreshing={refreshing} />
                 </div>
-                <div className="grid min-w-[280px] gap-3 sm:grid-cols-2 lg:w-[440px]">
-                  <KpiCard title="Placement" value={placement} delay="0.1s" />
-                  <KpiCard
-                    title="Countdown"
-                    value={timeLeftMs !== null ? formatDuration(timeLeftMs) : "—"}
-                    sub={war.state === "live" ? "Until war ends" : "War completed"}
-                    delay="0.15s"
-                  />
+
+                <h1 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-5xl">{warTitle}</h1>
+                <p className="mt-3 text-sm text-[var(--foreground)]/65">{dateRange}</p>
+
+                <div className="mt-7 max-w-3xl">
+                  <ProgressBar value={progress} label={war.state === "past" ? "Final progress" : "Battle progress"} />
                 </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                <MetricTile
+                  label="Total Points"
+                  value={<CountUp value={Number(war.totalPoints)} formatter={formatNumber} />}
+                />
+                <MetricTile label="Placement" value={placement} sub={war.clanRank === null ? "Not provided by API" : undefined} />
+                <MetricTile label="Participants" value={formatNumber(war.participants)} sub={`Max ${formatNumber(war.maxParticipants)}`} />
               </div>
             </div>
           </section>
 
-          <Panel
-            title="Battle progress"
-            right={<span className="text-xs text-zinc-400">Clean view of the live battle status</span>}
-            delay="0.2s"
-          >
-            <div className="space-y-5">
-              <ProgressBar value={progress} />
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <KpiCard title="Starts" value={formatDateTime(war.startTime)} delay="0.25s" />
-                <KpiCard title="Ends" value={formatDateTime(war.endTime)} delay="0.3s" />
-                <KpiCard title="Duration" value={durationText} delay="0.35s" />
-                <KpiCard title="Status" value={status} delay="0.4s" />
+          <div className="grid gap-5 lg:grid-cols-3">
+            <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Timeline</h2>
+              <div className="mt-4">
+                <InfoRow label="Starts" value={formatDateTime(war.startTime)} />
+                <InfoRow label="Ends" value={formatDateTime(war.endTime)} />
+                <InfoRow label="Duration" value={durationText} />
+                <InfoRow
+                  label={war.state === "live" ? "Time left" : "Countdown"}
+                  value={war.state === "live" && timeLeftMs !== null ? formatDuration(timeLeftMs) : status}
+                />
               </div>
-            </div>
-          </Panel>
+            </section>
 
-          <div
-            className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]"
-            style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}
-          >
-            <Panel title="Clan summary" right={<span className="text-xs text-zinc-400">The important numbers only</span>} delay="0.3s">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <KpiCard title="Current placement" value={placement} delay="0.3s" />
-                <KpiCard title="Total points" value={formatNumber(war.totalPoints)} animate numericValue={Number(war.totalPoints)} delay="0.35s" />
-                <KpiCard title="Total clans" value={formatNumber(war.totalClans)} animate numericValue={Number(war.totalClans)} delay="0.4s" />
-                <KpiCard title="Participants" value={formatNumber(war.participants)} animate numericValue={Number(war.participants)} delay="0.45s" />
+            <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Clan</h2>
+              <div className="mt-4">
+                <InfoRow label="Current placement" value={placement} />
+                <InfoRow label="Total points" value={formatNumber(war.totalPoints)} />
+                <InfoRow label="Total clans" value={formatNumber(war.totalClans)} />
+                <InfoRow label="Participants" value={formatNumber(war.participants)} />
               </div>
-            </Panel>
+            </section>
 
-            <Panel title="Battle details" right={<span className="text-xs text-zinc-400">Just enough context without noise</span>} delay="0.3s">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <KpiCard title="Battle ID" value={war.battleId ?? "—"} delay="0.3s" />
-                <KpiCard title="Battle status" value={status} delay="0.35s" />
-                <KpiCard title="Progress" value={progressText} delay="0.4s" />
-                <KpiCard title="Max participants" value={formatNumber(war.maxParticipants)} animate numericValue={Number(war.maxParticipants)} delay="0.45s" />
+            <section className="rounded-3xl border p-5 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Battle</h2>
+              <div className="mt-4">
+                <InfoRow label="Battle ID" value={war.battleId ?? "—"} />
+                <InfoRow label="Status" value={status} />
+                <InfoRow label="Progress" value={progressText} />
+                <InfoRow label="Max participants" value={formatNumber(war.maxParticipants)} />
               </div>
-            </Panel>
+            </section>
           </div>
         </div>
       </div>
