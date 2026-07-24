@@ -62,6 +62,15 @@ function normalizeFontPreset(value: string) {
   return FONT_PRESET_ALIASES[value] ?? value;
 }
 
+function isSingleEmoji(value: string | null | undefined) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return true;
+  if (/[A-Za-z0-9]/.test(trimmed)) return false;
+  const segments = Array.from(trimmed);
+  if (segments.length > 8) return false;
+  return /^[\p{Extended_Pictographic}\p{Emoji_Presentation}](?:\uFE0F|\uFE0E)?(?:\u200D[\p{Extended_Pictographic}\p{Emoji_Presentation}](?:\uFE0F|\uFE0E)?)*$/u.test(trimmed);
+}
+
 const styleSchema = z.object({
   backgroundUrl: z.string().trim().max(500).nullable().optional(),
   backgroundPreset: z.string().trim().max(40).default("default"),
@@ -69,7 +78,7 @@ const styleSchema = z.object({
   framePreset: z.string().trim().max(40).default("none"),
   framePrimaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).default("#34d399"),
   frameSecondaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).default("#38bdf8"),
-  frameEmoji: z.string().trim().max(8).default("✨"),
+  frameEmoji: z.string().trim().max(16).nullable().optional(),
   fontPreset: z.string().trim().max(40).default("default"),
   bio: z.string().trim().max(220).nullable().optional(),
   badges: z.array(z.string().trim().max(32)).max(8).default([]),
@@ -87,7 +96,7 @@ async function ensureProfileStylesTable() {
       frame_preset TEXT NOT NULL DEFAULT 'none',
       frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
       frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
-      frame_emoji TEXT NOT NULL DEFAULT '✨',
+      frame_emoji TEXT NOT NULL DEFAULT '',
       font_preset TEXT NOT NULL DEFAULT 'default',
       bio TEXT,
       badges JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -104,7 +113,7 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_preset TEXT NOT NULL DEFAULT 'none'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT '✨'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS font_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
@@ -258,6 +267,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unknown font preset." }, { status: 400 });
     }
 
+    const frameEmoji = String(parsed.data.frameEmoji ?? "").trim();
+    if (!isSingleEmoji(frameEmoji)) {
+      return NextResponse.json({ error: "Frame emoji must be one emoji only, or blank." }, { status: 400 });
+    }
+
     const backgroundUrl = validateBackgroundUrl(parsed.data.backgroundUrl || null);
     const backgroundType = backgroundTypeFromUrl(backgroundUrl);
 
@@ -328,7 +342,7 @@ export async function POST(req: Request) {
         parsed.data.framePreset,
         parsed.data.framePrimaryColor,
         parsed.data.frameSecondaryColor,
-        parsed.data.frameEmoji || "✨",
+        frameEmoji,
         fontPreset,
         parsed.data.bio || null,
         JSON.stringify(badges),
