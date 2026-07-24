@@ -92,6 +92,16 @@ type BattleCandidate = {
   battle: Battle;
 };
 
+type ProfileStyle = {
+  backgroundUrl: string | null;
+  backgroundType: "image" | "gif" | "video" | null;
+  backgroundPreset: string;
+  accentColor: string;
+  framePreset: string;
+  bio: string | null;
+  badges: string[];
+};
+
 type LeaderboardEntry = {
   rank: number;
   user_id: number;
@@ -100,6 +110,8 @@ type LeaderboardEntry = {
   avatar: string | null;
   discord_id: string | null;
   is_alt?: boolean;
+  disconnects24h?: number;
+  style?: ProfileStyle;
 };
 
 type LeaderboardResponse = {
@@ -141,6 +153,115 @@ async function fetchJson(url: string) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
   return res.json();
+}
+
+const DEFAULT_PROFILE_STYLE: ProfileStyle = {
+  backgroundUrl: null,
+  backgroundType: null,
+  backgroundPreset: "default",
+  accentColor: "#34d399",
+  framePreset: "none",
+  bio: null,
+  badges: [],
+};
+
+async function ensureProfileStylesTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_profile_styles (
+      roblox_id TEXT PRIMARY KEY,
+      user_id INTEGER,
+      background_url TEXT,
+      background_type TEXT,
+      background_preset TEXT NOT NULL DEFAULT 'default',
+      accent_color TEXT NOT NULL DEFAULT '#34d399',
+      frame_preset TEXT NOT NULL DEFAULT 'none',
+      bio TEXT,
+      badges JSONB NOT NULL DEFAULT '[]'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS roblox_id TEXT`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS user_id INTEGER`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_url TEXT`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_type TEXT`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_preset TEXT NOT NULL DEFAULT 'default'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS accent_color TEXT NOT NULL DEFAULT '#34d399'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_preset TEXT NOT NULL DEFAULT 'none'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+}
+
+type ProfileStyleRow = {
+  background_url?: string | null;
+  background_type?: string | null;
+  background_preset?: string | null;
+  accent_color?: string | null;
+  frame_preset?: string | null;
+  bio?: string | null;
+  badges?: unknown;
+};
+
+function normalizeProfileStyle(row: ProfileStyleRow | null | undefined): ProfileStyle {
+  if (!row) return DEFAULT_PROFILE_STYLE;
+
+  const badges = Array.isArray(row.badges)
+    ? row.badges.map(String).slice(0, 8)
+    : [];
+
+  const backgroundType = ["image", "gif", "video"].includes(String(row.background_type ?? ""))
+    ? (String(row.background_type) as "image" | "gif" | "video")
+    : null;
+
+  return {
+    backgroundUrl: row.background_url ?? null,
+    backgroundType,
+    backgroundPreset: String(row.background_preset ?? "default"),
+    accentColor: String(row.accent_color ?? "#34d399"),
+    framePreset: String(row.frame_preset ?? "none"),
+    bio: row.bio ?? null,
+    badges,
+  };
+}
+
+async function attachProfileStyles(entries: LeaderboardEntry[]) {
+  if (!entries.length) return entries;
+
+  try {
+    await ensureProfileStylesTable();
+    const ids = entries.map((entry) => String(entry.user_id));
+    const result = await pool.query(
+      `SELECT roblox_id,
+              background_url,
+              background_type,
+              background_preset,
+              accent_color,
+              frame_preset,
+              bio,
+              badges
+       FROM user_profile_styles
+       WHERE roblox_id = ANY($1)`,
+      [ids]
+    );
+
+    const styles = new Map(
+      result.rows.map((row) => [String(row.roblox_id), normalizeProfileStyle(row)])
+    );
+
+    return entries.map((entry) => ({
+      ...entry,
+      disconnects24h: entry.disconnects24h ?? 0,
+      style: styles.get(String(entry.user_id)) ?? DEFAULT_PROFILE_STYLE,
+    }));
+  } catch (err) {
+    console.error("[leaderboard/styles] attach error:", err);
+    return entries.map((entry) => ({
+      ...entry,
+      disconnects24h: entry.disconnects24h ?? 0,
+      style: DEFAULT_PROFILE_STYLE,
+    }));
+  }
 }
 
 /* ---------------- ROBLOX HELPERS ---------------- */
@@ -337,7 +458,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
     title: `${title} - MCWV Members`,
     total_points: Number(snapshotRes.rows[0]?.battle_points ?? 0),
     updatedAt: new Date().toISOString(),
-    data: entries,
+    data: await attachProfileStyles(entries),
   };
 }
 
@@ -476,7 +597,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     title,
     total_points,
     updatedAt: new Date().toISOString(),
-    data: entries,
+    data: await attachProfileStyles(entries),
   };
 }
 
