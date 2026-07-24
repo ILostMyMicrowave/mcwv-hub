@@ -881,6 +881,59 @@ function StyleEditorModal({
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const controller = new AbortController();
+
+    async function loadSavedStyle() {
+      setStatus("Loading saved style...");
+      try {
+        const res = await fetch("/api/leaderboard/style", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (controller.signal.aborted) return;
+
+        if (!res.ok) {
+          setStatus(data.error ?? "No saved style found yet.");
+          return;
+        }
+
+        const saved = data.style;
+        if (!saved) {
+          setBackgroundPreset("default");
+          setBackgroundUrl("");
+          setAccentColor("#34d399");
+          setFramePreset("none");
+          setBio("");
+          setBadgesText("");
+          setStatus("No saved style yet — pick your first look.");
+          return;
+        }
+
+        setBackgroundPreset(String(saved.backgroundPreset ?? saved.background_preset ?? "default"));
+        setBackgroundUrl(String(saved.backgroundUrl ?? saved.background_url ?? ""));
+        setAccentColor(String(saved.accentColor ?? saved.accent_color ?? "#34d399"));
+        setFramePreset(String(saved.framePreset ?? saved.frame_preset ?? "none"));
+        setBio(String(saved.bio ?? ""));
+        const savedBadges = Array.isArray(saved.badges) ? saved.badges.map(String) : [];
+        setBadgesText(savedBadges.join(", "));
+        setStatus("Saved style loaded.");
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setStatus(err instanceof Error ? err.message : "Failed to load saved style");
+        }
+      }
+    }
+
+    void loadSavedStyle();
+
+    return () => controller.abort();
+  }, [open]);
+
   if (!open) return null;
 
   async function save() {
@@ -1011,10 +1064,11 @@ export default function LeaderboardPage() {
   const prevRanksRef = useRef<Record<number, number>>({});
   const prevDataRef = useRef<LeaderboardEntry[]>([]);
 
-  async function load() {
+  async function load(forceRefresh = false) {
     try {
       const params = new URLSearchParams();
       if (selectedBattleId) params.set("battle_id", selectedBattleId);
+      if (forceRefresh && !selectedBattleId) params.set("refresh", "1");
 
       const res = await fetch(`/api/leaderboard?${params.toString()}`, {
         cache: "no-store",
@@ -1088,7 +1142,7 @@ export default function LeaderboardPage() {
   }
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void load(), 0);
+    const initial = window.setTimeout(() => void load(true), 0);
     const interval = setInterval(load, 10000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
@@ -1293,7 +1347,7 @@ export default function LeaderboardPage() {
           open={styleEditorOpen}
           currentUser={currentUser}
           onClose={() => setStyleEditorOpen(false)}
-          onSaved={load}
+          onSaved={() => load(true)}
         />
 
         <style jsx global>{`
