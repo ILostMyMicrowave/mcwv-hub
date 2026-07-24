@@ -177,7 +177,7 @@ const DEFAULT_PROFILE_STYLE: ProfileStyle = {
   framePreset: "none",
   framePrimaryColor: "#34d399",
   frameSecondaryColor: "#38bdf8",
-  frameEmoji: "✨",
+  frameEmoji: "",
   fontPreset: "default",
   bio: null,
   badges: [],
@@ -195,7 +195,7 @@ async function ensureProfileStylesTable() {
       frame_preset TEXT NOT NULL DEFAULT 'none',
       frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
       frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
-      frame_emoji TEXT NOT NULL DEFAULT '✨',
+      frame_emoji TEXT NOT NULL DEFAULT '',
       font_preset TEXT NOT NULL DEFAULT 'default',
       bio TEXT,
       badges JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -212,7 +212,7 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_preset TEXT NOT NULL DEFAULT 'none'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT '✨'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS font_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
@@ -253,7 +253,7 @@ function normalizeProfileStyle(row: ProfileStyleRow | null | undefined): Profile
     framePreset: String(row.frame_preset ?? "none"),
     framePrimaryColor: String(row.frame_primary_color ?? "#34d399"),
     frameSecondaryColor: String(row.frame_secondary_color ?? "#38bdf8"),
-    frameEmoji: String(row.frame_emoji ?? "✨"),
+    frameEmoji: String(row.frame_emoji ?? ""),
     fontPreset: String(row.font_preset ?? "default"),
     bio: row.bio ?? null,
     badges,
