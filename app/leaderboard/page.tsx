@@ -20,7 +20,7 @@ type LeaderboardEntry = {
   rank: number;
   user_id: number;
   name: string;
-  points: number;
+  points: number | null;
   avatar: string | null;
   discord_id: string | null;
   is_alt?: boolean;
@@ -45,6 +45,8 @@ type PlayerHistory = {
   rank: PlayerHistoryPoint[];
   disconnects: PlayerHistoryPoint[];
   disconnects24h: number;
+  change5m: number;
+  pph: number;
 };
 
 type ApiResponse = {
@@ -59,6 +61,10 @@ type ApiResponse = {
 
 function formatNumber(n: number) {
   return new Intl.NumberFormat("en-GB").format(n);
+}
+
+function formatPoints(value: number | null | undefined) {
+  return typeof value === "number" ? formatNumber(value) : "—";
 }
 
 function formatAgo(timestamp: string | null, nowMs: number) {
@@ -251,7 +257,7 @@ function PodiumCard({
             <div className="mb-1 text-2xl">{crowns}</div>
             <h3 className="text-lg font-semibold text-white">{entry.name}</h3>
             <p className="mt-1 text-sm text-zinc-300">
-              {formatNumber(entry.points)} points
+              {formatPoints(entry.points)} points
             </p>
 
             <p className="mt-2 text-xs uppercase tracking-[0.25em]">
@@ -338,7 +344,7 @@ function buildSeedEvents(players: LeaderboardEntry[]) {
     {
       id: createId(),
       type: "crown" as const,
-      text: `👑 Current leader: ${players[0].name} with ${formatNumber(players[0].points)} points`,
+      text: `👑 Current leader: ${players[0].name} with ${formatPoints(players[0].points)} points`,
     },
   ];
 
@@ -369,7 +375,9 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
       return;
     }
 
-    const diff = entry.points - old.points;
+    const diff = typeof entry.points === "number" && typeof old.points === "number"
+      ? entry.points - old.points
+      : 0;
 
     if (diff > 0) {
       events.push({
@@ -634,7 +642,7 @@ function LeaderboardRow({
 
         <div className="hidden text-right sm:block">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Points</div>
-          <div className="mt-1 text-xl font-bold text-white">{formatNumber(entry.points)}</div>
+          <div className="mt-1 text-xl font-bold text-white">{formatPoints(entry.points)}</div>
         </div>
         <div className="hidden text-right sm:block">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">5m Change</div>
@@ -735,11 +743,13 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
           rank: Array.isArray(json.rank) ? json.rank : [],
           disconnects: Array.isArray(json.disconnects) ? json.disconnects : [],
           disconnects24h: Number(json.disconnects24h ?? 0),
+          change5m: Number(json.change5m ?? 0),
+          pph: Number(json.pph ?? 0),
         });
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setHistory({ points: [], rank: [], disconnects: [], disconnects24h: 0 });
+          setHistory({ points: [], rank: [], disconnects: [], disconnects24h: 0, change5m: 0, pph: 0 });
         }
       })
       .finally(() => {
@@ -756,6 +766,8 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
   if (!entry) return null;
   const style = getStyle(entry);
   const disconnects24h = history?.disconnects24h ?? entry.disconnects24h ?? 0;
+  const change5m = history?.change5m ?? 0;
+  const pph = history?.pph ?? 0;
   const chartPoints = history?.[historyTab] ?? [];
 
   return (
@@ -783,9 +795,9 @@ function PlayerMiniProfile({ entry, onClose }: { entry: LeaderboardEntry | null;
           </div>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-4">
-            <MiniProfileStat label="Battle Points" value={formatNumber(entry.points)} />
-            <MiniProfileStat label="PPH" value="—" />
-            <MiniProfileStat label="Rank" value={`#${entry.rank}`} />
+            <MiniProfileStat label="Battle Points" value={formatPoints(entry.points)} />
+            <MiniProfileStat label="PPH" value={pph > 0 ? formatNumber(pph) : "—"} />
+            <MiniProfileStat label="5m Change" value={change5m > 0 ? `+${formatNumber(change5m)}` : "—"} />
             <MiniProfileStat label="Disconnects 24h" value={String(disconnects24h)} />
           </div>
 
@@ -1171,31 +1183,33 @@ export default function LeaderboardPage() {
             </Animated>
           ) : (
             <>
-              <section className={`mb-16 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
-                <Animated delay="0.1s">
-                  <div className="mb-4 text-lg font-semibold text-zinc-100">Top 3 podium</div>
-                </Animated>
-
-                <div className="grid gap-4 md:grid-cols-3 md:items-end">
-                  <Animated delay="0.15s">
-                    <div className="md:order-1 md:translate-y-8">
-                      <PodiumCard entry={podium[1]} place={2} />
-                    </div>
+              {active && data.some((entry) => typeof entry.points === "number") && (
+                <section className={`mb-16 transition-all duration-500 ${flash ? "scale-[1.01]" : ""}`}>
+                  <Animated delay="0.1s">
+                    <div className="mb-4 text-lg font-semibold text-zinc-100">Top 3 podium</div>
                   </Animated>
 
-                  <Animated delay="0.2s">
-                    <div className="md:order-2 md:-translate-y-2">
-                      <PodiumCard entry={podium[0]} place={1} className="md:scale-[1.04]" />
-                    </div>
-                  </Animated>
+                  <div className="grid gap-4 md:grid-cols-3 md:items-end">
+                    <Animated delay="0.15s">
+                      <div className="md:order-1 md:translate-y-8">
+                        <PodiumCard entry={podium[1]} place={2} />
+                      </div>
+                    </Animated>
 
-                  <Animated delay="0.25s">
-                    <div className="md:order-3 md:translate-y-12">
-                      <PodiumCard entry={podium[2]} place={3} />
-                    </div>
-                  </Animated>
-                </div>
-              </section>
+                    <Animated delay="0.2s">
+                      <div className="md:order-2 md:-translate-y-2">
+                        <PodiumCard entry={podium[0]} place={1} className="md:scale-[1.04]" />
+                      </div>
+                    </Animated>
+
+                    <Animated delay="0.25s">
+                      <div className="md:order-3 md:translate-y-12">
+                        <PodiumCard entry={podium[2]} place={3} />
+                      </div>
+                    </Animated>
+                  </div>
+                </section>
+              )}
 
               <Animated delay="0.3s">
                 <section className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
