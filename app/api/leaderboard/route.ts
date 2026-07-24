@@ -30,7 +30,7 @@ let lastPointsByUser = new Map<number, number>();
 
 function resetPointHistoryTracking() {
   lastLoggedBattleKey = null;
-  lastPointsByUser = new Map<number, number>();
+  lastPointsByUser = new Map();
 }
 
 async function logPointHistory(entries: LeaderboardEntry[], battleKey: string) {
@@ -38,8 +38,10 @@ async function logPointHistory(entries: LeaderboardEntry[], battleKey: string) {
 
   if (lastLoggedBattleKey !== battleKey) {
     lastLoggedBattleKey = battleKey;
-    lastPointsByUser = new Map<number, number>(
-      entries.map((entry): [number, number] => [entry.user_id, entry.points ?? 0])
+    lastPointsByUser = new Map(
+      entries
+        .filter((entry) => typeof entry.points === "number")
+        .map((entry) => [entry.user_id, entry.points as number])
     );
     return;
   }
@@ -47,11 +49,12 @@ async function logPointHistory(entries: LeaderboardEntry[], battleKey: string) {
   const writes: Promise<unknown>[] = [];
 
   for (const entry of entries) {
-    const currentPoints = entry.points ?? 0;
     const previous = lastPointsByUser.get(entry.user_id);
 
     if (typeof previous === "number") {
-      const delta = currentPoints - previous;
+      if (typeof entry.points !== "number") continue;
+
+      const delta = entry.points - previous;
 
       // Only log gains, not decreases.
       if (delta > 0) {
@@ -65,7 +68,9 @@ async function logPointHistory(entries: LeaderboardEntry[], battleKey: string) {
       }
     }
 
-    lastPointsByUser.set(entry.user_id, currentPoints);
+    if (typeof entry.points === "number") {
+      lastPointsByUser.set(entry.user_id, entry.points);
+    }
   }
 
   if (writes.length) {
