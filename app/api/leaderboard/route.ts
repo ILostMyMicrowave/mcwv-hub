@@ -119,6 +119,8 @@ type LeaderboardEntry = {
   discord_id: string | null;
   is_alt?: boolean;
   disconnects24h?: number;
+  change5m?: number;
+  pph?: number;
   style?: ProfileStyle;
 };
 
@@ -270,6 +272,167 @@ async function attachProfileStyles(entries: LeaderboardEntry[]) {
       disconnects24h: entry.disconnects24h ?? 0,
       style: DEFAULT_PROFILE_STYLE,
     }));
+  }
+}
+
+
+/* ---------------- LEADERBOARD SNAPSHOT HISTORY ---------------- */
+
+type BaselineRow = {
+  roblox_id: string;
+  points: number | string;
+};
+
+type LatestSnapshotRow = {
+  captured_at: Date | string | null;
+};
+
+async function ensureLeaderboardHistoryTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_leaderboard_history (
+      id BIGSERIAL PRIMARY KEY,
+      battle_id TEXT,
+      roblox_id TEXT NOT NULL,
+      username TEXT,
+      rank INTEGER,
+      points BIGINT,
+      pph NUMERIC,
+      change_5m BIGINT,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS battle_id TEXT`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS roblox_id TEXT`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS username TEXT`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS rank INTEGER`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS points BIGINT`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS pph NUMERIC`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS change_5m BIGINT`);
+  await pool.query(`ALTER TABLE player_leaderboard_history ADD COLUMN IF NOT EXISTS captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS player_leaderboard_history_roblox_time_idx ON player_leaderboard_history (roblox_id, captured_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS player_leaderboard_history_battle_idx ON player_leaderboard_history (battle_id)`);
+}
+
+async function getPointBaselines(ids: string[], intervalSql: "5 minutes" | "1 hour") {
+  if (!ids.length) return new Map<string, number>();
+
+  const result = await pool.query<BaselineRow>(
+    `SELECT DISTINCT ON (roblox_id) roblox_id, points
+     FROM player_leaderboard_history
+     WHERE roblox_id = ANY($1)
+       AND points IS NOT NULL
+       AND captured_at <= NOW() - ($2::interval)
+     ORDER BY roblox_id, captured_at DESC`,
+    [ids, intervalSql]
+  );
+
+  return new Map(
+    result.rows.map((row) => [String(row.roblox_id), Number(row.points ?? 0)])
+  );
+}
+
+async function attachDisconnectCounts(entries: LeaderboardEntry[]) {
+  if (!entries.length) return entries;
+
+  try {
+    const exists = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.player_presence_events') IS NOT NULL AS exists`
+    );
+    if (!exists.rows[0]?.exists) return entries.map((entry) => ({ ...entry, disconnects24h: entry.disconnects24h ?? 0 }));
+
+    const ids = entries.map((entry) => String(entry.user_id));
+    const result = await pool.query<{ roblox_id: string; count: string }>(
+      `SELECT roblox_id::text AS roblox_id, COUNT(*)::text AS count
+       FROM player_presence_events
+       WHERE roblox_id::text = ANY($1)
+         AND created_at >= NOW() - INTERVAL '24 hours'
+         AND LOWER(COALESCE(previous_status::text, '')) IN ('in_game', 'ingame', '2')
+         AND LOWER(COALESCE(next_status::text, '')) IN ('offline', 'online', '0', '1')
+       GROUP BY roblox_id::text`,
+      [ids]
+    );
+
+    const counts = new Map(result.rows.map((row) => [String(row.roblox_id), Number(row.count ?? 0)]));
+    return entries.map((entry) => ({
+      ...entry,
+      disconnects24h: counts.get(String(entry.user_id)) ?? entry.disconnects24h ?? 0,
+    }));
+  } catch (err) {
+    console.error("[leaderboard/disconnects] attach error:", err);
+    return entries.map((entry) => ({ ...entry, disconnects24h: entry.disconnects24h ?? 0 }));
+  }
+}
+
+async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleKey: string) {
+  const activeEntries = entries.filter((entry) => typeof entry.points === "number");
+  if (!activeEntries.length) return entries;
+
+  try {
+    await ensureLeaderboardHistoryTable();
+
+    const ids = activeEntries.map((entry) => String(entry.user_id));
+    const [fiveMinuteBaselines, hourlyBaselines] = await Promise.all([
+      getPointBaselines(ids, "5 minutes"),
+      getPointBaselines(ids, "1 hour"),
+    ]);
+
+    const enriched = entries.map((entry) => {
+      if (typeof entry.points !== "number") return entry;
+      const key = String(entry.user_id);
+      const fiveMinuteBaseline = fiveMinuteBaselines.get(key);
+      const hourlyBaseline = hourlyBaselines.get(key);
+
+      return {
+        ...entry,
+        change5m: typeof fiveMinuteBaseline === "number" ? Math.max(0, entry.points - fiveMinuteBaseline) : 0,
+        pph: typeof hourlyBaseline === "number" ? Math.max(0, entry.points - hourlyBaseline) : 0,
+      };
+    });
+
+    const latest = await pool.query<LatestSnapshotRow>(
+      `SELECT MAX(captured_at) AS captured_at
+       FROM player_leaderboard_history
+       WHERE battle_id = $1`,
+      [battleKey]
+    );
+    const lastSnapshotAt = latest.rows[0]?.captured_at ? new Date(latest.rows[0].captured_at).getTime() : 0;
+    const shouldWriteSnapshot = !lastSnapshotAt || Date.now() - lastSnapshotAt >= 60 * 1000;
+
+    if (shouldWriteSnapshot) {
+      const snapshotRows = enriched.filter((entry) => typeof entry.points === "number");
+      if (snapshotRows.length) {
+        await pool.query(
+          `INSERT INTO player_leaderboard_history
+             (battle_id, roblox_id, username, rank, points, pph, change_5m, captured_at)
+           SELECT $1, item.roblox_id, item.username, item.rank, item.points, item.pph, item.change_5m, NOW()
+           FROM jsonb_to_recordset($2::jsonb) AS item(
+             roblox_id TEXT,
+             username TEXT,
+             rank INTEGER,
+             points BIGINT,
+             pph NUMERIC,
+             change_5m BIGINT
+           )`,
+          [
+            battleKey,
+            JSON.stringify(snapshotRows.map((entry) => ({
+              roblox_id: String(entry.user_id),
+              username: entry.name,
+              rank: entry.rank,
+              points: entry.points,
+              pph: entry.pph ?? 0,
+              change_5m: entry.change5m ?? 0,
+            }))),
+          ]
+        );
+      }
+    }
+
+    return enriched;
+  } catch (err) {
+    console.error("[leaderboard/history] snapshot error:", err);
+    return entries.map((entry) => ({ ...entry, change5m: entry.change5m ?? 0, pph: entry.pph ?? 0 }));
   }
 }
 
@@ -677,13 +840,16 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
   await logPointHistory(entries, battleKey);
 
+  const entriesWithMetrics = await attachLiveMetricsAndSnapshot(entries, battleKey);
+  const entriesWithDisconnects = await attachDisconnectCounts(entriesWithMetrics);
+
   return {
     success: true,
     active: true,
     title,
     total_points,
     updatedAt: new Date().toISOString(),
-    data: await attachProfileStyles(entries),
+    data: await attachProfileStyles(entriesWithDisconnects),
   };
 }
 
@@ -695,7 +861,10 @@ async function getCachedLeaderboard(
   const fresh = cache && Date.now() - cacheTime < CACHE_TTL;
 
   if (!forceRefresh && fresh && cache) {
-    return cache;
+    return {
+      ...cache,
+      data: await attachProfileStyles(cache.data),
+    };
   }
 
   if (inFlight) {
