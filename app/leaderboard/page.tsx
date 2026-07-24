@@ -2,6 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import WarHistoryDropdown from "@/components/WarHistoryDropdown";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
@@ -1283,6 +1284,7 @@ function StyleEditorModal({
 }
 
 export default function LeaderboardPage() {
+  const searchParams = useSearchParams();
   const [data, setData] = useState<LeaderboardEntry[]>([]);
   const [title, setTitle] = useState("MCWV Leaderboard");
   const [active, setActive] = useState(false);
@@ -1404,6 +1406,17 @@ export default function LeaderboardPage() {
 
     loadMe();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("customise") !== "1") return;
+
+    const timer = window.setTimeout(() => {
+      setSelectedStyleTarget(null);
+      setStyleEditorOpen(true);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [searchParams]);
 
   const podium = useMemo(() => data.slice(0, 3), [data]);
 
