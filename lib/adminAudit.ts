@@ -1,119 +1,87 @@
+import { NextResponse } from "next/server"
+import { cookies } from "next/headers"
+import { getIronSession } from "iron-session"
+import { sessionOptions, type SessionData } from "@/lib/session"
 import { pool } from "@/lib/db"
-import type { AdminUser } from "@/lib/adminAuth"
 
-type LogLevel = "info" | "warning" | "error"
+export type AdminRole = "member" | "officer" | "owner"
 
-type LogAdminActionInput = {
-  level?: LogLevel
-  event: string
-  message: string
-  action?: string
-  actor?: AdminUser | null
-  metadata?: Record<string, unknown>
+export type AdminUser = {
+  id: number
+  username: string
+  role: AdminRole
+  discordId?: string | null
 }
 
-let tableReady: Promise<void> | null = null
+type AdminCheck =
+  | { ok: true; user: AdminUser }
+  | { ok: false; response: NextResponse }
 
-function jsonSafe(value: unknown) {
-  try {
-    return JSON.parse(JSON.stringify(value ?? {})) as Record<string, unknown>
-  } catch {
-    return {}
-  }
+function normalizeRole(role: unknown): AdminRole {
+  return role === "owner" || role === "officer" ? role : "member"
 }
 
-export async function ensureAdminLogsTable() {
-  if (!tableReady) {
-    tableReady = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS admin_logs (
-          id BIGSERIAL PRIMARY KEY,
-          level TEXT NOT NULL DEFAULT 'info',
-          event TEXT NOT NULL,
-          message TEXT NOT NULL DEFAULT '',
-          action TEXT,
-          actor_user_id INTEGER,
-          actor_username TEXT,
-          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `)
-
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS level TEXT NOT NULL DEFAULT 'info'`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS event TEXT NOT NULL DEFAULT 'Hub Event'`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT ''`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS action TEXT`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS actor_user_id INTEGER`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS actor_username TEXT`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`)
-      await pool.query(`ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
-      await pool.query(`CREATE INDEX IF NOT EXISTS admin_logs_created_at_idx ON admin_logs (created_at DESC)`)
-      await pool.query(`CREATE INDEX IF NOT EXISTS admin_logs_actor_username_idx ON admin_logs (actor_username)`)
-      await pool.query(`CREATE INDEX IF NOT EXISTS admin_logs_action_idx ON admin_logs (action)`)
-    })()
-  }
-
-  return tableReady
+function canAccess(role: AdminRole, minimumRole: "officer" | "owner") {
+  if (minimumRole === "owner") return role === "owner"
+  return role === "owner" || role === "officer"
 }
 
-export async function logAdminAction(input: LogAdminActionInput) {
-  try {
-    await ensureAdminLogsTable()
+export async function getCurrentAdminUser(): Promise<AdminUser | null> {
+  const cookieStore = await cookies()
+  const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
 
-    await pool.query(
-      `INSERT INTO admin_logs (
-        level,
-        event,
-        message,
-        action,
-        actor_user_id,
-        actor_username,
-        metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-      [
-        input.level ?? "info",
-        input.event,
-        input.message,
-        input.action ?? null,
-        input.actor?.id ?? null,
-        input.actor?.username ?? null,
-        JSON.stringify(jsonSafe(input.metadata)),
-      ]
-    )
-  } catch (err) {
-    console.error("[admin audit] failed to log action:", err)
-  }
-}
+  if (!session.user?.id) return null
 
-export async function getAdminLogs(limit = 500) {
-  await ensureAdminLogsTable()
+  const userId = Number(session.user.id)
+  if (!Number.isFinite(userId)) return null
 
-  const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)))
   const result = await pool.query(
-    `SELECT id::text,
-            COALESCE(level, 'info') AS level,
-            COALESCE(event, 'Hub Event') AS event,
-            COALESCE(message, '') AS message,
-            action,
-            actor_user_id,
-            actor_username,
-            metadata,
-            created_at
-     FROM admin_logs
-     ORDER BY created_at DESC, id DESC
-     LIMIT $1`,
-    [safeLimit]
+    `SELECT id, username, role
+     FROM users
+     WHERE id = $1
+     LIMIT 1`,
+    [userId]
   )
 
-  return result.rows.map((row) => ({
-    id: String(row.id),
-    level: String(row.level ?? "info"),
-    event: String(row.event ?? "Hub Event"),
-    message: String(row.message ?? ""),
-    action: row.action ? String(row.action) : null,
-    actorUserId: row.actor_user_id ?? null,
-    actorUsername: row.actor_username ? String(row.actor_username) : null,
-    metadata: row.metadata ?? {},
-    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-  }))
+  const row = result.rows[0]
+  if (!row) return null
+
+  return {
+    id: Number(row.id),
+    username: String(row.username ?? ""),
+    role: normalizeRole(row.role),
+  }
+}
+
+export async function requireAdminUser(
+  minimumRole: "officer" | "owner" = "officer"
+): Promise<AdminCheck> {
+  try {
+    const user = await getCurrentAdminUser()
+
+    if (!user) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      }
+    }
+
+    if (!canAccess(user.role, minimumRole)) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+      }
+    }
+
+    return { ok: true, user }
+  } catch (err) {
+    console.error("[admin auth] error:", err)
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Failed to verify admin access" },
+        { status: 500 }
+      ),
+    }
+  }
 }
