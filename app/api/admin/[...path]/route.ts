@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { proxyBotAdminMutation } from "@/lib/adminProxy"
+import { requireBroadcastUser } from "@/lib/broadcastAccess"
 
 const OFFICER_ACTIONS = new Set([
   "sync",
@@ -28,6 +29,12 @@ export async function POST(
 ) {
   const { path } = await params
   const action = path.join("/")
+
+  if (action === "broadcast/send") {
+    const broadcastAuth = await requireBroadcastUser()
+    if (!broadcastAuth.ok) return broadcastAuth.response
+    return proxyBotAdminMutation(req, `/admin/${action}`, { minimumRole: "officer" })
+  }
 
   if (OWNER_ACTIONS.has(action)) {
     return proxyBotAdminMutation(req, `/admin/${action}`, { minimumRole: "owner" })
