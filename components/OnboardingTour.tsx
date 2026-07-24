@@ -80,7 +80,7 @@ const MEMBER_STEPS: TourStep[] = [
 const OFFICER_STEPS: TourStep[] = [
   {
     id: "admin-overview",
-    href: "/admin",
+    href: "/admin?section=overview",
     eyebrow: "Officer tools",
     title: "This is your control room",
     body: "The admin area is where officers can check bot status, manage tools, and handle the parts members do not need to touch.",
@@ -88,7 +88,7 @@ const OFFICER_STEPS: TourStep[] = [
   },
   {
     id: "admin-players",
-    href: "/admin",
+    href: "/admin?section=players",
     eyebrow: "Players and links",
     title: "Keep member records tidy",
     body: "Use the Players and Roblox Links sections to manage linked accounts, alts, and member records carefully.",
@@ -96,7 +96,7 @@ const OFFICER_STEPS: TourStep[] = [
   },
   {
     id: "admin-broadcast",
-    href: "/admin",
+    href: "/admin?section=broadcast",
     eyebrow: "Broadcast",
     title: "Message the right people",
     body: "Broadcast lets you send targeted messages to members by DM or ticket, without bothering everyone unnecessarily.",
@@ -104,7 +104,7 @@ const OFFICER_STEPS: TourStep[] = [
   },
   {
     id: "admin-logs",
-    href: "/admin",
+    href: "/admin?section=logs",
     eyebrow: "Logs",
     title: "Check what changed",
     body: "Logs help you see important admin actions and changes, which is useful when multiple officers are helping out.",
