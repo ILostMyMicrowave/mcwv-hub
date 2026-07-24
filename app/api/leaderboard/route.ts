@@ -106,6 +106,9 @@ type ProfileStyle = {
   backgroundPreset: string;
   accentColor: string;
   framePreset: string;
+  framePrimaryColor?: string | null;
+  frameSecondaryColor?: string | null;
+  frameEmoji?: string | null;
   bio: string | null;
   badges: string[];
 };
@@ -171,6 +174,9 @@ const DEFAULT_PROFILE_STYLE: ProfileStyle = {
   backgroundPreset: "default",
   accentColor: "#34d399",
   framePreset: "none",
+  framePrimaryColor: "#34d399",
+  frameSecondaryColor: "#38bdf8",
+  frameEmoji: "✨",
   bio: null,
   badges: [],
 };
@@ -185,6 +191,9 @@ async function ensureProfileStylesTable() {
       background_preset TEXT NOT NULL DEFAULT 'default',
       accent_color TEXT NOT NULL DEFAULT '#34d399',
       frame_preset TEXT NOT NULL DEFAULT 'none',
+      frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
+      frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
+      frame_emoji TEXT NOT NULL DEFAULT '✨',
       bio TEXT,
       badges JSONB NOT NULL DEFAULT '[]'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -198,6 +207,9 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS accent_color TEXT NOT NULL DEFAULT '#34d399'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_preset TEXT NOT NULL DEFAULT 'none'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT '✨'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
@@ -210,6 +222,9 @@ type ProfileStyleRow = {
   background_preset?: string | null;
   accent_color?: string | null;
   frame_preset?: string | null;
+  frame_primary_color?: string | null;
+  frame_secondary_color?: string | null;
+  frame_emoji?: string | null;
   bio?: string | null;
   badges?: unknown;
 };
@@ -231,6 +246,9 @@ function normalizeProfileStyle(row: ProfileStyleRow | null | undefined): Profile
     backgroundPreset: String(row.background_preset ?? "default"),
     accentColor: String(row.accent_color ?? "#34d399"),
     framePreset: String(row.frame_preset ?? "none"),
+    framePrimaryColor: String(row.frame_primary_color ?? "#34d399"),
+    frameSecondaryColor: String(row.frame_secondary_color ?? "#38bdf8"),
+    frameEmoji: String(row.frame_emoji ?? "✨"),
     bio: row.bio ?? null,
     badges,
   };
@@ -249,6 +267,9 @@ async function attachProfileStyles(entries: LeaderboardEntry[]) {
               background_preset,
               accent_color,
               frame_preset,
+              frame_primary_color,
+              frame_secondary_color,
+              frame_emoji,
               bio,
               badges
        FROM user_profile_styles
