@@ -2,6 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -629,8 +630,17 @@ function channelDisplayName(channel: AdminChannel) {
   return channel.label ?? `${channel.parentName ? `${channel.parentName} / ` : ""}#${channel.name}`;
 }
 
+function isAdminSection(value: string | null): value is AdminSection {
+  return SECTIONS.some((item) => item.id === value);
+}
+
 export default function AdminPage() {
-  const [section, setSection] = useState<AdminSection>("overview");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [section, setSection] = useState<AdminSection>(() => {
+    const requested = searchParams.get("section");
+    return isAdminSection(requested) ? requested : "overview";
+  });
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [status, setStatus] = useState<StatusData | null>(null);
@@ -851,6 +861,20 @@ export default function AdminPage() {
   const activeSection = visibleSections.find((item) => item.id === section) ?? visibleSections[0];
 
   useEffect(() => {
+    const requested = searchParams.get("section");
+    if (!isAdminSection(requested)) return;
+    if (!visibleSections.some((item) => item.id === requested)) return;
+    setSection(requested);
+  }, [searchParams, visibleSections]);
+
+  function selectSection(nextSection: AdminSection) {
+    setSection(nextSection);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("section", nextSection);
+    router.replace(`/admin?${params.toString()}`, { scroll: false });
+  }
+
+  useEffect(() => {
     if (canBroadcast || section !== "broadcast") return;
 
     const timer = window.setTimeout(() => setSection("overview"), 0);
@@ -984,7 +1008,7 @@ export default function AdminPage() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => setSection(item.id)}
+                      onClick={() => selectSection(item.id)}
                       className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm transition hover:bg-white/10"
                       style={{
                         background: active ? "rgba(255,255,255,0.10)" : "transparent",
