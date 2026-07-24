@@ -41,6 +41,9 @@ export async function GET(
     const pointHistoryExists = await tableExists("point_history");
     const points: Array<{ time: string; value: number; delta: number }> = [];
 
+    let change5m = 0;
+    let pph = 0;
+
     if (pointHistoryExists) {
       const result = await pool.query<PointRow>(
         `SELECT points_added, created_at
@@ -52,13 +55,20 @@ export async function GET(
       );
 
       let running = 0;
+      const now = Date.now();
       for (const row of result.rows) {
         const delta = Number(row.points_added ?? 0);
-        running += Number.isFinite(delta) ? delta : 0;
+        const safeDelta = Number.isFinite(delta) ? delta : 0;
+        const createdAtMs = new Date(row.created_at).getTime();
+        running += safeDelta;
+
+        if (now - createdAtMs <= 5 * 60 * 1000) change5m += safeDelta;
+        if (now - createdAtMs <= 60 * 60 * 1000) pph += safeDelta;
+
         points.push({
           time: toIso(row.created_at),
           value: running,
-          delta: Number.isFinite(delta) ? delta : 0,
+          delta: safeDelta,
         });
       }
     }
@@ -104,6 +114,8 @@ export async function GET(
       rank: [],
       disconnects,
       disconnects24h,
+      change5m,
+      pph,
     });
   } catch (err) {
     console.error("[leaderboard/player/history] error:", err);
@@ -113,4 +125,3 @@ export async function GET(
     );
   }
 }
-
