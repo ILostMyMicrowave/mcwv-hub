@@ -64,6 +64,11 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_styles_roblox_id_key ON user_profile_styles (roblox_id)`);
+}
+
+function isOfficerRole(role: unknown) {
+  return role === "owner" || role === "officer";
 }
 
 async function getSessionUser() {
@@ -73,7 +78,7 @@ async function getSessionUser() {
   if (!session.user?.id) return null;
 
   const result = await pool.query(
-    `SELECT id, username, roblox_id
+    `SELECT id, username, roblox_id, role
      FROM users
      WHERE id = $1
      LIMIT 1`,
@@ -114,11 +119,22 @@ function validateBackgroundUrl(url: string | null | undefined) {
   return parsed.toString();
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await getSessionUser();
     if (!user?.roblox_id) {
       return NextResponse.json({ error: "Link your Roblox account before customizing your card." }, { status: 400 });
+    }
+
+    const url = new URL(req.url);
+    const requestedRobloxId = url.searchParams.get("robloxId")?.trim();
+    const canManageCards = isOfficerRole(user.role);
+    const targetRobloxId = requestedRobloxId && canManageCards
+      ? requestedRobloxId
+      : String(user.roblox_id);
+
+    if (requestedRobloxId && requestedRobloxId !== String(user.roblox_id) && !canManageCards) {
+      return NextResponse.json({ error: "Only officers can edit another member's card." }, { status: 403 });
     }
 
     await ensureProfileStylesTable();
@@ -136,12 +152,14 @@ export async function GET() {
        FROM user_profile_styles
        WHERE roblox_id = $1
        LIMIT 1`,
-      [String(user.roblox_id)]
+      [targetRobloxId]
     );
 
     return NextResponse.json({
       success: true,
-      robloxId: String(user.roblox_id),
+      robloxId: targetRobloxId,
+      canManageCards,
+      canEditBadges: canManageCards,
       style: result.rows[0] ?? null,
     });
   } catch (err) {
@@ -164,6 +182,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Invalid style" }, { status: 400 });
     }
 
+    const canManageCards = isOfficerRole(user.role);
+    const requestedTarget = typeof body?.targetRobloxId === "string" || typeof body?.targetRobloxId === "number"
+      ? String(body.targetRobloxId).trim()
+      : "";
+    const targetRobloxId = requestedTarget || String(user.roblox_id);
+
+    if (targetRobloxId !== String(user.roblox_id) && !canManageCards) {
+      return NextResponse.json({ error: "Only officers can edit another member's card." }, { status: 403 });
+    }
+
+    if (!/^\d{2,20}$/.test(targetRobloxId)) {
+      return NextResponse.json({ error: "Invalid target Roblox ID." }, { status: 400 });
+    }
+
     if (!BACKGROUND_PRESETS.has(parsed.data.backgroundPreset)) {
       return NextResponse.json({ error: "Unknown background preset." }, { status: 400 });
     }
@@ -176,6 +208,17 @@ export async function POST(req: Request) {
     const backgroundType = backgroundTypeFromUrl(backgroundUrl);
 
     await ensureProfileStylesTable();
+
+    let badges = parsed.data.badges;
+    if (!canManageCards) {
+      const existing = await pool.query<{ badges: unknown }>(
+        `SELECT badges FROM user_profile_styles WHERE roblox_id = $1 LIMIT 1`,
+        [targetRobloxId]
+      );
+      badges = Array.isArray(existing.rows[0]?.badges)
+        ? existing.rows[0].badges.map(String).slice(0, 8)
+        : [];
+    }
 
     const result = await pool.query(
       `INSERT INTO user_profile_styles (
@@ -211,7 +254,7 @@ export async function POST(req: Request) {
                 badges,
                 updated_at`,
       [
-        String(user.roblox_id),
+        targetRobloxId,
         Number(user.id),
         backgroundUrl,
         backgroundType,
@@ -219,11 +262,17 @@ export async function POST(req: Request) {
         parsed.data.accentColor,
         parsed.data.framePreset,
         parsed.data.bio || null,
-        JSON.stringify(parsed.data.badges),
+        JSON.stringify(badges),
       ]
     );
 
-    return NextResponse.json({ success: true, style: result.rows[0] });
+    return NextResponse.json({
+      success: true,
+      robloxId: targetRobloxId,
+      canManageCards,
+      canEditBadges: canManageCards,
+      style: result.rows[0],
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save style";
     console.error("[leaderboard/style] POST error:", err);
