@@ -35,6 +35,16 @@ const FRAME_PRESETS = new Set([
   "custom",
 ]);
 
+const FONT_PRESETS = new Set([
+  "default",
+  "gg_sans",
+  "display",
+  "rounded",
+  "mono",
+  "serif",
+  "comic",
+]);
+
 const styleSchema = z.object({
   backgroundUrl: z.string().trim().max(500).nullable().optional(),
   backgroundPreset: z.string().trim().max(40).default("default"),
@@ -43,6 +53,7 @@ const styleSchema = z.object({
   framePrimaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).default("#34d399"),
   frameSecondaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).default("#38bdf8"),
   frameEmoji: z.string().trim().max(8).default("✨"),
+  fontPreset: z.string().trim().max(40).default("default"),
   bio: z.string().trim().max(220).nullable().optional(),
   badges: z.array(z.string().trim().max(32)).max(8).default([]),
 });
@@ -60,6 +71,7 @@ async function ensureProfileStylesTable() {
       frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
       frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
       frame_emoji TEXT NOT NULL DEFAULT '✨',
+      font_preset TEXT NOT NULL DEFAULT 'default',
       bio TEXT,
       badges JSONB NOT NULL DEFAULT '[]'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -76,6 +88,7 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT '✨'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS font_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
@@ -164,6 +177,7 @@ export async function GET(req: Request) {
               frame_primary_color,
               frame_secondary_color,
               frame_emoji,
+              font_preset,
               bio,
               badges,
               updated_at
@@ -222,6 +236,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unknown frame preset." }, { status: 400 });
     }
 
+    if (!FONT_PRESETS.has(parsed.data.fontPreset)) {
+      return NextResponse.json({ error: "Unknown font preset." }, { status: 400 });
+    }
+
     const backgroundUrl = validateBackgroundUrl(parsed.data.backgroundUrl || null);
     const backgroundType = backgroundTypeFromUrl(backgroundUrl);
 
@@ -250,10 +268,11 @@ export async function POST(req: Request) {
         frame_primary_color,
         frame_secondary_color,
         frame_emoji,
+        font_preset,
         bio,
         badges,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NOW())
       ON CONFLICT (roblox_id)
       DO UPDATE SET
         user_id = EXCLUDED.user_id,
@@ -265,6 +284,7 @@ export async function POST(req: Request) {
         frame_primary_color = EXCLUDED.frame_primary_color,
         frame_secondary_color = EXCLUDED.frame_secondary_color,
         frame_emoji = EXCLUDED.frame_emoji,
+        font_preset = EXCLUDED.font_preset,
         bio = EXCLUDED.bio,
         badges = EXCLUDED.badges,
         updated_at = NOW()
@@ -291,6 +311,7 @@ export async function POST(req: Request) {
         parsed.data.framePrimaryColor,
         parsed.data.frameSecondaryColor,
         parsed.data.frameEmoji || "✨",
+        parsed.data.fontPreset,
         parsed.data.bio || null,
         JSON.stringify(badges),
       ]
