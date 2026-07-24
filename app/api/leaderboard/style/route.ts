@@ -32,6 +32,7 @@ const FRAME_PRESETS = new Set([
   "neon_pulse",
   "galaxy_orbit",
   "diamond",
+  "custom",
 ]);
 
 const styleSchema = z.object({
@@ -39,6 +40,9 @@ const styleSchema = z.object({
   backgroundPreset: z.string().trim().max(40).default("default"),
   accentColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a valid hex colour, e.g. #34d399."),
   framePreset: z.string().trim().max(40).default("none"),
+  framePrimaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).default("#34d399"),
+  frameSecondaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).default("#38bdf8"),
+  frameEmoji: z.string().trim().max(8).default("✨"),
   bio: z.string().trim().max(220).nullable().optional(),
   badges: z.array(z.string().trim().max(32)).max(8).default([]),
 });
@@ -53,6 +57,9 @@ async function ensureProfileStylesTable() {
       background_preset TEXT NOT NULL DEFAULT 'default',
       accent_color TEXT NOT NULL DEFAULT '#34d399',
       frame_preset TEXT NOT NULL DEFAULT 'none',
+      frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
+      frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
+      frame_emoji TEXT NOT NULL DEFAULT '✨',
       bio TEXT,
       badges JSONB NOT NULL DEFAULT '[]'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -66,6 +73,9 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS accent_color TEXT NOT NULL DEFAULT '#34d399'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_preset TEXT NOT NULL DEFAULT 'none'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT '✨'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
@@ -128,7 +138,7 @@ export async function GET(req: Request) {
   try {
     const user = await getSessionUser();
     if (!user?.roblox_id) {
-      return NextResponse.json({ error: "Link your Roblox account before customizing your card." }, { status: 400 });
+      return NextResponse.json({ error: "Link your Roblox account before customising your card." }, { status: 400 });
     }
 
     const url = new URL(req.url);
@@ -151,6 +161,9 @@ export async function GET(req: Request) {
               background_preset,
               accent_color,
               frame_preset,
+              frame_primary_color,
+              frame_secondary_color,
+              frame_emoji,
               bio,
               badges,
               updated_at
@@ -177,7 +190,7 @@ export async function POST(req: Request) {
   try {
     const user = await getSessionUser();
     if (!user?.roblox_id) {
-      return NextResponse.json({ error: "Link your Roblox account before customizing your card." }, { status: 400 });
+      return NextResponse.json({ error: "Link your Roblox account before customising your card." }, { status: 400 });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -234,10 +247,13 @@ export async function POST(req: Request) {
         background_preset,
         accent_color,
         frame_preset,
+        frame_primary_color,
+        frame_secondary_color,
+        frame_emoji,
         bio,
         badges,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, NOW())
       ON CONFLICT (roblox_id)
       DO UPDATE SET
         user_id = EXCLUDED.user_id,
@@ -246,6 +262,9 @@ export async function POST(req: Request) {
         background_preset = EXCLUDED.background_preset,
         accent_color = EXCLUDED.accent_color,
         frame_preset = EXCLUDED.frame_preset,
+        frame_primary_color = EXCLUDED.frame_primary_color,
+        frame_secondary_color = EXCLUDED.frame_secondary_color,
+        frame_emoji = EXCLUDED.frame_emoji,
         bio = EXCLUDED.bio,
         badges = EXCLUDED.badges,
         updated_at = NOW()
@@ -255,6 +274,9 @@ export async function POST(req: Request) {
                 background_preset,
                 accent_color,
                 frame_preset,
+                frame_primary_color,
+                frame_secondary_color,
+                frame_emoji,
                 bio,
                 badges,
                 updated_at`,
@@ -266,6 +288,9 @@ export async function POST(req: Request) {
         parsed.data.backgroundPreset,
         parsed.data.accentColor,
         parsed.data.framePreset,
+        parsed.data.framePrimaryColor,
+        parsed.data.frameSecondaryColor,
+        parsed.data.frameEmoji || "✨",
         parsed.data.bio || null,
         JSON.stringify(badges),
       ]
