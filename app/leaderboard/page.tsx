@@ -15,6 +15,7 @@ type ProfileStyle = {
   framePrimaryColor?: string | null;
   frameSecondaryColor?: string | null;
   frameEmoji?: string | null;
+  fontPreset?: string | null;
   bio: string | null;
   badges: string[];
 };
@@ -96,6 +97,7 @@ const DEFAULT_STYLE: ProfileStyle = {
   framePrimaryColor: "#34d399",
   frameSecondaryColor: "#38bdf8",
   frameEmoji: "✨",
+  fontPreset: "default",
   bio: null,
   badges: [],
 };
@@ -150,6 +152,16 @@ const FRAME_PRESETS: Record<string, { label: string; className: string; frameCla
 
 const ACCENT_PRESETS = ["#34d399", "#38bdf8", "#ef4444", "#a78bfa", "#facc15", "#ec4899"];
 
+const FONT_PRESETS: Record<string, { label: string; family: string; letterSpacing?: string; textTransform?: "none" | "uppercase" }> = {
+  default: { label: "Default", family: "inherit" },
+  gg_sans: { label: "GG Sans Style", family: "gg sans, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" },
+  display: { label: "Nitro Display", family: "ABC Ginto Nord, Ginto Nord, Impact, Haettenschweiler, Arial Narrow Bold, sans-serif", letterSpacing: "0.02em" },
+  rounded: { label: "Rounded Soft", family: "Nunito, Avenir Next Rounded Std, Avenir Next, ui-rounded, system-ui, sans-serif" },
+  mono: { label: "Mono Tag", family: "JetBrains Mono, SFMono-Regular, Consolas, Liberation Mono, monospace", letterSpacing: "0.02em" },
+  serif: { label: "Elegant Serif", family: "Georgia, Cambria, Times New Roman, serif" },
+  comic: { label: "Playful", family: "Comic Sans MS, Comic Sans, Chalkboard SE, cursive" },
+};
+
 function getStyle(entry?: LeaderboardEntry | null) {
   return entry?.style ?? DEFAULT_STYLE;
 }
@@ -164,6 +176,15 @@ function safeFrameColor(value: string | null | undefined, fallback: string) {
 
 function safeFrameEmoji(value: string | null | undefined) {
   return String(value ?? "✨").trim().slice(0, 4) || "✨";
+}
+
+function fontStyle(style: ProfileStyle): CSSProperties {
+  const preset = FONT_PRESETS[style.fontPreset ?? "default"] ?? FONT_PRESETS.default;
+  return {
+    fontFamily: preset.family,
+    letterSpacing: preset.letterSpacing,
+    textTransform: preset.textTransform,
+  };
 }
 
 function backgroundCss(style: ProfileStyle) {
@@ -668,13 +689,13 @@ function LeaderboardRow({
           <div className="flex items-center gap-3 sm:hidden">
             <AvatarWithFrame entry={entry} />
             <div className="min-w-0">
-              <h3 className="truncate text-xl font-bold" style={{ color: style.accentColor }}>{entry.name}</h3>
+              <h3 className="truncate text-xl font-bold" style={{ color: style.accentColor, ...fontStyle(style) }}>{entry.name}</h3>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Rank #{entry.rank}</p>
             </div>
           </div>
 
           <div className="hidden sm:block">
-            <h3 className="truncate text-2xl font-bold" style={{ color: style.accentColor }}>{entry.name}</h3>
+            <h3 className="truncate text-2xl font-bold" style={{ color: style.accentColor, ...fontStyle(style) }}>{entry.name}</h3>
             <p className="mt-1 text-xs uppercase tracking-[0.22em] text-zinc-400">{entry.discord_id ? "Linked member" : "Roblox member"}</p>
           </div>
 
@@ -847,8 +868,8 @@ function PlayerMiniProfile({
               <AvatarWithFrame entry={entry} size="lg" />
               <div>
                 <div className="text-xs uppercase tracking-[0.28em]" style={{ color: style.accentColor }}>Rank #{entry.rank}</div>
-                <h2 className="mt-1 text-4xl font-bold text-white">{entry.name}</h2>
-                <p className="mt-2 max-w-xl text-sm italic text-zinc-300">{style.bio || "No bio yet. Customise your card to add one."}</p>
+                <h2 className="mt-1 text-4xl font-bold text-white" style={fontStyle(style)}>{entry.name}</h2>
+                <p className="mt-2 max-w-xl text-sm italic text-zinc-300" style={fontStyle(style)}>{style.bio || "No bio yet. Customise your card to add one."}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {(style.badges?.length ? style.badges : [entry.discord_id ? "Discord linked" : "Roblox member"]).map((badge) => (
                     <span key={badge} className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">{badge}</span>
@@ -940,6 +961,7 @@ function StyleEditorModal({
   const [framePrimaryColor, setFramePrimaryColor] = useState("#34d399");
   const [frameSecondaryColor, setFrameSecondaryColor] = useState("#38bdf8");
   const [frameEmoji, setFrameEmoji] = useState("✨");
+  const [fontPreset, setFontPreset] = useState("default");
   const [bio, setBio] = useState("");
   const [badgesText, setBadgesText] = useState("");
   const [status, setStatus] = useState("");
@@ -982,6 +1004,7 @@ function StyleEditorModal({
           setFramePrimaryColor("#34d399");
           setFrameSecondaryColor("#38bdf8");
           setFrameEmoji("✨");
+          setFontPreset("default");
           setBio("");
           setBadgesText("");
           setStatus("No saved style yet — pick your first look.");
@@ -995,6 +1018,7 @@ function StyleEditorModal({
         setFramePrimaryColor(String(saved.framePrimaryColor ?? saved.frame_primary_color ?? "#34d399"));
         setFrameSecondaryColor(String(saved.frameSecondaryColor ?? saved.frame_secondary_color ?? "#38bdf8"));
         setFrameEmoji(String(saved.frameEmoji ?? saved.frame_emoji ?? "✨"));
+        setFontPreset(String(saved.fontPreset ?? saved.font_preset ?? "default"));
         setBio(String(saved.bio ?? ""));
         const savedBadges = Array.isArray(saved.badges) ? saved.badges.map(String) : [];
         setBadgesText(savedBadges.join(", "));
@@ -1029,6 +1053,7 @@ function StyleEditorModal({
           framePrimaryColor,
           frameSecondaryColor,
           frameEmoji: frameEmoji.trim() || "✨",
+          fontPreset,
           bio: bio.trim() || null,
           badges: canEditBadges ? badgesText.split(",").map((badge) => badge.trim()).filter(Boolean) : [],
         }),
@@ -1054,6 +1079,7 @@ function StyleEditorModal({
     framePrimaryColor,
     frameSecondaryColor,
     frameEmoji,
+    fontPreset,
     bio: bio || null,
     badges: badgesText.split(",").map((badge) => badge.trim()).filter(Boolean),
   };
@@ -1077,8 +1103,8 @@ function StyleEditorModal({
           <div className="absolute" />
           <div className="rounded-2xl p-5" style={{ background: backgroundCss(previewStyle) }}>
             <div className="text-xs uppercase tracking-[0.2em]" style={{ color: accentColor }}>Preview</div>
-            <div className="mt-2 text-3xl font-bold" style={{ color: accentColor }}>{targetEntry?.name ?? currentUser?.username ?? "Your Card"}</div>
-            <p className="mt-2 max-w-lg text-sm italic text-zinc-200">{bio || "Your bio or quote will appear here."}</p>
+            <div className="mt-2 text-3xl font-bold" style={{ color: accentColor, ...fontStyle(previewStyle) }}>{targetEntry?.name ?? currentUser?.username ?? "Your Card"}</div>
+            <p className="mt-2 max-w-lg text-sm italic text-zinc-200" style={fontStyle(previewStyle)}>{bio || "Your bio or quote will appear here."}</p>
             <div className="mt-4 flex items-center gap-3">
               <div className="profile-frame-wrap relative flex h-20 w-20 items-center justify-center">
                 <span
@@ -1130,6 +1156,15 @@ function StyleEditorModal({
               </label>
             </div>
           )}
+          <label className="space-y-2 sm:col-span-2">
+            <span className="admin-label">Profile Font</span>
+            <select className="admin-input" value={fontPreset} onChange={(event) => setFontPreset(event.target.value)}>
+              {Object.entries(FONT_PRESETS).map(([key, preset]) => (
+                <option key={key} value={key}>{preset.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-zinc-500">Nitro-style font presets for your name and bio.</p>
+          </label>
           <label className="space-y-2">
             <span className="admin-label">Accent colour</span>
             <div className="flex gap-2">
