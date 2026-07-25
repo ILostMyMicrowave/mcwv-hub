@@ -44,6 +44,11 @@ type GlobalSettings = {
   banner_speed: number;
 };
 
+type PresenceState = {
+  status: string;
+  tone: "offline" | "online" | "ingame" | "studio" | "unknown" | string;
+};
+
 type RequirementBlock =
   | { type: "heading1"; text: string }
   | { type: "heading2"; text: string }
@@ -336,6 +341,35 @@ function StatCard({
   );
 }
 
+function CurrentStatusPill({ presence }: { presence: PresenceState }) {
+  const tone = presence.tone;
+  const colors =
+    tone === "ingame"
+      ? { bg: "rgba(52,211,153,0.13)", border: "rgba(52,211,153,0.30)", dot: "#34d399", text: "#bbf7d0" }
+      : tone === "online"
+      ? { bg: "rgba(96,165,250,0.13)", border: "rgba(96,165,250,0.30)", dot: "#60a5fa", text: "#bfdbfe" }
+      : tone === "studio"
+      ? { bg: "rgba(168,85,247,0.13)", border: "rgba(168,85,247,0.30)", dot: "#a855f7", text: "#ddd6fe" }
+      : tone === "offline"
+      ? { bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.24)", dot: "#94a3b8", text: "#e2e8f0" }
+      : { bg: "rgba(250,204,21,0.10)", border: "rgba(250,204,21,0.24)", dot: "#facc15", text: "#fef3c7" };
+
+  return (
+    <div
+      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] shadow-lg backdrop-blur"
+      style={{
+        background: colors.bg,
+        border: `1px solid ${colors.border}`,
+        color: colors.text,
+        boxShadow: `0 0 24px ${colors.border}`,
+      }}
+    >
+      <span className="h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: colors.dot }} />
+      My Status: {presence.status}
+    </div>
+  );
+}
+
 function InfoPanel({ title, children, action, delay = "0ms" }: { title: string; children: React.ReactNode; action?: React.ReactNode; delay?: string }) {
   return (
     <Animated delay={delay}>
@@ -397,13 +431,14 @@ export default function HomePage() {
   const [active, setActive] = useState(false);
   const [totalPoints, setTotalPoints] = useState(0);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
   const [global, setGlobal] = useState<GlobalSettings>({
     discord_link: "",
     requirements_text: "",
     banner_text: "Recruiting now!! Join the Discord and help push us to the top.",
     banner_speed: 18,
   });
+  const [presence, setPresence] = useState<PresenceState>({ status: "Loading", tone: "unknown" });
 
   const prevRef = useRef<LeaderboardEntry[]>([]);
 
@@ -417,6 +452,26 @@ export default function HomePage() {
       } catch { /* keep defaults */ }
     }
     loadGlobal();
+  }, []);
+
+  useEffect(() => {
+    async function loadPresence() {
+      try {
+        const res = await fetch("/api/presence/me", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        setPresence({
+          status: String(data.status ?? "Unknown"),
+          tone: String(data.tone ?? "unknown"),
+        });
+      } catch {
+        setPresence({ status: "Unknown", tone: "unknown" });
+      }
+    }
+
+    void loadPresence();
+    const interval = window.setInterval(loadPresence, 30_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const bannerText = global.banner_text;
@@ -485,7 +540,14 @@ export default function HomePage() {
             <Animated delay="0.05s">
               <div className="rounded-3xl border p-6 backdrop-blur sm:p-8" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))", borderColor: "var(--border)" }}>
                 <div className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--primary)" }} />{active ? "Tracking active" : "Waiting for the next battle"}</div>
-                <Animated delay="0.1s"><h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl">MCWV Hub</h1></Animated>
+                <Animated delay="0.1s">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl">MCWV Hub</h1>
+                    <div className="lg:pr-6">
+                      <CurrentStatusPill presence={presence} />
+                    </div>
+                  </div>
+                </Animated>
                 <Animated delay="0.15s"><p className="mt-4 max-w-2xl text-base text-zinc-300 sm:text-lg">Real-time leaderboard tracking, war stats, clan performance analytics, and live updates that actually feel alive.</p></Animated>
                 <Animated delay="0.2s"><div className="mt-6 flex flex-wrap gap-3"><a href="/leaderboard" className="rounded-2xl px-6 py-3 text-sm font-semibold transition hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--primary)", color: "#000" }}>View Leaderboard</a><a href="/contributions" className="rounded-2xl px-6 py-3 text-sm font-semibold transition hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--foreground)" }}>Open Contributions</a></div></Animated>
               </div>
