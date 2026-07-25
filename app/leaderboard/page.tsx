@@ -1588,9 +1588,15 @@ export default function LeaderboardPage() {
                       }}
                     />
 
-                    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                      LIVE
+                    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+                      selectedBattleId
+                        ? "border-sky-400/20 bg-sky-400/10 text-sky-300"
+                        : active
+                        ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                        : "border-zinc-400/20 bg-zinc-400/10 text-zinc-300"
+                    }`}>
+                      <span className={`h-2 w-2 animate-pulse rounded-full ${selectedBattleId ? "bg-sky-400" : active ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                      {selectedBattleId ? "HISTORICAL" : active ? "LIVE" : "ROSTER"}
                     </span>
 
                     <span className="text-sm text-zinc-300">updated {updatedAgo}</span>
