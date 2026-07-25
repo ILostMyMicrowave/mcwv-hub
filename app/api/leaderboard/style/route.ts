@@ -81,8 +81,51 @@ const styleSchema = z.object({
   frameEmoji: z.string().trim().max(16).nullable().optional(),
   fontPreset: z.string().trim().max(40).default("default"),
   bio: z.string().trim().max(220).nullable().optional(),
-  badges: z.array(z.string().trim().max(32)).max(8).default([]),
+  badges: z.array(z.string().trim().max(64)).max(8).default([]),
 });
+
+async function ensureBadgePresetTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS leaderboard_badge_presets (
+      id BIGSERIAL PRIMARY KEY,
+      badge_key TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      emoji TEXT,
+      color TEXT NOT NULL DEFAULT '#34d399',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 100,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS leaderboard_badge_presets_key_idx ON leaderboard_badge_presets (badge_key)`);
+}
+
+async function normalizeAssignableBadges(badges: string[]) {
+  const requested = [...new Set(badges.map((badge) => badge.trim()).filter(Boolean))].slice(0, 8);
+  if (!requested.length) return [];
+
+  await ensureBadgePresetTable();
+
+  const result = await pool.query<{ badge_key: string }>(
+    `SELECT badge_key
+     FROM leaderboard_badge_presets
+     WHERE enabled = TRUE
+       AND badge_key = ANY($1)`,
+    [requested]
+  );
+
+  const allowed = new Set(result.rows.map((row) => row.badge_key));
+  const invalid = requested.filter((badge) => !allowed.has(badge));
+
+  if (invalid.length) {
+    throw new Error("Badges must be selected from the owner-approved preset list.");
+  }
+
+  return requested;
+}
 
 async function ensureProfileStylesTable() {
   await pool.query(`
@@ -277,8 +320,10 @@ export async function POST(req: Request) {
 
     await ensureProfileStylesTable();
 
-    let badges = parsed.data.badges;
-    if (!canManageCards) {
+    let badges: string[] = [];
+    if (canManageCards) {
+      badges = await normalizeAssignableBadges(parsed.data.badges);
+    } else {
       const existing = await pool.query<{ badges: unknown }>(
         `SELECT badges FROM user_profile_styles WHERE roblox_id = $1 LIMIT 1`,
         [targetRobloxId]
@@ -329,6 +374,7 @@ export async function POST(req: Request) {
                 frame_primary_color,
                 frame_secondary_color,
                 frame_emoji,
+                font_preset,
                 bio,
                 badges,
                 updated_at`,
