@@ -1416,9 +1416,10 @@ export default function LeaderboardPage() {
       }
 
       if (!json.success) {
-        if (selectedBattleId && json.data?.length === 0) {
+        setTitle(json.title ?? (requestedBattleId ? "Historical War" : "No Active War"));
+        if (requestedBattleId && json.data?.length === 0) {
           setError(
-            "No individual member data available for this historical battle. Data collection started after this war ended."
+            "No individual member data is saved for this historical battle yet. Try Current War, or run a war sync if the old API still has this battle."
           );
         } else {
           setError(json.error ?? "Failed to load leaderboard");
