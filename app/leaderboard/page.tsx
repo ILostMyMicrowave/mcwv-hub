@@ -1619,12 +1619,12 @@ export default function LeaderboardPage() {
                     </button>
                     <WarHistoryDropdown
                       selectedBattleId={selectedBattleId}
-                      onSelect={(battleId, battleName) => {
-                        const displayTitle = battleId ? formatWarDisplayName(battleName || battleId) : "No Active War";
+                      onSelect={(battleId) => {
+                        const displayTitle = battleId ? formatWarDisplayName(battleId) : "No Active War";
                         selectedBattleIdRef.current = battleId;
-                        selectedBattleNameRef.current = battleName ?? null;
+                        selectedBattleNameRef.current = null;
                         setSelectedBattleId(battleId);
-                        setSelectedBattleName(battleName ?? null);
+                        setSelectedBattleName(null);
                         setLoading(true);
                         setError(null);
                         setData([]);
