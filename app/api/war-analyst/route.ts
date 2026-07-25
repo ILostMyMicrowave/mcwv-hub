@@ -4,6 +4,9 @@ import { pool } from "@/lib/db";
 export const runtime = "nodejs";
 
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
+const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
+const CLAN_API = process.env.CLAN_API ?? "";
+const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 
 type SnapshotRow = {
   battle_id: string;
@@ -266,6 +269,202 @@ function statusTone(projectedPlacement: number | null) {
   return "danger" as const;
 }
 
+function normalizeTimestamp(value: unknown): number {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+function normalizeKey(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+async function fetchJson(url: string) {
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
+  return res.json();
+}
+
+type LiveWarInfo = {
+  battleId: string;
+  title: string;
+  start: number;
+  finish: number;
+  progressPct: number | null;
+};
+
+type LiveContribution = {
+  UserID?: number | string;
+  Points?: number | string;
+};
+
+type LiveClanBattle = {
+  BattleID?: string;
+  Title?: string;
+  configName?: string;
+  Points?: number | string;
+  PointContributions?: LiveContribution[];
+};
+
+async function getActiveWarInfo(): Promise<LiveWarInfo | null> {
+  try {
+    const active = await fetchJson(ACTIVE_BATTLE_API);
+    const data = active?.data ?? {};
+    const config = data?.configData ?? {};
+    const start = normalizeTimestamp(config.StartTime);
+    const finish = normalizeTimestamp(config.FinishTime);
+    const now = Math.floor(Date.now() / 1000);
+    const isActive = start > 0 && finish > 0 ? start <= now && now <= finish : Boolean(data.activeBattleConfigName ?? data.activeBattleId ?? data.battleId);
+
+    if (!isActive) return null;
+
+    const title = String(config.Title ?? config.configName ?? data.configName ?? data.activeBattleConfigName ?? data.activeBattleId ?? "Current Battle");
+    const battleId = String(config._id ?? config.Title ?? data.configName ?? title);
+    const progressPct = start > 0 && finish > start ? clamp(((Date.now() / 1000 - start) / (finish - start)) * 100, 0, 100) : null;
+
+    return { battleId, title, start, finish, progressPct };
+  } catch (err) {
+    console.warn("[war-analyst] active battle unavailable:", err);
+    return null;
+  }
+}
+
+async function getLiveClanBattle(active: LiveWarInfo) {
+  if (!CLAN_API) return null;
+
+  try {
+    const clan = await fetchJson(CLAN_API);
+    const battles = (clan?.data?.Battles ?? {}) as Record<string, LiveClanBattle>;
+    const target = normalizeKey(active.title);
+    const match = Object.entries(battles).find(([key, battle]) => {
+      const names = [key, battle?.BattleID, battle?.Title, battle?.configName];
+      return names.some((name) => normalizeKey(name) === target);
+    });
+
+    return match?.[1] ?? null;
+  } catch (err) {
+    console.warn("[war-analyst] live clan battle unavailable:", err);
+    return null;
+  }
+}
+
+async function getPublicBattle(active: LiveWarInfo) {
+  const ids = [active.battleId, active.title].filter(Boolean);
+
+  for (const id of ids) {
+    try {
+      const data = await fetchJson(`${PS99_API}/v1/clans/battles/${encodeURIComponent(id)}`);
+      if (data?.data) return data.data;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function contributionPoints(entry: LiveContribution) {
+  return asNumber(entry.Points) ?? 0;
+}
+
+async function buildLiveBattleHq(active: LiveWarInfo) {
+  const [liveBattle, publicBattle] = await Promise.all([
+    getLiveClanBattle(active),
+    getPublicBattle(active),
+  ]);
+
+  const contributions = Array.isArray(liveBattle?.PointContributions)
+    ? liveBattle.PointContributions.filter((entry): entry is LiveContribution => !!entry && typeof entry === "object")
+    : [];
+  const currentPoints = asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
+  const participants = contributions.filter((entry) => contributionPoints(entry) > 0).length || null;
+
+  const topClans = Array.isArray(publicBattle?.topClans) ? publicBattle.topClans : [];
+  const publicMcwv = topClans.find((clan: Record<string, unknown>) => namesMatch(clan?.name, CLAN_NAME)) ?? null;
+  const rank = asNumber(publicMcwv?.reportedPlace ?? publicMcwv?.rank ?? publicMcwv?.place);
+  const totalClans = asNumber(publicBattle?.stats?.participatingClans) ?? (topClans.length || null);
+  const totalPoints = asNumber(publicBattle?.stats?.totalClanPoints);
+
+  const nearby = topClans
+    .map((clan: Record<string, unknown>) => ({
+      rank: asNumber(clan.rank ?? clan.reportedPlace ?? clan.place),
+      name: String(clan.name ?? "Unknown"),
+      points: asNumber(clan.points) ?? 0,
+    }))
+    .filter((clan: { name: string }) => clan.name !== "Unknown")
+    .sort((a: { rank: number | null; points: number }, b: { rank: number | null; points: number }) => (a.rank ?? 999999) - (b.rank ?? 999999) || b.points - a.points);
+
+  const ourNearby = rank !== null
+    ? nearby.filter((clan: { rank: number | null }) => clan.rank !== null && Math.abs((clan.rank as number) - rank) <= 5).slice(0, 10)
+    : nearby.slice(0, 10);
+
+  const above = rank !== null
+    ? nearby.filter((clan: { rank: number | null }) => clan.rank !== null && (clan.rank as number) < rank).sort((a: { rank: number | null }, b: { rank: number | null }) => (b.rank ?? 0) - (a.rank ?? 0))[0] ?? null
+    : null;
+  const below = rank !== null
+    ? nearby.filter((clan: { rank: number | null }) => clan.rank !== null && (clan.rank as number) > rank).sort((a: { rank: number | null }, b: { rank: number | null }) => (a.rank ?? 999999) - (b.rank ?? 999999))[0] ?? null
+    : null;
+  const gapAbove = above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
+  const gapBelow = below && below.points < currentPoints ? currentPoints - below.points : null;
+  const updateEveryMs = 30_000;
+  const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
+
+  return {
+    success: true,
+    active: true,
+    battleId: active.battleId,
+    battleName: active.title,
+    lastUpdatedAt: new Date().toISOString(),
+    current: {
+      clanName: CLAN_NAME,
+      rank,
+      points: currentPoints,
+      level: null,
+      kickCooldown: null,
+      progressPct: active.progressPct,
+      participants,
+      totalClans,
+      totalPoints,
+    },
+    stats: {
+      gain24h: 0,
+      hourlyRate: null,
+      averageRate: null,
+      gapAbove,
+      gapBelow,
+      etaAboveMs: null,
+      threatEtaMs: null,
+      projectedPlacement: rank,
+      confidence: "low" as const,
+      uiTone: statusTone(rank),
+    },
+    nearby: ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints }],
+    summary: {
+      overview: rank !== null ? `${CLAN_NAME} is currently #${rank} with ${formatNumber(currentPoints)} points.` : `${CLAN_NAME} has ${formatNumber(currentPoints)} battle points. Rank is not available yet.`,
+      pace: `Live battle data is updating from the clan API. Pace needs more snapshots before it can be calculated.`,
+      target: gapAbove !== null && above ? `${above.name} is the next clan to pass.` : `No next target could be resolved yet.`,
+      threat: gapBelow !== null && below ? `${below.name} is the closest danger from below.` : `No close threat from below could be resolved yet.`,
+    },
+    timing: {
+      snapshotIntervalMs: updateEveryMs,
+      nextUpdateInMs: nextUpdateMs,
+      nextUpdateText: formatShortDuration(nextUpdateMs),
+    },
+    history: {
+      points24h: [],
+    },
+    diagnostics: {
+      snapshotsAvailable: 0,
+      latestSnapshotRank: rank,
+    },
+  };
+}
+
 export async function GET() {
   try {
     if (!pool) {
@@ -278,7 +477,15 @@ export async function GET() {
       );
     }
 
-    let battleId = await getLatestBattleId();
+    const activeWar = await getActiveWarInfo();
+    if (activeWar) {
+      const livePayload = await buildLiveBattleHq(activeWar);
+      return NextResponse.json(livePayload, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    const battleId = await getLatestBattleId();
 
     if (!battleId) {
       return NextResponse.json({
