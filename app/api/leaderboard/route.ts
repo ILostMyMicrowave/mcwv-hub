@@ -565,6 +565,109 @@ function pickBattle(
   return withContribs ?? candidates[0] ?? null;
 }
 
+
+/* ---------------- HISTORICAL LEADERBOARD FALLBACK (from clan API) ---------------- */
+
+async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "Historical War"): Promise<LeaderboardResponse> {
+  try {
+    const clan = await fetchJson(CLAN_API);
+    const battles = (clan?.data?.Battles ?? {}) as Record<string, Battle>;
+    const candidates = Object.entries(battles).map(([key, battle]) => ({ key, battle }));
+    const normalizedTarget = normalizeKey(battleId);
+    const match = candidates.find(({ key, battle }) => {
+      const names = [key, battle?.BattleID, battle?.configName, battle?.Title];
+      return names.some((name) => normalizeKey(name) === normalizedTarget);
+    });
+
+    const battle = match?.battle ?? null;
+    const rawContributions: Contribution[] = Array.isArray(battle?.PointContributions)
+      ? battle.PointContributions
+      : [];
+
+    if (!battle || !rawContributions.length) {
+      return {
+        success: true,
+        active: false,
+        title: fallbackTitle,
+        total_points: 0,
+        updatedAt: new Date().toISOString(),
+        data: [],
+      };
+    }
+
+    const contributions = rawContributions
+      .filter((entry): entry is Contribution => !!entry && typeof entry === "object")
+      .sort((a, b) => getPoints(b) - getPoints(a));
+
+    const userIds = [
+      ...new Set(contributions.map((entry) => Number(entry.UserID ?? 0)).filter(Number.isFinite)),
+    ];
+
+    const [nameMap, avatarMap] = await Promise.all([
+      getNames(userIds),
+      getAvatars(userIds),
+    ]);
+
+    const usersRes = await pool.query(
+      `SELECT roblox_id, discord_id
+       FROM users
+       WHERE roblox_id::text = ANY($1)`,
+      [userIds.map(String)]
+    );
+
+    const discordMap = new Map(
+      usersRes.rows.map((row) => [String(row.roblox_id), row.discord_id])
+    );
+
+    const discordIds = Array.from(discordMap.values()).filter(Boolean);
+    let altSet = new Set<string>();
+
+    if (discordIds.length) {
+      const altRes = await pool.query(
+        `SELECT roblox_id
+         FROM user_alts
+         WHERE discord_id = ANY($1)`,
+        [discordIds]
+      );
+      altSet = new Set(altRes.rows.map((row) => String(row.roblox_id)));
+    }
+
+    const entries: LeaderboardEntry[] = contributions.map((entry, index) => {
+      const user_id = Number(entry.UserID ?? 0);
+      return {
+        rank: index + 1,
+        user_id,
+        name: nameMap.get(user_id) ?? `Unknown (${user_id})`,
+        points: getPoints(entry),
+        avatar: avatarMap.get(user_id) ?? null,
+        discord_id: discordMap.get(String(user_id)) ?? null,
+        is_alt: altSet.has(String(user_id)),
+      };
+    });
+
+    const title = String(battle.Title ?? battle.configName ?? battle.BattleID ?? fallbackTitle);
+
+    return {
+      success: true,
+      active: false,
+      title: `${title} - Historical War`,
+      total_points: Number(battle.Points ?? entries.reduce((sum, entry) => sum + Number(entry.points ?? 0), 0)),
+      updatedAt: new Date().toISOString(),
+      data: await attachProfileStyles(entries),
+    };
+  } catch (err) {
+    console.error("[leaderboard/history] clan API fallback error:", err);
+    return {
+      success: true,
+      active: false,
+      title: fallbackTitle,
+      total_points: 0,
+      updatedAt: new Date().toISOString(),
+      data: [],
+    };
+  }
+}
+
 /* ---------------- HISTORICAL LEADERBOARD (from DB) ---------------- */
 
 async function buildHistoricalLeaderboard(battleId: string): Promise<LeaderboardResponse> {
@@ -578,14 +681,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   );
 
   if (!battleRes.rows[0]) {
-    return {
-      success: true,
-      active: false,
-      title: "Historical War",
-      total_points: 0,
-      updatedAt: new Date().toISOString(),
-      data: [],
-    };
+    return buildHistoricalFromClanApi(battleId, "Historical War");
   }
 
   const battle = battleRes.rows[0];
@@ -614,7 +710,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
 
   // Get Roblox names and avatars for members
   const robloxIds = membersRes.rows
-    .map((r) => Number(r.roblox_id))
+    .map((r) => Number(r.user_id))
     .filter((id) => Number.isFinite(id));
 
   const [nameMap, avatarMap] = await Promise.all([
@@ -644,19 +740,23 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
     return {
       rank: index + 1,
       user_id,
-      name: row.username || nameMap.get(robloxId) || `Unknown (${user_id})`,
+      name: row.username || nameMap.get(user_id) || `Unknown (${user_id})`,
       points,
-      avatar: avatarMap.get(robloxId) ?? null,
+      avatar: avatarMap.get(user_id) ?? null,
       discord_id: discordId ?? null,
       is_alt: altSet.has(String(user_id)),
     };
   });
 
+  if (!entries.length) {
+    return buildHistoricalFromClanApi(battleId, title);
+  }
+
   return {
     success: true,
     active: false,
-    title: `${title} - MCWV Members`,
-    total_points: Number(snapshotRes.rows[0]?.battle_points ?? 0),
+    title: `${title} - Historical War`,
+    total_points: Number(snapshotRes.rows[0]?.battle_points ?? entries.reduce((sum, entry) => sum + Number(entry.points ?? 0), 0)),
     updatedAt: new Date().toISOString(),
     data: await attachProfileStyles(entries),
   };
