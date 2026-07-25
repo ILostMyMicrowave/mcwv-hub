@@ -11,7 +11,7 @@ type Battle = {
 
 type WarHistoryDropdownProps = {
   selectedBattleId: string | null;
-  onSelect: (battleId: string | null) => void;
+  onSelect: (battleId: string | null, battleName?: string | null) => void;
 };
 
 export default function WarHistoryDropdown({
@@ -145,7 +145,7 @@ export default function WarHistoryDropdown({
             {/* Current War Option */}
             <div
               onClick={() => {
-                onSelect(null);
+                onSelect(null, null);
                 setIsOpen(false);
               }}
               className={`relative cursor-pointer rounded-t-xl p-4 transition-all duration-300 hover:bg-[var(--primary)]/10 ${
@@ -176,7 +176,7 @@ export default function WarHistoryDropdown({
                 <div
                   key={battle.battle_id}
                   onClick={() => {
-                    onSelect(battle.battle_id);
+                    onSelect(battle.battle_id, battle.battle_name || battle.battle_id);
                     setIsOpen(false);
                   }}
                   className={`relative cursor-pointer p-4 transition-all duration-300 hover:bg-[var(--primary)]/10 ${
