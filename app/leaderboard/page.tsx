@@ -1382,6 +1382,7 @@ export default function LeaderboardPage() {
   const [rankChange, setRankChange] = useState<Record<number, number>>({});
   const [now, setNow] = useState(0);
   const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
+  const selectedBattleIdRef = useRef<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<LeaderboardEntry | null>(null);
   const [styleEditorOpen, setStyleEditorOpen] = useState(false);
   const [selectedStyleTarget, setSelectedStyleTarget] = useState<LeaderboardEntry | null>(null);
@@ -1394,16 +1395,25 @@ export default function LeaderboardPage() {
   const prevRanksRef = useRef<Record<number, number>>({});
   const prevDataRef = useRef<LeaderboardEntry[]>([]);
 
+  useEffect(() => {
+    selectedBattleIdRef.current = selectedBattleId;
+  }, [selectedBattleId]);
+
   async function load(forceRefresh = false) {
     try {
+      const requestedBattleId = selectedBattleId;
       const params = new URLSearchParams();
-      if (selectedBattleId) params.set("battle_id", selectedBattleId);
-      if (forceRefresh && !selectedBattleId) params.set("refresh", "1");
+      if (requestedBattleId) params.set("battle_id", requestedBattleId);
+      if (forceRefresh && !requestedBattleId) params.set("refresh", "1");
 
       const res = await fetch(`/api/leaderboard?${params.toString()}`, {
         cache: "no-store",
       });
       const json: ApiResponse = await res.json();
+
+      if (selectedBattleIdRef.current !== requestedBattleId) {
+        return;
+      }
 
       if (!json.success) {
         if (selectedBattleId && json.data?.length === 0) {
@@ -1568,7 +1578,14 @@ export default function LeaderboardPage() {
                     </button>
                     <WarHistoryDropdown
                       selectedBattleId={selectedBattleId}
-                      onSelect={setSelectedBattleId}
+                      onSelect={(battleId) => {
+                        selectedBattleIdRef.current = battleId;
+                        setSelectedBattleId(battleId);
+                        setLoading(true);
+                        setError(null);
+                        setData([]);
+                        setTitle(battleId ? "Loading historical war..." : "No Active War");
+                      }}
                     />
 
                     <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
