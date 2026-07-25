@@ -2,7 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import ReactECharts from "echarts-for-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type AnalyticsResponse = {
   success: boolean;
@@ -68,13 +68,28 @@ function toNumber(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function normalizeAnalytics(payload: any): AnalyticsResponse {
-  const stats = payload?.stats ?? {};
-  const insights = payload?.insights ?? {};
+type ApiRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is ApiRecord {
+  return typeof value === "object" && value !== null;
+}
+
+function asRecord(value: unknown): ApiRecord {
+  return isRecord(value) ? value : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeAnalytics(payload: unknown): AnalyticsResponse {
+  const root = asRecord(payload);
+  const stats = asRecord(root.stats);
+  const insights = asRecord(root.insights);
 
   return {
-    success: Boolean(payload?.success),
-    updatedAt: String(payload?.updatedAt ?? new Date().toISOString()),
+    success: Boolean(root.success),
+    updatedAt: String(root.updatedAt ?? new Date().toISOString()),
     stats: {
       pointsLastHour: toNumber(stats.pointsLastHour),
       pointsToday: toNumber(stats.pointsToday),
@@ -83,35 +98,39 @@ function normalizeAnalytics(payload: any): AnalyticsResponse {
       trackedMembers: toNumber(stats.trackedMembers),
       growthVsPreviousHour: toNumber(stats.growthVsPreviousHour),
     },
-    hourlyPoints: Array.isArray(payload?.hourlyPoints)
-      ? payload.hourlyPoints.map((item: any) => ({
-          hour: String(item?.hour ?? ""),
-          points: toNumber(item?.points),
-        }))
-      : [],
-    dailyPoints: Array.isArray(payload?.dailyPoints)
-      ? payload.dailyPoints.map((item: any) => ({
-          day: String(item?.day ?? ""),
-          points: toNumber(item?.points),
-        }))
-      : [],
-    topContributors: Array.isArray(payload?.topContributors)
-      ? payload.topContributors.map((item: any) => ({
-          user_id: toNumber(item?.user_id),
-          points: toNumber(item?.points),
-        }))
-      : [],
+    hourlyPoints: asArray(root.hourlyPoints).map((value) => {
+      const item = asRecord(value);
+      return {
+        hour: String(item.hour ?? ""),
+        points: toNumber(item.points),
+      };
+    }),
+    dailyPoints: asArray(root.dailyPoints).map((value) => {
+      const item = asRecord(value);
+      return {
+        day: String(item.day ?? ""),
+        points: toNumber(item.points),
+      };
+    }),
+    topContributors: asArray(root.topContributors).map((value) => {
+      const item = asRecord(value);
+      const userId = toNumber(item.user_id ?? item.userId ?? item.roblox_id);
+      return {
+        user_id: userId,
+        username: String(item.username ?? item.name ?? `User ${userId || "—"}`),
+        points: toNumber(item.points),
+      };
+    }),
     insights: {
       peakHour:
-        typeof insights?.peakHour === "string" && insights.peakHour.trim()
+        typeof insights.peakHour === "string" && insights.peakHour.trim()
           ? insights.peakHour
           : null,
-      peakHourPoints: toNumber(insights?.peakHourPoints),
+      peakHourPoints: toNumber(insights.peakHourPoints),
     },
-    error: typeof payload?.error === "string" ? payload.error : undefined,
+    error: typeof root.error === "string" ? root.error : undefined,
   };
 }
-
 function useThemeColors() {
   const [theme, setTheme] = useState<ThemeColors>(FALLBACK_THEME);
 
@@ -220,7 +239,7 @@ function Panel({
         animationDelay: delay,
       }}
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
           {title}
         </h2>
@@ -248,7 +267,7 @@ function KpiCard({
 }) {
   return (
     <div
-      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      className="min-w-0 rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
       style={{
         background: "var(--card)",
         borderColor: "var(--border)",
@@ -452,8 +471,8 @@ export default function ContributionsPage() {
         textStyle: { color: theme.foreground },
       },
       grid: {
-        left: 120,
-        right: 18,
+        left: 12,
+        right: 12,
         top: 20,
         bottom: 18,
         containLabel: true,
@@ -468,7 +487,11 @@ export default function ContributionsPage() {
         type: "category",
         data: data.topContributors.map((d) => d.username),
         axisLine: { lineStyle: { color: theme.border } },
-        axisLabel: { color: theme.muted },
+        axisLabel: {
+          color: theme.muted,
+          width: 86,
+          overflow: "truncate",
+        },
       },
       series: [
         {
@@ -582,8 +605,8 @@ export default function ContributionsPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="text-right text-xs text-zinc-400">
+          <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
+            <div className="text-left text-xs text-zinc-400 sm:text-right">
               updated {updatedLabel}
             </div>
 
@@ -681,7 +704,7 @@ export default function ContributionsPage() {
             </Panel>
           </div>
 
-          <div className="lg:col-span-3 lg:grid lg:grid-cols-2 gap-4">
+          <div className="grid gap-4 lg:col-span-3 lg:grid-cols-2">
             <Panel
               title="Daily trend"
               right={<span className="text-xs text-zinc-400">7 days</span>}
