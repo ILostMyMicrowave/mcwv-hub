@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
+const CLAN_API = process.env.CLAN_API ?? "";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 const ROBLOX_USERS_API = "https://users.roblox.com/v1/users";
 
@@ -56,6 +57,25 @@ type TopContributorRow = {
   points: number | string;
 };
 
+type Contribution = {
+  UserID?: number | string;
+  Points?: number | string;
+};
+
+type Battle = {
+  BattleID?: string;
+  Title?: string;
+  configName?: string;
+  Points?: number | string;
+  PointContributions?: Contribution[];
+};
+
+type ActiveWarInfo = {
+  active: boolean;
+  title: string;
+  startIso: string;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -75,6 +95,22 @@ function normalizeTimestamp(value: unknown): number {
   const n = Number(value ?? 0);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+function normalizeKey(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function getContributionPoints(entry: Contribution) {
+  return toNumber(entry.Points);
+}
+
+async function fetchJson(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
+  return res.json();
 }
 
 function buildZeroHours() {
@@ -136,10 +172,10 @@ function zeroPayload(active = false): AnalyticsResponse {
   };
 }
 
-async function hasActiveWar() {
+async function getActiveWarInfo(): Promise<ActiveWarInfo | null> {
   try {
     const res = await fetch(ACTIVE_BATTLE_API, { cache: "no-store" });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
 
     const json = asRecord(await res.json().catch(() => null));
     const data = asRecord(json.data);
@@ -147,11 +183,58 @@ async function hasActiveWar() {
     const start = normalizeTimestamp(config.StartTime);
     const finish = normalizeTimestamp(config.FinishTime);
     const now = Math.floor(Date.now() / 1000);
+    const active = start > 0 && finish > 0
+      ? start <= now && now <= finish
+      : Boolean(data.activeBattleConfigName ?? data.activeBattleId ?? data.battleId);
 
-    if (start > 0 && finish > 0) return start <= now && now <= finish;
-    return Boolean(data.activeBattleConfigName ?? data.activeBattleId ?? data.battleId);
+    if (!active || start <= 0) return null;
+
+    return {
+      active: true,
+      title: String(config.Title ?? config.configName ?? data.configName ?? data.activeBattleConfigName ?? ""),
+      startIso: new Date(start * 1000).toISOString(),
+    };
   } catch {
-    return false;
+    return null;
+  }
+}
+
+async function getLiveClanStats(activeWar: ActiveWarInfo) {
+  if (!CLAN_API) return null;
+
+  try {
+    const clan = await fetchJson(CLAN_API);
+    const battles = (clan?.data?.Battles ?? {}) as Record<string, Battle>;
+    const target = normalizeKey(activeWar.title);
+    const match = Object.entries(battles).find(([key, battle]) => {
+      const names = [key, battle?.BattleID, battle?.configName, battle?.Title];
+      return names.some((name) => normalizeKey(name) === target);
+    });
+
+    const battle = match?.[1];
+    if (!battle) return null;
+
+    const contributions = Array.isArray(battle.PointContributions)
+      ? battle.PointContributions
+          .filter((entry): entry is Contribution => !!entry && typeof entry === "object")
+          .map((entry) => ({
+            user_id: toNumber(entry.UserID),
+            points: getContributionPoints(entry),
+          }))
+          .filter((entry) => entry.user_id > 0)
+      : [];
+
+    return {
+      totalPoints: toNumber(battle.Points) || contributions.reduce((sum, entry) => sum + entry.points, 0),
+      contributors: contributions.filter((entry) => entry.points > 0).length,
+      topContributors: contributions
+        .filter((entry) => entry.points > 0)
+        .sort((a, b) => b.points - a.points)
+        .slice(0, 10),
+    };
+  } catch (err) {
+    console.warn("[contributions/analytics] live clan stats unavailable:", err);
+    return null;
   }
 }
 
@@ -190,7 +273,7 @@ async function getRobloxNames(userIds: number[]) {
 
 export async function GET() {
   try {
-    const activeWar = await hasActiveWar();
+    const activeWar = await getActiveWarInfo();
 
     if (!activeWar) {
       return NextResponse.json(zeroPayload(false), {
@@ -199,6 +282,9 @@ export async function GET() {
         },
       });
     }
+
+    const liveStats = await getLiveClanStats(activeWar);
+    const battleStart = activeWar.startIso;
 
     const [
       statsRes,
@@ -214,7 +300,9 @@ export async function GET() {
           COALESCE(SUM(points_added) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0) AS points_today,
           COUNT(DISTINCT user_id) AS tracked_members
         FROM point_history
-        `
+        WHERE created_at >= $1::timestamptz
+        `,
+        [battleStart]
       ),
       pool.query(
         `
@@ -231,9 +319,11 @@ export async function GET() {
         FROM hours h
         LEFT JOIN point_history p
           ON date_trunc('hour', p.created_at) = h.hour_bucket
+         AND p.created_at >= $1::timestamptz
         GROUP BY h.hour_bucket
         ORDER BY h.hour_bucket
-        `
+        `,
+        [battleStart]
       ),
       pool.query(
         `
@@ -250,9 +340,11 @@ export async function GET() {
         FROM days d
         LEFT JOIN point_history p
           ON date_trunc('day', p.created_at) = d.day_bucket
+         AND p.created_at >= $1::timestamptz
         GROUP BY d.day_bucket
         ORDER BY d.day_bucket
-        `
+        `,
+        [battleStart]
       ),
       pool.query<TopContributorRow>(
         `
@@ -262,18 +354,20 @@ export async function GET() {
           COALESCE(SUM(ph.points_added), 0) AS points
         FROM point_history ph
         LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(ph.user_id AS TEXT))
+        WHERE ph.created_at >= $1::timestamptz
         GROUP BY ph.user_id
         ORDER BY points DESC
         LIMIT 10
-        `
+        `,
+        [battleStart]
       ),
     ]);
 
     const statsRow = statsRes.rows[0] ?? {};
-    const clanTotal = toNumber(statsRow.clan_total);
+    const clanTotal = liveStats?.totalPoints ?? toNumber(statsRow.clan_total);
     const pointsLastHour = toNumber(statsRow.points_last_hour);
     const pointsToday = toNumber(statsRow.points_today);
-    const trackedMembers = toNumber(statsRow.tracked_members);
+    const trackedMembers = liveStats?.contributors ?? toNumber(statsRow.tracked_members);
     const clanAverage = trackedMembers > 0 ? clanTotal / trackedMembers : 0;
 
     const hourlyPoints: HourPoint[] = hourlyRes.rows.map((row) => ({
@@ -286,11 +380,17 @@ export async function GET() {
       points: toNumber(row.points),
     }));
 
-    const topRows = topRes.rows.map((row) => ({
-      user_id: toNumber(row.user_id),
-      username: row.username ? String(row.username) : "",
-      points: toNumber(row.points),
-    }));
+    const topRows = liveStats?.topContributors.length
+      ? liveStats.topContributors.map((row) => ({
+          user_id: row.user_id,
+          username: "",
+          points: row.points,
+        }))
+      : topRes.rows.map((row) => ({
+          user_id: toNumber(row.user_id),
+          username: row.username ? String(row.username) : "",
+          points: toNumber(row.points),
+        }));
     const robloxNames = await getRobloxNames(topRows.map((row) => row.user_id));
 
     const topContributors: TopContributor[] = topRows.map((row) => ({
@@ -318,7 +418,7 @@ export async function GET() {
       active: true,
       updatedAt: new Date().toISOString(),
       range: {
-        from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        from: battleStart,
         to: new Date().toISOString(),
       },
       stats: {
