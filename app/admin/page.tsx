@@ -2451,6 +2451,192 @@ function LogsSection({
   );
 }
 
+type LeaderboardBadgePreset = {
+  key: string;
+  label: string;
+  emoji: string;
+  color: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+function isSingleBadgeEmoji(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (/[A-Za-z0-9]/.test(trimmed)) return false;
+  if (Array.from(trimmed).length > 8) return false;
+  return /^[\p{Extended_Pictographic}\p{Emoji_Presentation}](?:\uFE0F|\uFE0E)?(?:\u200D[\p{Extended_Pictographic}\p{Emoji_Presentation}](?:\uFE0F|\uFE0E)?)*$/u.test(trimmed);
+}
+
+function BadgePresetManager() {
+  const [presets, setPresets] = useState<LeaderboardBadgePreset[]>([]);
+  const [label, setLabel] = useState("");
+  const [emoji, setEmoji] = useState("");
+  const [color, setColor] = useState("#34d399");
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function loadPresets() {
+    const res = await fetch("/api/leaderboard/badges", { cache: "no-store" }).catch(() => null);
+    if (!res?.ok) return;
+    const data = await res.json().catch(() => ({}));
+    setPresets(Array.isArray(data.presets) ? data.presets : []);
+  }
+
+  useEffect(() => {
+    void loadPresets();
+  }, []);
+
+  async function savePreset() {
+    if (!label.trim()) {
+      setStatus("Add a badge name first.");
+      return;
+    }
+
+    if (!isSingleBadgeEmoji(emoji)) {
+      setStatus("Emoji must be one emoji only, or blank.");
+      return;
+    }
+
+    setLoading(true);
+    setStatus("Saving badge preset...");
+
+    try {
+      const res = await fetch("/api/leaderboard/badges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: label.trim(),
+          emoji: emoji.trim() || null,
+          color,
+          enabled: true,
+          sortOrder: presets.length + 1,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save badge"));
+
+      setLabel("");
+      setEmoji("");
+      setStatus("Badge preset saved.");
+      await loadPresets();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save badge");
+    } finally {
+      setLoading(false);
+      window.setTimeout(() => setStatus(""), 2200);
+    }
+  }
+
+  async function deletePreset(key: string, name: string) {
+    if (!confirmAction(`Delete the ${name} badge preset? This removes it from player cards too.`)) return;
+
+    setLoading(true);
+    setStatus("Deleting badge preset...");
+
+    try {
+      const res = await fetch(`/api/leaderboard/badges?key=${encodeURIComponent(key)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to delete badge"));
+
+      setStatus("Badge preset deleted.");
+      await loadPresets();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to delete badge");
+    } finally {
+      setLoading(false);
+      window.setTimeout(() => setStatus(""), 2200);
+    }
+  }
+
+  return (
+    <Panel
+      title="Leaderboard Badge Presets"
+      right={<span className="text-xs text-zinc-500">Owner only</span>}
+    >
+      <div className="space-y-5">
+        <p className="text-sm text-zinc-400">
+          Create the badge options officers can assign on leaderboard profile cards. Officers can only pick from this list.
+        </p>
+
+        <div className="grid gap-3 sm:grid-cols-[1fr_6rem_7rem_auto] sm:items-end">
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Badge Name</span>
+            <input
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              className="admin-input"
+              placeholder="Donator"
+              maxLength={32}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Emoji</span>
+            <input
+              value={emoji}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (isSingleBadgeEmoji(next)) setEmoji(next.trim());
+              }}
+              className="admin-input text-center text-lg"
+              placeholder="💎"
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Colour</span>
+            <input
+              type="color"
+              value={color}
+              onChange={(event) => setColor(event.target.value)}
+              className="h-12 w-full rounded-2xl border border-white/10 bg-black/30"
+            />
+          </label>
+          <button
+            type="button"
+            className="admin-button"
+            disabled={loading}
+            onClick={() => void savePreset()}
+          >
+            Add Preset
+          </button>
+        </div>
+
+        {status && <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-200">{status}</div>}
+
+        <div className="flex flex-wrap gap-2">
+          {presets.length ? presets.map((preset) => (
+            <div
+              key={preset.key}
+              className="flex items-center gap-2 rounded-full border px-3 py-2 text-sm"
+              style={{
+                borderColor: `${preset.color}88`,
+                background: `${preset.color}1f`,
+              }}
+            >
+              <span className="font-semibold" style={{ color: preset.color }}>
+                {preset.emoji ? `${preset.emoji} ` : ""}{preset.label}
+              </span>
+              <button
+                type="button"
+                className="ml-1 rounded-full px-2 text-xs text-zinc-300 hover:bg-white/10"
+                disabled={loading}
+                onClick={() => void deletePreset(preset.key, preset.label)}
+                aria-label={`Delete ${preset.label}`}
+              >
+                ×
+              </button>
+            </div>
+          )) : (
+            <p className="text-sm text-zinc-500">No badge presets yet. Add one above to start assigning badges.</p>
+          )}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function SettingsSection({ bot, isOwner }: { bot: UnknownRecord | undefined; isOwner: boolean }) {
   const botConnected = bot?.connected === true;
   const adminApiConfigured = bot?.configured === true;
@@ -2479,6 +2665,7 @@ function SettingsSection({ bot, isOwner }: { bot: UnknownRecord | undefined; isO
           {!isOwner && <p className="text-amber-300">Only owners can restart or remove players.</p>}
         </div>
       </Panel>
+      {isOwner && <div className="xl:col-span-2"><BadgePresetManager /></div>}
     </div>
   );
 }
