@@ -41,6 +41,22 @@ type CurrentUser = {
   role?: "member" | "officer" | "owner" | string | null;
 };
 
+type BadgePreset = {
+  key: string;
+  label: string;
+  emoji: string;
+  color: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+type BadgeApiResponse = {
+  success?: boolean;
+  canManagePresets?: boolean;
+  canAssignBadges?: boolean;
+  presets?: BadgePreset[];
+};
+
 type PlayerHistoryPoint = {
   time: string;
   value: number;
@@ -250,6 +266,30 @@ function fontStyle(style: ProfileStyle): CSSProperties {
     fontWeight: preset.fontWeight,
     fontStyle: preset.fontStyle,
   };
+}
+
+function badgePresetMap(presets: BadgePreset[]) {
+  return new Map(presets.map((preset) => [preset.key, preset]));
+}
+
+function BadgePill({ badgeKey, presets, fallback }: { badgeKey: string; presets: BadgePreset[]; fallback?: string }) {
+  const preset = badgePresetMap(presets).get(badgeKey);
+  const label = preset?.label ?? fallback ?? badgeKey;
+  const emoji = preset?.emoji ?? "";
+  const color = preset?.color ?? "rgba(255,255,255,0.28)";
+
+  return (
+    <span
+      className="rounded-full border px-2.5 py-1 text-[11px] font-semibold text-zinc-100"
+      style={{
+        borderColor: `${color}88`,
+        background: preset ? `${color}22` : "rgba(255,255,255,0.10)",
+        boxShadow: preset ? `0 0 16px ${color}22` : undefined,
+      }}
+    >
+      {emoji ? `${emoji} ` : ""}{label}
+    </span>
+  );
 }
 
 function backgroundCss(style: ProfileStyle) {
@@ -716,14 +756,16 @@ function AvatarWithFrame({ entry, size = "md" }: { entry: LeaderboardEntry; size
 function LeaderboardRow({
   entry,
   change,
+  badgePresets,
   onOpen,
 }: {
   entry: LeaderboardEntry;
   change: number;
+  badgePresets: BadgePreset[];
   onOpen: () => void;
 }) {
   const style = getStyle(entry);
-  const badges = [entry.is_alt ? "Alt" : null, ...(style.badges ?? [])].filter(Boolean);
+  const badges = (style.badges ?? []).filter(Boolean);
 
   return (
     <button
@@ -765,10 +807,11 @@ function LeaderboardRow({
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
+            {entry.is_alt && (
+              <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-100">Alt</span>
+            )}
             {badges.slice(0, 4).map((badge) => (
-              <span key={String(badge)} className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-zinc-200">
-                {badge}
-              </span>
+              <BadgePill key={badge} badgeKey={badge} presets={badgePresets} />
             ))}
           </div>
         </div>
@@ -860,11 +903,13 @@ function MiniLineChart({
 function PlayerMiniProfile({
   entry,
   currentUser,
+  badgePresets,
   onClose,
   onEditCard,
 }: {
   entry: LeaderboardEntry | null;
   currentUser: CurrentUser | null;
+  badgePresets: BadgePreset[];
   onClose: () => void;
   onEditCard: (entry: LeaderboardEntry) => void;
 }) {
@@ -936,9 +981,13 @@ function PlayerMiniProfile({
                 <h2 className="mt-1 text-4xl font-bold text-white" style={fontStyle(style)}>{entry.name}</h2>
                 <p className="mt-2 max-w-xl text-sm italic text-zinc-300" style={fontStyle(style)}>{style.bio || "No bio yet. Customise your card to add one."}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {(style.badges?.length ? style.badges : [entry.discord_id ? "Discord linked" : "Roblox member"]).map((badge) => (
-                    <span key={badge} className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">{badge}</span>
-                  ))}
+                  {style.badges?.length ? (
+                    style.badges.map((badge) => <BadgePill key={badge} badgeKey={badge} presets={badgePresets} />)
+                  ) : (
+                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">
+                      {entry.discord_id ? "Discord linked" : "Roblox member"}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1010,12 +1059,16 @@ function StyleEditorModal({
   open,
   currentUser,
   targetEntry,
+  badgePresets,
+  canManageBadgePresets,
   onClose,
   onSaved,
 }: {
   open: boolean;
   currentUser: CurrentUser | null;
   targetEntry: LeaderboardEntry | null;
+  badgePresets: BadgePreset[];
+  canManageBadgePresets: boolean;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
@@ -1028,7 +1081,7 @@ function StyleEditorModal({
   const [frameEmoji, setFrameEmoji] = useState("");
   const [fontPreset, setFontPreset] = useState("default");
   const [bio, setBio] = useState("");
-  const [badgesText, setBadgesText] = useState("");
+  const [selectedBadges, setSelectedBadges] = useState<string[]>([]);
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
   const officerTools = canManageCards(currentUser);
@@ -1071,7 +1124,7 @@ function StyleEditorModal({
           setFrameEmoji("");
           setFontPreset("default");
           setBio("");
-          setBadgesText("");
+          setSelectedBadges([]);
           setStatus("No saved style yet — pick your first look.");
           return;
         }
@@ -1087,7 +1140,7 @@ function StyleEditorModal({
         setFontPreset(FONT_PRESETS[savedFont] ? savedFont : "default");
         setBio(String(saved.bio ?? ""));
         const savedBadges = Array.isArray(saved.badges) ? saved.badges.map(String) : [];
-        setBadgesText(savedBadges.join(", "));
+        setSelectedBadges(savedBadges);
         setStatus("Saved style loaded.");
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -1100,6 +1153,14 @@ function StyleEditorModal({
 
     return () => controller.abort();
   }, [open, targetEntry]);
+
+  function toggleBadge(key: string) {
+    setSelectedBadges((current) =>
+      current.includes(key)
+        ? current.filter((badge) => badge !== key)
+        : [...current, key].slice(0, 8)
+    );
+  }
 
   if (!open) return null;
 
@@ -1121,7 +1182,7 @@ function StyleEditorModal({
           frameEmoji: frameEmoji.trim() || null,
           fontPreset,
           bio: bio.trim() || null,
-          badges: canEditBadges ? badgesText.split(",").map((badge) => badge.trim()).filter(Boolean) : [],
+          badges: canEditBadges ? selectedBadges : [],
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1147,7 +1208,7 @@ function StyleEditorModal({
     frameEmoji,
     fontPreset,
     bio: bio || null,
-    badges: badgesText.split(",").map((badge) => badge.trim()).filter(Boolean),
+    badges: selectedBadges,
   };
 
   return (
@@ -1259,15 +1320,42 @@ function StyleEditorModal({
             <textarea className="admin-input min-h-24" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={220} />
           </label>
           {canEditBadges ? (
-            <label className="space-y-2 sm:col-span-2">
-              <span className="admin-label">Badges</span>
-              <input className="admin-input" value={badgesText} onChange={(event) => setBadgesText(event.target.value)} placeholder="Donator, Whale, Elite Performer" />
-              <p className="text-xs text-zinc-500">Officer-only. Normal members can customise looks/bio, but badges are assigned by officers.</p>
-            </label>
+            <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <span className="admin-label">Badges</span>
+                <span className="text-xs text-zinc-500">Officer-only · choose from owner presets</span>
+              </div>
+              {badgePresets.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {badgePresets.filter((badge) => badge.enabled).map((badge) => {
+                    const active = selectedBadges.includes(badge.key);
+                    return (
+                      <button
+                        key={badge.key}
+                        type="button"
+                        onClick={() => toggleBadge(badge.key)}
+                        className="rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:scale-105"
+                        style={{
+                          borderColor: active ? `${badge.color}cc` : "rgba(255,255,255,0.12)",
+                          background: active ? `${badge.color}2e` : "rgba(255,255,255,0.05)",
+                          color: active ? badge.color : "rgb(212 212 216)",
+                        }}
+                      >
+                        {badge.emoji ? `${badge.emoji} ` : ""}{badge.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-400">
+                  No badge presets exist yet. {canManageBadgePresets ? "Create presets in the badge preset manager next." : "Ask the owner to create badge presets."}
+                </p>
+              )}
+            </div>
           ) : (
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
               <span className="admin-label">Badges</span>
-              <p className="text-sm text-zinc-400">Badges are assigned by officers. Your current badges will be kept when you save.</p>
+              <p className="text-sm text-zinc-400">Badges are assigned by officers from owner-approved presets. Your current badges will be kept when you save.</p>
             </div>
           )}
         </div>
@@ -1298,6 +1386,8 @@ export default function LeaderboardPage() {
   const [styleEditorOpen, setStyleEditorOpen] = useState(false);
   const [selectedStyleTarget, setSelectedStyleTarget] = useState<LeaderboardEntry | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [badgePresets, setBadgePresets] = useState<BadgePreset[]>([]);
+  const [canManageBadgePresets, setCanManageBadgePresets] = useState(false);
   const [activity, setActivity] = useState<Array<{ id: string; type: "points" | "rankup" | "rankdown" | "crown" | "join"; text: string }>>([]);
 
   const prevSnapshot = useRef<string>("");
@@ -1403,6 +1493,18 @@ export default function LeaderboardPage() {
     }
 
     loadMe();
+  }, []);
+
+  useEffect(() => {
+    async function loadBadgePresets() {
+      const res = await fetch("/api/leaderboard/badges", { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const json: BadgeApiResponse = await res.json().catch(() => ({}));
+      setBadgePresets(Array.isArray(json.presets) ? json.presets : []);
+      setCanManageBadgePresets(Boolean(json.canManagePresets));
+    }
+
+    void loadBadgePresets();
   }, []);
 
   useEffect(() => {
@@ -1545,7 +1647,7 @@ export default function LeaderboardPage() {
 
                       return (
                         <Animated key={entry.user_id} delay="0s">
-                          <LeaderboardRow entry={entry} change={change} onOpen={() => setSelectedEntry(entry)} />
+                          <LeaderboardRow entry={entry} change={change} badgePresets={badgePresets} onOpen={() => setSelectedEntry(entry)} />
                         </Animated>
                       );
                     })}
@@ -1601,6 +1703,7 @@ export default function LeaderboardPage() {
         <PlayerMiniProfile
           entry={selectedEntry}
           currentUser={currentUser}
+          badgePresets={badgePresets}
           onClose={() => setSelectedEntry(null)}
           onEditCard={(entry) => {
             setSelectedStyleTarget(entry);
@@ -1612,6 +1715,8 @@ export default function LeaderboardPage() {
           open={styleEditorOpen}
           currentUser={currentUser}
           targetEntry={selectedStyleTarget}
+          badgePresets={badgePresets}
+          canManageBadgePresets={canManageBadgePresets}
           onClose={() => setStyleEditorOpen(false)}
           onSaved={() => load(true)}
         />
