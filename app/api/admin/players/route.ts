@@ -69,14 +69,21 @@ function toNumberOrZero(value: unknown) {
 }
 
 function normalizePresence(value: unknown) {
-  if (typeof value === "number") {
-    if (value === 0) return "Offline"
-    if (value === 1) return "Online"
-    if (value === 2) return "In Game"
-    if (value === 3) return "In Studio"
-  }
+  const raw = String(value ?? "").trim()
+  const numeric = toNumber(value)
 
-  if (typeof value === "string" && value.trim()) return value
+  if (numeric === 0) return "Offline"
+  if (numeric === 1) return "Online"
+  if (numeric === 2) return "In Game"
+  if (numeric === 3) return "In Studio"
+
+  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "")
+  if (normalized === "offline") return "Offline"
+  if (normalized === "online") return "Online"
+  if (normalized === "ingame" || normalized === "game") return "In Game"
+  if (normalized === "instudio" || normalized === "studio") return "In Studio"
+
+  if (raw) return raw
   return "Unknown"
 }
 
@@ -398,14 +405,44 @@ async function fetchAvatarMap(userIds: number[]) {
   return map
 }
 
+async function fetchStoredStatusMap(userIds: number[]) {
+  const map = new Map<number, unknown>()
+  const uniqueIds = Array.from(new Set(userIds)).filter((id) => Number.isFinite(id) && id > 0)
+  if (!uniqueIds.length) return map
+
+  try {
+    const exists = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.user_status') IS NOT NULL AS exists`
+    )
+    if (!exists.rows[0]?.exists) return map
+
+    const result = await pool.query<{ roblox_id: string; status: unknown }>(
+      `SELECT roblox_id::text AS roblox_id, status
+       FROM user_status
+       WHERE roblox_id::text = ANY($1)`,
+      [uniqueIds.map(String)]
+    )
+
+    for (const row of result.rows) {
+      const id = toNumber(row.roblox_id)
+      if (id !== null) map.set(id, row.status)
+    }
+  } catch (err) {
+    console.warn("[api/admin/players] stored status fallback failed:", err)
+  }
+
+  return map
+}
+
 async function enrichPlayers(players: NormalizedPlayer[]) {
   const resolvedPlayers = await attachResolvedRobloxIds(players)
   const userIds = uniqueRobloxIds(resolvedPlayers)
   if (!userIds.length) return resolvedPlayers
 
-  const [presenceMap, avatarMap] = await Promise.all([
+  const [presenceMap, avatarMap, storedStatusMap] = await Promise.all([
     fetchPresenceMap(userIds),
     fetchAvatarMap(userIds),
+    fetchStoredStatusMap(userIds),
   ])
 
   return resolvedPlayers.map((player) => {
@@ -417,8 +454,12 @@ async function enrichPlayers(players: NormalizedPlayer[]) {
     const avatar = avatarMap.get(robloxId) ?? toStringOrNull(player.avatar)
 
     if (!presence) {
+      const storedStatus = storedStatusMap.get(robloxId)
+      const status = storedStatus === undefined ? player.status : normalizePresence(storedStatus)
+
       return {
         ...player,
+        status,
         avatar,
       }
     }
