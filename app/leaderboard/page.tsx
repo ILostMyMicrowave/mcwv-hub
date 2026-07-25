@@ -1431,6 +1431,18 @@ export default function LeaderboardPage() {
       }
 
       const nextData = Array.isArray(json.data) ? json.data : [];
+
+      if (requestedBattleId && nextData.length === 0) {
+        setTitle(json.title ?? "Historical War");
+        setData([]);
+        setTotalPoints(Number(json.total_points ?? 0));
+        setActive(false);
+        setUpdatedAt(new Date().toISOString());
+        setError("No individual member data is saved for this historical battle. Data collection started after this war ended.");
+        setLoading(false);
+        return;
+      }
+
       const nextSnapshot = JSON.stringify(nextData);
 
       if (prevSnapshot.current && prevSnapshot.current !== nextSnapshot) {
