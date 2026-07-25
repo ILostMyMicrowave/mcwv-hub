@@ -90,6 +90,22 @@ function formatPoints(value: number | null | undefined) {
   return typeof value === "number" ? formatNumber(value) : "—";
 }
 
+function formatWarDisplayName(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "Historical War";
+  return raw
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d{4})$/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isGenericWarTitle(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return !normalized || normalized === "mcwv war" || normalized === "historical war" || normalized === "war";
+}
+
 function formatAgo(timestamp: string | null, nowMs: number) {
   if (!timestamp) return "—";
   const diff = Math.max(0, nowMs - new Date(timestamp).getTime());
@@ -1382,7 +1398,9 @@ export default function LeaderboardPage() {
   const [rankChange, setRankChange] = useState<Record<number, number>>({});
   const [now, setNow] = useState(0);
   const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
+  const [selectedBattleName, setSelectedBattleName] = useState<string | null>(null);
   const selectedBattleIdRef = useRef<string | null>(null);
+  const selectedBattleNameRef = useRef<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<LeaderboardEntry | null>(null);
   const [styleEditorOpen, setStyleEditorOpen] = useState(false);
   const [selectedStyleTarget, setSelectedStyleTarget] = useState<LeaderboardEntry | null>(null);
@@ -1397,7 +1415,8 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     selectedBattleIdRef.current = selectedBattleId;
-  }, [selectedBattleId]);
+    selectedBattleNameRef.current = selectedBattleName;
+  }, [selectedBattleId, selectedBattleName]);
 
   async function load(forceRefresh = false) {
     try {
@@ -1433,7 +1452,12 @@ export default function LeaderboardPage() {
       const nextData = Array.isArray(json.data) ? json.data : [];
 
       if (requestedBattleId && nextData.length === 0) {
-        setTitle(json.title ?? "Historical War");
+        const displayTitle = !isGenericWarTitle(selectedBattleNameRef.current)
+          ? formatWarDisplayName(selectedBattleNameRef.current)
+          : !isGenericWarTitle(json.title)
+          ? formatWarDisplayName(json.title)
+          : formatWarDisplayName(requestedBattleId);
+        setTitle(displayTitle);
         setData([]);
         setTotalPoints(Number(json.total_points ?? 0));
         setActive(false);
@@ -1480,7 +1504,11 @@ export default function LeaderboardPage() {
 
       setRankChange(changes);
       setData(nextData);
-      setTitle(json.title ?? "MCWV Leaderboard");
+      setTitle(
+        requestedBattleId && !isGenericWarTitle(selectedBattleNameRef.current)
+          ? formatWarDisplayName(selectedBattleNameRef.current)
+          : json.title ?? "MCWV Leaderboard"
+      );
       setActive(Boolean(json.active));
       setUpdatedAt(new Date().toISOString());
       setTotalPoints(Number(json.total_points ?? 0));
@@ -1591,13 +1619,16 @@ export default function LeaderboardPage() {
                     </button>
                     <WarHistoryDropdown
                       selectedBattleId={selectedBattleId}
-                      onSelect={(battleId) => {
+                      onSelect={(battleId, battleName) => {
+                        const displayTitle = battleId ? formatWarDisplayName(battleName || battleId) : "No Active War";
                         selectedBattleIdRef.current = battleId;
+                        selectedBattleNameRef.current = battleName ?? null;
                         setSelectedBattleId(battleId);
+                        setSelectedBattleName(battleName ?? null);
                         setLoading(true);
                         setError(null);
                         setData([]);
-                        setTitle(battleId ? "Loading historical war..." : "No Active War");
+                        setTitle(displayTitle);
                       }}
                     />
 
