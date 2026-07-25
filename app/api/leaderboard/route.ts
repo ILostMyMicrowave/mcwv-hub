@@ -739,7 +739,7 @@ async function buildInactiveRoster(title = "MCWV Roster"): Promise<LeaderboardRe
   return {
     success: true,
     active: false,
-    title: `${title} - No Active War`,
+    title: "No Active War",
     total_points: 0,
     updatedAt: new Date().toISOString(),
     data: await attachProfileStyles(entries),
