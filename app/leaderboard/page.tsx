@@ -1434,11 +1434,19 @@ export default function LeaderboardPage() {
         return;
       }
 
+      const historicalTitle = requestedBattleId
+        ? !isGenericWarTitle(selectedBattleNameRef.current)
+          ? formatWarDisplayName(selectedBattleNameRef.current)
+          : !isGenericWarTitle(json.title)
+          ? formatWarDisplayName(json.title)
+          : formatWarDisplayName(requestedBattleId)
+        : null;
+
       if (!json.success) {
-        setTitle(json.title ?? (requestedBattleId ? "Historical War" : "No Active War"));
+        setTitle(historicalTitle ?? json.title ?? "No Active War");
         if (requestedBattleId && json.data?.length === 0) {
           setError(
-            "No individual member data is saved for this historical battle yet. Try Current War, or run a war sync if the old API still has this battle."
+            "No individual member data is saved for this historical battle. Data collection started after this war ended."
           );
         } else {
           setError(json.error ?? "Failed to load leaderboard");
@@ -1452,12 +1460,7 @@ export default function LeaderboardPage() {
       const nextData = Array.isArray(json.data) ? json.data : [];
 
       if (requestedBattleId && nextData.length === 0) {
-        const displayTitle = !isGenericWarTitle(selectedBattleNameRef.current)
-          ? formatWarDisplayName(selectedBattleNameRef.current)
-          : !isGenericWarTitle(json.title)
-          ? formatWarDisplayName(json.title)
-          : formatWarDisplayName(requestedBattleId);
-        setTitle(displayTitle);
+        setTitle(historicalTitle ?? formatWarDisplayName(requestedBattleId));
         setData([]);
         setTotalPoints(Number(json.total_points ?? 0));
         setActive(false);
@@ -1504,11 +1507,7 @@ export default function LeaderboardPage() {
 
       setRankChange(changes);
       setData(nextData);
-      setTitle(
-        requestedBattleId && !isGenericWarTitle(selectedBattleNameRef.current)
-          ? formatWarDisplayName(selectedBattleNameRef.current)
-          : json.title ?? "MCWV Leaderboard"
-      );
+      setTitle(historicalTitle ?? json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
       setUpdatedAt(new Date().toISOString());
       setTotalPoints(Number(json.total_points ?? 0));
