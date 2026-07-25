@@ -708,6 +708,10 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
     [battleId]
   );
 
+  if (!membersRes.rows.length) {
+    return buildHistoricalFromClanApi(battleId, title);
+  }
+
   // Get Roblox names and avatars for members
   const robloxIds = membersRes.rows
     .map((r) => Number(r.user_id))
