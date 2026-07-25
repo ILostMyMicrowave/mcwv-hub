@@ -92,20 +92,7 @@ export default function Navbar() {
     };
   }, [open]);
 
-  useEffect(() => {
-    closeDrawer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-    };
-  }, []);
-
-  const openDrawer = () => {
+  function openDrawer() {
     if (closeTimerRef.current !== null) {
       window.clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
@@ -116,9 +103,9 @@ export default function Navbar() {
     window.requestAnimationFrame(() => {
       setOpen(true);
     });
-  };
+  }
 
-  const closeDrawer = () => {
+  function closeDrawer() {
     setOpen(false);
 
     if (closeTimerRef.current !== null) {
@@ -129,7 +116,21 @@ export default function Navbar() {
       setRenderDrawer(false);
       closeTimerRef.current = null;
     }, 300);
-  };
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(closeDrawer, 0);
+    return () => window.clearTimeout(timer);
+  }, [pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
 
   return (
     <header
@@ -170,7 +171,7 @@ export default function Navbar() {
           }}
         >
           <div
-            className="absolute inset-y-1 left-0 rounded-full transition-all duration-300 ease-out"
+            className="absolute inset-y-1 left-0 rounded-full transition-[left,width,opacity,box-shadow] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
             style={{
               left: indicator.left,
               width: indicator.width,
@@ -205,16 +206,16 @@ export default function Navbar() {
         </nav>
 
         <button
-          onClick={openDrawer}
+          onClick={open ? closeDrawer : openDrawer}
           className="inline-flex items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] sm:hidden"
           style={{ color: "var(--foreground)" }}
-          aria-label="Open navigation menu"
+          aria-label={open ? "Close navigation menu" : "Open navigation menu"}
           aria-expanded={open}
         >
-          <span className="flex h-5 w-5 flex-col justify-between">
-            <span className="h-0.5 w-full rounded-full bg-current" />
-            <span className="h-0.5 w-full rounded-full bg-current" />
-            <span className="h-0.5 w-full rounded-full bg-current" />
+          <span className="relative h-5 w-5">
+            <span className={`absolute left-0 top-0 h-0.5 w-full rounded-full bg-current transition-transform duration-300 ease-out ${open ? "translate-y-2 rotate-45" : "translate-y-0 rotate-0"}`} />
+            <span className={`absolute left-0 top-2 h-0.5 w-full rounded-full bg-current transition-opacity duration-200 ease-out ${open ? "opacity-0" : "opacity-100"}`} />
+            <span className={`absolute left-0 top-4 h-0.5 w-full rounded-full bg-current transition-transform duration-300 ease-out ${open ? "-translate-y-2 -rotate-45" : "translate-y-0 rotate-0"}`} />
           </span>
         </button>
       </div>
@@ -230,8 +231,8 @@ export default function Navbar() {
             style={{ background: "rgba(0,0,0,0.6)" }}
           />
           <aside
-            className={`fixed top-0 right-0 z-50 h-dvh w-[86vw] max-w-xs overflow-y-auto border-l sm:hidden transition-transform duration-300 ease-out will-change-transform ${
-              open ? "translate-x-0" : "translate-x-full"
+            className={`fixed top-0 right-0 z-50 h-dvh w-[86vw] max-w-xs overflow-y-auto border-l sm:hidden transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${
+              open ? "translate-x-0 opacity-100 blur-0" : "translate-x-full opacity-0 blur-sm"
             }`}
             style={{
               background:
@@ -272,13 +273,14 @@ export default function Navbar() {
                     key={link.href}
                     href={link.href}
                     onClick={closeDrawer}
-                    className="rounded-2xl px-4 py-3 text-sm transition-all duration-200 ease-out active:scale-[0.98]"
+                    className="rounded-2xl px-4 py-3 text-sm transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]"
                     style={{
                       color: "var(--foreground)",
                       background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
                       border: `1px solid ${isActive ? "var(--border)" : "transparent"}`,
-                      opacity: isActive ? 1 : 0.78,
-                      animationDelay: `${index * 30}ms`,
+                      opacity: open ? (isActive ? 1 : 0.78) : 0,
+                      transform: open ? "translateX(0)" : "translateX(18px)",
+                      transitionDelay: open ? `${90 + index * 35}ms` : "0ms",
                     }}
                   >
                     {link.label}
