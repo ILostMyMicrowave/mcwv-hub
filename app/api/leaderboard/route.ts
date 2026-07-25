@@ -163,6 +163,25 @@ function getPoints(entry: Contribution): number {
   return Number(entry.Points ?? 0);
 }
 
+function formatBattleTitle(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "Historical War";
+
+  const withSpaces = raw
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d{4})$/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return withSpaces || raw;
+}
+
+function isGenericBattleName(value: unknown) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return !normalized || normalized === "mcwv war" || normalized === "historical war" || normalized === "war";
+}
+
 async function fetchJson(url: string) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
@@ -645,7 +664,7 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       };
     });
 
-    const title = String(battle.Title ?? battle.configName ?? battle.BattleID ?? fallbackTitle);
+    const title = formatBattleTitle(battle.Title ?? battle.configName ?? battle.BattleID ?? fallbackTitle);
 
     return {
       success: true,
@@ -685,7 +704,8 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   }
 
   const battle = battleRes.rows[0];
-  const title = battle.battle_name || battle.battle_id || "Historical War";
+  const titleSource = isGenericBattleName(battle.battle_name) ? battle.battle_id : battle.battle_name;
+  const title = formatBattleTitle(titleSource || battle.battle_id || "Historical War");
 
   // Get MCWV's clan snapshot for this battle
   const snapshotRes = await pool.query(
