@@ -109,7 +109,8 @@ function clanIconUrl(value: unknown) {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
   const assetId = raw.match(/\d+/)?.[0];
-  return assetId ? `https://db.biggames.io/api/thumbnails/asset/${assetId}` : null;
+  // Use the official image proxy. The db.biggames thumbnail route 403s for some clan icons.
+  return assetId ? `${PS99_API}/image/${assetId}` : null;
 }
 
 async function getLatestBattleId(): Promise<string | null> {
