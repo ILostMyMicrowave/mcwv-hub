@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { proxyBotAdminMutation } from "@/lib/adminProxy"
 import { requireBroadcastUser } from "@/lib/broadcastAccess"
+import { botAdminFetch, BotAdminApiError } from "@/lib/botAdminApi"
 
 const OFFICER_ACTIONS = new Set([
   "sync",
@@ -15,7 +16,6 @@ const OFFICER_ACTIONS = new Set([
   "invite/delete",
   "player/sync",
   "player/add-alt",
-  "broadcast/send",
 ])
 
 const OWNER_ACTIONS = new Set([
@@ -33,7 +33,20 @@ export async function POST(
   if (action === "broadcast/send") {
     const broadcastAuth = await requireBroadcastUser()
     if (!broadcastAuth.ok) return broadcastAuth.response
-    return proxyBotAdminMutation(req, `/admin/${action}`, { minimumRole: "officer" })
+
+    try {
+      const body = await req.json().catch(() => ({}))
+      const data = await botAdminFetch("/admin/broadcast/send", {
+        method: "POST",
+        body: JSON.stringify({ ...body, requested_by: broadcastAuth.user.username }),
+      })
+      return NextResponse.json(data)
+    } catch (err) {
+      if (err instanceof BotAdminApiError) {
+        return NextResponse.json({ error: err.message }, { status: err.status })
+      }
+      return NextResponse.json({ error: "Broadcast send failed" }, { status: 500 })
+    }
   }
 
   if (OWNER_ACTIONS.has(action)) {
