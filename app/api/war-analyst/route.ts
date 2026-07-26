@@ -981,17 +981,28 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   // Stable race forecast: use actual gap trends for the next position up/down.
   // Do not project all 100 clans to war end unless we have a mature model; it creates fake #1/#100 results.
+  const oneHourClanProjection = nearbyWithUs.map((clan) => ({
+    name: clan.name,
+    points: clan.points + (namesMatch(clan.name, CLAN_NAME) ? lastHourGain : clanRate(clan.name) ?? 0),
+  }));
+  const oneHourExpectedPoints = currentPoints + lastHourGain;
+  const oneHourBestPoints = currentPoints + Math.round(lastHourGain * 1.15);
+  const oneHourWorstPoints = currentPoints + Math.round(lastHourGain * 0.85);
+  const predictedRank1h = lastHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourExpectedPoints) : rank;
+  const predictedBestRank1h = lastHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourBestPoints) : rank;
+  const predictedWorstRank1h = lastHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourWorstPoints) : rank;
+
   const canPassTarget = rank !== null && etaAboveMs !== null && etaAboveMs > 0 && etaAboveMs <= remainingMs;
   const canBePassed = rank !== null && threatEtaMs !== null && threatEtaMs > 0 && threatEtaMs <= remainingMs;
-  const projectedPlacement = rank;
-  const projectedBestPlacement = canPassTarget && rank !== null ? Math.max(1, rank - 1) : rank;
-  const projectedWorstPlacement = canBePassed && rank !== null ? rank + 1 : rank;
+  const projectedPlacement = predictedRank1h;
+  const projectedBestPlacement = predictedBestRank1h;
+  const projectedWorstPlacement = predictedWorstRank1h;
   const hasGapTrend = targetTrend !== null || threatTrend !== null;
   const hasActionableMovement = canPassTarget || canBePassed;
-  const confidence = hasActionableMovement && hasGapTrend && snapshotSpanMs >= 3 * 60 * 60 * 1000 && reliability >= 0.85
-    ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
-    : hasGapTrend
-    ? "medium" as const
+  const confidence = lastHourGain > 0 && hasGapTrend
+    ? snapshotSpanMs >= 60 * 60 * 1000
+      ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
+      : "medium" as const
     : "low" as const;
   const projectedFinalPoints = null;
   const inactiveMembers = legacyOverview?.inactiveMembers ?? (legacyOverview?.membersCount && participants !== null ? Math.max(0, legacyOverview.membersCount - participants) : null);
@@ -1073,6 +1084,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       projectedFinalPoints: projectedFinalPoints === null ? null : Math.round(projectedFinalPoints),
       projectedBestPlacement,
       projectedWorstPlacement,
+      predictedRank1h,
+      predictedBestRank1h,
+      predictedWorstRank1h,
       gapAbove,
       gapBelow,
       targetName: above?.name ?? null,
