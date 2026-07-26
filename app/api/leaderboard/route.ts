@@ -328,6 +328,12 @@ async function attachProfileStyles(entries: LeaderboardEntry[]) {
 type BaselineRow = {
   roblox_id: string;
   points: number | string;
+  captured_at: Date | string;
+};
+
+type PointBaseline = {
+  points: number;
+  capturedAt: Date;
 };
 
 type LatestSnapshotRow = {
@@ -361,11 +367,23 @@ async function ensureLeaderboardHistoryTable() {
   await pool.query(`CREATE INDEX IF NOT EXISTS player_leaderboard_history_battle_idx ON player_leaderboard_history (battle_id)`);
 }
 
+function mapBaselineRows(rows: BaselineRow[]) {
+  return new Map<string, PointBaseline>(
+    rows.map((row) => [
+      String(row.roblox_id),
+      {
+        points: Number(row.points ?? 0),
+        capturedAt: new Date(row.captured_at),
+      },
+    ])
+  );
+}
+
 async function getPointBaselines(ids: string[], intervalSql: "5 minutes" | "1 hour") {
-  if (!ids.length) return new Map<string, number>();
+  if (!ids.length) return new Map<string, PointBaseline>();
 
   const result = await pool.query<BaselineRow>(
-    `SELECT DISTINCT ON (roblox_id) roblox_id, points
+    `SELECT DISTINCT ON (roblox_id) roblox_id, points, captured_at
      FROM player_leaderboard_history
      WHERE roblox_id = ANY($1)
        AND points IS NOT NULL
@@ -374,9 +392,30 @@ async function getPointBaselines(ids: string[], intervalSql: "5 minutes" | "1 ho
     [ids, intervalSql]
   );
 
-  return new Map(
-    result.rows.map((row) => [String(row.roblox_id), Number(row.points ?? 0)])
+  return mapBaselineRows(result.rows);
+}
+
+async function getEarliestRecentBaselines(ids: string[], intervalSql: "1 hour") {
+  if (!ids.length) return new Map<string, PointBaseline>();
+
+  const result = await pool.query<BaselineRow>(
+    `SELECT DISTINCT ON (roblox_id) roblox_id, points, captured_at
+     FROM player_leaderboard_history
+     WHERE roblox_id = ANY($1)
+       AND points IS NOT NULL
+       AND captured_at >= NOW() - ($2::interval)
+     ORDER BY roblox_id, captured_at ASC`,
+    [ids, intervalSql]
   );
+
+  return mapBaselineRows(result.rows);
+}
+
+function pointsPerHour(currentPoints: number, baseline: PointBaseline | undefined) {
+  if (!baseline) return 0;
+  const elapsedHours = (Date.now() - baseline.capturedAt.getTime()) / 3_600_000;
+  if (!Number.isFinite(elapsedHours) || elapsedHours < 10 / 60) return 0;
+  return Math.max(0, (currentPoints - baseline.points) / elapsedHours);
 }
 
 async function attachDisconnectCounts(entries: LeaderboardEntry[]) {
@@ -419,21 +458,22 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
     await ensureLeaderboardHistoryTable();
 
     const ids = activeEntries.map((entry) => String(entry.user_id));
-    const [fiveMinuteBaselines, hourlyBaselines] = await Promise.all([
+    const [fiveMinuteBaselines, hourlyBaselines, recentHourlyBaselines] = await Promise.all([
       getPointBaselines(ids, "5 minutes"),
       getPointBaselines(ids, "1 hour"),
+      getEarliestRecentBaselines(ids, "1 hour"),
     ]);
 
     const enriched = entries.map((entry) => {
       if (typeof entry.points !== "number") return entry;
       const key = String(entry.user_id);
       const fiveMinuteBaseline = fiveMinuteBaselines.get(key);
-      const hourlyBaseline = hourlyBaselines.get(key);
+      const hourlyBaseline = hourlyBaselines.get(key) ?? recentHourlyBaselines.get(key);
 
       return {
         ...entry,
-        change5m: typeof fiveMinuteBaseline === "number" ? Math.max(0, entry.points - fiveMinuteBaseline) : 0,
-        pph: typeof hourlyBaseline === "number" ? Math.max(0, entry.points - hourlyBaseline) : 0,
+        change5m: fiveMinuteBaseline ? Math.max(0, entry.points - fiveMinuteBaseline.points) : 0,
+        pph: Math.round(pointsPerHour(entry.points, hourlyBaseline)),
       };
     });
 
