@@ -105,6 +105,13 @@ function namesMatch(a: unknown, b: unknown): boolean {
   return left === right || left.includes(right) || right.includes(left);
 }
 
+function clanIconUrl(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const assetId = raw.match(/\d+/)?.[0];
+  return assetId ? `https://db.biggames.io/api/thumbnails/asset/${assetId}` : null;
+}
+
 async function getLatestBattleId(): Promise<string | null> {
   if (!pool) return null;
 
@@ -421,6 +428,7 @@ async function getLegacyClansLeaderboard() {
         rank: index + 1,
         name: String(row.Name ?? row.name ?? "Unknown"),
         points: asNumber(row.Points ?? row.points) ?? 0,
+        icon: clanIconUrl(row.Icon ?? row.icon),
       }))
       .filter((row: { name: string }) => row.name !== "Unknown");
   } catch (err) {
@@ -839,15 +847,16 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const totalClans = asNumber(publicBattle?.stats?.participatingClans) ?? (legacyLeaderboard.length || topClans.length || null);
   const totalPoints = asNumber(publicBattle?.stats?.totalClanPoints);
 
-  const sampledPublicNearby: Array<{ rank: number | null; name: string; points: number }> = topClans
+  const sampledPublicNearby: Array<{ rank: number | null; name: string; points: number; icon?: string | null }> = topClans
     .map((clan: Record<string, unknown>) => ({
       rank: asNumber(clan.rank ?? clan.reportedPlace ?? clan.place),
       name: String(clan.name ?? "Unknown"),
       points: asNumber(clan.points) ?? 0,
+      icon: clanIconUrl(clan.icon),
     }))
     .filter((clan: { name: string }) => clan.name !== "Unknown");
 
-  const publicNearby: Array<{ rank: number | null; name: string; points: number }> = legacyLeaderboard.length
+  const publicNearby: Array<{ rank: number | null; name: string; points: number; icon?: string | null }> = legacyLeaderboard.length
     ? legacyLeaderboard
     : sampledPublicNearby;
 
@@ -875,6 +884,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
           rank,
           name: CLAN_NAME,
           points: currentPoints,
+          icon: null,
         },
       ])
     .filter((clan, index, rows) => rows.findIndex((row) => namesMatch(row.name, clan.name)) === index)
@@ -1106,7 +1116,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       confidence,
       uiTone: statusTone(projectedPlacement),
     },
-    nearby: (ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints }]).map((clan) => ({
+    nearby: (ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints, icon: null }]).map((clan) => ({
       ...clan,
       pph: namesMatch(clan.name, CLAN_NAME) ? lastHourGain : clanRate(clan.name),
     })),
