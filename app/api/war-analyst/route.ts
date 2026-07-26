@@ -907,6 +907,13 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   void preliminaryProjectedFinalPoints;
 
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
+  const latestPoint = pointsHistory[pointsHistory.length - 1] ?? null;
+  const lastHourCutoff = latestPoint ? latestPoint.capturedAt.getTime() - 60 * 60 * 1000 : 0;
+  const lastHourBaseline = latestPoint
+    ? [...pointsHistory].reverse().find((row) => row.capturedAt.getTime() <= lastHourCutoff) ??
+      pointsHistory.find((row) => row.capturedAt.getTime() >= lastHourCutoff)
+    : null;
+  const lastHourGain = latestPoint && lastHourBaseline ? Math.max(0, latestPoint.points - lastHourBaseline.points) : 0;
   const [targetTrend, threatTrend] = await Promise.all([
     above ? getGapTrend({
       battleId: active.battleId,
@@ -1039,7 +1046,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     },
     nearby: (ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints }]).map((clan) => ({
       ...clan,
-      pph: namesMatch(clan.name, CLAN_NAME) ? adjustedHourlyRate : clanRate(clan.name),
+      pph: namesMatch(clan.name, CLAN_NAME) ? lastHourGain : clanRate(clan.name),
     })),
     summary: {
       overview: rank !== null ? `${CLAN_NAME} is currently #${rank} with ${formatNumber(currentPoints)} points.` : `${CLAN_NAME} has ${formatNumber(currentPoints)} battle points. Rank is not available yet.`,
