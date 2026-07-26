@@ -282,25 +282,37 @@ function Card({
 export default function BattleHQPage() {
   const [data, setData] = useState<BattleHqResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [now, setNow] = useState(Date.now());
+  const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
+    let alive = true;
+
+    async function load(silent = false) {
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+
       try {
         const res = await fetch("/api/war-analyst", { cache: "no-store" });
         const json = await res.json().catch(() => null);
+        if (!alive) return;
         setData(json?.success ? json : null);
       } catch {
-        setData(null);
+        if (!alive) return;
+        if (!silent) setData(null);
       } finally {
-        setLoading(false);
+        if (!alive) return;
+        if (silent) setRefreshing(false);
+        else setLoading(false);
       }
     }
 
-    load();
-    const timer = setInterval(load, 30_000);
-    return () => clearInterval(timer);
+    void load(false);
+    const timer = window.setInterval(() => void load(true), 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -380,6 +392,11 @@ export default function BattleHQPage() {
                     <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.pill}`}>
                       {data.active ? "Live" : "Inactive"}
                     </span>
+                    {refreshing && (
+                      <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-200">
+                        Updating
+                      </span>
+                    )}
                     <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/70">
                       {data.battleName ?? "No Active Battle"}
                     </span>
