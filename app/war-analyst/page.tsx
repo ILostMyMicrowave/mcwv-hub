@@ -35,6 +35,9 @@ type BattleHqResponse = {
     projectedPlacement: number | null;
     projectedBestPlacement?: number | null;
     projectedWorstPlacement?: number | null;
+    predictedRank1h?: number | null;
+    predictedBestRank1h?: number | null;
+    predictedWorstRank1h?: number | null;
     projectedFinalPoints?: number | null;
     adjustedHourlyRate?: number | null;
     reliability?: number | null;
@@ -443,7 +446,7 @@ export default function BattleHQPage() {
                       delay="0.15s"
                     />
                     <Card
-                      title="Rank outlook"
+                      title="Predicted rank in 1h"
                       value={forecastRange}
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.2s"
@@ -555,7 +558,7 @@ export default function BattleHQPage() {
                       delay="0.4s"
                     />
                     <Card
-                      title="Rank outlook"
+                      title="Predicted rank in 1h"
                       value={forecastRange}
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.45s"
