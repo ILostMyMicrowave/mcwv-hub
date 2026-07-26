@@ -411,11 +411,9 @@ async function getEarliestRecentBaselines(ids: string[], intervalSql: "1 hour") 
   return mapBaselineRows(result.rows);
 }
 
-function pointsPerHour(currentPoints: number, baseline: PointBaseline | undefined) {
+function pointsGainedSince(currentPoints: number, baseline: PointBaseline | undefined) {
   if (!baseline) return 0;
-  const elapsedHours = (Date.now() - baseline.capturedAt.getTime()) / 3_600_000;
-  if (!Number.isFinite(elapsedHours) || elapsedHours < 10 / 60) return 0;
-  return Math.max(0, (currentPoints - baseline.points) / elapsedHours);
+  return Math.max(0, currentPoints - baseline.points);
 }
 
 async function attachDisconnectCounts(entries: LeaderboardEntry[]) {
@@ -473,7 +471,7 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
       return {
         ...entry,
         change5m: fiveMinuteBaseline ? Math.max(0, entry.points - fiveMinuteBaseline.points) : 0,
-        pph: Math.round(pointsPerHour(entry.points, hourlyBaseline)),
+        pph: Math.round(pointsGainedSince(entry.points, hourlyBaseline)),
       };
     });
 
