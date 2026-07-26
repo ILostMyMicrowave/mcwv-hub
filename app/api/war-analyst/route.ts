@@ -490,7 +490,7 @@ async function getClanRateMap(battleId: string) {
       `SELECT clan_name, points, captured_at
        FROM clan_history
        WHERE battle_id = $1
-         AND captured_at >= NOW() - INTERVAL '3 hours'
+         AND captured_at >= NOW() - INTERVAL '2 hours'
        ORDER BY clan_name ASC, captured_at ASC`,
       [battleId]
     );
@@ -506,15 +506,17 @@ async function getClanRateMap(battleId: string) {
       grouped.set(key, list);
     }
 
+    const cutoff = Date.now() - 60 * 60 * 1000;
     for (const [key, history] of grouped.entries()) {
       const sorted = history.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
-      const span = sorted.length >= 2 ? sorted[sorted.length - 1].capturedAt.getTime() - sorted[0].capturedAt.getTime() : 0;
-      if (span < 5 * 60 * 1000) continue;
-      const rate = weightedLiveRate(sorted, ratePerHour(sorted));
-      if (rate !== null && Number.isFinite(rate)) map.set(key, Math.max(0, rate));
+      const latest = sorted[sorted.length - 1];
+      if (!latest) continue;
+      const baseline = [...sorted].reverse().find((row) => row.capturedAt.getTime() <= cutoff) ?? sorted.find((row) => row.capturedAt.getTime() >= cutoff);
+      if (!baseline) continue;
+      map.set(key, Math.max(0, latest.points - baseline.points));
     }
   } catch (err) {
-    console.warn("[war-analyst] clan rate map unavailable:", err);
+    console.warn("[war-analyst] clan last-hour map unavailable:", err);
   }
 
   return map;
@@ -1012,7 +1014,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     },
     stats: {
       gain24h: last24hPoints,
-      hourlyRate: adjustedHourlyRate,
+      hourlyRate: rawHourlyRate,
       averageRate: rawHourlyRate,
       adjustedHourlyRate,
       reliability,
