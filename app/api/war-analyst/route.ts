@@ -7,6 +7,7 @@ const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
 const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
 const CLAN_API = process.env.CLAN_API ?? "";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
+const BIG_GAMES_INDEX_CLAN_URL = `https://db.biggames.io/clans/leaderboard?sort=Points&item=${encodeURIComponent(CLAN_NAME)}&tab=overview`;
 
 type SnapshotRow = {
   battle_id: string;
@@ -369,20 +370,47 @@ async function getPublicBattle(active: LiveWarInfo) {
   return null;
 }
 
+async function getBigGamesIndexClanOverview() {
+  try {
+    const res = await fetch(BIG_GAMES_INDEX_CLAN_URL, {
+      cache: "no-store",
+      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "text/html" },
+    });
+
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    const escapedMatch = html.match(/\\"BattleID\\",\\"Points\\",(\d+),\\"PointContributions\\",[\s\S]*?\\"Place\\",(\d+)/);
+    const plainMatch = html.match(/"BattleID","Points",(\d+),"PointContributions",[\s\S]*?"Place",(\d+)/);
+    const match = escapedMatch ?? plainMatch;
+
+    if (!match) return null;
+
+    return {
+      points: Number(match[1]),
+      rank: Number(match[2]),
+    };
+  } catch (err) {
+    console.warn("[war-analyst] BIG Games Index overview unavailable:", err);
+    return null;
+  }
+}
+
 function contributionPoints(entry: LiveContribution) {
   return asNumber(entry.Points) ?? 0;
 }
 
 async function buildLiveBattleHq(active: LiveWarInfo) {
-  const [liveBattle, publicBattle] = await Promise.all([
+  const [liveBattle, publicBattle, indexOverview] = await Promise.all([
     getLiveClanBattle(active),
     getPublicBattle(active),
+    getBigGamesIndexClanOverview(),
   ]);
 
   const contributions = Array.isArray(liveBattle?.PointContributions)
     ? liveBattle.PointContributions.filter((entry): entry is LiveContribution => !!entry && typeof entry === "object")
     : [];
-  const currentPoints = asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
+  const currentPoints = indexOverview?.points ?? asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
   const participants = contributions.filter((entry) => contributionPoints(entry) > 0).length || null;
 
   const topClans = Array.isArray(publicBattle?.topClans) ? publicBattle.topClans : [];
@@ -399,10 +427,18 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     .filter((clan: { name: string }) => clan.name !== "Unknown");
 
   const publicRank = asNumber(publicMcwv?.reportedPlace ?? publicMcwv?.rank ?? publicMcwv?.place);
-  const inferredRank = currentPoints > 0
-    ? publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points > currentPoints).length + 1
-    : null;
-  const rank = publicRank ?? inferredRank;
+  const liveRank = asNumber(
+    liveBattle && "Rank" in liveBattle
+      ? liveBattle.Rank
+      : liveBattle && "rank" in liveBattle
+      ? liveBattle.rank
+      : liveBattle && "Place" in liveBattle
+      ? liveBattle.Place
+      : liveBattle && "place" in liveBattle
+      ? liveBattle.place
+      : null
+  );
+  const rank = indexOverview?.rank ?? liveRank ?? publicRank;
 
   const nearbyWithUs = [
     ...publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME)),
@@ -411,8 +447,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       name: CLAN_NAME,
       points: currentPoints,
     },
-  ].sort((a, b) => b.points - a.points)
-   .map((clan, index) => ({ ...clan, rank: clan.rank ?? index + 1 }));
+  ].sort((a, b) => b.points - a.points);
 
   const ourIndex = nearbyWithUs.findIndex((clan) => namesMatch(clan.name, CLAN_NAME));
   const ourNearby = ourIndex >= 0
