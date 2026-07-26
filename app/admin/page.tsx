@@ -130,7 +130,12 @@ type AdminRoleOption = {
 type BroadcastRecipient = {
   username?: string;
   discord_id?: string | number;
+  roblox_id?: string | number;
+  role?: string;
+  ticket_channel_id?: string | number | null;
   points?: number;
+  pph?: number;
+  change5m?: number;
   rank?: number | null;
 };
 
@@ -1961,7 +1966,7 @@ function BroadcastSection({
               onChange={(event) => { setMessage(event.target.value); setPreview(null); }}
               placeholder="Clan war starts soon, {ping}. Please prepare, {username}."
             />
-            <span className="admin-label text-xs">Placeholders: {"{username}"}, {"{points}"}, {"{rank}"}, {"{ping}"}</span>
+            <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{roblox_id}"}, {"{discord_id}"}, {"{role}"}, {"{ticket}"}</span>
           </label>
 
           {status && (
@@ -2007,7 +2012,7 @@ function BroadcastSection({
                   preview.sampleRecipients.map((recipient, index) => (
                     <div key={safeId("broadcast-sample", recipient.discord_id, index)} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
                       <div className="font-medium">{recipient.username ?? "Unknown"}</div>
-                      <div className="text-xs text-zinc-500">{recipient.points ?? 0} pts · rank {recipient.rank ?? "—"}</div>
+                      <div className="text-xs text-zinc-500">{recipient.points ?? 0} pts · {recipient.pph ?? 0} last hour · rank {recipient.rank ?? "—"}</div>
                     </div>
                   ))
                 ) : (
