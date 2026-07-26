@@ -400,6 +400,82 @@ function contributionPoints(entry: LiveContribution) {
   return asNumber(entry.Points) ?? 0;
 }
 
+function rateForWindow(history: Array<{ capturedAt: Date; points: number }>, windowMs: number) {
+  if (history.length < 2) return null;
+  const last = history[history.length - 1];
+  const cutoff = last.capturedAt.getTime() - windowMs;
+  const first = history.find((row) => row.capturedAt.getTime() >= cutoff) ?? history[0];
+  const hours = (last.capturedAt.getTime() - first.capturedAt.getTime()) / 3_600_000;
+  if (hours <= 0) return null;
+  return Math.max(0, (last.points - first.points) / hours);
+}
+
+function weightedLiveRate(history: Array<{ capturedAt: Date; points: number }>, fallbackRate: number | null) {
+  const windows = [
+    { rate: rateForWindow(history, 30 * 60 * 1000), weight: 0.4 },
+    { rate: rateForWindow(history, 60 * 60 * 1000), weight: 0.3 },
+    { rate: rateForWindow(history, 3 * 60 * 60 * 1000), weight: 0.2 },
+    { rate: ratePerHour(history) ?? fallbackRate, weight: 0.1 },
+  ].filter((item): item is { rate: number; weight: number } => item.rate !== null && Number.isFinite(item.rate));
+
+  if (!windows.length) return fallbackRate;
+  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
+  return windows.reduce((sum, item) => sum + item.rate * item.weight, 0) / totalWeight;
+}
+
+async function getDisconnects24h() {
+  try {
+    const exists = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.player_presence_events') IS NOT NULL AS exists`
+    );
+    if (!exists.rows[0]?.exists) return 0;
+
+    const result = await pool.query<{ count: string }>(
+      `WITH roster AS (
+         SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id FROM users WHERE roblox_id IS NOT NULL
+         UNION
+         SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id FROM user_alts WHERE roblox_id IS NOT NULL
+       )
+       SELECT COUNT(*)::text AS count
+       FROM player_presence_events p
+       JOIN roster r ON r.roblox_id = p.roblox_id::text
+       WHERE p.created_at >= NOW() - INTERVAL '24 hours'
+         AND LOWER(COALESCE(p.previous_status::text, '')) IN ('in_game', 'ingame', '2')
+         AND LOWER(COALESCE(p.next_status::text, '')) IN ('offline', 'online', '0', '1')`
+    );
+
+    return Number(result.rows[0]?.count ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function reliabilityFromDisconnects(disconnects24h: number, participants: number | null) {
+  const participantBase = Math.max(participants ?? 25, 1);
+  const rate = disconnects24h / participantBase;
+  const penalty = clamp(rate * 0.35, 0, 0.35);
+  return clamp(1 - penalty, 0.65, 1);
+}
+
+function confidenceFromInputs(snapshotCount: number, hasNearby: boolean, reliability: number) {
+  let score = 0;
+  if (snapshotCount >= 8) score += 45;
+  else if (snapshotCount >= 4) score += 30;
+  else if (snapshotCount >= 2) score += 15;
+
+  if (hasNearby) score += 30;
+  if (reliability >= 0.9) score += 20;
+  else if (reliability >= 0.78) score += 10;
+
+  if (score >= 70) return "high" as const;
+  if (score >= 40) return "medium" as const;
+  return "low" as const;
+}
+
+function projectedRankFromPoints(clans: Array<{ name: string; points: number }>, ourProjectedPoints: number) {
+  return clans.filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points > ourProjectedPoints).length + 1;
+}
+
 async function buildLiveBattleHq(active: LiveWarInfo) {
   const [liveBattle, publicBattle, indexOverview] = await Promise.all([
     getLiveClanBattle(active),
@@ -458,6 +534,47 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const below = ourIndex >= 0 && ourIndex < nearbyWithUs.length - 1 ? nearbyWithUs[ourIndex + 1] : null;
   const gapAbove = above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
   const gapBelow = below && below.points < currentPoints ? currentPoints - below.points : null;
+
+  const snapshotRows = await getSnapshotHistory(active.battleId, CLAN_NAME, 24);
+  const snapshotHistory = snapshotRows
+    .map((row) => ({
+      capturedAt: toDate(row.captured_at) ?? new Date(),
+      points: asNumber(row.battle_points) ?? 0,
+      rank: asNumber(row.rank),
+    }))
+    .filter((row) => row.points > 0)
+    .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+
+  const now = new Date();
+  const pointsHistory = [
+    ...snapshotHistory,
+    { capturedAt: now, points: currentPoints, rank },
+  ].filter((row, index, rows) => index === rows.findIndex((candidate) => candidate.capturedAt.getTime() === row.capturedAt.getTime()));
+
+  const elapsedHours = active.start > 0 ? Math.max(0.1, (Date.now() / 1000 - active.start) / 3600) : null;
+  const remainingHours = active.finish > 0 ? Math.max(0, (active.finish - Date.now() / 1000) / 3600) : 0;
+  const fallbackRate = elapsedHours ? currentPoints / elapsedHours : null;
+  const rawHourlyRate = weightedLiveRate(pointsHistory, fallbackRate);
+  const disconnects24h = await getDisconnects24h();
+  const reliability = reliabilityFromDisconnects(disconnects24h, participants);
+  const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
+  const projectedFinalPoints = currentPoints + (adjustedHourlyRate ?? fallbackRate ?? 0) * remainingHours;
+
+  const projectedClanList = nearbyWithUs.map((clan) => {
+    if (namesMatch(clan.name, CLAN_NAME)) {
+      return { name: clan.name, points: projectedFinalPoints };
+    }
+    const estimatedRate = elapsedHours ? clan.points / elapsedHours : 0;
+    return { name: clan.name, points: clan.points + estimatedRate * remainingHours };
+  });
+
+  const projectedPlacement = projectedRankFromPoints(projectedClanList, projectedFinalPoints);
+  const projectedBestPlacement = projectedRankFromPoints(projectedClanList, currentPoints + (Math.max(adjustedHourlyRate ?? 0, fallbackRate ?? 0) * 1.2) * remainingHours);
+  const projectedWorstPlacement = projectedRankFromPoints(projectedClanList, currentPoints + (Math.max(adjustedHourlyRate ?? 0, fallbackRate ?? 0) * 0.72) * remainingHours);
+  const confidence = confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability);
+  const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
+  const etaAboveMs = gapAbove !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapAbove / adjustedHourlyRate) * 3_600_000 : null;
+  const threatEtaMs = gapBelow !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapBelow / Math.max(adjustedHourlyRate * (1 - reliability + 0.05), 1)) * 3_600_000 : null;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
 
@@ -479,21 +596,29 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       totalPoints,
     },
     stats: {
-      gain24h: 0,
-      hourlyRate: null,
-      averageRate: null,
+      gain24h: last24hPoints,
+      hourlyRate: adjustedHourlyRate,
+      averageRate: rawHourlyRate,
+      adjustedHourlyRate,
+      reliability,
+      disconnects24h,
+      projectedFinalPoints: Math.round(projectedFinalPoints),
+      projectedBestPlacement,
+      projectedWorstPlacement,
       gapAbove,
       gapBelow,
-      etaAboveMs: null,
-      threatEtaMs: null,
-      projectedPlacement: rank,
-      confidence: "low" as const,
-      uiTone: statusTone(rank),
+      etaAboveMs,
+      threatEtaMs,
+      projectedPlacement,
+      confidence,
+      uiTone: statusTone(projectedPlacement),
     },
     nearby: ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints }],
     summary: {
       overview: rank !== null ? `${CLAN_NAME} is currently #${rank} with ${formatNumber(currentPoints)} points.` : `${CLAN_NAME} has ${formatNumber(currentPoints)} battle points. Rank is not available yet.`,
-      pace: `Live battle data is updating from the clan API. Pace needs more snapshots before it can be calculated.`,
+      pace: adjustedHourlyRate !== null
+        ? `Adjusted pace is ${formatNumber(Math.round(adjustedHourlyRate))} points/hour after reliability checks.`
+        : `Live battle data is updating. Pace needs more snapshots before it can be calculated.`,
       target: gapAbove !== null && above ? `${above.name} is the next clan to pass.` : `No next target could be resolved yet.`,
       threat: gapBelow !== null && below ? `${below.name} is the closest danger from below.` : `No close threat from below could be resolved yet.`,
     },
@@ -503,10 +628,14 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       nextUpdateText: formatShortDuration(nextUpdateMs),
     },
     history: {
-      points24h: [],
+      points24h: pointsHistory.map((row) => ({
+        capturedAt: row.capturedAt.toISOString(),
+        points: row.points,
+        rank: row.rank,
+      })),
     },
     diagnostics: {
-      snapshotsAvailable: 0,
+      snapshotsAvailable: snapshotRows.length,
       latestSnapshotRank: rank,
     },
   };
