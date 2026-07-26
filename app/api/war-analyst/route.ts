@@ -522,37 +522,53 @@ async function getClanRateMap(battleId: string) {
   return map;
 }
 
-async function getDisconnects24h() {
+async function getDisconnectStats() {
   try {
     const exists = await pool.query<{ exists: boolean }>(
       `SELECT to_regclass('public.player_presence_events') IS NOT NULL AS exists`
     );
-    if (!exists.rows[0]?.exists) return 0;
+    if (!exists.rows[0]?.exists) return { events24h: 0, players24h: 0, events1h: 0 };
 
-    const result = await pool.query<{ count: string }>(
+    const result = await pool.query<{ events_24h: string; players_24h: string; events_1h: string }>(
       `WITH roster AS (
          SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id FROM users WHERE roblox_id IS NOT NULL
          UNION
          SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id FROM user_alts WHERE roblox_id IS NOT NULL
+       ), drops AS (
+         SELECT p.roblox_id::text AS roblox_id, p.created_at
+         FROM player_presence_events p
+         JOIN roster r ON r.roblox_id = p.roblox_id::text
+         WHERE p.created_at >= NOW() - INTERVAL '24 hours'
+           AND LOWER(COALESCE(p.previous_status::text, '')) IN ('in_game', 'ingame', '2')
+           AND LOWER(COALESCE(p.next_status::text, '')) IN ('offline', 'online', '0', '1')
        )
-       SELECT COUNT(*)::text AS count
-       FROM player_presence_events p
-       JOIN roster r ON r.roblox_id = p.roblox_id::text
-       WHERE p.created_at >= NOW() - INTERVAL '24 hours'
-         AND LOWER(COALESCE(p.previous_status::text, '')) IN ('in_game', 'ingame', '2')
-         AND LOWER(COALESCE(p.next_status::text, '')) IN ('offline', 'online', '0', '1')`
+       SELECT
+         COUNT(*)::text AS events_24h,
+         COUNT(DISTINCT roblox_id)::text AS players_24h,
+         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour')::text AS events_1h
+       FROM drops`
     );
 
-    return Number(result.rows[0]?.count ?? 0) || 0;
+    const row = result.rows[0];
+    return {
+      events24h: Number(row?.events_24h ?? 0) || 0,
+      players24h: Number(row?.players_24h ?? 0) || 0,
+      events1h: Number(row?.events_1h ?? 0) || 0,
+    };
   } catch {
-    return 0;
+    return { events24h: 0, players24h: 0, events1h: 0 };
   }
 }
 
-function reliabilityFromDisconnects(disconnects24h: number, participants: number | null) {
+function reliabilityFromDisconnects(
+  stats: { events24h: number; players24h: number; events1h: number },
+  participants: number | null
+) {
   const participantBase = Math.max(participants ?? 25, 1);
-  const rate = disconnects24h / participantBase;
-  const penalty = clamp(rate * 0.35, 0, 0.35);
+  const affectedRate = stats.players24h / participantBase;
+  const recentRate = stats.events1h / participantBase;
+  const eventNoise = stats.events24h / Math.max(participantBase * 8, 1);
+  const penalty = clamp(affectedRate * 0.22 + recentRate * 0.18 + eventNoise * 0.10, 0, 0.35);
   return clamp(1 - penalty, 0.65, 1);
 }
 
@@ -894,8 +910,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const hasEnoughProjectionHistory = snapshotRows.length >= 10 && snapshotSpanMs >= 15 * 60 * 1000;
   const fallbackRate = hasEnoughProjectionHistory && elapsedHours ? currentPoints / elapsedHours : null;
   const rawHourlyRate = hasEnoughProjectionHistory ? weightedLiveRate(pointsHistory, fallbackRate) : null;
-  const disconnects24h = await getDisconnects24h();
-  const reliability = reliabilityFromDisconnects(disconnects24h, participants);
+  const disconnectStats = await getDisconnectStats();
+  const reliability = reliabilityFromDisconnects(disconnectStats, participants);
   const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
   const preliminaryProjectedFinalPoints = adjustedHourlyRate === null ? null : currentPoints + adjustedHourlyRate * remainingHours;
 
@@ -1021,11 +1037,14 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     },
     stats: {
       gain24h: last24hPoints,
+      pointsLastHour: lastHourGain,
       hourlyRate: rawHourlyRate,
       averageRate: rawHourlyRate,
       adjustedHourlyRate,
       reliability,
-      disconnects24h,
+      disconnects24h: disconnectStats.events24h,
+      disconnectPlayers24h: disconnectStats.players24h,
+      disconnects1h: disconnectStats.events1h,
       inactiveMembers,
       projectedFinalPoints: projectedFinalPoints === null ? null : Math.round(projectedFinalPoints),
       projectedBestPlacement,
