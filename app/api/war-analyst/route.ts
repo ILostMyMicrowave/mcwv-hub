@@ -745,7 +745,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   const elapsedHours = active.start > 0 ? Math.max(0.1, (Date.now() / 1000 - active.start) / 3600) : null;
   const remainingHours = active.finish > 0 ? Math.max(0, (active.finish - Date.now() / 1000) / 3600) : 0;
-  const hasEnoughProjectionHistory = snapshotRows.length >= 3;
+  // Do not run end-of-war placement projections until we have enough real snapshots.
+  // Early fallback rates can wildly over-project every sampled clan and produce nonsense like #100.
+  const hasEnoughProjectionHistory = snapshotRows.length >= 10;
   const fallbackRate = hasEnoughProjectionHistory && elapsedHours ? currentPoints / elapsedHours : null;
   const rawHourlyRate = hasEnoughProjectionHistory ? weightedLiveRate(pointsHistory, fallbackRate) : null;
   const disconnects24h = await getDisconnects24h();
@@ -764,7 +766,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const projectedPlacement = projectedFinalPoints === null ? rank : projectedRankFromPoints(projectedClanList, projectedFinalPoints);
   const projectedBestPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 1.2 * remainingHours);
   const projectedWorstPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 0.72 * remainingHours);
-  const confidence = confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability);
+  const confidence = hasEnoughProjectionHistory
+    ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
+    : "low" as const;
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
   const etaAboveMs = gapAbove !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapAbove / adjustedHourlyRate) * 3_600_000 : null;
   const threatEtaMs = gapBelow !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapBelow / Math.max(adjustedHourlyRate * (1 - reliability + 0.05), 1)) * 3_600_000 : null;
