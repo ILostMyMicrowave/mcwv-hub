@@ -10,9 +10,38 @@ export default function SignupPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  async function requestCode() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/auth/signup/request-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(data?.error ?? "Failed to send verification code");
+        return false;
+      }
+
+      setCodeSent(true);
+      return true;
+    } catch {
+      setError("Something went wrong while sending your code");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
@@ -23,13 +52,23 @@ export default function SignupPage() {
       return;
     }
 
+    if (!codeSent) {
+      await requestCode();
+      return;
+    }
+
+    if (!/^\d{6}$/.test(verificationCode.trim())) {
+      setError("Enter the 6-digit code from your Discord DM.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, verificationCode }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -78,7 +117,7 @@ export default function SignupPage() {
           <div className="text-center mb-8">
             <h2 className="text-2xl font-semibold">Create account</h2>
             <p className="mt-2 text-zinc-400">
-              Make an account so your theme and future settings can stay with you.
+              Enter your Roblox username. MCWV-BOT will DM the linked Discord account a one-time code.
             </p>
           </div>
 
@@ -185,6 +224,55 @@ export default function SignupPage() {
               />
             </div>
 
+            {codeSent && (
+              <div
+                className="relative"
+                style={{
+                  animation: "fadeInUp 0.4s ease-out forwards",
+                  animationDelay: "0.34s",
+                  opacity: 0,
+                }}
+              >
+                <label
+                  htmlFor="verificationCode"
+                  className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
+                  style={{
+                    background: "var(--card)",
+                    color: focusedField === "verificationCode" ? "var(--primary)" : "var(--foreground)",
+                  }}
+                >
+                  Verification code
+                </label>
+                <input
+                  id="verificationCode"
+                  type="text"
+                  inputMode="numeric"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onFocus={() => setFocusedField("verificationCode")}
+                  onBlur={() => setFocusedField(null)}
+                  placeholder="6-digit code from Discord DM"
+                  className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
+                  style={{
+                    borderColor: focusedField === "verificationCode" ? "var(--primary)" : "var(--border)",
+                  }}
+                  disabled={loading}
+                />
+                <p className="mt-2 text-xs text-zinc-500">
+                  Check the Discord account linked to this Roblox user. The code expires in 10 minutes.
+                </p>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void requestCode()}
+                  className="mt-2 text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: "var(--primary)" }}
+                >
+                  Resend code
+                </button>
+              </div>
+            )}
+
             {error && (
               <div
                 className="rounded-xl p-3 text-sm text-red-200 animate-shake"
@@ -207,7 +295,7 @@ export default function SignupPage() {
                 color: "#000",
               }}
             >
-              {loading ? "Creating..." : "Create Account"}
+              {loading ? (codeSent ? "Verifying..." : "Sending code...") : codeSent ? "Verify & Create Account" : "Send Verification Code"}
             </button>
           </form>
 
