@@ -531,6 +531,106 @@ function projectedRankFromPoints(clans: Array<{ name: string; points: number }>,
   return clans.filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points > ourProjectedPoints).length + 1;
 }
 
+async function saveLiveAnalyticsSnapshot(params: {
+  active: LiveWarInfo;
+  rank: number | null;
+  points: number;
+  participants: number | null;
+  totalClans: number | null;
+  totalPoints: number | null;
+  progressPct: number | null;
+  nearby: Array<{ rank: number | null; name: string; points: number }>;
+}) {
+  const client = await pool.connect();
+
+  try {
+    const latest = await client.query<{ captured_at: Date }>(
+      `SELECT captured_at
+       FROM war_snapshots
+       WHERE battle_id = $1
+         AND LOWER(clan_name) = LOWER($2)
+       ORDER BY captured_at DESC
+       LIMIT 1`,
+      [params.active.battleId, CLAN_NAME]
+    );
+
+    const lastCapturedAt = latest.rows[0]?.captured_at?.getTime() ?? 0;
+    if (lastCapturedAt && Date.now() - lastCapturedAt < 60_000) return false;
+
+    const capturedAt = new Date();
+
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO battles (battle_id, battle_name, start_time, end_time)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (battle_id)
+       DO UPDATE SET
+         battle_name = COALESCE(EXCLUDED.battle_name, battles.battle_name),
+         start_time = COALESCE(EXCLUDED.start_time, battles.start_time),
+         end_time = COALESCE(EXCLUDED.end_time, battles.end_time)`,
+      [
+        params.active.battleId,
+        params.active.title,
+        params.active.start > 0 ? new Date(params.active.start * 1000) : null,
+        params.active.finish > 0 ? new Date(params.active.finish * 1000) : null,
+      ]
+    );
+    await client.query(
+      `INSERT INTO war_snapshots (
+        battle_id,
+        clan_name,
+        captured_at,
+        rank,
+        battle_points,
+        participants,
+        total_clans,
+        total_points,
+        progress_percent,
+        found_in_sample
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)`,
+      [
+        params.active.battleId,
+        CLAN_NAME,
+        capturedAt,
+        params.rank,
+        params.points,
+        params.participants,
+        params.totalClans,
+        params.totalPoints,
+        params.progressPct,
+      ]
+    );
+
+    const uniqueNearby = params.nearby.filter(
+      (clan, index, rows) => rows.findIndex((row) => namesMatch(row.name, clan.name)) === index
+    );
+
+    if (uniqueNearby.length) {
+      const values: unknown[] = [];
+      const placeholders = uniqueNearby.map((clan, index) => {
+        const base = index * 5;
+        values.push(params.active.battleId, clan.name, clan.rank, clan.points, capturedAt);
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`;
+      }).join(", ");
+
+      await client.query(
+        `INSERT INTO clan_history (battle_id, clan_name, rank, points, captured_at)
+         VALUES ${placeholders}`,
+        values
+      );
+    }
+
+    await client.query("COMMIT");
+    return true;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => null);
+    console.warn("[war-analyst] live snapshot save failed:", err);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
 async function buildLiveBattleHq(active: LiveWarInfo) {
   const [liveBattle, publicBattle, indexOverview, legacyOverview, legacyLeaderboard] = await Promise.all([
     getLiveClanBattle(active),
@@ -615,6 +715,17 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const below = rankedBelow ?? (ourIndex >= 0 && ourIndex < nearbyWithUs.length - 1 ? nearbyWithUs[ourIndex + 1] : null);
   const gapAbove = above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
   const gapBelow = below && below.points < currentPoints ? currentPoints - below.points : null;
+
+  await saveLiveAnalyticsSnapshot({
+    active,
+    rank,
+    points: currentPoints,
+    participants,
+    totalClans,
+    totalPoints,
+    progressPct: active.progressPct,
+    nearby: nearbyWithUs,
+  });
 
   const snapshotRows = await getSnapshotHistory(active.battleId, CLAN_NAME, 24);
   const snapshotHistory = snapshotRows
