@@ -23,6 +23,7 @@ type BattleHqResponse = {
   };
   stats: {
     gain24h: number;
+    pointsLastHour?: number;
     hourlyRate: number | null;
     averageRate: number | null;
     gapAbove: number | null;
@@ -38,6 +39,8 @@ type BattleHqResponse = {
     adjustedHourlyRate?: number | null;
     reliability?: number | null;
     disconnects24h?: number;
+    disconnectPlayers24h?: number;
+    disconnects1h?: number;
     inactiveMembers?: number | null;
     confidence: "low" | "medium" | "high";
     uiTone: "success" | "warning" | "danger" | "info";
@@ -558,23 +561,25 @@ export default function BattleHQPage() {
                       delay="0.45s"
                     />
                     <Card
-                      title="Adjusted pace"
-                      value={data.stats.adjustedHourlyRate ? `${formatNumber(Math.round(data.stats.adjustedHourlyRate))}/h` : "—"}
-                      sub="Weighted recent rate"
+                      title="Points last hour"
+                      value={formatNumber(data.stats.pointsLastHour ?? 0)}
+                      sub="Clan gain in the last 60 minutes"
                       delay="0.5s"
                     />
                     <Card
                       title="Stability"
                       value={`${reliabilityPercent}%`}
-                      sub={`${formatNumber(data.stats.disconnects24h ?? 0)} disconnects / 24h`}
+                      sub={`${formatNumber(data.stats.disconnectPlayers24h ?? 0)} players affected · ${formatNumber(data.stats.disconnects24h ?? 0)} drops / 24h`}
                       delay="0.55s"
                     />
-                    <Card
-                      title="No points yet"
-                      value={data.stats.inactiveMembers === null || data.stats.inactiveMembers === undefined ? "—" : formatNumber(data.stats.inactiveMembers)}
-                      sub="Members without battle points"
-                      delay="0.6s"
-                    />
+                    {data.stats.inactiveMembers !== null && data.stats.inactiveMembers !== undefined && data.stats.inactiveMembers > 0 && (
+                      <Card
+                        title="No points yet"
+                        value={formatNumber(data.stats.inactiveMembers)}
+                        sub="Members without battle points"
+                        delay="0.6s"
+                      />
+                    )}
                   </div>
                 </Panel>
 
