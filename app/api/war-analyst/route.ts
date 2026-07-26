@@ -745,9 +745,12 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   const elapsedHours = active.start > 0 ? Math.max(0.1, (Date.now() / 1000 - active.start) / 3600) : null;
   const remainingHours = active.finish > 0 ? Math.max(0, (active.finish - Date.now() / 1000) / 3600) : 0;
-  // Do not run end-of-war placement projections until we have enough real snapshots.
-  // Early fallback rates can wildly over-project every sampled clan and produce nonsense like #100.
-  const hasEnoughProjectionHistory = snapshotRows.length >= 10;
+  const snapshotSpanMs = pointsHistory.length >= 2
+    ? pointsHistory[pointsHistory.length - 1].capturedAt.getTime() - pointsHistory[0].capturedAt.getTime()
+    : 0;
+  // Do not run end-of-war placement projections until the data covers a real time window.
+  // A lot of snapshots in the same few minutes is still not enough to forecast the whole war.
+  const hasEnoughProjectionHistory = snapshotRows.length >= 10 && snapshotSpanMs >= 15 * 60 * 1000;
   const fallbackRate = hasEnoughProjectionHistory && elapsedHours ? currentPoints / elapsedHours : null;
   const rawHourlyRate = hasEnoughProjectionHistory ? weightedLiveRate(pointsHistory, fallbackRate) : null;
   const disconnects24h = await getDisconnects24h();
@@ -755,12 +758,31 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
   const projectedFinalPoints = adjustedHourlyRate === null ? null : currentPoints + adjustedHourlyRate * remainingHours;
 
+  async function clanRate(name: string | null | undefined) {
+    if (!name || !hasEnoughProjectionHistory) return null;
+    const rows = await getClanHistoryWindow(active.battleId, name, 24);
+    const history = rows
+      .map((row) => ({
+        capturedAt: toDate(row.captured_at) ?? new Date(),
+        points: asNumber(row.points) ?? 0,
+      }))
+      .filter((row) => row.points > 0)
+      .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+    return weightedLiveRate(history, ratePerHour(history));
+  }
+
+  const [aboveRate, belowRate] = await Promise.all([
+    clanRate(above?.name),
+    clanRate(below?.name),
+  ]);
+
   const projectedClanList = projectedFinalPoints === null ? [] : nearbyWithUs.map((clan) => {
     if (namesMatch(clan.name, CLAN_NAME)) {
       return { name: clan.name, points: projectedFinalPoints };
     }
-    const estimatedRate = hasEnoughProjectionHistory && elapsedHours ? clan.points / elapsedHours : 0;
-    return { name: clan.name, points: clan.points + estimatedRate * remainingHours };
+    // Only project opponent movement if we actually have their snapshot history.
+    // Otherwise keep their current points instead of inventing all-war pace.
+    return { name: clan.name, points: clan.points };
   });
 
   const projectedPlacement = projectedFinalPoints === null ? rank : projectedRankFromPoints(projectedClanList, projectedFinalPoints);
@@ -770,8 +792,14 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
     : "low" as const;
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
-  const etaAboveMs = gapAbove !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapAbove / adjustedHourlyRate) * 3_600_000 : null;
-  const threatEtaMs = gapBelow !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapBelow / Math.max(adjustedHourlyRate * (1 - reliability + 0.05), 1)) * 3_600_000 : null;
+  const targetNetRate = adjustedHourlyRate !== null
+    ? adjustedHourlyRate - (aboveRate ?? 0)
+    : null;
+  const threatNetRate = adjustedHourlyRate !== null && belowRate !== null
+    ? belowRate - adjustedHourlyRate
+    : null;
+  const etaAboveMs = gapAbove !== null && targetNetRate !== null && targetNetRate > 0 ? (gapAbove / targetNetRate) * 3_600_000 : null;
+  const threatEtaMs = gapBelow !== null && threatNetRate !== null && threatNetRate > 0 ? (gapBelow / threatNetRate) * 3_600_000 : null;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
 
