@@ -9,6 +9,8 @@ const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
 const CLAN_API = process.env.CLAN_API ?? "";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 const BIG_GAMES_INDEX_CLAN_URL = `https://db.biggames.io/clans/leaderboard?sort=Points&item=${encodeURIComponent(CLAN_NAME)}&tab=overview`;
+const LEGACY_CLAN_URL = `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
+const LEGACY_CLANS_LEADERBOARD_URL = `${PS99_API}/api/clans?page=1&pageSize=100&sort=Points&sortOrder=desc`;
 
 type SnapshotRow = {
   battle_id: string;
@@ -379,6 +381,50 @@ async function getPublicBattle(active: LiveWarInfo) {
   return null;
 }
 
+async function getLegacyClanOverview(active: LiveWarInfo) {
+  try {
+    const payload = await fetchJson(LEGACY_CLAN_URL);
+    const clan = payload?.data;
+    const battles = (clan?.Battles ?? {}) as Record<string, LiveClanBattle & Record<string, unknown>>;
+    const target = normalizeKey(active.title);
+    const match = Object.entries(battles).find(([key, battle]) => {
+      const names = [key, battle?.BattleID, battle?.Title, battle?.configName];
+      return names.some((name) => normalizeKey(name) === target);
+    });
+    const battle = match?.[1] ?? null;
+
+    return {
+      rank: asNumber(battle?.Place ?? battle?.place ?? battle?.Rank ?? battle?.rank),
+      points: asNumber(battle?.Points ?? battle?.points),
+      participants: Array.isArray(battle?.PointContributions)
+        ? battle.PointContributions.filter((entry) => contributionPoints(entry) > 0).length
+        : null,
+      battle,
+    };
+  } catch (err) {
+    console.warn("[war-analyst] legacy clan overview unavailable:", err);
+    return null;
+  }
+}
+
+async function getLegacyClansLeaderboard() {
+  try {
+    const payload = await fetchJson(LEGACY_CLANS_LEADERBOARD_URL);
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+
+    return rows
+      .map((row: Record<string, unknown>, index: number) => ({
+        rank: index + 1,
+        name: String(row.Name ?? row.name ?? "Unknown"),
+        points: asNumber(row.Points ?? row.points) ?? 0,
+      }))
+      .filter((row: { name: string }) => row.name !== "Unknown");
+  } catch (err) {
+    console.warn("[war-analyst] legacy clans leaderboard unavailable:", err);
+    return [];
+  }
+}
+
 async function getBigGamesIndexClanOverview() {
   try {
     const res = await fetch(BIG_GAMES_INDEX_CLAN_URL, {
@@ -486,30 +532,36 @@ function projectedRankFromPoints(clans: Array<{ name: string; points: number }>,
 }
 
 async function buildLiveBattleHq(active: LiveWarInfo) {
-  const [liveBattle, publicBattle, indexOverview] = await Promise.all([
+  const [liveBattle, publicBattle, indexOverview, legacyOverview, legacyLeaderboard] = await Promise.all([
     getLiveClanBattle(active),
     getPublicBattle(active),
     getBigGamesIndexClanOverview(),
+    getLegacyClanOverview(active),
+    getLegacyClansLeaderboard(),
   ]);
 
   const contributions = Array.isArray(liveBattle?.PointContributions)
     ? liveBattle.PointContributions.filter((entry): entry is LiveContribution => !!entry && typeof entry === "object")
     : [];
-  const currentPoints = indexOverview?.points ?? asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
-  const participants = contributions.filter((entry) => contributionPoints(entry) > 0).length || null;
+  const currentPoints = legacyOverview?.points ?? indexOverview?.points ?? asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
+  const participants = legacyOverview?.participants ?? (contributions.filter((entry) => contributionPoints(entry) > 0).length || null);
 
   const topClans = Array.isArray(publicBattle?.topClans) ? publicBattle.topClans : [];
   const publicMcwv = topClans.find((clan: Record<string, unknown>) => namesMatch(clan?.name, CLAN_NAME)) ?? null;
-  const totalClans = asNumber(publicBattle?.stats?.participatingClans) ?? (topClans.length || null);
+  const totalClans = asNumber(publicBattle?.stats?.participatingClans) ?? (legacyLeaderboard.length || topClans.length || null);
   const totalPoints = asNumber(publicBattle?.stats?.totalClanPoints);
 
-  const publicNearby: Array<{ rank: number | null; name: string; points: number }> = topClans
+  const sampledPublicNearby: Array<{ rank: number | null; name: string; points: number }> = topClans
     .map((clan: Record<string, unknown>) => ({
       rank: asNumber(clan.rank ?? clan.reportedPlace ?? clan.place),
       name: String(clan.name ?? "Unknown"),
       points: asNumber(clan.points) ?? 0,
     }))
     .filter((clan: { name: string }) => clan.name !== "Unknown");
+
+  const publicNearby: Array<{ rank: number | null; name: string; points: number }> = legacyLeaderboard.length
+    ? legacyLeaderboard
+    : sampledPublicNearby;
 
   const publicRank = asNumber(publicMcwv?.reportedPlace ?? publicMcwv?.rank ?? publicMcwv?.place);
   const liveRank = asNumber(
@@ -523,7 +575,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       ? liveBattle.place
       : null
   );
-  const rank = indexOverview?.rank ?? liveRank ?? publicRank;
+  const rank = legacyOverview?.rank ?? indexOverview?.rank ?? liveRank ?? publicRank;
 
   const nearbyWithUs = [
     ...publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME)),
