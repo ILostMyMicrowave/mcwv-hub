@@ -27,6 +27,8 @@ type BattleHqResponse = {
     averageRate: number | null;
     gapAbove: number | null;
     gapBelow: number | null;
+    passEstimateText?: string | null;
+    threatEstimateText?: string | null;
     etaAboveMs: number | null;
     threatEtaMs: number | null;
     projectedPlacement: number | null;
@@ -422,7 +424,9 @@ export default function BattleHQPage() {
                       <p className="mt-2 text-sm text-[var(--foreground)]/75">
                         Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}
                       </p>
-                      <p className="mt-1 text-sm text-[var(--foreground)]/75">ETA: {etaText(data.stats.etaAboveMs)}</p>
+                      <p className="mt-1 text-sm text-[var(--foreground)]/75">
+                        Pass estimate: {data.stats.passEstimateText ?? etaText(data.stats.etaAboveMs)}
+                      </p>
                     </div>
 
                     <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
@@ -432,7 +436,7 @@ export default function BattleHQPage() {
                         Gap below: {gapBelow === null ? "—" : formatNumber(gapBelow)}
                       </p>
                       <p className="mt-1 text-sm text-[var(--foreground)]/75">
-                        Threat ETA: {showThreatEta ? etaText(data.stats.threatEtaMs) : "—"}
+                        Threat estimate: {data.stats.threatEstimateText ?? (showThreatEta ? etaText(data.stats.threatEtaMs) : "—")}
                       </p>
                     </div>
                   </div>
