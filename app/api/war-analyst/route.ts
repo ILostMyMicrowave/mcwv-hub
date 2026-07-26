@@ -532,15 +532,35 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       name: CLAN_NAME,
       points: currentPoints,
     },
-  ].sort((a, b) => b.points - a.points);
+  ].sort((a, b) => {
+    if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
+    if (a.rank !== null) return -1;
+    if (b.rank !== null) return 1;
+    return b.points - a.points;
+  });
 
   const ourIndex = nearbyWithUs.findIndex((clan) => namesMatch(clan.name, CLAN_NAME));
-  const ourNearby = ourIndex >= 0
+  const ourNearby = rank !== null
+    ? nearbyWithUs
+        .filter((clan) => clan.rank !== null && Math.abs((clan.rank as number) - rank) <= 6)
+        .slice(0, 13)
+    : ourIndex >= 0
     ? nearbyWithUs.slice(Math.max(0, ourIndex - 5), ourIndex + 6)
     : nearbyWithUs.slice(0, 10);
 
-  const above = ourIndex > 0 ? nearbyWithUs[ourIndex - 1] : null;
-  const below = ourIndex >= 0 && ourIndex < nearbyWithUs.length - 1 ? nearbyWithUs[ourIndex + 1] : null;
+  const rankedAbove = rank !== null
+    ? nearbyWithUs
+        .filter((clan) => clan.rank !== null && (clan.rank as number) < rank)
+        .sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))[0] ?? null
+    : null;
+  const rankedBelow = rank !== null
+    ? nearbyWithUs
+        .filter((clan) => clan.rank !== null && (clan.rank as number) > rank)
+        .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999))[0] ?? null
+    : null;
+
+  const above = rankedAbove ?? (ourIndex > 0 ? nearbyWithUs[ourIndex - 1] : null);
+  const below = rankedBelow ?? (ourIndex >= 0 && ourIndex < nearbyWithUs.length - 1 ? nearbyWithUs[ourIndex + 1] : null);
   const gapAbove = above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
   const gapBelow = below && below.points < currentPoints ? currentPoints - below.points : null;
 
@@ -562,24 +582,25 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   const elapsedHours = active.start > 0 ? Math.max(0.1, (Date.now() / 1000 - active.start) / 3600) : null;
   const remainingHours = active.finish > 0 ? Math.max(0, (active.finish - Date.now() / 1000) / 3600) : 0;
-  const fallbackRate = elapsedHours ? currentPoints / elapsedHours : null;
-  const rawHourlyRate = weightedLiveRate(pointsHistory, fallbackRate);
+  const hasEnoughProjectionHistory = snapshotRows.length >= 3;
+  const fallbackRate = hasEnoughProjectionHistory && elapsedHours ? currentPoints / elapsedHours : null;
+  const rawHourlyRate = hasEnoughProjectionHistory ? weightedLiveRate(pointsHistory, fallbackRate) : null;
   const disconnects24h = await getDisconnects24h();
   const reliability = reliabilityFromDisconnects(disconnects24h, participants);
   const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
-  const projectedFinalPoints = currentPoints + (adjustedHourlyRate ?? fallbackRate ?? 0) * remainingHours;
+  const projectedFinalPoints = adjustedHourlyRate === null ? null : currentPoints + adjustedHourlyRate * remainingHours;
 
-  const projectedClanList = nearbyWithUs.map((clan) => {
+  const projectedClanList = projectedFinalPoints === null ? [] : nearbyWithUs.map((clan) => {
     if (namesMatch(clan.name, CLAN_NAME)) {
       return { name: clan.name, points: projectedFinalPoints };
     }
-    const estimatedRate = elapsedHours ? clan.points / elapsedHours : 0;
+    const estimatedRate = hasEnoughProjectionHistory && elapsedHours ? clan.points / elapsedHours : 0;
     return { name: clan.name, points: clan.points + estimatedRate * remainingHours };
   });
 
-  const projectedPlacement = projectedRankFromPoints(projectedClanList, projectedFinalPoints);
-  const projectedBestPlacement = projectedRankFromPoints(projectedClanList, currentPoints + (Math.max(adjustedHourlyRate ?? 0, fallbackRate ?? 0) * 1.2) * remainingHours);
-  const projectedWorstPlacement = projectedRankFromPoints(projectedClanList, currentPoints + (Math.max(adjustedHourlyRate ?? 0, fallbackRate ?? 0) * 0.72) * remainingHours);
+  const projectedPlacement = projectedFinalPoints === null ? rank : projectedRankFromPoints(projectedClanList, projectedFinalPoints);
+  const projectedBestPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 1.2 * remainingHours);
+  const projectedWorstPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 0.72 * remainingHours);
   const confidence = confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability);
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
   const etaAboveMs = gapAbove !== null && adjustedHourlyRate && adjustedHourlyRate > 0 ? (gapAbove / adjustedHourlyRate) * 3_600_000 : null;
@@ -611,7 +632,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       adjustedHourlyRate,
       reliability,
       disconnects24h,
-      projectedFinalPoints: Math.round(projectedFinalPoints),
+      projectedFinalPoints: projectedFinalPoints === null ? null : Math.round(projectedFinalPoints),
       projectedBestPlacement,
       projectedWorstPlacement,
       gapAbove,
