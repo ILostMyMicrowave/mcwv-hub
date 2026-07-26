@@ -915,6 +915,32 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? "medium" as const
     : "low" as const;
   const projectedFinalPoints = null;
+  const recentRate = rateForWindow(pointsHistory, 30 * 60 * 1000);
+  const wholeWindowRate = ratePerHour(pointsHistory);
+  const momentum = recentRate !== null && wholeWindowRate !== null && wholeWindowRate > 0
+    ? recentRate >= wholeWindowRate * 1.2
+      ? "Heating up"
+      : recentRate <= wholeWindowRate * 0.8
+      ? "Cooling down"
+      : "Steady"
+    : "Warming up";
+  const dataQuality = snapshotSpanMs >= 60 * 60 * 1000 && hasGapTrend
+    ? "Strong"
+    : snapshotSpanMs >= 15 * 60 * 1000 || hasGapTrend
+    ? "Warming up"
+    : "Early";
+  const disconnectImpact = reliability >= 0.9 ? "Low" : reliability >= 0.75 ? "Medium" : "High";
+  const recommendation = etaAboveMs !== null && etaAboveMs <= 30 * 60 * 1000 && above
+    ? `Push now — ${above.name} is reachable in ${formatShortDuration(etaAboveMs)} if this gap trend holds.`
+    : threatEtaMs !== null && threatEtaMs <= 30 * 60 * 1000 && below
+    ? `Defend now — ${below.name} could catch us in ${formatShortDuration(threatEtaMs)} if nothing changes.`
+    : targetTrend && targetTrend.changePer30m > 0 && above
+    ? `${above.name} is close, but the gap is currently growing. We need a stronger push before the pass estimate improves.`
+    : threatTrend && threatTrend.changePer30m > 0 && below
+    ? `Hold pace — ${below.name} is not catching us right now.`
+    : adjustedHourlyRate !== null
+    ? `Keep pressure steady — current adjusted pace is ${formatNumber(Math.round(adjustedHourlyRate))}/h.`
+    : `Collecting race history — estimates will sharpen as more snapshots come in.`;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
 
@@ -971,6 +997,10 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       threat: gapBelow !== null && below
         ? `${below.name} needs ${formatNumber(gapBelow)} points to pass us`
         : `No close threat from below could be resolved yet.`,
+      recommendation,
+      dataQuality,
+      momentum,
+      disconnectImpact,
     },
     timing: {
       snapshotIntervalMs: updateEveryMs,
