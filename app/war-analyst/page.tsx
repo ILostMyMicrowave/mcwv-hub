@@ -325,7 +325,9 @@ export default function BattleHQPage() {
   const showThreatEta = data?.stats.threatEtaMs !== null && gapBelow !== null && gapBelow > 0;
   const recentHistory = pointsHistory.slice(-6);
   const forecastRange = data?.stats.projectedBestPlacement && data?.stats.projectedWorstPlacement
-    ? `#${data.stats.projectedBestPlacement}–#${data.stats.projectedWorstPlacement}`
+    ? data.stats.projectedBestPlacement === data.stats.projectedWorstPlacement
+      ? `#${data.stats.projectedBestPlacement}`
+      : `#${data.stats.projectedBestPlacement}–#${data.stats.projectedWorstPlacement}`
     : data?.stats.projectedPlacement
     ? `#${data.stats.projectedPlacement}`
     : "—";
