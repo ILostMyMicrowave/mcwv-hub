@@ -30,6 +30,12 @@ type BattleHqResponse = {
     etaAboveMs: number | null;
     threatEtaMs: number | null;
     projectedPlacement: number | null;
+    projectedBestPlacement?: number | null;
+    projectedWorstPlacement?: number | null;
+    projectedFinalPoints?: number | null;
+    adjustedHourlyRate?: number | null;
+    reliability?: number | null;
+    disconnects24h?: number;
     confidence: "low" | "medium" | "high";
     uiTone: "success" | "warning" | "danger" | "info";
   };
@@ -316,6 +322,12 @@ export default function BattleHQPage() {
   const showRate = enoughHistoryForRate && data?.stats.hourlyRate !== null;
   const showThreatEta = data?.stats.threatEtaMs !== null && gapBelow !== null && gapBelow > 0;
   const recentHistory = pointsHistory.slice(-6);
+  const forecastRange = data?.stats.projectedBestPlacement && data?.stats.projectedWorstPlacement
+    ? `#${data.stats.projectedBestPlacement}–#${data.stats.projectedWorstPlacement}`
+    : data?.stats.projectedPlacement
+    ? `#${data.stats.projectedPlacement}`
+    : "—";
+  const reliabilityPercent = Math.round((data?.stats.reliability ?? 1) * 100);
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -386,8 +398,8 @@ export default function BattleHQPage() {
                     />
                     <Card
                       title="Projected finish"
-                      value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
-                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
+                      value={forecastRange}
+                      sub={data.stats.projectedFinalPoints ? `Final est: ${formatNumber(data.stats.projectedFinalPoints)} · ${data.stats.confidence.toUpperCase()}` : `Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.2s"
                     />
                     <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" delay="0.25s" />
@@ -475,9 +487,21 @@ export default function BattleHQPage() {
                     />
                     <Card
                       title="Forecast"
-                      value={data.stats.projectedPlacement ? `#${data.stats.projectedPlacement}` : "—"}
-                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
+                      value={forecastRange}
+                      sub={data.stats.projectedFinalPoints ? `Final est: ${formatNumber(data.stats.projectedFinalPoints)}` : `Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.45s"
+                    />
+                    <Card
+                      title="Adjusted pace"
+                      value={data.stats.adjustedHourlyRate ? `${formatNumber(Math.round(data.stats.adjustedHourlyRate))}/h` : "—"}
+                      sub="Weighted recent rate"
+                      delay="0.5s"
+                    />
+                    <Card
+                      title="Stability"
+                      value={`${reliabilityPercent}%`}
+                      sub={`${formatNumber(data.stats.disconnects24h ?? 0)} disconnects / 24h`}
+                      delay="0.55s"
                     />
                   </div>
                 </Panel>
