@@ -79,7 +79,8 @@ function formatShortDuration(ms: number | null) {
 
   if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${total}s`;
 }
 
 function hourKey(date: Date) {
@@ -386,29 +387,40 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   const topClans = Array.isArray(publicBattle?.topClans) ? publicBattle.topClans : [];
   const publicMcwv = topClans.find((clan: Record<string, unknown>) => namesMatch(clan?.name, CLAN_NAME)) ?? null;
-  const rank = asNumber(publicMcwv?.reportedPlace ?? publicMcwv?.rank ?? publicMcwv?.place);
   const totalClans = asNumber(publicBattle?.stats?.participatingClans) ?? (topClans.length || null);
   const totalPoints = asNumber(publicBattle?.stats?.totalClanPoints);
 
-  const nearby = topClans
+  const publicNearby: Array<{ rank: number | null; name: string; points: number }> = topClans
     .map((clan: Record<string, unknown>) => ({
       rank: asNumber(clan.rank ?? clan.reportedPlace ?? clan.place),
       name: String(clan.name ?? "Unknown"),
       points: asNumber(clan.points) ?? 0,
     }))
-    .filter((clan: { name: string }) => clan.name !== "Unknown")
-    .sort((a: { rank: number | null; points: number }, b: { rank: number | null; points: number }) => (a.rank ?? 999999) - (b.rank ?? 999999) || b.points - a.points);
+    .filter((clan: { name: string }) => clan.name !== "Unknown");
 
-  const ourNearby = rank !== null
-    ? nearby.filter((clan: { rank: number | null }) => clan.rank !== null && Math.abs((clan.rank as number) - rank) <= 5).slice(0, 10)
-    : nearby.slice(0, 10);
+  const publicRank = asNumber(publicMcwv?.reportedPlace ?? publicMcwv?.rank ?? publicMcwv?.place);
+  const inferredRank = currentPoints > 0
+    ? publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points > currentPoints).length + 1
+    : null;
+  const rank = publicRank ?? inferredRank;
 
-  const above = rank !== null
-    ? nearby.filter((clan: { rank: number | null }) => clan.rank !== null && (clan.rank as number) < rank).sort((a: { rank: number | null }, b: { rank: number | null }) => (b.rank ?? 0) - (a.rank ?? 0))[0] ?? null
-    : null;
-  const below = rank !== null
-    ? nearby.filter((clan: { rank: number | null }) => clan.rank !== null && (clan.rank as number) > rank).sort((a: { rank: number | null }, b: { rank: number | null }) => (a.rank ?? 999999) - (b.rank ?? 999999))[0] ?? null
-    : null;
+  const nearbyWithUs = [
+    ...publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME)),
+    {
+      rank,
+      name: CLAN_NAME,
+      points: currentPoints,
+    },
+  ].sort((a, b) => b.points - a.points)
+   .map((clan, index) => ({ ...clan, rank: clan.rank ?? index + 1 }));
+
+  const ourIndex = nearbyWithUs.findIndex((clan) => namesMatch(clan.name, CLAN_NAME));
+  const ourNearby = ourIndex >= 0
+    ? nearbyWithUs.slice(Math.max(0, ourIndex - 5), ourIndex + 6)
+    : nearbyWithUs.slice(0, 10);
+
+  const above = ourIndex > 0 ? nearbyWithUs[ourIndex - 1] : null;
+  const below = ourIndex >= 0 && ourIndex < nearbyWithUs.length - 1 ? nearbyWithUs[ourIndex + 1] : null;
   const gapAbove = above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
   const gapBelow = below && below.points < currentPoints ? currentPoints - below.points : null;
   const updateEveryMs = 30_000;
