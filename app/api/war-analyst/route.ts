@@ -399,6 +399,10 @@ async function getLegacyClanOverview(active: LiveWarInfo) {
       participants: Array.isArray(battle?.PointContributions)
         ? battle.PointContributions.filter((entry) => contributionPoints(entry) > 0).length
         : null,
+      membersCount: Array.isArray(clan?.Members) ? clan.Members.length : null,
+      inactiveMembers: Array.isArray(battle?.PointContributions)
+        ? battle.PointContributions.filter((entry) => contributionPoints(entry) <= 0).length
+        : null,
       battle,
     };
   } catch (err) {
@@ -476,6 +480,44 @@ function weightedLiveRate(history: Array<{ capturedAt: Date; points: number }>, 
   if (!windows.length) return fallbackRate;
   const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
   return windows.reduce((sum, item) => sum + item.rate * item.weight, 0) / totalWeight;
+}
+
+async function getClanRateMap(battleId: string) {
+  const map = new Map<string, number>();
+
+  try {
+    const result = await pool.query<{ clan_name: string; points: number | string; captured_at: Date | string }>(
+      `SELECT clan_name, points, captured_at
+       FROM clan_history
+       WHERE battle_id = $1
+         AND captured_at >= NOW() - INTERVAL '3 hours'
+       ORDER BY clan_name ASC, captured_at ASC`,
+      [battleId]
+    );
+
+    const grouped = new Map<string, Array<{ capturedAt: Date; points: number }>>();
+    for (const row of result.rows) {
+      const key = normalizeName(row.clan_name);
+      if (!key) continue;
+      const capturedAt = toDate(row.captured_at) ?? new Date();
+      const points = asNumber(row.points) ?? 0;
+      const list = grouped.get(key) ?? [];
+      list.push({ capturedAt, points });
+      grouped.set(key, list);
+    }
+
+    for (const [key, history] of grouped.entries()) {
+      const sorted = history.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+      const span = sorted.length >= 2 ? sorted[sorted.length - 1].capturedAt.getTime() - sorted[0].capturedAt.getTime() : 0;
+      if (span < 5 * 60 * 1000) continue;
+      const rate = weightedLiveRate(sorted, ratePerHour(sorted));
+      if (rate !== null && Number.isFinite(rate)) map.set(key, Math.max(0, rate));
+    }
+  } catch (err) {
+    console.warn("[war-analyst] clan rate map unavailable:", err);
+  }
+
+  return map;
 }
 
 async function getDisconnects24h() {
@@ -837,6 +879,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     { capturedAt: now, points: currentPoints, rank },
   ].filter((row, index, rows) => index === rows.findIndex((candidate) => candidate.capturedAt.getTime() === row.capturedAt.getTime()));
 
+  const clanRateMap = await getClanRateMap(active.battleId);
+  const clanRate = (name: string | null | undefined) => name ? clanRateMap.get(normalizeName(name)) ?? null : null;
+
   const elapsedHours = active.start > 0 ? Math.max(0.1, (Date.now() / 1000 - active.start) / 3600) : null;
   const remainingHours = active.finish > 0 ? Math.max(0, (active.finish - Date.now() / 1000) / 3600) : 0;
   const snapshotSpanMs = pointsHistory.length >= 2
@@ -852,23 +897,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
   const preliminaryProjectedFinalPoints = adjustedHourlyRate === null ? null : currentPoints + adjustedHourlyRate * remainingHours;
 
-  async function clanRate(name: string | null | undefined) {
-    if (!name || !hasEnoughProjectionHistory) return null;
-    const rows = await getClanHistoryWindow(active.battleId, name, 24);
-    const history = rows
-      .map((row) => ({
-        capturedAt: toDate(row.captured_at) ?? new Date(),
-        points: asNumber(row.points) ?? 0,
-      }))
-      .filter((row) => row.points > 0)
-      .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
-    return weightedLiveRate(history, ratePerHour(history));
-  }
-
-  const [aboveRate, belowRate] = await Promise.all([
-    clanRate(above?.name),
-    clanRate(below?.name),
-  ]);
+  const aboveRate = hasEnoughProjectionHistory ? clanRate(above?.name) : null;
+  const belowRate = hasEnoughProjectionHistory ? clanRate(below?.name) : null;
 
   const hasOpponentPace = aboveRate !== null || belowRate !== null;
   void hasOpponentPace;
@@ -915,6 +945,25 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? "medium" as const
     : "low" as const;
   const projectedFinalPoints = null;
+  const inactiveMembers = legacyOverview?.inactiveMembers ?? (legacyOverview?.membersCount && participants !== null ? Math.max(0, legacyOverview.membersCount - participants) : null);
+  const finishOutlookReady = snapshotSpanMs >= 60 * 60 * 1000 && clanRateMap.size >= 8 && adjustedHourlyRate !== null;
+  const finishProjection = finishOutlookReady
+    ? nearbyWithUs.map((clan) => {
+        const rate = namesMatch(clan.name, CLAN_NAME) ? adjustedHourlyRate : clanRate(clan.name) ?? 0;
+        return {
+          name: clan.name,
+          points: clan.points + rate * remainingHours,
+        };
+      })
+    : [];
+  const finishExpectedRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * remainingHours) : null;
+  const finishBestRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * 1.18 * remainingHours) : null;
+  const finishWorstRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * 0.78 * remainingHours) : null;
+  const finishProjectedPoints = finishOutlookReady ? Math.round(currentPoints + (adjustedHourlyRate ?? 0) * remainingHours) : null;
+  const finishConfidence = finishOutlookReady
+    ? confidenceFromInputs(snapshotRows.length, clanRateMap.size >= 8, reliability)
+    : "warming_up" as const;
+
   const recentRate = rateForWindow(pointsHistory, 30 * 60 * 1000);
   const wholeWindowRate = ratePerHour(pointsHistory);
   const momentum = recentRate !== null && wholeWindowRate !== null && wholeWindowRate > 0
@@ -968,6 +1017,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       adjustedHourlyRate,
       reliability,
       disconnects24h,
+      inactiveMembers,
       projectedFinalPoints: projectedFinalPoints === null ? null : Math.round(projectedFinalPoints),
       projectedBestPlacement,
       projectedWorstPlacement,
@@ -985,7 +1035,10 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       confidence,
       uiTone: statusTone(projectedPlacement),
     },
-    nearby: ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints }],
+    nearby: (ourNearby.length ? ourNearby : [{ rank, name: CLAN_NAME, points: currentPoints }]).map((clan) => ({
+      ...clan,
+      pph: namesMatch(clan.name, CLAN_NAME) ? adjustedHourlyRate : clanRate(clan.name),
+    })),
     summary: {
       overview: rank !== null ? `${CLAN_NAME} is currently #${rank} with ${formatNumber(currentPoints)} points.` : `${CLAN_NAME} has ${formatNumber(currentPoints)} battle points. Rank is not available yet.`,
       pace: adjustedHourlyRate !== null
@@ -1001,6 +1054,17 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       dataQuality,
       momentum,
       disconnectImpact,
+    },
+    finishOutlook: {
+      ready: finishOutlookReady,
+      expectedRank: finishExpectedRank,
+      bestRank: finishBestRank,
+      worstRank: finishWorstRank,
+      projectedPoints: finishProjectedPoints,
+      confidence: finishConfidence,
+      reason: finishOutlookReady
+        ? `Based on ${formatNumber(clanRateMap.size)} clan pace tracks and ${formatShortDuration(remainingMs)} remaining.`
+        : `Warming up — needs at least 1 hour of snapshots and nearby clan pace history.`,
     },
     timing: {
       snapshotIntervalMs: updateEveryMs,
