@@ -741,7 +741,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const contributions = Array.isArray(liveBattle?.PointContributions)
     ? liveBattle.PointContributions.filter((entry): entry is LiveContribution => !!entry && typeof entry === "object")
     : [];
-  const currentPoints = legacyOverview?.points ?? indexOverview?.points ?? asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
+  const sourceCurrentPoints = legacyOverview?.points ?? indexOverview?.points ?? asNumber(liveBattle?.Points) ?? contributions.reduce((sum, entry) => sum + contributionPoints(entry), 0);
   const participants = legacyOverview?.participants ?? (contributions.filter((entry) => contributionPoints(entry) > 0).length || null);
 
   const topClans = Array.isArray(publicBattle?.topClans) ? publicBattle.topClans : [];
@@ -761,6 +761,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? legacyLeaderboard
     : sampledPublicNearby;
 
+  const leaderboardMcwv = publicNearby.find((clan) => namesMatch(clan.name, CLAN_NAME)) ?? null;
+  const currentPoints = leaderboardMcwv?.points ?? sourceCurrentPoints;
   const publicRank = asNumber(publicMcwv?.reportedPlace ?? publicMcwv?.rank ?? publicMcwv?.place);
   const liveRank = asNumber(
     liveBattle && "Rank" in liveBattle
@@ -773,28 +775,25 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       ? liveBattle.place
       : null
   );
-  const officialRank = legacyOverview?.rank ?? indexOverview?.rank ?? liveRank ?? publicRank;
+  const rank = leaderboardMcwv?.rank ?? legacyOverview?.rank ?? indexOverview?.rank ?? liveRank ?? publicRank;
 
-  const pointRankedClans = [
-    ...publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME)),
-    {
-      rank: null,
-      name: CLAN_NAME,
-      points: currentPoints,
-    },
-  ]
-    .sort((a, b) => b.points - a.points)
-    .map((clan, index) => ({ ...clan, pointRank: index + 1 }));
-
-  const pointRank = pointRankedClans.find((clan) => namesMatch(clan.name, CLAN_NAME))?.pointRank ?? null;
-  const rank = officialRank ?? pointRank;
-  const rankOffset = rank !== null && pointRank !== null ? rank - pointRank : 0;
-
-  const nearbyWithUs = pointRankedClans.map((clan) => ({
-    rank: clan.pointRank + rankOffset,
-    name: clan.name,
-    points: clan.points,
-  }));
+  const nearbyWithUs = (leaderboardMcwv
+    ? publicNearby
+    : [
+        ...publicNearby,
+        {
+          rank,
+          name: CLAN_NAME,
+          points: currentPoints,
+        },
+      ])
+    .filter((clan, index, rows) => rows.findIndex((row) => namesMatch(row.name, clan.name)) === index)
+    .sort((a, b) => {
+      if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
+      if (a.rank !== null) return -1;
+      if (b.rank !== null) return 1;
+      return b.points - a.points;
+    });
 
   const ourIndex = nearbyWithUs.findIndex((clan) => namesMatch(clan.name, CLAN_NAME));
   const ourNearby = ourIndex >= 0
@@ -910,7 +909,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const projectedWorstPlacement = canBePassed && rank !== null ? rank + 1 : rank;
   const hasGapTrend = targetTrend !== null || threatTrend !== null;
   const hasActionableMovement = canPassTarget || canBePassed;
-  const confidence = hasActionableMovement && hasGapTrend && snapshotSpanMs >= 60 * 60 * 1000
+  const confidence = hasActionableMovement && hasGapTrend && snapshotSpanMs >= 3 * 60 * 60 * 1000 && reliability >= 0.85
     ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
     : hasGapTrend
     ? "medium" as const
