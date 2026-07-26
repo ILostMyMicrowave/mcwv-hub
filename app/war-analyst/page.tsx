@@ -301,8 +301,116 @@ function Card({
   );
 }
 
+function ClanMiniProfile({
+  clan,
+  data,
+  onClose,
+}: {
+  clan: BattleHqResponse["nearby"][number] | null;
+  data: BattleHqResponse;
+  onClose: () => void;
+}) {
+  if (!clan) return null;
+
+  const isUs = clan.name.toLowerCase() === data.current.clanName.toLowerCase();
+  const mcwv = data.nearby.find((item) => item.name.toLowerCase() === data.current.clanName.toLowerCase());
+  const mcwvPoints = data.current.points;
+  const mcwvPph = mcwv?.pph ?? data.stats.pointsLastHour ?? 0;
+  const clanPph = clan.pph ?? 0;
+  const pointDiff = clan.points - mcwvPoints;
+  const absoluteGap = Math.abs(pointDiff);
+  const projectedClanPoints = clan.points + clanPph;
+  const projectedMcwvPoints = mcwvPoints + mcwvPph;
+  const projectedDiff = projectedClanPoints - projectedMcwvPoints;
+  const relation = isUs ? "This is us" : pointDiff > 0 ? "Ahead of us" : "Behind us";
+  const trend = isUs
+    ? "MCWV baseline"
+    : projectedDiff > pointDiff
+    ? "Moving away from MCWV"
+    : projectedDiff < pointDiff
+    ? "MCWV is closing the gap"
+    : "Gap is holding steady";
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center px-4 py-6">
+      <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close clan profile" />
+      <div className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-white/10 bg-[var(--background)] shadow-2xl">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(248,113,113,0.18),transparent_34%),radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.10),transparent_36%)]" />
+        <div className="relative p-5 sm:p-7">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-black/35">
+                <span className="text-lg font-black text-[var(--foreground)]/60">{clan.name.slice(0, 2).toUpperCase()}</span>
+                {clan.icon ? (
+                  <img
+                    src={clan.icon}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : null}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-red-300">Clan snapshot</div>
+                <h2 className="mt-1 truncate text-4xl font-black text-white">{clan.name}</h2>
+                <p className="mt-1 text-sm text-[var(--foreground)]/60">{relation}</p>
+              </div>
+            </div>
+            <button className="admin-button" onClick={onClose}>×</button>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <Card title="Rank" value={clan.rank === null ? "—" : `#${clan.rank}`} />
+            <Card title="Battle points" value={formatNumber(clan.points)} />
+            <Card title="Last hour" value={clanPph > 0 ? `+${formatNumber(Math.round(clanPph))}` : "—"} />
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Gap to MCWV</p>
+              <p className="mt-2 text-2xl font-bold text-white">
+                {isUs ? "0" : formatNumber(absoluteGap)}
+              </p>
+              <p className="mt-1 text-sm text-[var(--foreground)]/65">
+                {isUs ? "This is MCWV's current battle score." : pointDiff > 0 ? `${clan.name} is ahead by ${formatNumber(absoluteGap)}.` : `${clan.name} is behind by ${formatNumber(absoluteGap)}.`}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">1h trend</p>
+              <p className="mt-2 text-2xl font-bold text-white">{trend}</p>
+              <p className="mt-1 text-sm text-[var(--foreground)]/65">
+                Projected in 1h: {formatNumber(Math.round(projectedClanPoints))} vs MCWV {formatNumber(Math.round(projectedMcwvPoints))}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Quick read</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/75">
+              {isUs
+                ? `MCWV gained ${formatNumber(Math.round(mcwvPph))} points in the last 60 minutes.`
+                : pointDiff > 0
+                ? `To pass ${clan.name}, MCWV needs ${formatNumber(pointDiff + 1)} points. Their last-hour gain is ${formatNumber(Math.round(clanPph))}, while MCWV's is ${formatNumber(Math.round(mcwvPph))}.`
+                : `${clan.name} needs ${formatNumber(absoluteGap + 1)} points to pass MCWV. Their last-hour gain is ${formatNumber(Math.round(clanPph))}, while MCWV's is ${formatNumber(Math.round(mcwvPph))}.`}
+            </p>
+          </div>
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <a className="admin-button" href={`https://db.biggames.io/clans/${encodeURIComponent(clan.name)}`} target="_blank" rel="noreferrer">
+              Open BIG Games Profile ↗
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BattleHQPage() {
   const [data, setData] = useState<BattleHqResponse | null>(null);
+  const [selectedClan, setSelectedClan] = useState<BattleHqResponse["nearby"][number] | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(0);
@@ -516,9 +624,11 @@ export default function BattleHQPage() {
                       {data.nearby.map((clan) => {
                         const isUs = clan.name.toLowerCase() === data.current.clanName.toLowerCase();
                         return (
-                          <div
+                          <button
                             key={`${clan.name}-${String(clan.rank ?? "x")}`}
-                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+                            type="button"
+                            onClick={() => setSelectedClan(clan)}
+                            className="flex w-full items-center justify-between gap-4 rounded-2xl border px-4 py-3 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
                             style={{
                               borderColor: isUs ? styles.border : "var(--border)",
                               background: isUs ? styles.soft : "rgba(0,0,0,0.14)",
@@ -556,7 +666,7 @@ export default function BattleHQPage() {
                               <p className="text-sm font-bold text-white">{formatNumber(clan.points)}</p>
                               <p className="text-xs text-[var(--foreground)]/55">Battle points</p>
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
@@ -646,6 +756,8 @@ export default function BattleHQPage() {
           </div>
         )}
       </div>
+
+      {data && <ClanMiniProfile clan={selectedClan} data={data} onClose={() => setSelectedClan(null)} />}
 
       <style jsx>{`
         @keyframes fadeInUp {
