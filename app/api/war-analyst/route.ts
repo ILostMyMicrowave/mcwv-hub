@@ -773,29 +773,32 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       ? liveBattle.place
       : null
   );
-  const rank = legacyOverview?.rank ?? indexOverview?.rank ?? liveRank ?? publicRank;
+  const officialRank = legacyOverview?.rank ?? indexOverview?.rank ?? liveRank ?? publicRank;
 
-  const nearbyWithUs = [
+  const pointRankedClans = [
     ...publicNearby.filter((clan) => !namesMatch(clan.name, CLAN_NAME)),
     {
-      rank,
+      rank: null,
       name: CLAN_NAME,
       points: currentPoints,
     },
-  ].sort((a, b) => {
-    if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
-    if (a.rank !== null) return -1;
-    if (b.rank !== null) return 1;
-    return b.points - a.points;
-  });
+  ]
+    .sort((a, b) => b.points - a.points)
+    .map((clan, index) => ({ ...clan, pointRank: index + 1 }));
+
+  const pointRank = pointRankedClans.find((clan) => namesMatch(clan.name, CLAN_NAME))?.pointRank ?? null;
+  const rank = officialRank ?? pointRank;
+  const rankOffset = rank !== null && pointRank !== null ? rank - pointRank : 0;
+
+  const nearbyWithUs = pointRankedClans.map((clan) => ({
+    rank: clan.pointRank + rankOffset,
+    name: clan.name,
+    points: clan.points,
+  }));
 
   const ourIndex = nearbyWithUs.findIndex((clan) => namesMatch(clan.name, CLAN_NAME));
-  const ourNearby = rank !== null
-    ? nearbyWithUs
-        .filter((clan) => clan.rank !== null && Math.abs((clan.rank as number) - rank) <= 6)
-        .slice(0, 13)
-    : ourIndex >= 0
-    ? nearbyWithUs.slice(Math.max(0, ourIndex - 5), ourIndex + 6)
+  const ourNearby = ourIndex >= 0
+    ? nearbyWithUs.slice(Math.max(0, ourIndex - 6), ourIndex + 7)
     : nearbyWithUs.slice(0, 10);
 
   // Match the clan-race bot: target/threat are based on live point gaps, not rank labels.
@@ -907,7 +910,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const projectedWorstPlacement = canBePassed && rank !== null ? rank + 1 : rank;
   const hasGapTrend = targetTrend !== null || threatTrend !== null;
   const hasActionableMovement = canPassTarget || canBePassed;
-  const confidence = hasActionableMovement && hasGapTrend && snapshotSpanMs >= 30 * 60 * 1000
+  const confidence = hasActionableMovement && hasGapTrend && snapshotSpanMs >= 60 * 60 * 1000
     ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
     : hasGapTrend
     ? "medium" as const
