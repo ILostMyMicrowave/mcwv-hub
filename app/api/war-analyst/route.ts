@@ -531,6 +531,89 @@ function projectedRankFromPoints(clans: Array<{ name: string; points: number }>,
   return clans.filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points > ourProjectedPoints).length + 1;
 }
 
+type GapTrend = {
+  currentGap: number;
+  previousGap: number;
+  changePer30m: number;
+  etaMs: number | null;
+  windowMinutes: number;
+};
+
+async function getGapTrend(params: {
+  battleId: string;
+  otherName: string | null | undefined;
+  currentOurPoints: number;
+  currentOtherPoints: number;
+  mode: "target" | "threat";
+  ourHistory: Array<{ capturedAt: Date; points: number }>;
+}): Promise<GapTrend | null> {
+  if (!params.otherName || params.ourHistory.length < 2) return null;
+
+  const targetMs = Date.now() - 30 * 60 * 1000;
+  const previousOur = [...params.ourHistory]
+    .filter((row) => row.capturedAt.getTime() <= targetMs)
+    .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime())[0] ?? params.ourHistory[0];
+
+  if (!previousOur) return null;
+
+  const otherRows = await getClanHistoryWindow(params.battleId, params.otherName, 3);
+  const otherHistory = otherRows
+    .map((row) => ({
+      capturedAt: toDate(row.captured_at) ?? new Date(),
+      points: asNumber(row.points) ?? 0,
+    }))
+    .filter((row) => row.points > 0)
+    .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+
+  if (otherHistory.length < 2) return null;
+
+  const previousOther = [...otherHistory]
+    .filter((row) => row.capturedAt.getTime() <= targetMs)
+    .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime())[0] ?? otherHistory[0];
+
+  if (!previousOther) return null;
+
+  const previousAt = Math.min(previousOur.capturedAt.getTime(), previousOther.capturedAt.getTime());
+  const windowMs = Date.now() - previousAt;
+  if (windowMs < 5 * 60 * 1000) return null;
+
+  const currentGap = params.mode === "target"
+    ? Math.max(0, params.currentOtherPoints - params.currentOurPoints)
+    : Math.max(0, params.currentOurPoints - params.currentOtherPoints);
+  const previousGap = params.mode === "target"
+    ? Math.max(0, previousOther.points - previousOur.points)
+    : Math.max(0, previousOur.points - previousOther.points);
+
+  const changePer30m = (currentGap - previousGap) / windowMs * (30 * 60 * 1000);
+  const etaMs = changePer30m < 0
+    ? (currentGap / Math.max(-changePer30m, 1)) * 30 * 60 * 1000
+    : null;
+
+  return {
+    currentGap,
+    previousGap,
+    changePer30m,
+    etaMs,
+    windowMinutes: Math.round(windowMs / 60_000),
+  };
+}
+
+function gapTrendText(trend: GapTrend | null, mode: "target" | "threat") {
+  if (!trend) return mode === "target" ? "Need more gap history." : "Need more threat history.";
+  const amount = formatNumber(Math.round(Math.abs(trend.changePer30m)));
+  if (trend.changePer30m < 0) {
+    return mode === "target"
+      ? `Gap is closing by ${amount} every 30 min.`
+      : `They are catching us by ${amount} every 30 min.`;
+  }
+  if (trend.changePer30m > 0) {
+    return mode === "target"
+      ? `Gap is growing by ${amount} every 30 min.`
+      : `They are not catching us right now. Gap grows ${amount} every 30 min.`;
+  }
+  return "Gap is basically unchanged right now.";
+}
+
 async function saveLiveAnalyticsSnapshot(params: {
   active: LiveWarInfo;
   rank: number | null;
@@ -756,7 +839,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const disconnects24h = await getDisconnects24h();
   const reliability = reliabilityFromDisconnects(disconnects24h, participants);
   const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
-  const projectedFinalPoints = adjustedHourlyRate === null ? null : currentPoints + adjustedHourlyRate * remainingHours;
+  const preliminaryProjectedFinalPoints = adjustedHourlyRate === null ? null : currentPoints + adjustedHourlyRate * remainingHours;
 
   async function clanRate(name: string | null | undefined) {
     if (!name || !hasEnoughProjectionHistory) return null;
@@ -776,30 +859,50 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     clanRate(below?.name),
   ]);
 
+  const hasOpponentPace = aboveRate !== null || belowRate !== null;
+  const canProjectPlacement = hasEnoughProjectionHistory && hasOpponentPace && snapshotSpanMs >= 30 * 60 * 1000;
+  const projectedFinalPoints = canProjectPlacement ? preliminaryProjectedFinalPoints : null;
+
   const projectedClanList = projectedFinalPoints === null ? [] : nearbyWithUs.map((clan) => {
     if (namesMatch(clan.name, CLAN_NAME)) {
       return { name: clan.name, points: projectedFinalPoints };
     }
     // Only project opponent movement if we actually have their snapshot history.
     // Otherwise keep their current points instead of inventing all-war pace.
-    return { name: clan.name, points: clan.points };
+    const opponentRate = namesMatch(clan.name, above?.name) ? aboveRate : namesMatch(clan.name, below?.name) ? belowRate : null;
+    return { name: clan.name, points: clan.points + (opponentRate ?? 0) * remainingHours };
   });
 
   const projectedPlacement = projectedFinalPoints === null ? rank : projectedRankFromPoints(projectedClanList, projectedFinalPoints);
   const projectedBestPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 1.2 * remainingHours);
   const projectedWorstPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 0.72 * remainingHours);
-  const confidence = hasEnoughProjectionHistory
+  const confidence = canProjectPlacement
     ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
+    : hasEnoughProjectionHistory
+    ? "medium" as const
     : "low" as const;
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
-  const targetNetRate = adjustedHourlyRate !== null
-    ? adjustedHourlyRate - (aboveRate ?? 0)
-    : null;
-  const threatNetRate = adjustedHourlyRate !== null && belowRate !== null
-    ? belowRate - adjustedHourlyRate
-    : null;
-  const etaAboveMs = gapAbove !== null && targetNetRate !== null && targetNetRate > 0 ? (gapAbove / targetNetRate) * 3_600_000 : null;
-  const threatEtaMs = gapBelow !== null && threatNetRate !== null && threatNetRate > 0 ? (gapBelow / threatNetRate) * 3_600_000 : null;
+  const [targetTrend, threatTrend] = await Promise.all([
+    above ? getGapTrend({
+      battleId: active.battleId,
+      otherName: above.name,
+      currentOurPoints: currentPoints,
+      currentOtherPoints: above.points,
+      mode: "target",
+      ourHistory: pointsHistory,
+    }) : Promise.resolve(null),
+    below ? getGapTrend({
+      battleId: active.battleId,
+      otherName: below.name,
+      currentOurPoints: currentPoints,
+      currentOtherPoints: below.points,
+      mode: "threat",
+      ourHistory: pointsHistory,
+    }) : Promise.resolve(null),
+  ]);
+
+  const etaAboveMs = targetTrend?.etaMs ?? null;
+  const threatEtaMs = threatTrend?.etaMs ?? null;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
 
@@ -832,6 +935,10 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       projectedWorstPlacement,
       gapAbove,
       gapBelow,
+      targetName: above?.name ?? null,
+      threatName: below?.name ?? null,
+      targetGapTrendPer30m: targetTrend?.changePer30m ?? null,
+      threatGapTrendPer30m: threatTrend?.changePer30m ?? null,
       etaAboveMs,
       threatEtaMs,
       projectedPlacement,
@@ -844,8 +951,12 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       pace: adjustedHourlyRate !== null
         ? `Adjusted pace is ${formatNumber(Math.round(adjustedHourlyRate))} points/hour after reliability checks.`
         : `Live battle data is updating. Pace needs more snapshots before it can be calculated.`,
-      target: gapAbove !== null && above ? `${above.name} is the next clan to pass.` : `No next target could be resolved yet.`,
-      threat: gapBelow !== null && below ? `${below.name} is the closest danger from below.` : `No close threat from below could be resolved yet.`,
+      target: gapAbove !== null && above
+        ? `${above.name} is the next clan to pass. ${gapTrendText(targetTrend, "target")}`
+        : `No next target could be resolved yet.`,
+      threat: gapBelow !== null && below
+        ? `${below.name} is the closest danger from below. ${gapTrendText(threatTrend, "threat")}`
+        : `No close threat from below could be resolved yet.`,
     },
     timing: {
       snapshotIntervalMs: updateEveryMs,
