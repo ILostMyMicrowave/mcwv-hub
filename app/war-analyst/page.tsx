@@ -38,6 +38,7 @@ type BattleHqResponse = {
     adjustedHourlyRate?: number | null;
     reliability?: number | null;
     disconnects24h?: number;
+    inactiveMembers?: number | null;
     confidence: "low" | "medium" | "high";
     uiTone: "success" | "warning" | "danger" | "info";
   };
@@ -45,7 +46,17 @@ type BattleHqResponse = {
     rank: number | null;
     name: string;
     points: number;
+    pph?: number | null;
   }>;
+  finishOutlook?: {
+    ready: boolean;
+    expectedRank: number | null;
+    bestRank: number | null;
+    worstRank: number | null;
+    projectedPoints: number | null;
+    confidence: "low" | "medium" | "high" | "warming_up";
+    reason: string;
+  };
   summary: {
     overview: string;
     pace: string;
@@ -348,6 +359,13 @@ export default function BattleHQPage() {
     ? `#${data.stats.projectedPlacement}`
     : "—";
   const reliabilityPercent = Math.round((data?.stats.reliability ?? 1) * 100);
+  const finishRange = data?.finishOutlook?.bestRank && data?.finishOutlook?.worstRank
+    ? data.finishOutlook.bestRank === data.finishOutlook.worstRank
+      ? `#${data.finishOutlook.bestRank}`
+      : `#${data.finishOutlook.bestRank}–#${data.finishOutlook.worstRank}`
+    : data?.finishOutlook?.expectedRank
+    ? `#${data.finishOutlook.expectedRank}`
+    : "Warming up";
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -504,6 +522,9 @@ export default function BattleHQPage() {
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-white">
                                 {clan.rank !== null ? `#${clan.rank}` : "—"} · {clan.name}
+                                {clan.pph !== null && clan.pph !== undefined && clan.pph > 0 ? (
+                                  <span className="ml-2 text-xs font-medium text-[var(--foreground)]/55">• {formatNumber(Math.round(clan.pph))}/h</span>
+                                ) : null}
                               </p>
                               <p className="mt-1 text-xs text-[var(--foreground)]/55">
                                 {isUs ? "MCWV" : clan.points > currentPoints ? "Ahead of us" : "Behind us"}
@@ -548,6 +569,20 @@ export default function BattleHQPage() {
                       sub={`${formatNumber(data.stats.disconnects24h ?? 0)} disconnects / 24h`}
                       delay="0.55s"
                     />
+                    <Card
+                      title="No points yet"
+                      value={data.stats.inactiveMembers === null || data.stats.inactiveMembers === undefined ? "—" : formatNumber(data.stats.inactiveMembers)}
+                      sub="Members without battle points"
+                      delay="0.6s"
+                    />
+                  </div>
+                </Panel>
+
+                <Panel title="Finish outlook" delay="0.48s">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Card title="Likely finish" value={finishRange} sub={data.finishOutlook?.ready ? `Expected: #${data.finishOutlook.expectedRank ?? "—"}` : "Still warming up"} />
+                    <Card title="Projected final" value={data.finishOutlook?.projectedPoints ? formatNumber(data.finishOutlook.projectedPoints) : "—"} sub="End-of-war points" />
+                    <Card title="Confidence" value={(data.finishOutlook?.confidence ?? "warming_up").replace("_", " ").toUpperCase()} sub={data.finishOutlook?.reason ?? "Collecting data"} />
                   </div>
                 </Panel>
 
