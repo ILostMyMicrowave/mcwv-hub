@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
+import { getDetectedWarWindow } from "@/lib/warDetection";
 
 const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = "MCWV";
@@ -219,9 +220,21 @@ export async function GET() {
       data?.myClan ??
       null;
 
-    const startTime = toIsoTime(meta?.startTime ?? meta?.startedAt ?? meta?.start_at);
-    const endTime = toIsoTime(meta?.finishTime ?? meta?.endedAt ?? meta?.end_at);
+    const apiStartTime = toIsoTime(meta?.startTime ?? meta?.startedAt ?? meta?.start_at);
+    const apiEndTime = toIsoTime(meta?.finishTime ?? meta?.endedAt ?? meta?.end_at);
+    const warName = meta?.title ?? meta?.name ?? meta?.id ?? battleId;
+    const rawState = deriveState(meta, apiStartTime, apiEndTime);
+    const detectedWindow = rawState === "live"
+      ? await getDetectedWarWindow({
+          battleId,
+          battleName: String(warName),
+          apiStart: apiStartTime,
+          apiEnd: apiEndTime,
+        })
+      : null;
 
+    const startTime = detectedWindow?.startIso ?? apiStartTime;
+    const endTime = detectedWindow?.endIso ?? apiEndTime;
     const startMs = startTime ? Date.parse(startTime) : null;
     const endMs = endTime ? Date.parse(endTime) : null;
     const durationSeconds =
@@ -236,7 +249,6 @@ export async function GET() {
 
     const state = deriveState(meta, startTime, endTime);
     const topContributor = topPlayers[0] ?? null;
-    const warName = meta?.title ?? meta?.name ?? meta?.id ?? battleId;
     const mcwvStats = await getMcwvBattleStats(battleId, warName);
     const mcwvTotalPoints =
       mcwvStats?.points ??
