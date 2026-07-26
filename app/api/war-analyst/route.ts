@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { getDetectedWarWindow } from "@/lib/warDetection";
 
 export const runtime = "nodejs";
 
@@ -327,9 +328,17 @@ async function getActiveWarInfo(): Promise<LiveWarInfo | null> {
 
     const title = String(config.Title ?? config.configName ?? data.configName ?? data.activeBattleConfigName ?? data.activeBattleId ?? "Current Battle");
     const battleId = String(config._id ?? config.Title ?? data.configName ?? title);
-    const progressPct = start > 0 && finish > start ? clamp(((Date.now() / 1000 - start) / (finish - start)) * 100, 0, 100) : null;
+    const detectedWindow = await getDetectedWarWindow({
+      battleId,
+      battleName: title,
+      apiStart: start > 0 ? start : null,
+      apiEnd: finish > 0 ? finish : null,
+    });
+    const detectedStart = detectedWindow?.start ? Math.floor(detectedWindow.start.getTime() / 1000) : start;
+    const detectedFinish = detectedWindow?.end ? Math.floor(detectedWindow.end.getTime() / 1000) : finish;
+    const progressPct = detectedStart > 0 && detectedFinish > detectedStart ? clamp(((Date.now() / 1000 - detectedStart) / (detectedFinish - detectedStart)) * 100, 0, 100) : null;
 
-    return { battleId, title, start, finish, progressPct };
+    return { battleId, title, start: detectedStart, finish: detectedFinish, progressPct };
   } catch (err) {
     console.warn("[war-analyst] active battle unavailable:", err);
     return null;
