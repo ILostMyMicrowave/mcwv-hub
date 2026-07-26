@@ -614,6 +614,21 @@ function gapTrendText(trend: GapTrend | null, mode: "target" | "threat") {
   return "Gap is basically unchanged right now.";
 }
 
+function raceEstimateText(trend: GapTrend | null, mode: "target" | "threat") {
+  if (!trend) return "not enough gap history yet";
+  const amount = formatNumber(Math.round(Math.abs(trend.changePer30m)));
+
+  if (mode === "target") {
+    if (trend.changePer30m < 0 && trend.etaMs !== null) return `about ${formatShortDuration(trend.etaMs)}`;
+    if (trend.changePer30m > 0) return `not catching up right now (gap grows ${amount} every 30 min)`;
+    return "gap is holding steady right now";
+  }
+
+  if (trend.changePer30m < 0 && trend.etaMs !== null) return `about ${formatShortDuration(trend.etaMs)}`;
+  if (trend.changePer30m > 0) return `they are not catching us right now (gap grows ${amount} every 30 min)`;
+  return "gap is holding steady right now";
+}
+
 async function saveLiveAnalyticsSnapshot(params: {
   active: LiveWarInfo;
   rank: number | null;
@@ -783,21 +798,15 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? nearbyWithUs.slice(Math.max(0, ourIndex - 5), ourIndex + 6)
     : nearbyWithUs.slice(0, 10);
 
-  const rankedAbove = rank !== null
-    ? nearbyWithUs
-        .filter((clan) => clan.rank !== null && (clan.rank as number) < rank)
-        .sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))[0] ?? null
-    : null;
-  const rankedBelow = rank !== null
-    ? nearbyWithUs
-        .filter((clan) => clan.rank !== null && (clan.rank as number) > rank)
-        .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999))[0] ?? null
-    : null;
-
-  const above = rankedAbove ?? (ourIndex > 0 ? nearbyWithUs[ourIndex - 1] : null);
-  const below = rankedBelow ?? (ourIndex >= 0 && ourIndex < nearbyWithUs.length - 1 ? nearbyWithUs[ourIndex + 1] : null);
-  const gapAbove = above && above.points > currentPoints ? above.points - currentPoints + 1 : null;
-  const gapBelow = below && below.points < currentPoints ? currentPoints - below.points : null;
+  // Match the clan-race bot: target/threat are based on live point gaps, not rank labels.
+  const above = nearbyWithUs
+    .filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points > currentPoints)
+    .sort((a, b) => a.points - b.points)[0] ?? null;
+  const below = nearbyWithUs
+    .filter((clan) => !namesMatch(clan.name, CLAN_NAME) && clan.points < currentPoints)
+    .sort((a, b) => b.points - a.points)[0] ?? null;
+  const gapAbove = above ? Math.max(0, above.points - currentPoints + 1) : null;
+  const gapBelow = below ? Math.max(0, currentPoints - below.points + 1) : null;
 
   await saveLiveAnalyticsSnapshot({
     active,
@@ -885,6 +894,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   const etaAboveMs = targetTrend?.etaMs ?? null;
   const threatEtaMs = threatTrend?.etaMs ?? null;
+  const passEstimateText = raceEstimateText(targetTrend, "target");
+  const threatEstimateText = raceEstimateText(threatTrend, "threat");
   const remainingMs = remainingHours * 3_600_000;
 
   // Stable race forecast: use actual gap trends for the next position up/down.
@@ -895,7 +906,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   const projectedBestPlacement = canPassTarget && rank !== null ? Math.max(1, rank - 1) : rank;
   const projectedWorstPlacement = canBePassed && rank !== null ? rank + 1 : rank;
   const hasGapTrend = targetTrend !== null || threatTrend !== null;
-  const confidence = hasGapTrend && snapshotSpanMs >= 30 * 60 * 1000
+  const hasActionableMovement = canPassTarget || canBePassed;
+  const confidence = hasActionableMovement && hasGapTrend && snapshotSpanMs >= 30 * 60 * 1000
     ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
     : hasGapTrend
     ? "medium" as const
@@ -937,6 +949,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       threatName: below?.name ?? null,
       targetGapTrendPer30m: targetTrend?.changePer30m ?? null,
       threatGapTrendPer30m: threatTrend?.changePer30m ?? null,
+      passEstimateText,
+      threatEstimateText,
       etaAboveMs,
       threatEtaMs,
       projectedPlacement,
@@ -950,10 +964,10 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
         ? `Adjusted pace is ${formatNumber(Math.round(adjustedHourlyRate))} points/hour after reliability checks.`
         : `Live battle data is updating. Pace needs more snapshots before it can be calculated.`,
       target: gapAbove !== null && above
-        ? `${above.name} is the next clan to pass. ${gapTrendText(targetTrend, "target")}`
+        ? `To pass ${above.name}`
         : `No next target could be resolved yet.`,
       threat: gapBelow !== null && below
-        ? `${below.name} is the closest danger from below. ${gapTrendText(threatTrend, "threat")}`
+        ? `${below.name} needs ${formatNumber(gapBelow)} points to pass us`
         : `No close threat from below could be resolved yet.`,
     },
     timing: {
