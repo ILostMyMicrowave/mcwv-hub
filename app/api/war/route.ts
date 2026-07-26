@@ -5,6 +5,7 @@ import { getDetectedWarWindow } from "@/lib/warDetection";
 const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = "MCWV";
 const CLAN_API = process.env.CLAN_API ?? "";
+const BIG_GAMES_INDEX_CLAN_URL = `https://db.biggames.io/clans/leaderboard?sort=Points&item=${encodeURIComponent(CLAN_NAME)}&tab=overview`;
 
 function toMs(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -104,6 +105,31 @@ function pickClanBattle(clanJson: any, battleId: string, warName?: string | null
   });
 
   return exact?.[1] ?? null;
+}
+
+async function getBigGamesIndexClanOverview() {
+  try {
+    const res = await fetch(BIG_GAMES_INDEX_CLAN_URL, {
+      cache: "no-store",
+      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "text/html" },
+    });
+
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    const escapedMatch = html.match(/\\"BattleID\\",\\"Points\\",(\d+),\\"PointContributions\\",[\s\S]*?\\"Place\\",(\d+)/);
+    const plainMatch = html.match(/"BattleID","Points",(\d+),"PointContributions",[\s\S]*?"Place",(\d+)/);
+    const match = escapedMatch ?? plainMatch;
+
+    if (!match) return null;
+
+    return {
+      points: Number(match[1]),
+      rank: Number(match[2]),
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function getMcwvBattleStats(battleId: string, warName?: string | null) {
@@ -249,14 +275,25 @@ export async function GET() {
 
     const state = deriveState(meta, startTime, endTime);
     const topContributor = topPlayers[0] ?? null;
-    const mcwvStats = await getMcwvBattleStats(battleId, warName);
+    const [mcwvStats, indexOverview] = await Promise.all([
+      getMcwvBattleStats(battleId, warName),
+      getBigGamesIndexClanOverview(),
+    ]);
     const mcwvTotalPoints =
+      indexOverview?.points ??
       mcwvStats?.points ??
       getClanPoints(ourClan) ??
       asNumber(ourClan?.totalPoints) ??
       asNumber(ourClan?.TotalPoints) ??
       0;
     const mcwvParticipants = mcwvStats?.participants ?? asNumber(ourClan?.participants) ?? asNumber(ourClan?.contributors) ?? 0;
+    const mcwvRank =
+      indexOverview?.rank ??
+      asNumber(ourClan?.reportedPlace) ??
+      asNumber(ourClan?.rank) ??
+      asNumber(ourClan?.place) ??
+      asNumber(ourClan?.position) ??
+      null;
 
     return NextResponse.json({
       success: true,
@@ -267,12 +304,7 @@ export async function GET() {
       endTime,
       durationSeconds,
       state,
-      clanRank:
-        ourClan?.reportedPlace ??
-        ourClan?.rank ??
-        ourClan?.place ??
-        ourClan?.position ??
-        null,
+      clanRank: mcwvRank,
       totalClans: asNumber(stats?.participatingClans) ?? asNumber(stats?.sampledClans) ?? topClans.length ?? 0,
       totalPoints: mcwvTotalPoints,
       participants: mcwvParticipants,
