@@ -288,16 +288,47 @@ async function getSnapshotStats(activeWar: ActiveWarInfo, currentTotal: number |
 
     const normalized = rows.rows
       .map((row) => ({ points: toNumber(row.battle_points), time: new Date(row.captured_at).getTime() }))
-      .filter((row) => Number.isFinite(row.time) && row.points >= 0);
+      .filter((row) => Number.isFinite(row.time) && row.points >= 0)
+      .sort((a, b) => a.time - b.time);
 
-    const beforeHour = [...normalized].reverse().find((row) => row.time <= hourAgo) ?? normalized.find((row) => row.time >= hourAgo) ?? null;
-    const beforeToday = [...normalized].reverse().find((row) => row.time <= todayOrBattleStart) ?? normalized.find((row) => row.time >= todayOrBattleStart) ?? null;
+    const valueAtOrBefore = (time: number) => [...normalized].reverse().find((row) => row.time <= time) ?? null;
+    const valueAtOrAfter = (time: number) => normalized.find((row) => row.time >= time) ?? null;
+    const baselineFor = (time: number) => valueAtOrBefore(time) ?? valueAtOrAfter(time);
+
+    const beforeHour = baselineFor(hourAgo);
+    const beforeToday = baselineFor(todayOrBattleStart);
+
+    const hourlyPoints = buildZeroHours().map((bucket) => {
+      const [hour] = bucket.hour.split(":");
+      const end = new Date();
+      end.setHours(Number(hour), 59, 59, 999);
+      if (end.getTime() > now + 60 * 60 * 1000) end.setDate(end.getDate() - 1);
+      const start = new Date(end);
+      start.setMinutes(0, 0, 0);
+      const startValue = baselineFor(start.getTime());
+      const endValue = valueAtOrBefore(Math.min(end.getTime(), now));
+      return {
+        hour: bucket.hour,
+        points: startValue && endValue ? Math.max(0, endValue.points - startValue.points) : 0,
+      };
+    });
+
+    const dailyPoints = buildZeroDays().map((bucket) => {
+      const start = new Date(`${bucket.day}T00:00:00.000Z`);
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+      const startValue = baselineFor(Math.max(start.getTime(), battleStart));
+      const endValue = valueAtOrBefore(Math.min(end.getTime(), now));
+      return {
+        day: bucket.day,
+        points: startValue && endValue ? Math.max(0, endValue.points - startValue.points) : 0,
+      };
+    });
 
     return {
       pointsLastHour: beforeHour ? Math.max(0, current - beforeHour.points) : 0,
       pointsToday: beforeToday ? Math.max(0, current - beforeToday.points) : current,
-      hourlyPoints: null,
-      dailyPoints: null,
+      hourlyPoints,
+      dailyPoints,
     };
   } catch {
     return {
@@ -461,7 +492,7 @@ export async function GET() {
     const clanAverage = trackedMembers > 0 ? clanTotal / trackedMembers : 0;
 
     const hourlyPoints: HourPoint[] = ensureVisibleHourlyData(
-      hourlyRes.rows.map((row) => ({
+      snapshotStats.hourlyPoints ?? hourlyRes.rows.map((row) => ({
         hour: String(row.hour ?? ""),
         points: toNumber(row.points),
       })),
@@ -469,7 +500,7 @@ export async function GET() {
     );
 
     const dailyPoints: DayPoint[] = ensureVisibleDailyData(
-      dailyRes.rows.map((row) => ({
+      snapshotStats.dailyPoints ?? dailyRes.rows.map((row) => ({
         day: String(row.day ?? ""),
         points: toNumber(row.points),
       })),
