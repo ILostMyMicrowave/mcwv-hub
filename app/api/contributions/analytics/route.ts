@@ -73,6 +73,7 @@ type Battle = {
 
 type ActiveWarInfo = {
   active: boolean;
+  battleId: string;
   title: string;
   startIso: string;
 };
@@ -201,6 +202,7 @@ async function getActiveWarInfo(): Promise<ActiveWarInfo | null> {
 
     return {
       active: true,
+      battleId,
       title,
       startIso: detectedWindow?.startIso ?? new Date(start * 1000).toISOString(),
     };
@@ -246,6 +248,83 @@ async function getLiveClanStats(activeWar: ActiveWarInfo) {
     console.warn("[contributions/analytics] live clan stats unavailable:", err);
     return null;
   }
+}
+
+async function getSnapshotStats(activeWar: ActiveWarInfo, currentTotal: number | null | undefined) {
+  const current = Number(currentTotal ?? 0);
+  if (!Number.isFinite(current) || current <= 0) {
+    return { pointsLastHour: 0, pointsToday: 0, hourlyPoints: null as HourPoint[] | null, dailyPoints: null as DayPoint[] | null };
+  }
+
+  try {
+    const exists = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.war_snapshots') IS NOT NULL AS exists`
+    );
+    if (!exists.rows[0]?.exists) {
+      return {
+        pointsLastHour: 0,
+        pointsToday: current,
+        hourlyPoints: null,
+        dailyPoints: null,
+      };
+    }
+
+    const rows = await pool.query<{ battle_points: string | number; captured_at: Date | string }>(
+      `SELECT battle_points, captured_at
+       FROM war_snapshots
+       WHERE battle_id = $1
+         AND LOWER(clan_name) = LOWER($2)
+         AND battle_points IS NOT NULL
+       ORDER BY captured_at ASC`,
+      [activeWar.battleId, "MCWV"]
+    );
+
+    const now = Date.now();
+    const hourAgo = now - 60 * 60 * 1000;
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const battleStart = new Date(activeWar.startIso).getTime();
+    const todayOrBattleStart = Math.max(dayStart.getTime(), Number.isFinite(battleStart) ? battleStart : 0);
+
+    const normalized = rows.rows
+      .map((row) => ({ points: toNumber(row.battle_points), time: new Date(row.captured_at).getTime() }))
+      .filter((row) => Number.isFinite(row.time) && row.points >= 0);
+
+    const beforeHour = [...normalized].reverse().find((row) => row.time <= hourAgo) ?? normalized.find((row) => row.time >= hourAgo) ?? null;
+    const beforeToday = [...normalized].reverse().find((row) => row.time <= todayOrBattleStart) ?? normalized.find((row) => row.time >= todayOrBattleStart) ?? null;
+
+    return {
+      pointsLastHour: beforeHour ? Math.max(0, current - beforeHour.points) : 0,
+      pointsToday: beforeToday ? Math.max(0, current - beforeToday.points) : current,
+      hourlyPoints: null,
+      dailyPoints: null,
+    };
+  } catch {
+    return {
+      pointsLastHour: 0,
+      pointsToday: current,
+      hourlyPoints: null,
+      dailyPoints: null,
+    };
+  }
+}
+
+function ensureVisibleHourlyData(points: HourPoint[], currentTotal: number) {
+  if (currentTotal <= 0) return points;
+  if (points.some((point) => point.points > 0)) return points;
+
+  const next = points.length ? [...points] : buildZeroHours();
+  next[next.length - 1] = { ...next[next.length - 1], points: currentTotal };
+  return next;
+}
+
+function ensureVisibleDailyData(points: DayPoint[], currentTotal: number) {
+  if (currentTotal <= 0) return points;
+  if (points.some((point) => point.points > 0)) return points;
+
+  const next = points.length ? [...points] : buildZeroDays();
+  next[next.length - 1] = { ...next[next.length - 1], points: currentTotal };
+  return next;
 }
 
 async function getRobloxNames(userIds: number[]) {
@@ -295,6 +374,7 @@ export async function GET() {
 
     const liveStats = await getLiveClanStats(activeWar);
     const battleStart = activeWar.startIso;
+    const snapshotStats = await getSnapshotStats(activeWar, liveStats?.totalPoints ?? null);
 
     const [
       statsRes,
@@ -375,20 +455,26 @@ export async function GET() {
 
     const statsRow = statsRes.rows[0] ?? {};
     const clanTotal = liveStats?.totalPoints ?? toNumber(statsRow.clan_total);
-    const pointsLastHour = toNumber(statsRow.points_last_hour);
-    const pointsToday = toNumber(statsRow.points_today);
+    const pointsLastHour = Math.max(toNumber(statsRow.points_last_hour), snapshotStats.pointsLastHour);
+    const pointsToday = Math.max(toNumber(statsRow.points_today), snapshotStats.pointsToday);
     const trackedMembers = liveStats?.contributors ?? toNumber(statsRow.tracked_members);
     const clanAverage = trackedMembers > 0 ? clanTotal / trackedMembers : 0;
 
-    const hourlyPoints: HourPoint[] = hourlyRes.rows.map((row) => ({
-      hour: String(row.hour ?? ""),
-      points: toNumber(row.points),
-    }));
+    const hourlyPoints: HourPoint[] = ensureVisibleHourlyData(
+      hourlyRes.rows.map((row) => ({
+        hour: String(row.hour ?? ""),
+        points: toNumber(row.points),
+      })),
+      clanTotal
+    );
 
-    const dailyPoints: DayPoint[] = dailyRes.rows.map((row) => ({
-      day: String(row.day ?? ""),
-      points: toNumber(row.points),
-    }));
+    const dailyPoints: DayPoint[] = ensureVisibleDailyData(
+      dailyRes.rows.map((row) => ({
+        day: String(row.day ?? ""),
+        points: toNumber(row.points),
+      })),
+      clanTotal
+    );
 
     const topRows = liveStats?.topContributors.length
       ? liveStats.topContributors.map((row) => ({
