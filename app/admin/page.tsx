@@ -1092,6 +1092,7 @@ export default function AdminPage() {
             {section === "broadcast" && (
               <BroadcastSection
                 roles={roles}
+                isOwner={isOwner}
                 onToast={(message, tone) => showToast(message, tone)}
               />
             )}
@@ -1697,9 +1698,11 @@ function BotSection({ bot }: { bot: UnknownRecord | undefined }) {
 
 function BroadcastSection({
   roles,
+  isOwner,
   onToast,
 }: {
   roles: AdminRoleOption[];
+  isOwner: boolean;
   onToast: (message: string, tone: "success" | "error" | "info") => void;
 }) {
   const [audience, setAudience] = useState("everyone");
@@ -1711,6 +1714,9 @@ function BroadcastSection({
   const [preview, setPreview] = useState<BroadcastPreview | null>(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [allowedUserIds, setAllowedUserIds] = useState("");
+  const [allowedStatus, setAllowedStatus] = useState("");
+  const [allowedLoading, setAllowedLoading] = useState(false);
 
   const needsValue = ["below_points", "above_points", "bottom_n", "top_n", "custom_user"].includes(audience);
   const needsRole = audience === "discord_role";
@@ -1745,6 +1751,57 @@ function BroadcastSection({
     if (!res.ok) throw new Error(String(data.error ?? `Broadcast request failed (${res.status})`));
     return data;
   }
+
+  async function loadAllowedUsers() {
+    if (!isOwner) return;
+    setAllowedLoading(true);
+    setAllowedStatus("Loading allowed users...");
+    try {
+      const res = await fetch("/api/admin/broadcast/allowed-users", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to load allowed users"));
+      const ids = Array.isArray(data.user_ids) ? data.user_ids.map(String) : [];
+      setAllowedUserIds(ids.join(", "));
+      setAllowedStatus("Allowed users loaded.");
+    } catch (err) {
+      setAllowedStatus(err instanceof Error ? err.message : "Failed to load allowed users");
+    } finally {
+      setAllowedLoading(false);
+      window.setTimeout(() => setAllowedStatus(""), 1800);
+    }
+  }
+
+  async function saveAllowedUsers() {
+    if (!isOwner) return;
+    setAllowedLoading(true);
+    setAllowedStatus("Saving allowed users...");
+    try {
+      const ids = allowedUserIds.match(/\d{15,25}/g) ?? [];
+      const res = await fetch("/api/admin/broadcast/allowed-users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_ids: ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save allowed users"));
+      const saved = Array.isArray(data.user_ids) ? data.user_ids.map(String) : ids;
+      setAllowedUserIds(saved.join(", "));
+      setAllowedStatus("Allowed broadcast users saved.");
+      onToast("Allowed broadcast users saved", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save allowed users";
+      setAllowedStatus(msg);
+      onToast(msg, "error");
+    } finally {
+      setAllowedLoading(false);
+      window.setTimeout(() => setAllowedStatus(""), 2200);
+    }
+  }
+
+  useEffect(() => {
+    void loadAllowedUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwner]);
 
   async function loadPreview() {
     if (!message.trim()) {
@@ -1816,6 +1873,31 @@ function BroadcastSection({
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_0.85fr]">
+      {isOwner && (
+        <div className="xl:col-span-2">
+          <Panel title="Broadcast Command Access" right={<span className="text-xs text-zinc-500">Owner only</span>}>
+            <div className="space-y-3">
+              <p className="text-sm text-zinc-400">
+                Add Discord user IDs here to allow specific people to use /broadcast and the website broadcast tools, without relying only on role IDs.
+              </p>
+              <textarea
+                className="admin-input min-h-24 resize-y"
+                value={allowedUserIds}
+                onChange={(event) => setAllowedUserIds(event.target.value)}
+                placeholder="1225521918984061041, 123456789012345678"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-zinc-500">Paste Discord IDs or mentions. They will be saved as a hardcoded allow-list in the bot settings.</p>
+                <div className="flex gap-2">
+                  <button className="admin-button" type="button" disabled={allowedLoading} onClick={() => void loadAllowedUsers()}>Reload</button>
+                  <button className="admin-button" type="button" disabled={allowedLoading} onClick={() => void saveAllowedUsers()}>Save Allowed Users</button>
+                </div>
+              </div>
+              {allowedStatus && <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-200">{allowedStatus}</div>}
+            </div>
+          </Panel>
+        </div>
+      )}
       <Panel title="Create Broadcast">
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -1877,9 +1959,9 @@ function BroadcastSection({
               className="admin-input min-h-36 resize-y"
               value={message}
               onChange={(event) => { setMessage(event.target.value); setPreview(null); }}
-              placeholder="Clan war starts soon. Please prepare, {username}."
+              placeholder="Clan war starts soon, {ping}. Please prepare, {username}."
             />
-            <span className="admin-label text-xs">Placeholders: {"{username}"}, {"{points}"}, {"{rank}"}</span>
+            <span className="admin-label text-xs">Placeholders: {"{username}"}, {"{points}"}, {"{rank}"}, {"{ping}"}</span>
           </label>
 
           {status && (
