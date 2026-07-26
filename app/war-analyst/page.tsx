@@ -523,7 +523,7 @@ export default function BattleHQPage() {
                               <p className="truncate text-sm font-semibold text-white">
                                 {clan.rank !== null ? `#${clan.rank}` : "—"} · {clan.name}
                                 {clan.pph !== null && clan.pph !== undefined && clan.pph > 0 ? (
-                                  <span className="ml-2 text-xs font-medium text-[var(--foreground)]/55">• {formatNumber(Math.round(clan.pph))}/h</span>
+                                  <span className="ml-2 text-xs font-medium text-[var(--foreground)]/55">• +{formatNumber(Math.round(clan.pph))} 1h</span>
                                 ) : null}
                               </p>
                               <p className="mt-1 text-xs text-[var(--foreground)]/55">
