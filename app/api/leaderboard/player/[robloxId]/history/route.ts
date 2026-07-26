@@ -90,8 +90,27 @@ export async function GET(
 
       const latest = snapshotResult.rows[snapshotResult.rows.length - 1];
       if (latest) {
-        change5m = asNumber(latest.change_5m);
-        pph = asNumber(latest.pph);
+        const latestPoints = asNumber(latest.points);
+        const latestTimeMs = new Date(latest.captured_at).getTime();
+        const fiveMinuteCutoff = latestTimeMs - 5 * 60 * 1000;
+        const hourlyCutoff = latestTimeMs - 60 * 60 * 1000;
+        const fiveMinuteBaseline = [...snapshotResult.rows]
+          .reverse()
+          .find((row) => new Date(row.captured_at).getTime() <= fiveMinuteCutoff);
+        const hourlyBaseline =
+          [...snapshotResult.rows]
+            .reverse()
+            .find((row) => new Date(row.captured_at).getTime() <= hourlyCutoff) ??
+          snapshotResult.rows.find((row) => new Date(row.captured_at).getTime() >= hourlyCutoff);
+
+        change5m = fiveMinuteBaseline ? Math.max(0, latestPoints - asNumber(fiveMinuteBaseline.points)) : 0;
+
+        if (hourlyBaseline) {
+          const elapsedHours = (latestTimeMs - new Date(hourlyBaseline.captured_at).getTime()) / 3_600_000;
+          pph = elapsedHours >= 10 / 60 ? Math.max(0, Math.round((latestPoints - asNumber(hourlyBaseline.points)) / elapsedHours)) : 0;
+        } else {
+          pph = 0;
+        }
       }
     }
 
