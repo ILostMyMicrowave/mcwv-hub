@@ -469,6 +469,41 @@ function rateForWindow(history: Array<{ capturedAt: Date; points: number }>, win
   return Math.max(0, (last.points - first.points) / hours);
 }
 
+function pointsAtTime(history: Array<{ capturedAt: Date; points: number }>, targetMs: number) {
+  if (!history.length) return null;
+  const sorted = [...history].sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+  if (targetMs < sorted[0].capturedAt.getTime()) return null;
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const currentMs = current.capturedAt.getTime();
+    if (currentMs === targetMs) return current.points;
+
+    const next = sorted[index + 1];
+    if (!next) return current.points;
+
+    const nextMs = next.capturedAt.getTime();
+    if (currentMs <= targetMs && targetMs <= nextMs) {
+      const span = nextMs - currentMs;
+      if (span <= 0) return current.points;
+      const ratio = (targetMs - currentMs) / span;
+      return current.points + (next.points - current.points) * ratio;
+    }
+  }
+
+  return sorted[sorted.length - 1].points;
+}
+
+function pointsGainedLast60Minutes(history: Array<{ capturedAt: Date; points: number }>) {
+  if (history.length < 2) return 0;
+  const sorted = [...history].sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+  const latest = sorted[sorted.length - 1];
+  const cutoff = latest.capturedAt.getTime() - 60 * 60 * 1000;
+  const baseline = pointsAtTime(sorted, cutoff);
+  if (baseline === null) return 0;
+  return Math.max(0, Math.round(latest.points - baseline));
+}
+
 function weightedLiveRate(history: Array<{ capturedAt: Date; points: number }>, fallbackRate: number | null) {
   const windows = [
     { rate: rateForWindow(history, 30 * 60 * 1000), weight: 0.4 },
@@ -506,14 +541,9 @@ async function getClanRateMap(battleId: string) {
       grouped.set(key, list);
     }
 
-    const cutoff = Date.now() - 60 * 60 * 1000;
     for (const [key, history] of grouped.entries()) {
-      const sorted = history.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
-      const latest = sorted[sorted.length - 1];
-      if (!latest) continue;
-      const baseline = [...sorted].reverse().find((row) => row.capturedAt.getTime() <= cutoff) ?? sorted.find((row) => row.capturedAt.getTime() >= cutoff);
-      if (!baseline) continue;
-      map.set(key, Math.max(0, latest.points - baseline.points));
+      const gained = pointsGainedLast60Minutes(history);
+      if (gained > 0) map.set(key, gained);
     }
   } catch (err) {
     console.warn("[war-analyst] clan last-hour map unavailable:", err);
@@ -923,13 +953,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   void preliminaryProjectedFinalPoints;
 
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
-  const latestPoint = pointsHistory[pointsHistory.length - 1] ?? null;
-  const lastHourCutoff = latestPoint ? latestPoint.capturedAt.getTime() - 60 * 60 * 1000 : 0;
-  const lastHourBaseline = latestPoint
-    ? [...pointsHistory].reverse().find((row) => row.capturedAt.getTime() <= lastHourCutoff) ??
-      pointsHistory.find((row) => row.capturedAt.getTime() >= lastHourCutoff)
-    : null;
-  const lastHourGain = latestPoint && lastHourBaseline ? Math.max(0, latestPoint.points - lastHourBaseline.points) : 0;
+  const lastHourGain = pointsGainedLast60Minutes(pointsHistory);
   const [targetTrend, threatTrend] = await Promise.all([
     above ? getGapTrend({
       battleId: active.battleId,
@@ -1012,8 +1036,8 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? `${above.name} is close, but the gap is currently growing. We need a stronger push before the pass estimate improves.`
     : threatTrend && threatTrend.changePer30m > 0 && below
     ? `Hold pace — ${below.name} is not catching us right now.`
-    : adjustedHourlyRate !== null
-    ? `Keep pressure steady — current adjusted pace is ${formatNumber(Math.round(adjustedHourlyRate))}/h.`
+    : lastHourGain > 0
+    ? `Keep pressure steady — MCWV gained ${formatNumber(lastHourGain)} points in the last 60 minutes.`
     : `Collecting race history — estimates will sharpen as more snapshots come in.`;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
@@ -1069,9 +1093,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     })),
     summary: {
       overview: rank !== null ? `${CLAN_NAME} is currently #${rank} with ${formatNumber(currentPoints)} points.` : `${CLAN_NAME} has ${formatNumber(currentPoints)} battle points. Rank is not available yet.`,
-      pace: adjustedHourlyRate !== null
-        ? `Adjusted pace is ${formatNumber(Math.round(adjustedHourlyRate))} points/hour after reliability checks.`
-        : `Live battle data is updating. Pace needs more snapshots before it can be calculated.`,
+      pace: lastHourGain > 0
+        ? `MCWV gained ${formatNumber(lastHourGain)} points in the last 60 minutes.`
+        : `Need a full 60 minutes of snapshot history before last-hour gain is available.`,
       target: gapAbove !== null && above
         ? `To pass ${above.name}`
         : `No next target could be resolved yet.`,
