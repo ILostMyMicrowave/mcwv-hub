@@ -51,6 +51,10 @@ type BattleHqResponse = {
     pace: string;
     target: string;
     threat: string;
+    recommendation?: string;
+    dataQuality?: string;
+    momentum?: string;
+    disconnectImpact?: string;
   };
   timing: {
     snapshotIntervalMs: number;
@@ -423,7 +427,7 @@ export default function BattleHQPage() {
                       sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.2s"
                     />
-                    <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" delay="0.25s" />
+                    <Card title="Next update" value={formatDuration(nextUpdateLeft)} sub="Live refresh every 30s" delay="0.25s" />
                   </div>
                 </div>
               </div>
@@ -432,6 +436,24 @@ export default function BattleHQPage() {
                 <ProgressBar value={data.current.progressPct} accent={styles.accent} track={styles.track} />
               </div>
             </section>
+
+            <Panel
+              title="Race briefing"
+              right={<span className="text-xs text-[var(--foreground)]/55">{data.summary.dataQuality ?? "Warming up"}</span>}
+              delay="0.15s"
+            >
+              <div className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]">
+                <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
+                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--foreground)]/50">Recommendation</p>
+                  <p className="mt-2 text-lg font-bold text-white">{data.summary.recommendation ?? data.summary.overview}</p>
+                  <p className="mt-2 text-sm text-[var(--foreground)]/70">{data.summary.pace}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <Card title="Momentum" value={data.summary.momentum ?? "Warming up"} sub="Recent pace vs baseline" />
+                  <Card title="Disconnect impact" value={data.summary.disconnectImpact ?? "Unknown"} sub={`${formatNumber(data.stats.disconnects24h ?? 0)} drops / 24h`} />
+                </div>
+              </div>
+            </Panel>
 
             <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
               <div className="space-y-6">
