@@ -48,7 +48,8 @@ export async function botAdminFetch<T>(
   }
 
   const controller = new AbortController()
-  const timeout = windowlessSetTimeout(() => controller.abort(), 10_000)
+  const timeoutMs = Number(process.env.BOT_ADMIN_API_TIMEOUT_MS ?? 30_000)
+  const timeout = windowlessSetTimeout(() => controller.abort(), Number.isFinite(timeoutMs) ? timeoutMs : 30_000)
 
   try {
     const headers = new Headers(init.headers)
@@ -93,4 +94,3 @@ export async function botAdminFetch<T>(
 function windowlessSetTimeout(handler: () => void, timeoutMs: number) {
   return setTimeout(handler, timeoutMs)
 }
-
