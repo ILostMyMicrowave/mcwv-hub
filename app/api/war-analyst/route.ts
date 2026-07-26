@@ -860,27 +860,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   ]);
 
   const hasOpponentPace = aboveRate !== null || belowRate !== null;
-  const canProjectPlacement = hasEnoughProjectionHistory && hasOpponentPace && snapshotSpanMs >= 30 * 60 * 1000;
-  const projectedFinalPoints = canProjectPlacement ? preliminaryProjectedFinalPoints : null;
+  void hasOpponentPace;
+  void preliminaryProjectedFinalPoints;
 
-  const projectedClanList = projectedFinalPoints === null ? [] : nearbyWithUs.map((clan) => {
-    if (namesMatch(clan.name, CLAN_NAME)) {
-      return { name: clan.name, points: projectedFinalPoints };
-    }
-    // Only project opponent movement if we actually have their snapshot history.
-    // Otherwise keep their current points instead of inventing all-war pace.
-    const opponentRate = namesMatch(clan.name, above?.name) ? aboveRate : namesMatch(clan.name, below?.name) ? belowRate : null;
-    return { name: clan.name, points: clan.points + (opponentRate ?? 0) * remainingHours };
-  });
-
-  const projectedPlacement = projectedFinalPoints === null ? rank : projectedRankFromPoints(projectedClanList, projectedFinalPoints);
-  const projectedBestPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 1.2 * remainingHours);
-  const projectedWorstPlacement = projectedFinalPoints === null ? null : projectedRankFromPoints(projectedClanList, currentPoints + Math.max(adjustedHourlyRate ?? 0, 0) * 0.72 * remainingHours);
-  const confidence = canProjectPlacement
-    ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
-    : hasEnoughProjectionHistory
-    ? "medium" as const
-    : "low" as const;
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
   const [targetTrend, threatTrend] = await Promise.all([
     above ? getGapTrend({
@@ -903,6 +885,22 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 
   const etaAboveMs = targetTrend?.etaMs ?? null;
   const threatEtaMs = threatTrend?.etaMs ?? null;
+  const remainingMs = remainingHours * 3_600_000;
+
+  // Stable race forecast: use actual gap trends for the next position up/down.
+  // Do not project all 100 clans to war end unless we have a mature model; it creates fake #1/#100 results.
+  const canPassTarget = rank !== null && etaAboveMs !== null && etaAboveMs > 0 && etaAboveMs <= remainingMs;
+  const canBePassed = rank !== null && threatEtaMs !== null && threatEtaMs > 0 && threatEtaMs <= remainingMs;
+  const projectedPlacement = rank;
+  const projectedBestPlacement = canPassTarget && rank !== null ? Math.max(1, rank - 1) : rank;
+  const projectedWorstPlacement = canBePassed && rank !== null ? rank + 1 : rank;
+  const hasGapTrend = targetTrend !== null || threatTrend !== null;
+  const confidence = hasGapTrend && snapshotSpanMs >= 30 * 60 * 1000
+    ? confidenceFromInputs(snapshotRows.length, nearbyWithUs.length > 1, reliability)
+    : hasGapTrend
+    ? "medium" as const
+    : "low" as const;
+  const projectedFinalPoints = null;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
 
