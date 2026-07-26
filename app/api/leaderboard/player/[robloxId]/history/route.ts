@@ -105,12 +105,7 @@ export async function GET(
 
         change5m = fiveMinuteBaseline ? Math.max(0, latestPoints - asNumber(fiveMinuteBaseline.points)) : 0;
 
-        if (hourlyBaseline) {
-          const elapsedHours = (latestTimeMs - new Date(hourlyBaseline.captured_at).getTime()) / 3_600_000;
-          pph = elapsedHours >= 10 / 60 ? Math.max(0, Math.round((latestPoints - asNumber(hourlyBaseline.points)) / elapsedHours)) : 0;
-        } else {
-          pph = 0;
-        }
+        pph = hourlyBaseline ? Math.max(0, latestPoints - asNumber(hourlyBaseline.points)) : 0;
       }
     }
 
