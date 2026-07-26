@@ -527,12 +527,18 @@ export default function BattleHQPage() {
                             }}
                           >
                             <div className="flex min-w-0 items-center gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                                <span className="text-xs font-bold text-[var(--foreground)]/60">{clan.name.slice(0, 2).toUpperCase()}</span>
                                 {clan.icon ? (
-                                  <img src={clan.icon} alt="" className="h-full w-full object-cover" />
-                                ) : (
-                                  <span className="text-xs font-bold text-[var(--foreground)]/60">{clan.name.slice(0, 2).toUpperCase()}</span>
-                                )}
+                                  <img
+                                    src={clan.icon}
+                                    alt=""
+                                    className="absolute inset-0 h-full w-full object-cover"
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                ) : null}
                               </div>
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-white">
