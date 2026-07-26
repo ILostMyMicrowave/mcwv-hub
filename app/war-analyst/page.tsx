@@ -52,6 +52,7 @@ type BattleHqResponse = {
     rank: number | null;
     name: string;
     points: number;
+    icon?: string | null;
     pph?: number | null;
   }>;
   finishOutlook?: {
@@ -525,16 +526,25 @@ export default function BattleHQPage() {
                               opacity: 0,
                             }}
                           >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-white">
-                                {clan.rank !== null ? `#${clan.rank}` : "—"} · {clan.name}
-                                {clan.pph !== null && clan.pph !== undefined && clan.pph > 0 ? (
-                                  <span className="ml-2 text-xs font-medium text-[var(--foreground)]/55">• +{formatNumber(Math.round(clan.pph))} 1h</span>
-                                ) : null}
-                              </p>
-                              <p className="mt-1 text-xs text-[var(--foreground)]/55">
-                                {isUs ? "MCWV" : clan.points > currentPoints ? "Ahead of us" : "Behind us"}
-                              </p>
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                                {clan.icon ? (
+                                  <img src={clan.icon} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  <span className="text-xs font-bold text-[var(--foreground)]/60">{clan.name.slice(0, 2).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-white">
+                                  {clan.rank !== null ? `#${clan.rank}` : "—"} · {clan.name}
+                                  {clan.pph !== null && clan.pph !== undefined && clan.pph > 0 ? (
+                                    <span className="ml-2 text-xs font-medium text-[var(--foreground)]/55">• +{formatNumber(Math.round(clan.pph))} 1h</span>
+                                  ) : null}
+                                </p>
+                                <p className="mt-1 text-xs text-[var(--foreground)]/55">
+                                  {isUs ? "MCWV" : clan.points > currentPoints ? "Ahead of us" : "Behind us"}
+                                </p>
+                              </div>
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-bold text-white">{formatNumber(clan.points)}</p>
