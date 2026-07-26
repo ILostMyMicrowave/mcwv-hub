@@ -1024,15 +1024,20 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     ? confidenceFromInputs(snapshotRows.length, clanRateMap.size >= 8, reliability)
     : "warming_up" as const;
 
-  const recentRate = rateForWindow(pointsHistory, 30 * 60 * 1000);
-  const wholeWindowRate = ratePerHour(pointsHistory);
-  const momentum = recentRate !== null && wholeWindowRate !== null && wholeWindowRate > 0
-    ? recentRate >= wholeWindowRate * 1.2
-      ? "Heating up"
-      : recentRate <= wholeWindowRate * 0.8
-      ? "Cooling down"
-      : "Steady"
-    : "Warming up";
+  const latestHistoryPoint = pointsHistory[pointsHistory.length - 1] ?? null;
+  const latestHistoryMs = latestHistoryPoint?.capturedAt.getTime() ?? Date.now();
+  const oneHourAgoPoints = pointsAtTime(pointsHistory, latestHistoryMs - 60 * 60 * 1000);
+  const twoHoursAgoPoints = pointsAtTime(pointsHistory, latestHistoryMs - 2 * 60 * 60 * 1000);
+  const previousHourGain = oneHourAgoPoints !== null && twoHoursAgoPoints !== null
+    ? Math.max(0, Math.round(oneHourAgoPoints - twoHoursAgoPoints))
+    : null;
+  const momentum = previousHourGain === null
+    ? "Need previous hour"
+    : lastHourGain > previousHourGain * 1.1
+    ? `Increasing vs previous hour (+${formatNumber(lastHourGain - previousHourGain)})`
+    : lastHourGain < previousHourGain * 0.9
+    ? `Decreasing vs previous hour (-${formatNumber(previousHourGain - lastHourGain)})`
+    : "About the same as previous hour";
   const dataQuality = snapshotSpanMs >= 60 * 60 * 1000 && hasGapTrend
     ? "Strong"
     : snapshotSpanMs >= 15 * 60 * 1000 || hasGapTrend
