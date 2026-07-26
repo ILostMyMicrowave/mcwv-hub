@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { getDetectedWarWindow } from "@/lib/warDetection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -189,10 +190,19 @@ async function getActiveWarInfo(): Promise<ActiveWarInfo | null> {
 
     if (!active || start <= 0) return null;
 
+    const title = String(config.Title ?? config.configName ?? data.configName ?? data.activeBattleConfigName ?? "");
+    const battleId = String(config._id ?? config.Title ?? data.configName ?? title);
+    const detectedWindow = await getDetectedWarWindow({
+      battleId,
+      battleName: title,
+      apiStart: start,
+      apiEnd: finish > 0 ? finish : null,
+    });
+
     return {
       active: true,
-      title: String(config.Title ?? config.configName ?? data.configName ?? data.activeBattleConfigName ?? ""),
-      startIso: new Date(start * 1000).toISOString(),
+      title,
+      startIso: detectedWindow?.startIso ?? new Date(start * 1000).toISOString(),
     };
   } catch {
     return null;
