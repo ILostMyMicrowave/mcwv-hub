@@ -418,9 +418,9 @@ export default function BattleHQPage() {
                       delay="0.15s"
                     />
                     <Card
-                      title="Projected finish"
+                      title="Rank outlook"
                       value={forecastRange}
-                      sub={data.stats.projectedFinalPoints ? `Final est: ${formatNumber(data.stats.projectedFinalPoints)} · ${data.stats.confidence.toUpperCase()}` : `Confidence: ${data.stats.confidence.toUpperCase()}`}
+                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.2s"
                     />
                     <Card title="Next update" value={data.timing.nextUpdateText} sub="Auto-refresh every 5 min" delay="0.25s" />
@@ -509,9 +509,9 @@ export default function BattleHQPage() {
                       delay="0.4s"
                     />
                     <Card
-                      title="Forecast"
+                      title="Rank outlook"
                       value={forecastRange}
-                      sub={data.stats.projectedFinalPoints ? `Final est: ${formatNumber(data.stats.projectedFinalPoints)}` : `Confidence: ${data.stats.confidence.toUpperCase()}`}
+                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
                       delay="0.45s"
                     />
                     <Card
