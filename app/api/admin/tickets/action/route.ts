@@ -15,6 +15,19 @@ export async function POST(req: Request) {
     const ticketId = String(body.ticketId ?? body.ticket_id ?? "")
     const reason = String(body.reason ?? "")
 
+    if (action === "panel_send") {
+      const data = await botAdminFetch("/admin/tickets/panel/send", {
+        method: "POST",
+        body: JSON.stringify({
+          channel_id: body.channel_id ?? body.channelId,
+          title: body.title,
+          description: body.description,
+          button_label: body.button_label ?? body.buttonLabel,
+        }),
+      })
+      return NextResponse.json(data)
+    }
+
     if (!ticketId) {
       return NextResponse.json({ error: "ticketId is required" }, { status: 400 })
     }
