@@ -154,6 +154,34 @@ function renderBroadcastPreviewMessage(template: string, recipient?: BroadcastRe
     .replaceAll("{rank}", String(recipient?.rank ?? "—"));
 }
 
+type TicketRow = {
+  id?: number;
+  ticketId: string;
+  channelId?: string | null;
+  guildId?: string | null;
+  openerDiscordId?: string | null;
+  robloxId?: string | null;
+  robloxUsername?: string | null;
+  status?: string | null;
+  claimedBy?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type TicketDetail = TicketRow & {
+  application?: {
+    robloxUsername?: string | null;
+    robloxId?: string | null;
+    afk247?: string | null;
+    activity?: string | null;
+    liquidGems?: string | null;
+    whyAccept?: string | null;
+    submittedAt?: string | null;
+  } | null;
+  actions?: Array<{ action?: string; message?: string; actorDiscordId?: string | null; createdAt?: string | null }>;
+  transcript?: { text?: string; createdAt?: string | null } | null;
+};
+
 type ToastState = {
   message: string;
   tone: "success" | "error" | "info";
@@ -166,6 +194,7 @@ type AdminSection =
   | "bot"
   | "broadcast"
   | "events"
+  | "tickets"
   | "players"
   | "links"
   | "war"
@@ -177,6 +206,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: "bot", label: "Bot", icon: "🤖" },
   { id: "broadcast", label: "Broadcast", icon: "📢" },
   { id: "events", label: "Events", icon: "🎉" },
+  { id: "tickets", label: "Tickets", icon: "🎫" },
   { id: "players", label: "Players", icon: "👥" },
   { id: "links", label: "Roblox Links", icon: "🔗" },
   { id: "war", label: "War Tracker", icon: "⚔" },
@@ -193,6 +223,8 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
     "Send themed staff broadcasts to filtered clan audiences through DMs or saved ticket channels.",
   events:
     "Manage invite competitions and Discord-style giveaways from one place.",
+  tickets:
+    "Review MCWV application tickets, application answers, actions, and transcripts.",
   players:
     "Review tracked Roblox accounts, Discord links, presence state, profile sync status, and removal actions.",
   links:
@@ -652,6 +684,8 @@ export default function AdminPage() {
   const [giveaways, setGiveaways] = useState<Giveaway[]>([]);
   const [invites, setInvites] = useState<InviteEvent[]>([]);
   const [inviteLeaderboard, setInviteLeaderboard] = useState<UnknownRecord[]>([]);
+  const [tickets, setTickets] = useState<TicketRow[]>([]);
+  const [ticketMetrics, setTicketMetrics] = useState<UnknownRecord>({});
   const [logs, setLogs] = useState<ActivityItem[]>([]);
   const [channels, setChannels] = useState<AdminChannel[]>([]);
   const [roles, setRoles] = useState<AdminRoleOption[]>([]);
@@ -670,11 +704,12 @@ export default function AdminPage() {
   const loadAdminData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, playersRes, giveawaysRes, invitesRes, logsRes, channelsRes, rolesRes] = await Promise.all([
+      const [statusRes, playersRes, giveawaysRes, invitesRes, ticketsRes, logsRes, channelsRes, rolesRes] = await Promise.all([
         fetch("/api/admin/status", { cache: "no-store" }),
         fetch("/api/admin/players", { cache: "no-store" }),
         fetch("/api/admin/giveaways", { cache: "no-store" }),
         fetch("/api/admin/invites", { cache: "no-store" }),
+        fetch("/api/admin/tickets", { cache: "no-store" }),
         fetch("/api/admin/logs", { cache: "no-store" }),
         fetch("/api/admin/channels", { cache: "no-store" }),
         fetch("/api/admin/roles", { cache: "no-store" }),
@@ -712,6 +747,11 @@ export default function AdminPage() {
         const active = isRecord(data.active) ? (data.active as InviteEvent) : null;
         setInvites(isRealInviteEvent(active) && !events.length ? [active] : events);
         setInviteLeaderboard(asArray<UnknownRecord>(data.leaderboard));
+      }
+      if (ticketsRes.ok) {
+        const data = (await ticketsRes.json().catch(() => ({}))) as UnknownRecord;
+        setTickets(asArray<TicketRow>(data.tickets));
+        setTicketMetrics(isRecord(data.metrics) ? data.metrics : {});
       }
 
       if (logsRes.ok) {
@@ -1112,6 +1152,10 @@ export default function AdminPage() {
                   onAction={postAction}
                 />
               </div>
+            )}
+
+            {section === "tickets" && (
+              <TicketsSection tickets={tickets} metrics={ticketMetrics} onToast={showToast} onReload={loadAdminData} />
             )}
 
             {section === "players" && (
@@ -2230,6 +2274,172 @@ function GiveawaysSection({
         )}
       </div>
     </Panel>
+  );
+}
+
+function TicketsSection({
+  tickets,
+  metrics,
+  onToast,
+  onReload,
+}: {
+  tickets: TicketRow[];
+  metrics: UnknownRecord;
+  onToast: (message: string, tone: "success" | "error" | "info") => void;
+  onReload: () => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<TicketDetail | null>(null);
+  const [filter, setFilter] = useState("open");
+  const [loading, setLoading] = useState(false);
+
+  const filtered = tickets.filter((ticket) => {
+    if (filter === "all") return true;
+    if (filter === "open") return ["open", "pending"].includes(String(ticket.status ?? "open"));
+    return String(ticket.status ?? "") === filter;
+  });
+
+  async function openTicket(ticketId: string) {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to load ticket"));
+      setSelected(data.ticket ?? null);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to load ticket", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runTicketAction(action: "accept" | "close", ticketId: string) {
+    const reason = action === "close" ? window.prompt("Close reason", "Closed from Hub") ?? "" : "";
+    if (action === "close" && !reason.trim()) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/tickets/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ticketId, reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Ticket action failed"));
+      onToast(action === "accept" ? "Ticket accepted" : "Ticket closed", "success");
+      if (data.ticket) setSelected(data.ticket);
+      await onReload();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Ticket action failed", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filters = ["open", "pending", "accepted", "closed", "all"];
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <Metric label="Total Tickets" value={toDisplayValue(metrics.total ?? tickets.length)} />
+        <Metric label="Open" value={toDisplayValue(metrics.open ?? 0)} />
+        <Metric label="Pending" value={toDisplayValue(metrics.pending ?? 0)} />
+        <Metric label="Accepted" value={toDisplayValue(metrics.accepted ?? 0)} />
+        <Metric label="Closed" value={toDisplayValue(metrics.closed ?? 0)} />
+      </div>
+
+      <Panel
+        title="Application Tickets"
+        right={
+          <div className="flex flex-wrap gap-2">
+            {filters.map((item) => (
+              <button
+                key={item}
+                className={`rounded-full border px-3 py-1 text-xs capitalize ${filter === item ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400"}`}
+                onClick={() => setFilter(item)}
+                type="button"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        <div className="grid gap-3">
+          {filtered.length ? filtered.map((ticket) => (
+            <button
+              key={ticket.ticketId}
+              type="button"
+              onClick={() => void openTicket(ticket.ticketId)}
+              className="rounded-3xl border border-white/10 bg-black/20 p-4 text-left transition hover:bg-white/10"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs ${statusTone(ticket.status ?? "open")}`}>{ticket.status ?? "open"}</span>
+                    <span className="text-xs text-zinc-500">{ticket.ticketId}</span>
+                  </div>
+                  <div className="mt-2 text-lg font-bold text-white">{ticket.robloxUsername ?? "Application"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">Discord: {ticket.openerDiscordId ?? "—"} · Opened {formatTime(ticket.createdAt)}</div>
+                </div>
+                <div className="text-sm text-zinc-400">Updated {formatTime(ticket.updatedAt)}</div>
+              </div>
+            </button>
+          )) : <p className="text-sm text-zinc-500">No tickets found for this filter.</p>}
+        </div>
+      </Panel>
+
+      {selected && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-6">
+          <button className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setSelected(null)} aria-label="Close ticket" />
+          <div className="relative z-10 max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Ticket Detail</div>
+                <h3 className="mt-1 text-3xl font-bold">{selected.robloxUsername ?? selected.ticketId}</h3>
+                <p className="mt-1 text-sm text-zinc-400">{selected.status} · Discord {selected.openerDiscordId ?? "—"}</p>
+              </div>
+              <button className="admin-button" type="button" onClick={() => setSelected(null)}>×</button>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+              <Panel title="Application Answers">
+                {selected.application ? (
+                  <div className="space-y-3 text-sm text-zinc-300">
+                    <MiniStat label="Roblox" value={`${selected.application.robloxUsername ?? "—"} (${selected.application.robloxId ?? "—"})`} />
+                    <MiniStat label="AFK 24/7 on Windows" value={selected.application.afk247 ?? "—"} />
+                    <MiniStat label="Activity" value={selected.application.activity ?? "—"} />
+                    <MiniStat label="Liquid Gems" value={selected.application.liquidGems ?? "—"} />
+                    <MiniStat label="Why accept" value={selected.application.whyAccept ?? "—"} />
+                  </div>
+                ) : <p className="text-sm text-zinc-500">No application answers found.</p>}
+              </Panel>
+              <Panel title="Actions">
+                <div className="flex flex-wrap gap-2">
+                  {selected.channelId && <a className="admin-button" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
+                  <button className="admin-button" disabled={loading || selected.status === "accepted"} onClick={() => void runTicketAction("accept", selected.ticketId)} type="button">Accept</button>
+                  <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Close</button>
+                </div>
+                <div className="mt-4 space-y-2">
+                  {(selected.actions ?? []).slice(0, 8).map((action, index) => (
+                    <div key={safeId("ticket-action", action.action, index)} className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm">
+                      <div className="font-semibold text-white">{action.action ?? "Action"}</div>
+                      <div className="text-xs text-zinc-500">{formatTime(action.createdAt)} · {action.actorDiscordId ?? "system"}</div>
+                      {action.message && <div className="mt-1 text-zinc-400">{action.message}</div>}
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+
+            {selected.transcript?.text && (
+              <Panel title="Transcript">
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl bg-black/30 p-4 text-xs text-zinc-300">{selected.transcript.text}</pre>
+              </Panel>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
