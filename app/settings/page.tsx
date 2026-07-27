@@ -23,6 +23,8 @@ type AppUser = {
   username: string;
   discord_id: string | number | null;
   role: "member" | "officer" | "owner";
+  has_account?: boolean;
+  hasAccount?: boolean;
 };
 
 type AdminUsersResponse = {
@@ -245,6 +247,41 @@ export default function Settings() {
     } finally {
       setRolesLoading(false);
       window.setTimeout(() => setRolesStatus(""), 1500);
+    }
+  }
+
+  async function deleteWebsiteAccount(userId: number, username: string) {
+    if (!canManageRoles) {
+      setRolesStatus("You do not have permission to delete website accounts");
+      return;
+    }
+
+    if (!window.confirm(`Delete ${username}'s website login? Their Roblox/Discord bot links will stay saved.`)) {
+      return;
+    }
+
+    setRolesLoading(true);
+    setRolesStatus("");
+    try {
+      const res = await fetch("/api/admin/users/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "delete failed");
+
+      setRolesStatus(data?.message ?? "Website account deleted");
+      const refreshed = await fetch("/api/admin/users", { cache: "no-store" });
+      if (refreshed.ok) {
+        const refreshedData: AdminUsersResponse = await refreshed.json();
+        setMembers(Array.isArray(refreshedData.users) ? refreshedData.users : []);
+      }
+    } catch (err) {
+      setRolesStatus(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setRolesLoading(false);
+      window.setTimeout(() => setRolesStatus(""), 2200);
     }
   }
 
@@ -611,6 +648,22 @@ underline`}
                             >
                               Demote to Member
                             </button>
+                          )}
+                          {!isOwner && (member.has_account ?? member.hasAccount) && (
+                            <button
+                              type="button"
+                              onClick={() => deleteWebsiteAccount(member.id, member.username)}
+                              disabled={rolesLoading}
+                              className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:scale-105 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                              title="Deletes only their website login. Roblox/Discord links stay saved."
+                            >
+                              Delete Website Account
+                            </button>
+                          )}
+                          {!isOwner && !(member.has_account ?? member.hasAccount) && (
+                            <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-400">
+                              No Website Login
+                            </span>
                           )}
                           {isOwner && (
                             <span className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-2 text-sm font-semibold text-yellow-300">
