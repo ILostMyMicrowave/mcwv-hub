@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import UserSync from "@/components/UserSync";
 import OnboardingTour from "@/components/OnboardingTour";
+import WarReturnRecap from "@/components/WarReturnRecap";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,6 +50,7 @@ export default function RootLayout({
         <UserSync />
         {children}
         <OnboardingTour />
+        <WarReturnRecap />
       </body>
     </html>
   );
