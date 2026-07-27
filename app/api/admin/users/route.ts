@@ -27,7 +27,7 @@ export async function GET() {
 
     // 3. List users sorted by role then username
     const res = await pool.query(
-      `SELECT id, username, discord_id, role
+      `SELECT id, username, discord_id, role, (password_hash IS NOT NULL) AS has_account
        FROM users
        ORDER BY
          CASE role
