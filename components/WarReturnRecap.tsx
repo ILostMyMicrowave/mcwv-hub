@@ -106,13 +106,24 @@ function RecapRow({
   nowValue?: number | null;
 }) {
   return (
-    <div className="recap-row grid grid-cols-[1fr_0.9fr_0.9fr_auto] items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-3 text-sm" style={{ animationDelay: delay }}>
-      <div className="font-semibold text-zinc-200">{label}</div>
-      <div className="text-zinc-500">{before}</div>
-      <div className="font-bold text-white">
-        {type === "points" && nowValue !== undefined ? <CountUpNumber value={nowValue} /> : now}
+    <div className="recap-row rounded-2xl border border-white/10 bg-slate-950/65 px-4 py-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]" style={{ animationDelay: delay }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-bold text-white">{label}</div>
+        <DeltaPill delta={delta} type={type} />
       </div>
-      <DeltaPill delta={delta} type={type} />
+      <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">Last check</div>
+          <div className="mt-1 font-semibold text-zinc-300">{before}</div>
+        </div>
+        <div className="text-zinc-500">→</div>
+        <div className="text-right">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">Now</div>
+          <div className="mt-1 text-lg font-black text-white">
+            {type === "points" && nowValue !== undefined ? <CountUpNumber value={nowValue} /> : now}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -162,15 +173,24 @@ export default function WarReturnRecap() {
     };
   }, [pathname]);
 
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   if (!open || !recap) return null;
 
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center px-4 py-6">
-      <button className="absolute inset-0 bg-black/75 backdrop-blur-md" onClick={() => setOpen(false)} aria-label="Close war recap" />
-      <div className="war-recap-panel war-recap-border relative z-10 max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(248,113,113,0.22),transparent_34%),linear-gradient(135deg,rgba(24,24,27,0.98),rgba(3,7,18,0.98))] shadow-2xl shadow-black/50">
-        <div className="absolute inset-0 opacity-40 [background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent)] war-recap-sheen" />
+      <button className="absolute inset-0 bg-black/85 backdrop-blur-lg" onClick={() => setOpen(false)} aria-label="Close war recap" />
+      <div className="war-recap-panel war-recap-border relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-2xl shadow-black/60">
+        <div className="pointer-events-none absolute inset-0 opacity-20 [background:linear-gradient(90deg,transparent,rgba(255,255,255,0.10),transparent)] war-recap-sheen" />
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          {Array.from({ length: 30 }).map((_, index) => (
+          {Array.from({ length: 18 }).map((_, index) => (
             <span
               key={index}
               className="recap-particle absolute h-1.5 w-1.5 rounded-full"
@@ -183,25 +203,33 @@ export default function WarReturnRecap() {
             />
           ))}
         </div>
-        <div className="relative p-5 sm:p-7">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="relative p-4 sm:p-7">
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-slate-950/70 text-xl font-bold text-white shadow-lg transition hover:scale-105 hover:bg-white/10"
+            aria-label="Close recap"
+          >
+            ×
+          </button>
+          <div className="flex flex-col gap-4 pr-12 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-200">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" /> War recap
               </div>
-              <h2 className="recap-title mt-4 text-3xl font-black text-white sm:text-5xl">Welcome back, {recap.username ?? "member"}</h2>
-              <p className="mt-2 text-sm text-zinc-300">
+              <h2 className="recap-title mt-4 text-2xl font-black leading-tight text-white sm:text-5xl">Welcome back, {recap.username ?? "member"}</h2>
+              <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-zinc-200">
                 Here’s what changed since you last checked{recap.minutesSince ? ` ${recap.minutesSince} minutes ago` : ""}.
               </p>
             </div>
-            <button className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-200 transition hover:bg-white/10" onClick={() => setOpen(false)}>
+            <button className="hidden rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15 sm:block" onClick={() => setOpen(false)}>
               Got it
             </button>
           </div>
 
           <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-              <div className="grid grid-cols-[1fr_0.9fr_0.9fr_auto] gap-3 px-3 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
+            <div className="space-y-3 rounded-3xl border border-white/10 bg-slate-950/50 p-3 sm:p-4">
+              <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_auto] gap-3 px-3 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-400 sm:grid">
                 <span>Stat</span><span>Last check</span><span>Now</span><span>Change</span>
               </div>
               <RecapRow
@@ -241,21 +269,21 @@ export default function WarReturnRecap() {
             </div>
 
             <div className="space-y-3">
-              <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
+              <div className="rounded-3xl border border-white/10 bg-slate-950/55 p-4">
                 <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Your latest push</div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
                     <div className="text-xs text-zinc-500">Last hour</div>
                     <div className="mt-1 text-2xl font-black text-white"><CountUpNumber value={recap.player?.lastHour ?? 0} prefix="+" /></div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
                     <div className="text-xs text-zinc-500">Last 5 min</div>
                     <div className="mt-1 text-2xl font-black text-white"><CountUpNumber value={recap.player?.last5m ?? 0} prefix="+" /></div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
+              <div className="rounded-3xl border border-white/10 bg-slate-950/55 p-4">
                 <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Clan situation</div>
                 <p className="mt-3 text-sm leading-6 text-zinc-300">
                   MCWV is currently <span className="font-bold text-white">{formatRank(recap.clan?.rank.now)}</span>.
@@ -264,9 +292,9 @@ export default function WarReturnRecap() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap justify-end gap-2">
-                <button className="recap-cta rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10" onClick={() => router.push("/leaderboard")}>View Leaderboard</button>
-                <button className="recap-cta rounded-full bg-emerald-300 px-4 py-2 text-sm font-bold text-black transition hover:scale-[1.03]" onClick={() => router.push("/war-analyst")}>Open Battle HQ</button>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                <button className="recap-cta rounded-full border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15" onClick={() => router.push("/leaderboard")}>View Leaderboard</button>
+                <button className="recap-cta rounded-full bg-emerald-300 px-4 py-2.5 text-sm font-bold text-black transition hover:scale-[1.03]" onClick={() => router.push("/war-analyst")}>Open Battle HQ</button>
               </div>
             </div>
           </div>
@@ -320,6 +348,12 @@ export default function WarReturnRecap() {
         .recap-delta:not(:empty) { animation: recapDeltaPulse 1.8s ease-in-out infinite; }
         .recap-cta { box-shadow: 0 0 0 rgba(52,211,153,0); }
         .recap-cta:hover { box-shadow: 0 0 24px rgba(52,211,153,0.22); transform: translateY(-1px) scale(1.03); }
+
+        @media (max-width: 640px) {
+          .war-recap-panel { border-radius: 1.5rem; }
+          .recap-particle { opacity: 0.45; }
+          .recap-title { animation-duration: 3.4s; }
+        }
       `}</style>
     </div>
   );
