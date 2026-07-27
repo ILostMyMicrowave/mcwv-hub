@@ -134,6 +134,11 @@ export default function WarReturnRecap() {
   const [recap, setRecap] = useState<RecapResponse | null>(null);
   const [open, setOpen] = useState(false);
 
+  function closeAndGo(path: string) {
+    setOpen(false);
+    router.push(path);
+  }
+
   useEffect(() => {
     if (pathname === "/login" || pathname === "/signup") return;
     let alive = true;
@@ -187,7 +192,7 @@ export default function WarReturnRecap() {
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center px-4 py-6">
       <button className="absolute inset-0 bg-black/85 backdrop-blur-lg" onClick={() => setOpen(false)} aria-label="Close war recap" />
-      <div className="war-recap-panel war-recap-border relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-2xl shadow-black/60">
+      <div className="war-recap-panel war-recap-border relative z-10 max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-2xl shadow-black/60">
         <div className="pointer-events-none absolute inset-0 opacity-20 [background:linear-gradient(90deg,transparent,rgba(255,255,255,0.10),transparent)] war-recap-sheen" />
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           {Array.from({ length: 18 }).map((_, index) => (
@@ -207,7 +212,7 @@ export default function WarReturnRecap() {
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-slate-950/70 text-xl font-bold text-white shadow-lg transition hover:scale-105 hover:bg-white/10"
+            className="absolute right-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-slate-950/85 text-2xl font-black text-white shadow-xl transition hover:scale-110 hover:bg-rose-500/20"
             aria-label="Close recap"
           >
             ×
@@ -222,12 +227,24 @@ export default function WarReturnRecap() {
                 Here’s what changed since you last checked{recap.minutesSince ? ` ${recap.minutesSince} minutes ago` : ""}.
               </p>
             </div>
-            <button className="hidden rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15 sm:block" onClick={() => setOpen(false)}>
-              Got it
-            </button>
           </div>
 
-          <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="recap-impact mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/10 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-100/75">Your gain</div>
+              <div className="mt-1 text-3xl font-black text-white"><CountUpNumber value={Math.max(0, recap.player?.points.delta ?? 0)} prefix="+" /></div>
+            </div>
+            <div className="rounded-3xl border border-sky-300/20 bg-sky-300/10 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-sky-100/75">Rank move</div>
+              <div className="mt-1 text-3xl font-black text-white">{deltaText(recap.player?.rank.delta, "rank")}</div>
+            </div>
+            <div className="rounded-3xl border border-orange-300/20 bg-orange-300/10 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-orange-100/75">Next target</div>
+              <div className="mt-1 truncate text-2xl font-black text-white">{recap.clan?.target ? recap.clan.target.name : "—"}</div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-3 rounded-3xl border border-white/10 bg-slate-950/50 p-3 sm:p-4">
               <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_auto] gap-3 px-3 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-400 sm:grid">
                 <span>Stat</span><span>Last check</span><span>Now</span><span>Change</span>
@@ -293,8 +310,8 @@ export default function WarReturnRecap() {
               </div>
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                <button className="recap-cta rounded-full border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15" onClick={() => router.push("/leaderboard")}>View Leaderboard</button>
-                <button className="recap-cta rounded-full bg-emerald-300 px-4 py-2.5 text-sm font-bold text-black transition hover:scale-[1.03]" onClick={() => router.push("/war-analyst")}>Open Battle HQ</button>
+                <button className="recap-cta rounded-full border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15" onClick={() => closeAndGo("/leaderboard")}>View Leaderboard</button>
+                <button className="recap-cta rounded-full bg-emerald-300 px-4 py-2.5 text-sm font-bold text-black transition hover:scale-[1.03]" onClick={() => closeAndGo("/war-analyst")}>Open Battle HQ</button>
               </div>
             </div>
           </div>
@@ -322,6 +339,10 @@ export default function WarReturnRecap() {
         @keyframes recapRowIn {
           from { opacity: 0; transform: translateX(-18px) scale(0.98); }
           to { opacity: 1; transform: translateX(0) scale(1); }
+        }
+        @keyframes recapImpactIn {
+          from { opacity: 0; transform: translateY(12px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes recapTitleGlow {
           0%, 100% { text-shadow: 0 0 0 rgba(52,211,153,0); }
