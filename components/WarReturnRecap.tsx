@@ -129,10 +129,12 @@ export default function WarReturnRecap() {
     let lastCheckedAt = 0;
 
     async function load(force = false) {
-      if (!force && Date.now() - lastCheckedAt < 10 * 60 * 1000) return;
+      const debug = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debugRecap") === "1";
+      if (!debug && !force && Date.now() - lastCheckedAt < 10 * 60 * 1000) return;
       lastCheckedAt = Date.now();
 
-      const res = await fetch("/api/war/personal-recap", { cache: "no-store" }).catch(() => null);
+      const endpoint = debug ? "/api/war/personal-recap?debug=1" : "/api/war/personal-recap";
+      const res = await fetch(endpoint, { cache: "no-store" }).catch(() => null);
       if (!res?.ok) return;
       const json: RecapResponse = await res.json().catch(() => ({}));
       if (!alive) return;
