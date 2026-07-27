@@ -165,8 +165,7 @@ type AdminSection =
   | "overview"
   | "bot"
   | "broadcast"
-  | "invites"
-  | "giveaways"
+  | "events"
   | "players"
   | "links"
   | "war"
@@ -177,8 +176,7 @@ const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "🏠" },
   { id: "bot", label: "Bot", icon: "🤖" },
   { id: "broadcast", label: "Broadcast", icon: "📢" },
-  { id: "invites", label: "Invite Events", icon: "📨" },
-  { id: "giveaways", label: "Giveaways", icon: "🎉" },
+  { id: "events", label: "Events", icon: "🎉" },
   { id: "players", label: "Players", icon: "👥" },
   { id: "links", label: "Roblox Links", icon: "🔗" },
   { id: "war", label: "War Tracker", icon: "⚔" },
@@ -193,10 +191,8 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
     "Live runtime health, Discord latency, process usage, queue status, and background loop monitoring.",
   broadcast:
     "Send themed staff broadcasts to filtered clan audiences through DMs or saved ticket channels.",
-  invites:
-    "Create, pause, resume, and review invite competitions, leaderboards, invited members, and removed fake invites.",
-  giveaways:
-    "Manage Discord-style giveaways, entries, winner counts, rerolls, and invite-event-linked rewards.",
+  events:
+    "Manage invite competitions and Discord-style giveaways from one place.",
   players:
     "Review tracked Roblox accounts, Discord links, presence state, profile sync status, and removal actions.",
   links:
@@ -1102,21 +1098,20 @@ export default function AdminPage() {
               />
             )}
 
-            {section === "invites" && (
-              <InvitesSection
-                invites={invites}
-                leaderboard={inviteLeaderboard}
-                onStart={startInviteEvent}
-                onAction={postAction}
-              />
-            )}
-
-            {section === "giveaways" && (
-              <GiveawaysSection
-                giveaways={giveaways}
-                onCreate={createGiveaway}
-                onAction={postAction}
-              />
+            {section === "events" && (
+              <div className="space-y-6">
+                <InvitesSection
+                  invites={invites}
+                  leaderboard={inviteLeaderboard}
+                  onStart={startInviteEvent}
+                  onAction={postAction}
+                />
+                <GiveawaysSection
+                  giveaways={giveaways}
+                  onCreate={createGiveaway}
+                  onAction={postAction}
+                />
+              </div>
             )}
 
             {section === "players" && (
