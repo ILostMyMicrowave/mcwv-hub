@@ -16,6 +16,7 @@ type UserRow = {
   id: number;
   username: string;
   roblox_id: string | number | null;
+  role: string | null;
 };
 
 type VisitRow = {
@@ -98,7 +99,7 @@ async function getSessionUser() {
   if (!Number.isFinite(userId)) return null;
 
   const result = await pool.query<UserRow>(
-    `SELECT id, username, roblox_id
+    `SELECT id, username, roblox_id, role
      FROM users
      WHERE id = $1
      LIMIT 1`,
@@ -219,9 +220,42 @@ async function playerRecentGains(robloxId: string, currentPoints: number) {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await getSessionUser();
+    const url = new URL(req.url);
+    const debug = url.searchParams.get("debug") === "1";
+
+    if (debug) {
+      if (user?.role !== "owner") {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        show: true,
+        username: user.username,
+        minutesSince: 27,
+        previousSeenAt: new Date(Date.now() - 27 * 60 * 1000).toISOString(),
+        battle: {
+          battleId: "debug-war",
+          title: "Debug War Recap",
+        },
+        player: {
+          points: { before: 3450, now: 4120, delta: 670 },
+          rank: { before: 17, now: 14, delta: 3 },
+          lastHour: 420,
+          last5m: 30,
+        },
+        clan: {
+          points: { before: 52000, now: 56655, delta: 4655 },
+          rank: { before: 29, now: 28, delta: 1 },
+          target: { name: "PsAG", rank: 27, points: 56894, gap: 239 },
+          threat: { name: "DDD9", rank: 29, points: 56557, gap: 98 },
+        },
+      });
+    }
+
     if (!user?.roblox_id) {
       return NextResponse.json({ success: true, show: false, reason: "No linked Roblox account" });
     }
