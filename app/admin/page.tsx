@@ -2297,12 +2297,66 @@ function TicketsSection({
   const [panelTitle, setPanelTitle] = useState("MCWV Applications");
   const [panelDescription, setPanelDescription] = useState("Ready to apply for MCWV? Open a private application ticket below. Inside the ticket, you’ll send screenshots and submit your Roblox details for staff review.");
   const [panelButton, setPanelButton] = useState("Open Application");
+  const [welcomeTitle, setWelcomeTitle] = useState("Thank you for applying for MCWV!");
+  const [welcomeDescription, setWelcomeDescription] = useState("Please send the following screenshots of your:\n\n• Pets\n• Rank\n• Masteries\n• Enchants\n• Game-passes\n• Player profile *(found in trading plaza, double tap on avatar)*\n\n**Make sure the screenshots are NON-CROPPED!**");
+  const [questions, setQuestions] = useState([
+    { key: "roblox_username", label: "Roblox username", placeholder: "Your Roblox username", style: "short", required: true, maxLength: 32 },
+    { key: "afk_247", label: "Can you AFK 24/7 on Windows?", placeholder: "Yes/No + details", style: "paragraph", required: true, maxLength: 500 },
+    { key: "activity", label: "Discord + in-game active hours", placeholder: "Example: 6h Discord, 12h in-game", style: "paragraph", required: true, maxLength: 500 },
+    { key: "liquid_gems", label: "Liquid gems you can spend per war", placeholder: "Example: 5b liquid gems", style: "paragraph", required: true, maxLength: 500 },
+    { key: "why_accept", label: "Why should we accept you?", placeholder: "Tell us why you fit MCWV", style: "paragraph", required: true, maxLength: 900 },
+  ]);
+
+  useEffect(() => {
+    async function loadTicketSettings() {
+      const res = await fetch("/api/admin/tickets/settings", { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const data = await res.json().catch(() => ({}));
+      const settings = data.settings ?? {};
+      const panel = settings.panel ?? {};
+      const messages = settings.messages ?? {};
+      if (panel.title) setPanelTitle(String(panel.title));
+      if (panel.description) setPanelDescription(String(panel.description));
+      if (panel.buttonLabel) setPanelButton(String(panel.buttonLabel));
+      if (messages.welcomeTitle) setWelcomeTitle(String(messages.welcomeTitle));
+      if (messages.welcomeDescription) setWelcomeDescription(String(messages.welcomeDescription));
+      if (Array.isArray(settings.questions)) setQuestions(settings.questions);
+    }
+    void loadTicketSettings();
+  }, []);
 
   const filtered = tickets.filter((ticket) => {
     if (filter === "all") return true;
     if (filter === "open") return ["open", "pending"].includes(String(ticket.status ?? "open"));
     return String(ticket.status ?? "") === filter;
   });
+
+  function updateQuestion(index: number, patch: Record<string, unknown>) {
+    setQuestions((current) => current.map((question, i) => i === index ? { ...question, ...patch } : question));
+  }
+
+  async function saveTicketSettings() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/tickets/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          panel: { title: panelTitle, description: panelDescription, buttonLabel: panelButton },
+          messages: { welcomeTitle, welcomeDescription },
+          questions,
+          features: { openLimit: 1, acceptButton: true, closeButton: true, staffInfoButton: true, transcripts: true, deleteAfterClose: true, supportHours: false },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save settings"));
+      onToast("Ticket settings saved", "success");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to save settings", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function sendPanel() {
     if (!panelChannelId) {
@@ -2410,6 +2464,64 @@ function TicketsSection({
             <div className="mt-5 inline-flex rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-bold text-black">{panelButton || "Open Application"}</div>
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-zinc-400">
               Applicants answer the modal before a ticket is created. Staff info stays hidden behind the Staff Info button.
+            </div>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="Application Settings" right={<button className="admin-button" disabled={loading} onClick={() => void saveTicketSettings()} type="button">Save Settings</button>}>
+        <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Ticket Welcome Message</h4>
+              <div className="mt-4 space-y-3">
+                <LabeledInput label="Screenshot Embed Title" value={welcomeTitle} onChange={setWelcomeTitle} />
+                <label className="block space-y-2">
+                  <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Screenshot Embed Description</span>
+                  <textarea className="admin-input min-h-40 resize-y" value={welcomeDescription} onChange={(event) => setWelcomeDescription(event.target.value)} />
+                </label>
+              </div>
+            </div>
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Application Questions</h4>
+              <div className="mt-4 space-y-3">
+                {questions.map((question, index) => (
+                  <div key={String(question.key ?? index)} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Question {index + 1}{index === 0 ? " · Roblox username" : ""}</div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <input className="admin-input" value={String(question.label ?? "")} onChange={(event) => updateQuestion(index, { label: event.target.value })} placeholder="Question label" disabled={index === 0} />
+                      <input className="admin-input" value={String(question.placeholder ?? "")} onChange={(event) => updateQuestion(index, { placeholder: event.target.value })} placeholder="Placeholder" />
+                      <select className="admin-input" value={String(question.style ?? "paragraph")} onChange={(event) => updateQuestion(index, { style: event.target.value })} disabled={index === 0}>
+                        <option value="short">Short answer</option>
+                        <option value="paragraph">Long answer</option>
+                      </select>
+                      <input className="admin-input" type="number" value={Number(question.maxLength ?? 500)} onChange={(event) => updateQuestion(index, { maxLength: Number(event.target.value) })} min={16} max={1000} />
+                    </div>
+                    <label className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
+                      <input type="checkbox" checked={Boolean(question.required)} onChange={(event) => updateQuestion(index, { required: event.target.checked })} disabled={index === 0} /> Required
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Feature Settings</h4>
+              <div className="mt-4 grid gap-2">
+                {["Open limit: 1", "Accept button: enabled", "Close button: enabled", "Staff Info button: enabled", "Transcripts: enabled", "Delete after close: enabled", "Support hours: coming soon", "Archive category: coming soon"].map((item) => (
+                  <div key={item} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-300">{item}</div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">User-facing Flow</h4>
+              <ol className="mt-4 space-y-3 text-sm text-zinc-300">
+                <li>1. Applicant clicks the panel button.</li>
+                <li>2. They answer the modal questions before a ticket is made.</li>
+                <li>3. Bot creates a private ticket and asks for screenshots.</li>
+                <li>4. Staff use Staff Info, then Accept or Close.</li>
+              </ol>
             </div>
           </div>
         </div>
