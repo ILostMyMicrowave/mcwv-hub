@@ -1155,7 +1155,7 @@ export default function AdminPage() {
             )}
 
             {section === "tickets" && (
-              <TicketsSection tickets={tickets} metrics={ticketMetrics} onToast={showToast} onReload={loadAdminData} />
+              <TicketsSection tickets={tickets} metrics={ticketMetrics} channels={channels} onToast={showToast} onReload={loadAdminData} />
             )}
 
             {section === "players" && (
@@ -2280,23 +2280,57 @@ function GiveawaysSection({
 function TicketsSection({
   tickets,
   metrics,
+  channels,
   onToast,
   onReload,
 }: {
   tickets: TicketRow[];
   metrics: UnknownRecord;
+  channels: AdminChannel[];
   onToast: (message: string, tone: "success" | "error" | "info") => void;
   onReload: () => Promise<void>;
 }) {
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [filter, setFilter] = useState("open");
   const [loading, setLoading] = useState(false);
+  const [panelChannelId, setPanelChannelId] = useState("");
+  const [panelTitle, setPanelTitle] = useState("MCWV Applications");
+  const [panelDescription, setPanelDescription] = useState("Ready to apply for MCWV? Open a private application ticket below. Inside the ticket, you’ll send screenshots and submit your Roblox details for staff review.");
+  const [panelButton, setPanelButton] = useState("Open Application");
 
   const filtered = tickets.filter((ticket) => {
     if (filter === "all") return true;
     if (filter === "open") return ["open", "pending"].includes(String(ticket.status ?? "open"));
     return String(ticket.status ?? "") === filter;
   });
+
+  async function sendPanel() {
+    if (!panelChannelId) {
+      onToast("Choose a panel channel first", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/tickets/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "panel_send",
+          channel_id: panelChannelId,
+          title: panelTitle,
+          description: panelDescription,
+          button_label: panelButton,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to send panel"));
+      onToast("Application panel sent", "success");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to send panel", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function openTicket(ticketId: string) {
     setLoading(true);
@@ -2347,6 +2381,40 @@ function TicketsSection({
         <Metric label="Closed" value={toDisplayValue(metrics.closed ?? 0)} />
       </div>
 
+      <Panel title="Application Panel Builder" right={<span className="text-xs text-zinc-500">Sends the Discord application panel</span>}>
+        <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+          <div className="space-y-3">
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Panel Channel</span>
+              <select className="admin-input" value={panelChannelId} onChange={(event) => setPanelChannelId(event.target.value)}>
+                <option value="">Select a channel...</option>
+                {channels.filter((channel) => channel.canSendMessages).map((channel) => (
+                  <option key={channel.id} value={channel.id}>{channelDisplayName(channel)}</option>
+                ))}
+              </select>
+            </label>
+            <LabeledInput label="Panel Title" value={panelTitle} onChange={setPanelTitle} />
+            <LabeledInput label="Button Label" value={panelButton} onChange={setPanelButton} />
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Panel Description</span>
+              <textarea className="admin-input min-h-28 resize-y" value={panelDescription} onChange={(event) => setPanelDescription(event.target.value)} />
+            </label>
+            <div className="flex justify-end">
+              <button className="admin-button" disabled={loading} onClick={() => void sendPanel()} type="button">Send Panel</button>
+            </div>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
+            <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Live Preview</div>
+            <h4 className="mt-3 text-2xl font-bold text-white">{panelTitle || "MCWV Applications"}</h4>
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription}</p>
+            <div className="mt-5 inline-flex rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-bold text-black">{panelButton || "Open Application"}</div>
+            <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-zinc-400">
+              Applicants answer the modal before a ticket is created. Staff info stays hidden behind the Staff Info button.
+            </div>
+          </div>
+        </div>
+      </Panel>
+
       <Panel
         title="Application Tickets"
         right={
@@ -2370,7 +2438,7 @@ function TicketsSection({
               key={ticket.ticketId}
               type="button"
               onClick={() => void openTicket(ticket.ticketId)}
-              className="rounded-3xl border border-white/10 bg-black/20 p-4 text-left transition hover:bg-white/10"
+              className="group rounded-3xl border border-white/10 bg-black/20 p-4 text-left transition hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-white/10"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
