@@ -192,22 +192,7 @@ export default function WarReturnRecap() {
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center px-3 py-4">
       <button className="absolute inset-0 bg-black/85 backdrop-blur-lg" onClick={() => setOpen(false)} aria-label="Close war recap" />
-      <div className="war-recap-panel war-recap-border relative z-10 max-h-[94vh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-2xl shadow-black/60">
-        <div className="pointer-events-none absolute inset-0 opacity-20 [background:linear-gradient(90deg,transparent,rgba(255,255,255,0.10),transparent)] war-recap-sheen" />
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          {Array.from({ length: 18 }).map((_, index) => (
-            <span
-              key={index}
-              className="recap-particle absolute h-1.5 w-1.5 rounded-full"
-              style={{
-                left: `${(index * 37) % 100}%`,
-                top: `${(index * 19) % 100}%`,
-                animationDelay: `${index * 90}ms`,
-                background: index % 3 === 0 ? "#34d399" : index % 3 === 1 ? "#f97316" : "#facc15",
-              }}
-            />
-          ))}
-        </div>
+      <div className="war-recap-panel war-recap-border war-recap-bg isolate relative z-10 max-h-[94vh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 shadow-2xl shadow-black/60">
         <div className="war-recap-content relative min-w-0 overflow-x-hidden p-4 sm:p-5">
           <button
             type="button"
@@ -323,18 +308,14 @@ export default function WarReturnRecap() {
           from { opacity: 0; transform: translateY(18px) scale(0.96); filter: blur(8px); }
           to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
-        @keyframes recapSheen {
-          from { transform: translateX(-120%) rotate(10deg); }
-          to { transform: translateX(160%) rotate(10deg); }
+        @keyframes recapBgDrift {
+          0% { background-position: 0% 0%, 100% 100%, 0% 50%; }
+          50% { background-position: 10% 6%, 90% 94%, 100% 50%; }
+          100% { background-position: 0% 0%, 100% 100%, 0% 50%; }
         }
         @keyframes recapBorderSpin {
           from { filter: hue-rotate(0deg); }
           to { filter: hue-rotate(360deg); }
-        }
-        @keyframes recapParticleFloat {
-          0% { opacity: 0; transform: translateY(18px) scale(0.4); }
-          20% { opacity: 0.85; }
-          100% { opacity: 0; transform: translateY(-90px) scale(1.15); }
         }
         @keyframes recapRowIn {
           from { opacity: 0; transform: translateX(-18px) scale(0.98); }
@@ -355,7 +336,17 @@ export default function WarReturnRecap() {
 
         .war-recap-panel, .war-recap-content { box-sizing: border-box; }
         .war-recap-content * { min-width: 0; }
-        .war-recap-panel { animation: recapIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .war-recap-bg {
+          background-image:
+            radial-gradient(circle at 12% 8%, rgba(16,185,129,0.34), transparent 28%),
+            radial-gradient(circle at 90% 88%, rgba(249,115,22,0.24), transparent 30%),
+            linear-gradient(135deg, rgba(15,23,42,0.99), rgba(2,6,23,0.995));
+          background-size: 140% 140%, 140% 140%, 100% 100%;
+          background-repeat: no-repeat;
+          background-clip: padding-box;
+          animation: recapIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards, recapBgDrift 9s ease-in-out infinite;
+        }
+        .war-recap-panel { }
         .war-recap-border::before {
           content: "";
           position: absolute;
@@ -365,8 +356,6 @@ export default function WarReturnRecap() {
           background: conic-gradient(from 180deg, rgba(52,211,153,0.75), rgba(249,115,22,0.65), rgba(250,204,21,0.55), rgba(52,211,153,0.75));
           animation: recapBorderSpin 5s linear infinite;
         }
-        .war-recap-sheen { animation: recapSheen 2.8s ease-out forwards; }
-        .recap-particle { opacity: 0; box-shadow: 0 0 18px currentColor; animation: recapParticleFloat 3.2s ease-in-out infinite; }
         .recap-title { animation: recapTitleGlow 2.4s ease-in-out infinite; }
         .recap-row { opacity: 0; animation: recapRowIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .recap-delta:not(:empty) { animation: recapDeltaPulse 1.8s ease-in-out infinite; }
@@ -385,7 +374,6 @@ export default function WarReturnRecap() {
             width: 100% !important;
             max-width: 100% !important;
           }
-          .recap-particle { opacity: 0.16; }
           .recap-title { animation-duration: 3.4s; overflow-wrap: anywhere; }
           .war-recap-border::before { inset: -1px; }
           .recap-row { width: 100%; }
