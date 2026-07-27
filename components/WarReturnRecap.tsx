@@ -106,20 +106,20 @@ function RecapRow({
   nowValue?: number | null;
 }) {
   return (
-    <div className="recap-row rounded-xl border border-white/10 bg-slate-950/65 px-3 py-2.5 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]" style={{ animationDelay: delay }}>
+    <div className="recap-row min-w-0 rounded-xl border border-white/10 bg-slate-950/65 px-3 py-2 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]" style={{ animationDelay: delay }}>
       <div className="flex items-center justify-between gap-3">
         <div className="font-bold text-white">{label}</div>
         <DeltaPill delta={delta} type={type} />
       </div>
-      <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+      <div className="mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">Last check</div>
-          <div className="mt-1 font-semibold text-zinc-300">{before}</div>
+          <div className="mt-1 truncate font-semibold text-zinc-300">{before}</div>
         </div>
         <div className="text-zinc-500">→</div>
         <div className="text-right">
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">Now</div>
-          <div className="mt-1 text-base font-black text-white">
+          <div className="mt-1 truncate text-base font-black text-white">
             {type === "points" && nowValue !== undefined ? <CountUpNumber value={nowValue} /> : now}
           </div>
         </div>
@@ -190,9 +190,9 @@ export default function WarReturnRecap() {
   if (!open || !recap) return null;
 
   return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center px-4 py-6">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center px-3 py-4">
       <button className="absolute inset-0 bg-black/85 backdrop-blur-lg" onClick={() => setOpen(false)} aria-label="Close war recap" />
-      <div className="war-recap-panel war-recap-border relative z-10 max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-2xl shadow-black/60">
+      <div className="war-recap-panel war-recap-border relative z-10 max-h-[94vh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-2xl shadow-black/60">
         <div className="pointer-events-none absolute inset-0 opacity-20 [background:linear-gradient(90deg,transparent,rgba(255,255,255,0.10),transparent)] war-recap-sheen" />
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           {Array.from({ length: 18 }).map((_, index) => (
@@ -208,7 +208,7 @@ export default function WarReturnRecap() {
             />
           ))}
         </div>
-        <div className="relative p-4 sm:p-5">
+        <div className="war-recap-content relative min-w-0 overflow-x-hidden p-4 sm:p-5">
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -217,36 +217,36 @@ export default function WarReturnRecap() {
           >
             ×
           </button>
-          <div className="flex flex-col gap-4 pr-12 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+          <div className="flex min-w-0 flex-col gap-4 pr-12 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-200">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" /> War recap
               </div>
-              <h2 className="recap-title mt-4 text-xl font-black leading-tight text-white sm:text-4xl">Welcome back, {recap.username ?? "member"}</h2>
-              <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-zinc-200">
+              <h2 className="recap-title mt-3 max-w-full break-words text-2xl font-black leading-tight text-white sm:text-3xl">Welcome back, {recap.username ?? "member"}</h2>
+              <p className="mt-2 max-w-2xl text-xs font-medium leading-5 text-zinc-200 sm:text-sm">
                 Here’s what changed since you last checked{recap.minutesSince ? ` ${recap.minutesSince} minutes ago` : ""}.
               </p>
             </div>
           </div>
 
-          <div className="recap-impact mt-4 grid gap-2 sm:grid-cols-3">
-            <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-100/75">Your gain</div>
-              <div className="mt-1 text-xl font-black text-white"><CountUpNumber value={Math.max(0, recap.player?.points.delta ?? 0)} prefix="+" /></div>
+          <div className="recap-impact mt-4 grid min-w-0 grid-cols-3 gap-2">
+            <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-2.5">
+              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/75">Your gain</div>
+              <div className="mt-1 text-lg font-black text-white"><CountUpNumber value={Math.max(0, recap.player?.points.delta ?? 0)} prefix="+" /></div>
             </div>
-            <div className="rounded-2xl border border-sky-300/20 bg-sky-300/10 p-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-sky-100/75">Rank move</div>
-              <div className="mt-1 text-xl font-black text-white">{deltaText(recap.player?.rank.delta, "rank")}</div>
+            <div className="rounded-2xl border border-sky-300/20 bg-sky-300/10 p-2.5">
+              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-sky-100/75">Rank move</div>
+              <div className="mt-1 text-lg font-black text-white">{deltaText(recap.player?.rank.delta, "rank")}</div>
             </div>
-            <div className="rounded-2xl border border-orange-300/20 bg-orange-300/10 p-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-orange-100/75">Next target</div>
+            <div className="rounded-2xl border border-orange-300/20 bg-orange-300/10 p-2.5">
+              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-orange-100/75">Next target</div>
               <div className="mt-1 truncate text-xl font-black text-white">{recap.clan?.target ? recap.clan.target.name : "—"}</div>
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
-            <div className="space-y-2 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
-              <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_auto] gap-3 px-3 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-400 sm:grid">
+          <div className="mt-4 grid min-w-0 gap-3">
+            <div className="min-w-0 space-y-2 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+              <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_auto] gap-3 px-3 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-400 sm:grid">
                 <span>Stat</span><span>Last check</span><span>Now</span><span>Change</span>
               </div>
               <RecapRow
@@ -285,17 +285,17 @@ export default function WarReturnRecap() {
               />
             </div>
 
-            <div className="space-y-3">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <div className="rounded-3xl border border-white/10 bg-slate-950/55 p-4">
                 <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Your latest push</div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
                   <div className="rounded-xl border border-white/10 bg-white/8 p-3">
                     <div className="text-xs text-zinc-500">Last hour</div>
-                    <div className="mt-1 text-xl font-black text-white"><CountUpNumber value={recap.player?.lastHour ?? 0} prefix="+" /></div>
+                    <div className="mt-1 text-lg font-black text-white"><CountUpNumber value={recap.player?.lastHour ?? 0} prefix="+" /></div>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/8 p-3">
                     <div className="text-xs text-zinc-500">Last 5 min</div>
-                    <div className="mt-1 text-xl font-black text-white"><CountUpNumber value={recap.player?.last5m ?? 0} prefix="+" /></div>
+                    <div className="mt-1 text-lg font-black text-white"><CountUpNumber value={recap.player?.last5m ?? 0} prefix="+" /></div>
                   </div>
                 </div>
               </div>
@@ -310,8 +310,8 @@ export default function WarReturnRecap() {
               </div>
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                <button className="recap-cta rounded-full border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15" onClick={() => closeAndGo("/leaderboard")}>View Leaderboard</button>
-                <button className="recap-cta rounded-full bg-emerald-300 px-4 py-2.5 text-sm font-bold text-black transition hover:scale-[1.03]" onClick={() => closeAndGo("/war-analyst")}>Open Battle HQ</button>
+                <button className="recap-cta w-full rounded-full border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15 sm:w-auto" onClick={() => closeAndGo("/leaderboard")}>View Leaderboard</button>
+                <button className="recap-cta w-full rounded-full bg-emerald-300 px-4 py-2.5 text-sm font-bold text-black transition hover:scale-[1.03] sm:w-auto" onClick={() => closeAndGo("/war-analyst")}>Open Battle HQ</button>
               </div>
             </div>
           </div>
@@ -352,6 +352,9 @@ export default function WarReturnRecap() {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.06); }
         }
+
+        .war-recap-panel, .war-recap-content { box-sizing: border-box; }
+        .war-recap-content * { min-width: 0; }
         .war-recap-panel { animation: recapIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .war-recap-border::before {
           content: "";
@@ -371,9 +374,23 @@ export default function WarReturnRecap() {
         .recap-cta:hover { box-shadow: 0 0 24px rgba(52,211,153,0.22); transform: translateY(-1px) scale(1.03); }
 
         @media (max-width: 640px) {
-          .war-recap-panel { border-radius: 1.5rem; }
-          .recap-particle { opacity: 0.45; }
-          .recap-title { animation-duration: 3.4s; }
+          .war-recap-panel {
+            border-radius: 1.25rem;
+            max-height: 92vh;
+            width: calc(100vw - 1.25rem) !important;
+            max-width: calc(100vw - 1.25rem) !important;
+            margin: 0 auto !important;
+          }
+          .war-recap-content {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          .recap-particle { opacity: 0.16; }
+          .recap-title { animation-duration: 3.4s; overflow-wrap: anywhere; }
+          .war-recap-border::before { inset: -1px; }
+          .recap-row { width: 100%; }
+          .recap-impact { width: 100%; }
+          .recap-impact > div { padding: 0.65rem; }
         }
       `}</style>
     </div>
