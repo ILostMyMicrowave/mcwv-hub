@@ -462,8 +462,6 @@ export default function BattleHQPage() {
     ? Math.max(0, data.timing.nextUpdateInMs - (now % data.timing.snapshotIntervalMs))
     : null;
 
-  const enoughHistoryForRate = (data?.diagnostics.snapshotsAvailable ?? 0) >= 3;
-  const showRate = enoughHistoryForRate && data?.stats.hourlyRate !== null;
   const showThreatEta = data?.stats.threatEtaMs !== null && gapBelow !== null && gapBelow > 0;
   const recentHistory = pointsHistory.slice(-6);
   const forecastRange = data?.stats.projectedBestPlacement && data?.stats.projectedWorstPlacement
@@ -680,7 +678,7 @@ export default function BattleHQPage() {
                     <Card
                       title="24h gain"
                       value={`+${formatNumber(data.stats.gain24h)}`}
-                      sub={showRate ? `${formatNumber(Math.round(data.stats.hourlyRate ?? 0))} / hour` : "Need more snapshots"}
+                      sub="Total gained over the tracked 24h window"
                       delay="0.4s"
                     />
                     <Card
