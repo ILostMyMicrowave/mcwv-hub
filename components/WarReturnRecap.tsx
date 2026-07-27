@@ -82,8 +82,12 @@ export default function WarReturnRecap() {
   useEffect(() => {
     if (pathname === "/login" || pathname === "/signup") return;
     let alive = true;
+    let lastCheckedAt = 0;
 
-    async function load() {
+    async function load(force = false) {
+      if (!force && Date.now() - lastCheckedAt < 10 * 60 * 1000) return;
+      lastCheckedAt = Date.now();
+
       const res = await fetch("/api/war/personal-recap", { cache: "no-store" }).catch(() => null);
       if (!res?.ok) return;
       const json: RecapResponse = await res.json().catch(() => ({}));
@@ -94,10 +98,21 @@ export default function WarReturnRecap() {
       }
     }
 
-    const timer = window.setTimeout(() => void load(), 900);
+    function handleVisibilityOrFocus() {
+      if (document.visibilityState === "visible") {
+        void load(false);
+      }
+    }
+
+    const timer = window.setTimeout(() => void load(true), 900);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+
     return () => {
       alive = false;
       window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
     };
   }, [pathname]);
 
