@@ -192,7 +192,7 @@ export default function WarReturnRecap() {
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center px-3 py-4">
       <button className="absolute inset-0 bg-black/85 backdrop-blur-lg" onClick={() => setOpen(false)} aria-label="Close war recap" />
-      <div className="war-recap-panel war-recap-border war-recap-bg isolate relative z-10 max-h-[94vh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 shadow-2xl shadow-black/60">
+      <div className="war-recap-panel war-recap-border war-recap-bg isolate relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 shadow-2xl shadow-black/60">
         <div className="war-recap-content relative min-w-0 overflow-x-hidden p-4 sm:p-5">
           <button
             type="button"
@@ -214,22 +214,7 @@ export default function WarReturnRecap() {
             </div>
           </div>
 
-          <div className="recap-impact mt-4 grid min-w-0 grid-cols-3 gap-2">
-            <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-2.5">
-              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/75">Your gain</div>
-              <div className="mt-1 text-lg font-black text-white"><CountUpNumber value={Math.max(0, recap.player?.points.delta ?? 0)} prefix="+" /></div>
-            </div>
-            <div className="rounded-2xl border border-sky-300/20 bg-sky-300/10 p-2.5">
-              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-sky-100/75">Rank move</div>
-              <div className="mt-1 text-lg font-black text-white">{deltaText(recap.player?.rank.delta, "rank")}</div>
-            </div>
-            <div className="rounded-2xl border border-orange-300/20 bg-orange-300/10 p-2.5">
-              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-orange-100/75">Next target</div>
-              <div className="mt-1 truncate text-xl font-black text-white">{recap.clan?.target ? recap.clan.target.name : "—"}</div>
-            </div>
-          </div>
-
-          <div className="mt-4 grid min-w-0 gap-3">
+          <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="min-w-0 space-y-2 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
               <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_auto] gap-3 px-3 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-400 sm:grid">
                 <span>Stat</span><span>Last check</span><span>Now</span><span>Change</span>
@@ -270,7 +255,7 @@ export default function WarReturnRecap() {
               />
             </div>
 
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <div className="rounded-3xl border border-white/10 bg-slate-950/55 p-4">
                 <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Your latest push</div>
                 <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
@@ -377,8 +362,6 @@ export default function WarReturnRecap() {
           .recap-title { animation-duration: 3.4s; overflow-wrap: anywhere; }
           .war-recap-border::before { inset: -1px; }
           .recap-row { width: 100%; }
-          .recap-impact { width: 100%; }
-          .recap-impact > div { padding: 0.65rem; }
         }
       `}</style>
     </div>
