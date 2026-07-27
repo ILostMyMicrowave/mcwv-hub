@@ -81,7 +81,7 @@ export default function WarHistoryDropdown({
   }
 
   return (
-    <div className="relative inline-block w-full sm:w-auto" ref={dropdownRef}>
+    <div className="relative z-[90] inline-block w-full overflow-visible sm:w-auto" ref={dropdownRef}>
       {/* Trigger Button */}
       <button
         type="button"
@@ -129,14 +129,14 @@ export default function WarHistoryDropdown({
         <>
           {/* Backdrop with fade animation - only on mobile */}
           <div
-            className="fixed inset-0 z-10 sm:hidden"
+            className="fixed inset-0 z-[80] bg-black/20 sm:hidden"
             onClick={() => setIsOpen(false)}
             style={{ animation: "fadeIn 0.2s ease-out" }}
           />
 
           {/* Dropdown Content */}
           <div
-            className="absolute top-full left-0 right-0 z-20 mt-2 w-full min-w-[280px] origin-top rounded-xl border border-[var(--border)] bg-[var(--background)]/95 backdrop-blur-xl shadow-2xl sm:left-0 sm:right-auto sm:w-auto"
+            className="absolute left-0 right-0 top-full z-[100] mt-2 max-h-[70vh] w-full min-w-[280px] origin-top overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:left-0 sm:right-auto sm:w-[360px]"
             style={{
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.5), 0 0 30px var(--glow)",
               animation: "scaleIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)",
@@ -148,10 +148,10 @@ export default function WarHistoryDropdown({
                 onSelect(null, null);
                 setIsOpen(false);
               }}
-              className={`relative cursor-pointer rounded-t-xl p-4 transition-all duration-300 hover:bg-[var(--primary)]/10 ${
+              className={`relative cursor-pointer rounded-t-xl p-4 transition-all duration-300 hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ${
                 !selectedBattleId
-                  ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                  : ""
+                  ? "bg-[color-mix(in_srgb,var(--primary)_14%,var(--card))] ring-1 ring-[var(--primary)]/30"
+                  : "bg-[var(--card)]"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -179,13 +179,11 @@ export default function WarHistoryDropdown({
                     onSelect(battle.battle_id, battle.battle_name || battle.battle_id);
                     setIsOpen(false);
                   }}
-                  className={`relative cursor-pointer p-4 transition-all duration-300 hover:bg-[var(--primary)]/10 ${
+                  className={`relative cursor-pointer bg-[var(--card)] p-4 transition-all duration-300 hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ${
                     selectedBattleId === battle.battle_id
-                      ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                      ? "bg-[color-mix(in_srgb,var(--primary)_14%,var(--card))] ring-1 ring-[var(--primary)]/30"
                       : ""
-                  } ${index === 0 ? "rounded-t-xl" : ""} ${
-                    index === battles.length - 1 ? "rounded-b-xl" : ""
-                  }`}
+                  } ${index === battles.length - 1 ? "rounded-b-xl" : ""}`}
                   style={{
                     animation: `slideIn 0.3s ease-out ${index * 0.05}s both`,
                   }}
