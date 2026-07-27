@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 type RecapNumber = {
@@ -133,11 +133,21 @@ export default function WarReturnRecap() {
   const router = useRouter();
   const [recap, setRecap] = useState<RecapResponse | null>(null);
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
 
-  function closeAndGo(path: string) {
-    setOpen(false);
-    router.push(path);
-  }
+  const closeModal = useCallback((afterClose?: () => void) => {
+    if (closing) return;
+    setClosing(true);
+    window.setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+      afterClose?.();
+    }, 280);
+  }, [closing]);
+
+  const closeAndGo = useCallback((path: string) => {
+    closeModal(() => router.push(path));
+  }, [closeModal, router]);
 
   useEffect(() => {
     if (pathname === "/login" || pathname === "/signup") return;
@@ -156,6 +166,7 @@ export default function WarReturnRecap() {
       if (!alive) return;
       if (json.show) {
         setRecap(json);
+        setClosing(false);
         setOpen(true);
       }
     }
@@ -181,22 +192,22 @@ export default function WarReturnRecap() {
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeModal();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+  }, [open, closeModal]);
 
-  if (!open || !recap) return null;
+  if ((!open && !closing) || !recap) return null;
 
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center px-3 py-4">
-      <button className="absolute inset-0 bg-black/85 backdrop-blur-lg" onClick={() => setOpen(false)} aria-label="Close war recap" />
-      <div className="war-recap-panel war-recap-border war-recap-bg isolate relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 shadow-2xl shadow-black/60">
+      <button className={`recap-backdrop absolute inset-0 bg-black/85 backdrop-blur-lg ${closing ? "recap-backdrop-out" : ""}`} onClick={() => closeModal()} aria-label="Close war recap" />
+      <div className={`war-recap-panel war-recap-border war-recap-bg isolate relative z-10 max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-[2rem] border border-white/15 shadow-2xl shadow-black/60 ${closing ? "war-recap-panel-out" : ""}`}>
         <div className="war-recap-content relative min-w-0 overflow-x-hidden p-4 sm:p-5">
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => closeModal()}
             className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-slate-950/85 text-xl font-black text-white shadow-xl transition hover:scale-110 hover:bg-rose-500/20"
             aria-label="Close recap"
           >
@@ -293,6 +304,14 @@ export default function WarReturnRecap() {
           from { opacity: 0; transform: translateY(18px) scale(0.96); filter: blur(8px); }
           to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
+        @keyframes recapOut {
+          from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+          to { opacity: 0; transform: translateY(14px) scale(0.96); filter: blur(8px); }
+        }
+        @keyframes recapBackdropOut {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
         @keyframes recapBgDrift {
           0% { background-position: 0% 0%, 100% 100%, 0% 50%; }
           50% { background-position: 10% 6%, 90% 94%, 100% 50%; }
@@ -321,6 +340,8 @@ export default function WarReturnRecap() {
 
         .war-recap-panel, .war-recap-content { box-sizing: border-box; }
         .war-recap-content * { min-width: 0; }
+        .recap-backdrop { transition: opacity 0.28s ease; }
+        .recap-backdrop-out { animation: recapBackdropOut 0.28s ease forwards; }
         .war-recap-bg {
           background-image:
             radial-gradient(circle at 12% 8%, rgba(16,185,129,0.34), transparent 28%),
@@ -331,6 +352,7 @@ export default function WarReturnRecap() {
           background-clip: padding-box;
           animation: recapIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards, recapBgDrift 9s ease-in-out infinite;
         }
+        .war-recap-panel-out { animation: recapOut 0.28s cubic-bezier(0.7, 0, 0.84, 0) forwards !important; pointer-events: none; }
         .war-recap-panel { }
         .war-recap-border::before {
           content: "";
