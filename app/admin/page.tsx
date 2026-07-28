@@ -1048,7 +1048,8 @@ export default function AdminPage() {
     <>
       <Navbar />
       <main className="min-h-screen px-4 py-6 text-white sm:py-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 lg:flex-row">
+        <div className={`mx-auto flex flex-col gap-6 ${section === "tickets" ? "max-w-[94rem]" : "max-w-7xl lg:flex-row"}`}>
+          {section !== "tickets" && (
           <aside className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:w-64 lg:shrink-0">
             <div className="rounded-3xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
               <div className="px-3 py-4">
@@ -1080,8 +1081,10 @@ export default function AdminPage() {
               </nav>
             </div>
           </aside>
+          )}
 
           <section className="min-w-0 flex-1 space-y-6">
+            {section !== "tickets" && (
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl sm:p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1118,6 +1121,7 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
+            )}
 
             {section === "overview" && (
               <OverviewSection
@@ -1155,7 +1159,7 @@ export default function AdminPage() {
             )}
 
             {section === "tickets" && (
-              <TicketsSection tickets={tickets} metrics={ticketMetrics} channels={channels} onToast={showToast} onReload={loadAdminData} />
+              <TicketsSection tickets={tickets} metrics={ticketMetrics} channels={channels} isOwner={isOwner} onToast={showToast} onReload={loadAdminData} />
             )}
 
             {section === "players" && (
@@ -2332,12 +2336,14 @@ function TicketsSection({
   tickets,
   metrics,
   channels,
+  isOwner,
   onToast,
   onReload,
 }: {
   tickets: TicketRow[];
   metrics: UnknownRecord;
   channels: AdminChannel[];
+  isOwner: boolean;
   onToast: (message: string, tone: "success" | "error" | "info") => void;
   onReload: () => Promise<void>;
 }) {
@@ -2473,6 +2479,32 @@ function TicketsSection({
     }
   }
 
+  async function clearTicketRecords() {
+    if (!isOwner) return;
+    const confirmed = window.prompt(
+      "Clear all application ticket records from the website dashboard?\n\nThis does not delete Discord channels. Type CLEAR TICKETS to confirm."
+    );
+    if (confirmed !== "CLEAR TICKETS") return;
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/tickets/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear_all" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to clear tickets"));
+      setSelected(null);
+      onToast(`Cleared ${data.cleared ?? "all"} ticket record(s)`, "success");
+      await onReload();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to clear tickets", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function openTicket(ticketId: string) {
     setLoading(true);
     try {
@@ -2515,7 +2547,7 @@ function TicketsSection({
     { id: "overview", label: "Command Center", icon: "✦" },
     { id: "tickets", label: "Ticket Queue", icon: "🎫" },
     { id: "builder", label: "Panel Builder", icon: "🧩" },
-    { id: "settings", label: "Flow Studio", icon: "⚙️" },
+    { id: "settings", label: "Settings", icon: "⚙️" },
   ] as const;
   const recentTickets = [...tickets].slice(0, 4);
   const openTicketCount = tickets.filter((ticket) => ["open", "pending"].includes(String(ticket.status ?? "open"))).length;
@@ -2538,7 +2570,7 @@ function TicketsSection({
           <div>
             <div className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">Tickets Control Center</div>
             <h3 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">Application system studio</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">A TicketsV2/Ticket King inspired workspace for panels, ticket queue, application questions, colours, embeds, and staff actions — customised for MCWV.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">A polished MCWV workspace for panels, ticket queue, application questions, colours, embeds, and staff actions.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:w-[26rem]">
             {recentTickets.length ? recentTickets.map((ticket) => (
@@ -2719,6 +2751,16 @@ function TicketsSection({
         title={ticketTab === "overview" ? "Live Ticket Queue" : "Application Tickets"}
         right={
           <div className="flex flex-wrap gap-2">
+            {isOwner && (
+              <button
+                className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-200 transition hover:bg-red-500/20"
+                disabled={loading || tickets.length === 0}
+                onClick={() => void clearTicketRecords()}
+                type="button"
+              >
+                Clear Test Records
+              </button>
+            )}
             {filters.map((item) => (
               <button
                 key={item}
@@ -2787,7 +2829,7 @@ function TicketsSection({
               </div>
             </div>
             <div className="rounded-[1.65rem] border border-emerald-400/15 bg-emerald-400/[0.04] p-5 text-sm text-emerald-100">
-              <b>Tip:</b> use Flow Studio to tune colours/questions, then Panel Builder to ship the updated panel to Discord.
+              <b>Tip:</b> use Settings to tune colours/questions, then Panel Builder to ship the updated panel to Discord.
             </div>
           </div>
         </div>
