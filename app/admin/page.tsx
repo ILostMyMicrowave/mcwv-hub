@@ -166,6 +166,7 @@ type TicketRow = {
   claimedBy?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  screenshotsUploaded?: boolean | null;
 };
 
 type TicketDetail = TicketRow & {
@@ -2303,25 +2304,40 @@ function ticketStatusLabel(status: unknown) {
   return "Open";
 }
 
-function ticketStage(status: unknown) {
-  const value = String(status ?? "open").toLowerCase();
-  if (value === "closed") return 4;
-  if (value === "accepted") return 3;
-  if (value === "pending") return 2;
-  return 1;
+function ticketScreenshotsUploaded(ticket: TicketRow | TicketDetail) {
+  return Boolean(ticket.screenshotsUploaded) || Boolean((ticket as TicketDetail).actions?.some((action) => action.action === "screenshots/uploaded"));
 }
 
-function TicketStageBar({ status }: { status: unknown }) {
-  const stage = ticketStage(status);
-  const steps = ["Opened", "Submitted", "Reviewed", "Finished"];
+function ticketFinished(ticket: TicketRow | TicketDetail) {
+  return ["accepted", "closed"].includes(String(ticket.status ?? "").toLowerCase());
+}
+
+function robloxAvatarFallback(robloxId?: string | null) {
+  if (!robloxId) return null;
+  return `https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(robloxId)}&width=150&height=150&format=png`;
+}
+
+function TicketStageBar({ ticket }: { ticket: TicketRow | TicketDetail }) {
+  const submitted = ticketScreenshotsUploaded(ticket);
+  const finished = ticketFinished(ticket);
+  const steps = [
+    { label: "Opened", active: true, tone: "green" },
+    { label: "Submitted", active: submitted || finished, tone: "green" },
+    { label: "Waiting", active: !finished, tone: "orange" },
+    { label: "Finished", active: finished, tone: "green" },
+  ];
+
   return (
     <div className="mt-4 grid grid-cols-4 gap-2">
-      {steps.map((step, index) => {
-        const active = index + 1 <= stage;
+      {steps.map((step) => {
+        const activeClass = step.tone === "orange"
+          ? "bg-orange-400 shadow-[0_0_18px_rgba(251,146,60,0.45)]"
+          : "bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]";
+        const textClass = step.tone === "orange" ? "text-orange-300" : "text-emerald-300";
         return (
-          <div key={step} className="space-y-1">
-            <div className={`h-1.5 rounded-full ${active ? "bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]" : "bg-white/10"}`} />
-            <div className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${active ? "text-emerald-300" : "text-zinc-600"}`}>{step}</div>
+          <div key={step.label} className="space-y-1">
+            <div className={`h-1.5 rounded-full transition-all duration-500 ${step.active ? activeClass : "bg-white/10"}`} />
+            <div className={`text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors ${step.active ? textClass : "text-zinc-600"}`}>{step.label}</div>
           </div>
         );
       })}
@@ -2650,7 +2666,7 @@ function TicketsSection({
               <button key={ticket.ticketId} type="button" onClick={() => void openTicket(ticket.ticketId)} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-emerald-400/30 hover:bg-white/10">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusTone(ticket.status ?? "open")}`}>{ticket.status ?? "open"}</span>
-                  <span className="text-[10px] text-zinc-500">{formatTime(ticket.updatedAt)}</span>
+                  <span className="text-[10px] text-zinc-500">Last message {formatTime(ticket.updatedAt)}</span>
                 </div>
                 <div className="mt-2 truncate text-sm font-bold text-white">{ticket.robloxUsername ?? ticket.ticketId}</div>
               </button>
@@ -2904,19 +2920,26 @@ function TicketsSection({
               >
                 <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 opacity-70 transition group-hover:opacity-100" />
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusTone(ticket.status ?? "open")}`}>{ticketStatusLabel(ticket.status)}</span>
-                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-zinc-500">{ticket.ticketId}</span>
+                  <div className="flex min-w-0 gap-4">
+                    <img
+                      src={robloxAvatarFallback(ticket.robloxId) ?? "/favicon.ico"}
+                      alt="Roblox avatar"
+                      className="mt-1 h-16 w-16 shrink-0 rounded-2xl border border-white/10 bg-black/30 object-cover shadow-lg transition duration-300 group-hover:scale-105 group-hover:border-emerald-400/30"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusTone(ticket.status ?? "open")}`}>{ticketStatusLabel(ticket.status)}</span>
+                        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-zinc-500">{shortenMiddle(ticket.ticketId, 8, 6)}</span>
+                      </div>
+                      <div className="mt-3 truncate text-xl font-black text-white">{ticketDisplayName(ticket)}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Discord ID {ticket.openerDiscordId ?? "—"} · Channel {ticket.channelId ? `#${shortenMiddle(ticket.channelId, 5, 5)}` : "not saved"}</div>
+                      <TicketStageBar ticket={ticket} />
                     </div>
-                    <div className="mt-3 truncate text-xl font-black text-white">{ticketDisplayName(ticket)}</div>
-                    <div className="mt-1 text-xs text-zinc-500">Discord {ticket.openerDiscordId ?? "—"} · Channel {ticket.channelId ? `#${ticket.channelId}` : "not saved"}</div>
-                    <TicketStageBar status={ticket.status} />
                   </div>
                   <div className="grid min-w-[9rem] gap-2 text-right text-xs text-zinc-500">
                     <span>Opened <b className="text-zinc-300">{formatTime(ticket.createdAt)}</b></span>
-                    <span>Updated <b className="text-zinc-300">{formatTime(ticket.updatedAt)}</b></span>
-                    <span className="text-emerald-300 opacity-0 transition group-hover:opacity-100">Open details →</span>
+                    <span>Last message <b className="text-zinc-300">{formatTime(ticket.updatedAt)}</b></span>
+                    <span className="inline-flex items-center justify-end gap-1 font-bold text-emerald-300 transition group-hover:translate-x-1">Open details <span aria-hidden="true">→</span></span>
                   </div>
                 </div>
               </button>
@@ -2962,14 +2985,21 @@ function TicketsSection({
             <div className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.22),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(3,7,18,0.98))] p-5 sm:p-7">
               <div className="absolute right-8 top-4 hidden text-8xl font-black text-white/[0.03] sm:block">TICKET</div>
               <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
+                <div className="flex min-w-0 gap-4">
+                  <img
+                    src={robloxAvatarFallback(selected.robloxId ?? selected.application?.robloxId) ?? "/favicon.ico"}
+                    alt="Roblox avatar"
+                    className="hidden h-20 w-20 shrink-0 rounded-3xl border border-white/10 bg-black/30 object-cover shadow-2xl sm:block"
+                  />
+                  <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(selected.status ?? "open")}`}>{ticketStatusLabel(selected.status)}</span>
                     <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-zinc-400">{selected.ticketId}</span>
                   </div>
                   <h3 className="mt-4 truncate text-3xl font-black tracking-tight text-white sm:text-5xl">{ticketDisplayName(selected)}</h3>
                   <p className="mt-2 text-sm text-zinc-400">Discord {selected.openerDiscordId ?? "—"} · Roblox {selected.robloxId ?? selected.application?.robloxId ?? "—"}</p>
-                  <div className="max-w-2xl"><TicketStageBar status={selected.status} /></div>
+                  <div className="max-w-2xl"><TicketStageBar ticket={selected} /></div>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selected.channelId && <a className="admin-button" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
@@ -3010,7 +3040,7 @@ function TicketsSection({
                   <Panel title="Ticket Snapshot">
                     <div className="grid gap-3 text-sm">
                       <MiniStat label="Opened" value={formatTime(selected.createdAt)} />
-                      <MiniStat label="Updated" value={formatTime(selected.updatedAt)} />
+                      <MiniStat label="Last message" value={formatTime(selected.updatedAt)} />
                       <MiniStat label="Channel" value={selected.channelId ? `#${selected.channelId}` : "Not saved"} />
                       <MiniStat label="Status" value={ticketStatusLabel(selected.status)} />
                     </div>
