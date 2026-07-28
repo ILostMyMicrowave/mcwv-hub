@@ -166,6 +166,7 @@ type TicketRow = {
   claimedBy?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastMessageAt?: string | null;
   screenshotsUploaded?: boolean | null;
 };
 
@@ -1107,7 +1108,7 @@ export default function AdminPage() {
                     {SECTION_DESCRIPTIONS[activeSection.id]}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 lg:justify-end">
                   <button className="admin-button" type="button" onClick={loadAdminData}>
                     Refresh
                   </button>
@@ -2312,9 +2313,9 @@ function ticketFinished(ticket: TicketRow | TicketDetail) {
   return ["accepted", "closed"].includes(String(ticket.status ?? "").toLowerCase());
 }
 
-function robloxAvatarFallback(robloxId?: string | null) {
+function robloxAvatarUrl(robloxId?: string | null) {
   if (!robloxId) return null;
-  return `https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(robloxId)}&width=150&height=150&format=png`;
+  return `/api/roblox/avatar?userId=${encodeURIComponent(robloxId)}`;
 }
 
 function TicketStageBar({ ticket }: { ticket: TicketRow | TicketDetail }) {
@@ -2666,7 +2667,7 @@ function TicketsSection({
               <button key={ticket.ticketId} type="button" onClick={() => void openTicket(ticket.ticketId)} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-emerald-400/30 hover:bg-white/10">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusTone(ticket.status ?? "open")}`}>{ticket.status ?? "open"}</span>
-                  <span className="text-[10px] text-zinc-500">Last message {formatTime(ticket.updatedAt)}</span>
+                  <span className="text-[10px] text-zinc-500">Last message {formatTime(ticket.lastMessageAt ?? ticket.updatedAt)}</span>
                 </div>
                 <div className="mt-2 truncate text-sm font-bold text-white">{ticket.robloxUsername ?? ticket.ticketId}</div>
               </button>
@@ -2916,15 +2917,16 @@ function TicketsSection({
                 key={ticket.ticketId}
                 type="button"
                 onClick={() => void openTicket(ticket.ticketId)}
-                className="group relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 text-left shadow-xl shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/35 hover:bg-white/[0.08]"
+                className="group relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 text-left shadow-xl shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/35 hover:bg-white/[0.08] hover:shadow-emerald-950/30 active:scale-[0.99]"
               >
                 <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 opacity-70 transition group-hover:opacity-100" />
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex min-w-0 gap-4">
                     <img
-                      src={robloxAvatarFallback(ticket.robloxId) ?? "/favicon.ico"}
+                      src={robloxAvatarUrl(ticket.robloxId) ?? "/favicon.ico"}
                       alt="Roblox avatar"
                       className="mt-1 h-16 w-16 shrink-0 rounded-2xl border border-white/10 bg-black/30 object-cover shadow-lg transition duration-300 group-hover:scale-105 group-hover:border-emerald-400/30"
+                      onError={(event) => { event.currentTarget.src = "/favicon.ico"; }}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -2936,9 +2938,9 @@ function TicketsSection({
                       <TicketStageBar ticket={ticket} />
                     </div>
                   </div>
-                  <div className="grid min-w-[9rem] gap-2 text-right text-xs text-zinc-500">
+                  <div className="grid min-w-[9rem] gap-2 text-left text-xs text-zinc-500 lg:text-right">
                     <span>Opened <b className="text-zinc-300">{formatTime(ticket.createdAt)}</b></span>
-                    <span>Last message <b className="text-zinc-300">{formatTime(ticket.updatedAt)}</b></span>
+                    <span>Last message <b className="text-zinc-300">{formatTime(ticket.lastMessageAt ?? ticket.updatedAt)}</b></span>
                     <span className="inline-flex items-center justify-end gap-1 font-bold text-emerald-300 transition group-hover:translate-x-1">Open details <span aria-hidden="true">→</span></span>
                   </div>
                 </div>
@@ -2981,36 +2983,37 @@ function TicketsSection({
       {selected && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-3 py-4 sm:px-6">
           <button className="absolute inset-0 bg-black/75 backdrop-blur-md transition-opacity" onClick={() => setSelected(null)} aria-label="Close ticket" />
-          <div className="relative z-10 max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#070a12] shadow-2xl shadow-black/60">
-            <div className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.22),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(3,7,18,0.98))] p-5 sm:p-7">
+          <div className="relative z-10 flex max-h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-[1.4rem] border border-white/10 bg-[#070a12] shadow-2xl shadow-black/60 sm:rounded-[2rem]">
+            <div className="relative shrink-0 overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.22),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(3,7,18,0.98))] p-4 sm:p-7">
               <div className="absolute right-8 top-4 hidden text-8xl font-black text-white/[0.03] sm:block">TICKET</div>
               <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex min-w-0 gap-4">
                   <img
-                    src={robloxAvatarFallback(selected.robloxId ?? selected.application?.robloxId) ?? "/favicon.ico"}
+                    src={robloxAvatarUrl(selected.robloxId ?? selected.application?.robloxId) ?? "/favicon.ico"}
                     alt="Roblox avatar"
-                    className="hidden h-20 w-20 shrink-0 rounded-3xl border border-white/10 bg-black/30 object-cover shadow-2xl sm:block"
+                    className="h-14 w-14 shrink-0 rounded-2xl border border-white/10 bg-black/30 object-cover shadow-2xl sm:h-20 sm:w-20 sm:rounded-3xl"
+                    onError={(event) => { event.currentTarget.src = "/favicon.ico"; }}
                   />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(selected.status ?? "open")}`}>{ticketStatusLabel(selected.status)}</span>
-                    <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-zinc-400">{selected.ticketId}</span>
+                    <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-zinc-400">{shortenMiddle(selected.ticketId, 9, 7)}</span>
                   </div>
-                  <h3 className="mt-4 truncate text-3xl font-black tracking-tight text-white sm:text-5xl">{ticketDisplayName(selected)}</h3>
-                  <p className="mt-2 text-sm text-zinc-400">Discord {selected.openerDiscordId ?? "—"} · Roblox {selected.robloxId ?? selected.application?.robloxId ?? "—"}</p>
+                  <h3 className="mt-3 truncate text-2xl font-black tracking-tight text-white sm:mt-4 sm:text-5xl">{ticketDisplayName(selected)}</h3>
+                  <p className="mt-2 break-words text-xs text-zinc-400 sm:text-sm">Discord ID {selected.openerDiscordId ?? "—"}<span className="hidden sm:inline"> · </span><br className="sm:hidden" />Roblox {selected.robloxId ?? selected.application?.robloxId ?? "—"}</p>
                   <div className="max-w-2xl"><TicketStageBar ticket={selected} /></div>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {selected.channelId && <a className="admin-button" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                  {selected.channelId && <a className="admin-button text-center" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
                   <button className="admin-button" disabled={loading || selected.status === "accepted"} onClick={() => void runTicketAction("accept", selected.ticketId)} type="button">Accept</button>
                   <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Close</button>
-                  <button className="admin-button" type="button" onClick={() => setSelected(null)}>×</button>
+                  <button className="admin-button" type="button" onClick={() => setSelected(null)}>Close</button>
                 </div>
               </div>
             </div>
 
-            <div className="max-h-[calc(92vh-13rem)] overflow-y-auto p-4 sm:p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
               <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
                 <div className="space-y-5">
                   <Panel title="Application Answers">
@@ -3040,7 +3043,7 @@ function TicketsSection({
                   <Panel title="Ticket Snapshot">
                     <div className="grid gap-3 text-sm">
                       <MiniStat label="Opened" value={formatTime(selected.createdAt)} />
-                      <MiniStat label="Last message" value={formatTime(selected.updatedAt)} />
+                      <MiniStat label="Last message" value={formatTime(selected.lastMessageAt ?? selected.updatedAt)} />
                       <MiniStat label="Channel" value={selected.channelId ? `#${selected.channelId}` : "Not saved"} />
                       <MiniStat label="Status" value={ticketStatusLabel(selected.status)} />
                     </div>
