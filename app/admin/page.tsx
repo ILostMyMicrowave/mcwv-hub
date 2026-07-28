@@ -2277,6 +2277,19 @@ function GiveawaysSection({
   );
 }
 
+function hexFromSetting(value: unknown, fallback = "#34D399") {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `#${Math.max(0, Math.min(0xffffff, value)).toString(16).padStart(6, "0").toUpperCase()}`;
+  }
+  const raw = String(value ?? fallback).trim();
+  const hex = raw.startsWith("#") ? raw : `#${raw}`;
+  return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : fallback;
+}
+
+function validHex(value: string, fallback = "#34D399") {
+  return /^#[0-9A-Fa-f]{6}$/.test(value) ? value : fallback;
+}
+
 function TicketsSection({
   tickets,
   metrics,
@@ -2298,6 +2311,15 @@ function TicketsSection({
   const [panelDescription, setPanelDescription] = useState("Ready to apply for MCWV? Open a private application ticket below. Inside the ticket, you’ll send screenshots and submit your Roblox details for staff review.");
   const [panelButton, setPanelButton] = useState("Open Application");
   const [panelColor, setPanelColor] = useState("#34D399");
+  const [embedColors, setEmbedColors] = useState({
+    banner: "#34D399",
+    ticketInstructions: "#34D399",
+    review: "#34D399",
+    staffInfo: "#60A5FA",
+    accepted: "#22C55E",
+    closed: "#22C55E",
+    reminder: "#F59E0B",
+  });
   const [welcomeTitle, setWelcomeTitle] = useState("Thank you for applying for MCWV!");
   const [welcomeDescription, setWelcomeDescription] = useState("Please send the following screenshots of your:\n\n• Pets\n• Rank\n• Masteries\n• Enchants\n• Game-passes\n• Player profile *(found in trading plaza, double tap on avatar)*\n\n**Make sure the screenshots are NON-CROPPED!**");
   const [questions, setQuestions] = useState([
@@ -2325,6 +2347,19 @@ function TicketsSection({
           : String(panel.accentColor);
         setPanelColor(rawColor.startsWith("#") ? rawColor : `#${rawColor}`);
       }
+      if (settings.embedColors && typeof settings.embedColors === "object") {
+        const rawColors = settings.embedColors as Record<string, unknown>;
+        setEmbedColors((current) => ({
+          ...current,
+          banner: hexFromSetting(rawColors.banner, current.banner),
+          ticketInstructions: hexFromSetting(rawColors.ticketInstructions, current.ticketInstructions),
+          review: hexFromSetting(rawColors.review, current.review),
+          staffInfo: hexFromSetting(rawColors.staffInfo, current.staffInfo),
+          accepted: hexFromSetting(rawColors.accepted, current.accepted),
+          closed: hexFromSetting(rawColors.closed, current.closed),
+          reminder: hexFromSetting(rawColors.reminder, current.reminder),
+        }));
+      }
       if (messages.welcomeTitle) setWelcomeTitle(String(messages.welcomeTitle));
       if (messages.welcomeDescription) setWelcomeDescription(String(messages.welcomeDescription));
       if (Array.isArray(settings.questions)) setQuestions(settings.questions);
@@ -2342,6 +2377,10 @@ function TicketsSection({
     setQuestions((current) => current.map((question, i) => i === index ? { ...question, ...patch } : question));
   }
 
+  function updateEmbedColor(key: keyof typeof embedColors, value: string) {
+    setEmbedColors((current) => ({ ...current, [key]: value.toUpperCase() }));
+  }
+
   async function saveTicketSettings() {
     setLoading(true);
     try {
@@ -2351,6 +2390,7 @@ function TicketsSection({
         body: JSON.stringify({
           panel: { title: panelTitle, description: panelDescription, buttonLabel: panelButton, accentColor: panelColor },
           messages: { welcomeTitle, welcomeDescription },
+          embedColors,
           questions,
           features: { openLimit: 1, acceptButton: true, closeButton: true, staffInfoButton: true, transcripts: true, deleteAfterClose: true, supportHours: false },
         }),
@@ -2506,6 +2546,40 @@ function TicketsSection({
                   <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Screenshot Embed Description</span>
                   <textarea className="admin-input min-h-40 resize-y" value={welcomeDescription} onChange={(event) => setWelcomeDescription(event.target.value)} />
                 </label>
+              </div>
+            </div>
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Ticket Embed Hex Colours</h4>
+              <p className="mt-2 text-xs text-zinc-500">Controls the colours used by embeds inside application tickets and the staff control flow.</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {([
+                  ["banner", "Banner Image Embed"],
+                  ["ticketInstructions", "Screenshot Instructions"],
+                  ["review", "Staff Control Embed"],
+                  ["staffInfo", "Staff Info Embed"],
+                  ["accepted", "Accepted Embed"],
+                  ["closed", "Closed/Transcript Embed"],
+                  ["reminder", "Screenshot Reminder"],
+                ] as Array<[keyof typeof embedColors, string]>).map(([key, label]) => (
+                  <div key={key} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                    <span className="admin-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</span>
+                    <div className="mt-2 grid grid-cols-[auto_1fr] gap-2">
+                      <input
+                        aria-label={`${label} colour picker`}
+                        className="h-11 w-14 cursor-pointer rounded-xl border border-white/10 bg-black/30 p-1"
+                        type="color"
+                        value={validHex(embedColors[key])}
+                        onChange={(event) => updateEmbedColor(key, event.target.value)}
+                      />
+                      <input
+                        className="admin-input"
+                        value={embedColors[key]}
+                        onChange={(event) => updateEmbedColor(key, event.target.value)}
+                        placeholder="#34D399"
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
