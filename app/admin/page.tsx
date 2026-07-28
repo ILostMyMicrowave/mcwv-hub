@@ -3007,8 +3007,8 @@ function TicketsSection({
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                   {selected.channelId && <a className="admin-button text-center" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
                   <button className="admin-button" disabled={loading || selected.status === "accepted"} onClick={() => void runTicketAction("accept", selected.ticketId)} type="button">Accept</button>
-                  <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Close</button>
-                  <button className="admin-button" type="button" onClick={() => setSelected(null)}>Close</button>
+                  <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Delete</button>
+                  <button className="admin-button" type="button" onClick={() => setSelected(null)} aria-label="Close popup">×</button>
                 </div>
               </div>
             </div>
