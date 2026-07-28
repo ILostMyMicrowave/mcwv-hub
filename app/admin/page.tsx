@@ -182,6 +182,16 @@ type TicketDetail = TicketRow & {
   transcript?: { text?: string; createdAt?: string | null } | null;
 };
 
+type TicketBlacklistEntry = {
+  discordId: string;
+  reason?: string;
+  createdBy?: string | null;
+  createdAt?: string | null;
+  username?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+};
+
 type ToastState = {
   message: string;
   tone: "success" | "error" | "info";
@@ -2349,8 +2359,11 @@ function TicketsSection({
 }) {
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [filter, setFilter] = useState("open");
-  const [ticketTab, setTicketTab] = useState<"overview" | "tickets" | "builder" | "settings">("overview");
+  const [ticketTab, setTicketTab] = useState<"tickets" | "blacklist" | "builder" | "settings">("tickets");
   const [loading, setLoading] = useState(false);
+  const [blacklist, setBlacklist] = useState<TicketBlacklistEntry[]>([]);
+  const [blacklistDiscordId, setBlacklistDiscordId] = useState("");
+  const [blacklistReason, setBlacklistReason] = useState("");
   const [panelChannelId, setPanelChannelId] = useState("");
   const [panelTitle, setPanelTitle] = useState("MCWV Applications");
   const [panelDescription, setPanelDescription] = useState("Ready to apply for MCWV? Open a private application ticket below. Inside the ticket, you’ll send screenshots and submit your Roblox details for staff review.");
@@ -2377,7 +2390,15 @@ function TicketsSection({
 
   useEffect(() => {
     async function loadTicketSettings() {
-      const res = await fetch("/api/admin/tickets/settings", { cache: "no-store" }).catch(() => null);
+      const [settingsRes, blacklistRes] = await Promise.all([
+        fetch("/api/admin/tickets/settings", { cache: "no-store" }).catch(() => null),
+        fetch("/api/admin/tickets/blacklist", { cache: "no-store" }).catch(() => null),
+      ]);
+      if (blacklistRes?.ok) {
+        const blacklistData = await blacklistRes.json().catch(() => ({}));
+        setBlacklist(Array.isArray(blacklistData.blacklist) ? blacklistData.blacklist : []);
+      }
+      const res = settingsRes;
       if (!res?.ok) return;
       const data = await res.json().catch(() => ({}));
       const settings = data.settings ?? {};
@@ -2479,6 +2500,58 @@ function TicketsSection({
     }
   }
 
+  async function reloadBlacklist() {
+    const res = await fetch("/api/admin/tickets/blacklist", { cache: "no-store" }).catch(() => null);
+    if (!res?.ok) return;
+    const data = await res.json().catch(() => ({}));
+    setBlacklist(Array.isArray(data.blacklist) ? data.blacklist : []);
+  }
+
+  async function addBlacklistEntry() {
+    if (!/^\d{15,25}$/.test(blacklistDiscordId.trim())) {
+      onToast("Enter a valid Discord user ID", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/tickets/blacklist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discordId: blacklistDiscordId.trim(), reason: blacklistReason.trim() || "No reason provided" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to blacklist user"));
+      setBlacklistDiscordId("");
+      setBlacklistReason("");
+      onToast("User added to ticket blacklist", "success");
+      await reloadBlacklist();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to blacklist user", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeBlacklistEntry(discordId: string) {
+    if (!window.confirm(`Remove ${discordId} from the ticket blacklist?`)) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/tickets/blacklist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remove", discordId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to remove blacklist entry"));
+      onToast("Blacklist entry removed", "success");
+      await reloadBlacklist();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to remove blacklist entry", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function clearTicketRecords() {
     if (!isOwner) return;
     const confirmed = window.prompt(
@@ -2544,8 +2617,8 @@ function TicketsSection({
 
   const filters = ["open", "pending", "accepted", "closed", "all"];
   const ticketTabs = [
-    { id: "overview", label: "Command Center", icon: "✦" },
     { id: "tickets", label: "Ticket Queue", icon: "🎫" },
+    { id: "blacklist", label: "Blacklist", icon: "🚫" },
     { id: "builder", label: "Panel Builder", icon: "🧩" },
     { id: "settings", label: "Settings", icon: "⚙️" },
   ] as const;
@@ -2597,6 +2670,52 @@ function TicketsSection({
           ))}
         </div>
       </div>
+
+      {ticketTab === "blacklist" && (
+      <Panel title="Ticket Blacklist" right={<button className="admin-button" disabled={loading} onClick={() => void reloadBlacklist()} type="button">Refresh</button>}>
+        <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+          <div className="rounded-[1.65rem] border border-white/10 bg-black/25 p-5">
+            <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Add blocked user</div>
+            <h4 className="mt-2 text-2xl font-black text-white">Block ticket access</h4>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">Add a Discord user ID and a clear reason. If they are in the server, the bot also applies the blacklist role.</p>
+            <div className="mt-5 space-y-3">
+              <LabeledInput label="Discord User ID" value={blacklistDiscordId} onChange={setBlacklistDiscordId} placeholder="123456789012345678" />
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Reason</span>
+                <textarea className="admin-input min-h-28 resize-y" value={blacklistReason} onChange={(event) => setBlacklistReason(event.target.value)} placeholder="Reason shown internally and to the blocked applicant" />
+              </label>
+              <button className="admin-button-danger w-full" disabled={loading} onClick={() => void addBlacklistEntry()} type="button">Add to Blacklist</button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {blacklist.length ? blacklist.map((entry) => (
+              <div key={entry.discordId} className="group flex flex-col gap-4 rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 transition hover:border-red-400/30 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <img
+                    src={entry.avatarUrl ?? `https://cdn.discordapp.com/embed/avatars/${Number(entry.discordId.slice(-1)) % 5}.png`}
+                    alt="Discord avatar"
+                    className="h-14 w-14 rounded-2xl border border-white/10 object-cover"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-lg font-black text-white">{entry.displayName ?? entry.username ?? entry.discordId}</div>
+                    <div className="text-xs text-zinc-500">{entry.discordId} · Added {formatTime(entry.createdAt)}</div>
+                    <div className="mt-1 text-sm text-zinc-300">{entry.reason || "No reason provided"}</div>
+                  </div>
+                </div>
+                <button className="admin-button" disabled={loading} onClick={() => void removeBlacklistEntry(entry.discordId)} type="button">Remove</button>
+              </div>
+            )) : (
+              <div className="rounded-[1.65rem] border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
+                <div className="text-4xl">✅</div>
+                <div className="mt-3 text-lg font-bold text-white">No blacklisted users</div>
+                <p className="mt-1 text-sm text-zinc-500">Blocked applicants will appear here with their Discord avatar and reason.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </Panel>
+      )}
 
       {ticketTab === "builder" && (
       <Panel title="Application Panel Builder" right={<span className="text-xs text-zinc-500">Sends the Discord application panel</span>}>
@@ -2746,9 +2865,9 @@ function TicketsSection({
       </Panel>
       )}
 
-      {(ticketTab === "overview" || ticketTab === "tickets") && (
+      {ticketTab === "tickets" && (
       <Panel
-        title={ticketTab === "overview" ? "Live Ticket Queue" : "Application Tickets"}
+        title="Ticket Queue"
         right={
           <div className="flex flex-wrap gap-2">
             {isOwner && (
