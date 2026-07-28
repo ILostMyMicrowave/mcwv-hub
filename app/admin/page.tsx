@@ -2297,6 +2297,7 @@ function TicketsSection({
   const [panelTitle, setPanelTitle] = useState("MCWV Applications");
   const [panelDescription, setPanelDescription] = useState("Ready to apply for MCWV? Open a private application ticket below. Inside the ticket, you’ll send screenshots and submit your Roblox details for staff review.");
   const [panelButton, setPanelButton] = useState("Open Application");
+  const [panelColor, setPanelColor] = useState("#34D399");
   const [welcomeTitle, setWelcomeTitle] = useState("Thank you for applying for MCWV!");
   const [welcomeDescription, setWelcomeDescription] = useState("Please send the following screenshots of your:\n\n• Pets\n• Rank\n• Masteries\n• Enchants\n• Game-passes\n• Player profile *(found in trading plaza, double tap on avatar)*\n\n**Make sure the screenshots are NON-CROPPED!**");
   const [questions, setQuestions] = useState([
@@ -2318,6 +2319,12 @@ function TicketsSection({
       if (panel.title) setPanelTitle(String(panel.title));
       if (panel.description) setPanelDescription(String(panel.description));
       if (panel.buttonLabel) setPanelButton(String(panel.buttonLabel));
+      if (panel.accentColor !== undefined) {
+        const rawColor = typeof panel.accentColor === "number"
+          ? `#${panel.accentColor.toString(16).padStart(6, "0").slice(-6).toUpperCase()}`
+          : String(panel.accentColor);
+        setPanelColor(rawColor.startsWith("#") ? rawColor : `#${rawColor}`);
+      }
       if (messages.welcomeTitle) setWelcomeTitle(String(messages.welcomeTitle));
       if (messages.welcomeDescription) setWelcomeDescription(String(messages.welcomeDescription));
       if (Array.isArray(settings.questions)) setQuestions(settings.questions);
@@ -2342,7 +2349,7 @@ function TicketsSection({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          panel: { title: panelTitle, description: panelDescription, buttonLabel: panelButton },
+          panel: { title: panelTitle, description: panelDescription, buttonLabel: panelButton, accentColor: panelColor },
           messages: { welcomeTitle, welcomeDescription },
           questions,
           features: { openLimit: 1, acceptButton: true, closeButton: true, staffInfoButton: true, transcripts: true, deleteAfterClose: true, supportHours: false },
@@ -2374,6 +2381,7 @@ function TicketsSection({
           title: panelTitle,
           description: panelDescription,
           button_label: panelButton,
+          accent_color: panelColor,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2449,6 +2457,19 @@ function TicketsSection({
             </label>
             <LabeledInput label="Panel Title" value={panelTitle} onChange={setPanelTitle} />
             <LabeledInput label="Button Label" value={panelButton} onChange={setPanelButton} />
+            <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Hex Colour</span>
+                <input
+                  aria-label="Panel hex colour picker"
+                  className="h-12 w-20 cursor-pointer rounded-2xl border border-white/10 bg-black/30 p-1"
+                  type="color"
+                  value={/^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399"}
+                  onChange={(event) => setPanelColor(event.target.value.toUpperCase())}
+                />
+              </label>
+              <LabeledInput label="Hex Value" value={panelColor} onChange={setPanelColor} placeholder="#34D399" />
+            </div>
             <label className="block space-y-2">
               <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Panel Description</span>
               <textarea className="admin-input min-h-28 resize-y" value={panelDescription} onChange={(event) => setPanelDescription(event.target.value)} />
@@ -2457,11 +2478,16 @@ function TicketsSection({
               <button className="admin-button" disabled={loading} onClick={() => void sendPanel()} type="button">Send Panel</button>
             </div>
           </div>
-          <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
+          <div className="rounded-3xl border border-white/10 bg-black/25 p-5" style={{ borderLeft: `4px solid ${/^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399"}` }}>
             <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Live Preview</div>
             <h4 className="mt-3 text-2xl font-bold text-white">{panelTitle || "MCWV Applications"}</h4>
             <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription}</p>
-            <div className="mt-5 inline-flex rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-bold text-black">{panelButton || "Open Application"}</div>
+            <div
+              className="mt-5 inline-flex rounded-2xl px-4 py-2 text-sm font-bold text-black"
+              style={{ backgroundColor: /^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399" }}
+            >
+              {panelButton || "Open Application"}
+            </div>
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-zinc-400">
               Applicants answer the modal before a ticket is created. Staff info stays hidden behind the Staff Info button.
             </div>
