@@ -2,16 +2,23 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 type NavLink = {
   href: string;
   label: string;
+  officerOnly?: boolean;
 };
+
+type NavbarUser = {
+  role?: string | null;
+} | null;
 
 export default function Navbar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<NavbarUser>(null);
   const [renderDrawer, setRenderDrawer] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [indicator, setIndicator] = useState<{
@@ -24,6 +31,8 @@ export default function Navbar() {
   const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
   const closeTimerRef = useRef<number | null>(null);
 
+  const isOfficer = user?.role === "officer" || user?.role === "owner";
+
   const links: NavLink[] = useMemo(
     () => [
       { href: "/", label: "Home" },
@@ -31,20 +40,43 @@ export default function Navbar() {
       { href: "/war-info", label: "War Info" },
       { href: "/war-analyst", label: "Battle HQ" },
       { href: "/contributions", label: "Contributions" },
+      { href: "/admin?section=tickets", label: "Tickets", officerOnly: true },
       { href: "/admin", label: "Admin" },
       { href: "/settings", label: "Settings" },
-    ],
-    []
+    ].filter((link) => !link.officerOnly || isOfficer),
+    [isOfficer]
   );
+
+  const isActiveHref = useMemo(() => {
+    const section = searchParams.get("section");
+    return (href: string) => {
+      if (href === "/") return pathname === "/";
+      if (href === "/admin?section=tickets") return pathname === "/admin" && section === "tickets";
+      if (href === "/admin") return pathname === "/admin" && section !== "tickets";
+      const baseHref = href.split("?")[0];
+      return pathname === baseHref || pathname.startsWith(`${baseHref}/`);
+    };
+  }, [pathname, searchParams]);
 
   const activeLink = useMemo(() => {
     const sorted = [...links].sort((a, b) => b.href.length - a.href.length);
-    return sorted.find((link) =>
-      link.href === "/"
-        ? pathname === "/"
-        : pathname === link.href || pathname.startsWith(`${link.href}/`)
-    );
-  }, [links, pathname]);
+    return sorted.find((link) => isActiveHref(link.href));
+  }, [links, isActiveHref]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setUser(data.user ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const updateIndicator = () => {
@@ -181,10 +213,7 @@ export default function Navbar() {
             }}
           />
           {links.map((link) => {
-            const isActive =
-              link.href === "/"
-                ? pathname === "/"
-                : pathname === link.href || pathname.startsWith(`${link.href}/`);
+            const isActive = isActiveHref(link.href);
 
             return (
               <Link
