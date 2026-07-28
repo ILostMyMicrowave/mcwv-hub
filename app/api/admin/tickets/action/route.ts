@@ -23,6 +23,7 @@ export async function POST(req: Request) {
           title: body.title,
           description: body.description,
           button_label: body.button_label ?? body.buttonLabel,
+          accent_color: body.accent_color ?? body.accentColor ?? body.hex_color ?? body.hexColor,
         }),
       })
       return NextResponse.json(data)
