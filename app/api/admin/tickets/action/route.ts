@@ -29,6 +29,17 @@ export async function POST(req: Request) {
       return NextResponse.json(data)
     }
 
+    if (action === "clear_all") {
+      if (auth.user.role !== "owner") {
+        return NextResponse.json({ error: "Only the owner can clear ticket records" }, { status: 403 })
+      }
+      const data = await botAdminFetch("/admin/tickets/clear", {
+        method: "POST",
+        body: JSON.stringify({ actor_id: auth.user.discordId ?? auth.user.id }),
+      })
+      return NextResponse.json(data)
+    }
+
     if (!ticketId) {
       return NextResponse.json({ error: "ticketId is required" }, { status: 400 })
     }
