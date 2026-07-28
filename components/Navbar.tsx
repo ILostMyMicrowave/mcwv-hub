@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 type NavLink = {
   href: string;
@@ -16,9 +16,9 @@ type NavbarUser = {
 
 export default function Navbar() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<NavbarUser>(null);
+  const [activeAdminSection, setActiveAdminSection] = useState<string | null>(null);
   const [renderDrawer, setRenderDrawer] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [indicator, setIndicator] = useState<{
@@ -48,15 +48,14 @@ export default function Navbar() {
   );
 
   const isActiveHref = useMemo(() => {
-    const section = searchParams.get("section");
     return (href: string) => {
       if (href === "/") return pathname === "/";
-      if (href === "/admin?section=tickets") return pathname === "/admin" && section === "tickets";
-      if (href === "/admin") return pathname === "/admin" && section !== "tickets";
+      if (href === "/admin?section=tickets") return pathname === "/admin" && activeAdminSection === "tickets";
+      if (href === "/admin") return pathname === "/admin" && activeAdminSection !== "tickets";
       const baseHref = href.split("?")[0];
       return pathname === baseHref || pathname.startsWith(`${baseHref}/`);
     };
-  }, [pathname, searchParams]);
+  }, [pathname, activeAdminSection]);
 
   const activeLink = useMemo(() => {
     const sorted = [...links].sort((a, b) => b.href.length - a.href.length);
@@ -77,6 +76,21 @@ export default function Navbar() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const updateSection = () => {
+      if (typeof window === "undefined") return;
+      setActiveAdminSection(new URLSearchParams(window.location.search).get("section"));
+    };
+
+    updateSection();
+    window.addEventListener("popstate", updateSection);
+    window.addEventListener("hashchange", updateSection);
+    return () => {
+      window.removeEventListener("popstate", updateSection);
+      window.removeEventListener("hashchange", updateSection);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     const updateIndicator = () => {
