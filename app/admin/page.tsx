@@ -2277,6 +2277,44 @@ function GiveawaysSection({
   );
 }
 
+function ticketDisplayName(ticket: TicketRow | TicketDetail) {
+  return String(ticket.robloxUsername ?? ticket.ticketId ?? "Application");
+}
+
+function ticketStatusLabel(status: unknown) {
+  const value = String(status ?? "open").toLowerCase();
+  if (value === "pending") return "Awaiting review";
+  if (value === "accepted") return "Accepted";
+  if (value === "closed") return "Closed";
+  return "Open";
+}
+
+function ticketStage(status: unknown) {
+  const value = String(status ?? "open").toLowerCase();
+  if (value === "closed") return 4;
+  if (value === "accepted") return 3;
+  if (value === "pending") return 2;
+  return 1;
+}
+
+function TicketStageBar({ status }: { status: unknown }) {
+  const stage = ticketStage(status);
+  const steps = ["Opened", "Submitted", "Reviewed", "Finished"];
+  return (
+    <div className="mt-4 grid grid-cols-4 gap-2">
+      {steps.map((step, index) => {
+        const active = index + 1 <= stage;
+        return (
+          <div key={step} className="space-y-1">
+            <div className={`h-1.5 rounded-full ${active ? "bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]" : "bg-white/10"}`} />
+            <div className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${active ? "text-emerald-300" : "text-zinc-600"}`}>{step}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function hexFromSetting(value: unknown, fallback = "#34D399") {
   if (typeof value === "number" && Number.isFinite(value)) {
     return `#${Math.max(0, Math.min(0xffffff, value)).toString(16).padStart(6, "0").toUpperCase()}`;
@@ -2305,6 +2343,7 @@ function TicketsSection({
 }) {
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [filter, setFilter] = useState("open");
+  const [ticketTab, setTicketTab] = useState<"overview" | "tickets" | "builder" | "settings">("overview");
   const [loading, setLoading] = useState(false);
   const [panelChannelId, setPanelChannelId] = useState("");
   const [panelTitle, setPanelTitle] = useState("MCWV Applications");
@@ -2472,6 +2511,17 @@ function TicketsSection({
   }
 
   const filters = ["open", "pending", "accepted", "closed", "all"];
+  const ticketTabs = [
+    { id: "overview", label: "Command Center", icon: "✦" },
+    { id: "tickets", label: "Ticket Queue", icon: "🎫" },
+    { id: "builder", label: "Panel Builder", icon: "🧩" },
+    { id: "settings", label: "Flow Studio", icon: "⚙️" },
+  ] as const;
+  const recentTickets = [...tickets].slice(0, 4);
+  const openTicketCount = tickets.filter((ticket) => ["open", "pending"].includes(String(ticket.status ?? "open"))).length;
+  const acceptedTicketCount = tickets.filter((ticket) => String(ticket.status ?? "") === "accepted").length;
+  const closedTicketCount = tickets.filter((ticket) => String(ticket.status ?? "") === "closed").length;
+  const conversionRate = tickets.length ? Math.round((acceptedTicketCount / tickets.length) * 100) : 0;
 
   return (
     <div className="space-y-6">
@@ -2483,6 +2533,40 @@ function TicketsSection({
         <Metric label="Closed" value={toDisplayValue(metrics.closed ?? 0)} />
       </div>
 
+      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.18),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.94),rgba(3,7,18,0.96))] p-5 shadow-2xl shadow-emerald-950/20">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">Tickets Control Center</div>
+            <h3 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">Application system studio</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">A TicketsV2/Ticket King inspired workspace for panels, ticket queue, application questions, colours, embeds, and staff actions — customised for MCWV.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:w-[26rem]">
+            {recentTickets.length ? recentTickets.map((ticket) => (
+              <button key={ticket.ticketId} type="button" onClick={() => void openTicket(ticket.ticketId)} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-emerald-400/30 hover:bg-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusTone(ticket.status ?? "open")}`}>{ticket.status ?? "open"}</span>
+                  <span className="text-[10px] text-zinc-500">{formatTime(ticket.updatedAt)}</span>
+                </div>
+                <div className="mt-2 truncate text-sm font-bold text-white">{ticket.robloxUsername ?? ticket.ticketId}</div>
+              </button>
+            )) : <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-zinc-500">No recent tickets yet.</div>}
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2 rounded-3xl border border-white/10 bg-black/20 p-2">
+          {ticketTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setTicketTab(tab.id)}
+              className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${ticketTab === tab.id ? "bg-emerald-400 text-black shadow-lg shadow-emerald-500/20" : "text-zinc-400 hover:bg-white/10 hover:text-white"}`}
+            >
+              <span className="mr-2">{tab.icon}</span>{tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {ticketTab === "builder" && (
       <Panel title="Application Panel Builder" right={<span className="text-xs text-zinc-500">Sends the Discord application panel</span>}>
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
           <div className="space-y-3">
@@ -2534,7 +2618,9 @@ function TicketsSection({
           </div>
         </div>
       </Panel>
+      )}
 
+      {ticketTab === "settings" && (
       <Panel title="Application Settings" right={<button className="admin-button" disabled={loading} onClick={() => void saveTicketSettings()} type="button">Save Settings</button>}>
         <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
           <div className="space-y-4">
@@ -2626,9 +2712,11 @@ function TicketsSection({
           </div>
         </div>
       </Panel>
+      )}
 
+      {(ticketTab === "overview" || ticketTab === "tickets") && (
       <Panel
-        title="Application Tickets"
+        title={ticketTab === "overview" ? "Live Ticket Queue" : "Application Tickets"}
         right={
           <div className="flex flex-wrap gap-2">
             {filters.map((item) => (
@@ -2644,78 +2732,144 @@ function TicketsSection({
           </div>
         }
       >
-        <div className="grid gap-3">
-          {filtered.length ? filtered.map((ticket) => (
-            <button
-              key={ticket.ticketId}
-              type="button"
-              onClick={() => void openTicket(ticket.ticketId)}
-              className="group rounded-3xl border border-white/10 bg-black/20 p-4 text-left transition hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-white/10"
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-3 py-1 text-xs ${statusTone(ticket.status ?? "open")}`}>{ticket.status ?? "open"}</span>
-                    <span className="text-xs text-zinc-500">{ticket.ticketId}</span>
+        <div className="grid gap-5 xl:grid-cols-[1.4fr_0.85fr]">
+          <div className="space-y-3">
+            {filtered.length ? filtered.map((ticket) => (
+              <button
+                key={ticket.ticketId}
+                type="button"
+                onClick={() => void openTicket(ticket.ticketId)}
+                className="group relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 text-left shadow-xl shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/35 hover:bg-white/[0.08]"
+              >
+                <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 opacity-70 transition group-hover:opacity-100" />
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusTone(ticket.status ?? "open")}`}>{ticketStatusLabel(ticket.status)}</span>
+                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-zinc-500">{ticket.ticketId}</span>
+                    </div>
+                    <div className="mt-3 truncate text-xl font-black text-white">{ticketDisplayName(ticket)}</div>
+                    <div className="mt-1 text-xs text-zinc-500">Discord {ticket.openerDiscordId ?? "—"} · Channel {ticket.channelId ? `#${ticket.channelId}` : "not saved"}</div>
+                    <TicketStageBar status={ticket.status} />
                   </div>
-                  <div className="mt-2 text-lg font-bold text-white">{ticket.robloxUsername ?? "Application"}</div>
-                  <div className="mt-1 text-xs text-zinc-500">Discord: {ticket.openerDiscordId ?? "—"} · Opened {formatTime(ticket.createdAt)}</div>
+                  <div className="grid min-w-[9rem] gap-2 text-right text-xs text-zinc-500">
+                    <span>Opened <b className="text-zinc-300">{formatTime(ticket.createdAt)}</b></span>
+                    <span>Updated <b className="text-zinc-300">{formatTime(ticket.updatedAt)}</b></span>
+                    <span className="text-emerald-300 opacity-0 transition group-hover:opacity-100">Open details →</span>
+                  </div>
                 </div>
-                <div className="text-sm text-zinc-400">Updated {formatTime(ticket.updatedAt)}</div>
+              </button>
+            )) : (
+              <div className="rounded-[1.65rem] border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
+                <div className="text-4xl">🎫</div>
+                <div className="mt-3 text-lg font-bold text-white">No tickets in this view</div>
+                <p className="mt-1 text-sm text-zinc-500">Try another status filter or send a new application panel.</p>
               </div>
-            </button>
-          )) : <p className="text-sm text-zinc-500">No tickets found for this filter.</p>}
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-[1.65rem] border border-white/10 bg-black/25 p-5">
+              <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Operations</div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <MiniStat label="Active queue" value={openTicketCount} />
+                <MiniStat label="Conversion" value={`${conversionRate}%`} />
+                <MiniStat label="Accepted" value={acceptedTicketCount} />
+                <MiniStat label="Closed" value={closedTicketCount} />
+              </div>
+            </div>
+            <div className="rounded-[1.65rem] border border-white/10 bg-black/25 p-5">
+              <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Discord Panel Preview</div>
+              <div className="mt-4 rounded-2xl border border-white/10 bg-[#2b2d31] p-4 shadow-2xl" style={{ borderLeft: `4px solid ${validHex(panelColor)}` }}>
+                <div className="text-lg font-black text-white">{panelTitle || "MCWV Applications"}</div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription || "Panel description"}</p>
+                <div className="mt-4 inline-flex rounded-xl px-3 py-2 text-xs font-black text-black" style={{ backgroundColor: validHex(panelColor) }}>{panelButton || "Open Application"}</div>
+              </div>
+            </div>
+            <div className="rounded-[1.65rem] border border-emerald-400/15 bg-emerald-400/[0.04] p-5 text-sm text-emerald-100">
+              <b>Tip:</b> use Flow Studio to tune colours/questions, then Panel Builder to ship the updated panel to Discord.
+            </div>
+          </div>
         </div>
       </Panel>
+      )}
 
       {selected && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-6">
-          <button className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setSelected(null)} aria-label="Close ticket" />
-          <div className="relative z-10 max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Ticket Detail</div>
-                <h3 className="mt-1 text-3xl font-bold">{selected.robloxUsername ?? selected.ticketId}</h3>
-                <p className="mt-1 text-sm text-zinc-400">{selected.status} · Discord {selected.openerDiscordId ?? "—"}</p>
-              </div>
-              <button className="admin-button" type="button" onClick={() => setSelected(null)}>×</button>
-            </div>
-
-            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_0.9fr]">
-              <Panel title="Application Answers">
-                {selected.application ? (
-                  <div className="space-y-3 text-sm text-zinc-300">
-                    <MiniStat label="Roblox" value={`${selected.application.robloxUsername ?? "—"} (${selected.application.robloxId ?? "—"})`} />
-                    <MiniStat label="AFK 24/7 on Windows" value={selected.application.afk247 ?? "—"} />
-                    <MiniStat label="Activity" value={selected.application.activity ?? "—"} />
-                    <MiniStat label="Liquid Gems" value={selected.application.liquidGems ?? "—"} />
-                    <MiniStat label="Why accept" value={selected.application.whyAccept ?? "—"} />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-3 py-4 sm:px-6">
+          <button className="absolute inset-0 bg-black/75 backdrop-blur-md transition-opacity" onClick={() => setSelected(null)} aria-label="Close ticket" />
+          <div className="relative z-10 max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#070a12] shadow-2xl shadow-black/60">
+            <div className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.22),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(3,7,18,0.98))] p-5 sm:p-7">
+              <div className="absolute right-8 top-4 hidden text-8xl font-black text-white/[0.03] sm:block">TICKET</div>
+              <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(selected.status ?? "open")}`}>{ticketStatusLabel(selected.status)}</span>
+                    <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-zinc-400">{selected.ticketId}</span>
                   </div>
-                ) : <p className="text-sm text-zinc-500">No application answers found.</p>}
-              </Panel>
-              <Panel title="Actions">
+                  <h3 className="mt-4 truncate text-3xl font-black tracking-tight text-white sm:text-5xl">{ticketDisplayName(selected)}</h3>
+                  <p className="mt-2 text-sm text-zinc-400">Discord {selected.openerDiscordId ?? "—"} · Roblox {selected.robloxId ?? selected.application?.robloxId ?? "—"}</p>
+                  <div className="max-w-2xl"><TicketStageBar status={selected.status} /></div>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {selected.channelId && <a className="admin-button" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
                   <button className="admin-button" disabled={loading || selected.status === "accepted"} onClick={() => void runTicketAction("accept", selected.ticketId)} type="button">Accept</button>
                   <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Close</button>
+                  <button className="admin-button" type="button" onClick={() => setSelected(null)}>×</button>
                 </div>
-                <div className="mt-4 space-y-2">
-                  {(selected.actions ?? []).slice(0, 8).map((action, index) => (
-                    <div key={safeId("ticket-action", action.action, index)} className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm">
-                      <div className="font-semibold text-white">{action.action ?? "Action"}</div>
-                      <div className="text-xs text-zinc-500">{formatTime(action.createdAt)} · {action.actorDiscordId ?? "system"}</div>
-                      {action.message && <div className="mt-1 text-zinc-400">{action.message}</div>}
-                    </div>
-                  ))}
-                </div>
-              </Panel>
+              </div>
             </div>
 
-            {selected.transcript?.text && (
-              <Panel title="Transcript">
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl bg-black/30 p-4 text-xs text-zinc-300">{selected.transcript.text}</pre>
-              </Panel>
-            )}
+            <div className="max-h-[calc(92vh-13rem)] overflow-y-auto p-4 sm:p-6">
+              <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                <div className="space-y-5">
+                  <Panel title="Application Answers">
+                    {selected.application ? (
+                      <div className="grid gap-3 text-sm text-zinc-300 md:grid-cols-2">
+                        <MiniStat label="Roblox" value={`${selected.application.robloxUsername ?? "—"} (${selected.application.robloxId ?? "—"})`} />
+                        <MiniStat label="Submitted" value={formatTime(selected.application.submittedAt)} />
+                        <MiniStat label="AFK 24/7 on Windows" value={selected.application.afk247 ?? "—"} />
+                        <MiniStat label="Activity" value={selected.application.activity ?? "—"} />
+                        <MiniStat label="Liquid Gems" value={selected.application.liquidGems ?? "—"} />
+                        <MiniStat label="Why accept" value={selected.application.whyAccept ?? "—"} />
+                      </div>
+                    ) : <p className="text-sm text-zinc-500">No application answers found.</p>}
+                  </Panel>
+
+                  {selected.transcript?.text && (
+                    <Panel title="Transcript">
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <button className="admin-button" type="button" onClick={() => navigator.clipboard.writeText(selected.transcript?.text ?? "")}>Copy Transcript</button>
+                      </div>
+                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/35 p-4 text-xs leading-5 text-zinc-300">{selected.transcript.text}</pre>
+                    </Panel>
+                  )}
+                </div>
+
+                <div className="space-y-5">
+                  <Panel title="Ticket Snapshot">
+                    <div className="grid gap-3 text-sm">
+                      <MiniStat label="Opened" value={formatTime(selected.createdAt)} />
+                      <MiniStat label="Updated" value={formatTime(selected.updatedAt)} />
+                      <MiniStat label="Channel" value={selected.channelId ? `#${selected.channelId}` : "Not saved"} />
+                      <MiniStat label="Status" value={ticketStatusLabel(selected.status)} />
+                    </div>
+                  </Panel>
+
+                  <Panel title="Action Timeline">
+                    <div className="space-y-3">
+                      {(selected.actions ?? []).length ? (selected.actions ?? []).slice(0, 12).map((action, index) => (
+                        <div key={safeId("ticket-action", action.action, index)} className="relative rounded-2xl border border-white/10 bg-black/25 p-3 pl-4 text-sm">
+                          <div className="absolute -left-1 top-4 h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.8)]" />
+                          <div className="font-bold text-white">{action.action ?? "Action"}</div>
+                          <div className="text-xs text-zinc-500">{formatTime(action.createdAt)} · {action.actorDiscordId ?? "system"}</div>
+                          {action.message && <div className="mt-1 text-zinc-400">{action.message}</div>}
+                        </div>
+                      )) : <p className="text-sm text-zinc-500">No actions recorded yet.</p>}
+                    </div>
+                  </Panel>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
