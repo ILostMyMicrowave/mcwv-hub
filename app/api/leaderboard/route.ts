@@ -379,33 +379,35 @@ function mapBaselineRows(rows: BaselineRow[]) {
   );
 }
 
-async function getPointBaselines(ids: string[], intervalSql: "5 minutes" | "1 hour") {
+async function getPointBaselines(ids: string[], intervalSql: "5 minutes" | "1 hour", battleKey: string) {
   if (!ids.length) return new Map<string, PointBaseline>();
 
   const result = await pool.query<BaselineRow>(
     `SELECT DISTINCT ON (roblox_id) roblox_id, points, captured_at
      FROM player_leaderboard_history
      WHERE roblox_id = ANY($1)
+       AND battle_id = $3
        AND points IS NOT NULL
        AND captured_at <= NOW() - ($2::interval)
      ORDER BY roblox_id, captured_at DESC`,
-    [ids, intervalSql]
+    [ids, intervalSql, battleKey]
   );
 
   return mapBaselineRows(result.rows);
 }
 
-async function getEarliestRecentBaselines(ids: string[], intervalSql: "1 hour") {
+async function getEarliestRecentBaselines(ids: string[], intervalSql: "1 hour", battleKey: string) {
   if (!ids.length) return new Map<string, PointBaseline>();
 
   const result = await pool.query<BaselineRow>(
     `SELECT DISTINCT ON (roblox_id) roblox_id, points, captured_at
      FROM player_leaderboard_history
      WHERE roblox_id = ANY($1)
+       AND battle_id = $3
        AND points IS NOT NULL
        AND captured_at >= NOW() - ($2::interval)
      ORDER BY roblox_id, captured_at ASC`,
-    [ids, intervalSql]
+    [ids, intervalSql, battleKey]
   );
 
   return mapBaselineRows(result.rows);
@@ -457,9 +459,9 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
 
     const ids = activeEntries.map((entry) => String(entry.user_id));
     const [fiveMinuteBaselines, hourlyBaselines, recentHourlyBaselines] = await Promise.all([
-      getPointBaselines(ids, "5 minutes"),
-      getPointBaselines(ids, "1 hour"),
-      getEarliestRecentBaselines(ids, "1 hour"),
+      getPointBaselines(ids, "5 minutes", battleKey),
+      getPointBaselines(ids, "1 hour", battleKey),
+      getEarliestRecentBaselines(ids, "1 hour", battleKey),
     ]);
 
     const enriched = entries.map((entry) => {
