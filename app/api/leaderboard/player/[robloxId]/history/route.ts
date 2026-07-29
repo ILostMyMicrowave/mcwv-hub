@@ -10,6 +10,7 @@ type PointRow = {
 };
 
 type SnapshotRow = {
+  battle_id: string | null;
   points: number | string | null;
   rank: number | string | null;
   pph: number | string | null;
@@ -60,13 +61,25 @@ export async function GET(
     const snapshotHistoryExists = await tableExists("player_leaderboard_history");
 
     if (snapshotHistoryExists) {
-      const snapshotResult = await pool.query<SnapshotRow>(
-        `SELECT points, rank, pph, change_5m, captured_at
+      const latestBattleResult = await pool.query<{ battle_id: string | null }>(
+        `SELECT battle_id
          FROM player_leaderboard_history
          WHERE roblox_id::text = $1
+           AND points IS NOT NULL
+         ORDER BY captured_at DESC
+         LIMIT 1`,
+        [String(userId)]
+      );
+      const latestBattleId = latestBattleResult.rows[0]?.battle_id ?? null;
+
+      const snapshotResult = await pool.query<SnapshotRow>(
+        `SELECT battle_id, points, rank, pph, change_5m, captured_at
+         FROM player_leaderboard_history
+         WHERE roblox_id::text = $1
+           AND battle_id IS NOT DISTINCT FROM $2::text
          ORDER BY captured_at ASC
          LIMIT 500`,
-        [String(userId)]
+        [String(userId), latestBattleId]
       );
 
       let previousPoints: number | null = null;
@@ -97,11 +110,9 @@ export async function GET(
         const fiveMinuteBaseline = [...snapshotResult.rows]
           .reverse()
           .find((row) => new Date(row.captured_at).getTime() <= fiveMinuteCutoff);
-        const hourlyBaseline =
-          [...snapshotResult.rows]
-            .reverse()
-            .find((row) => new Date(row.captured_at).getTime() <= hourlyCutoff) ??
-          snapshotResult.rows.find((row) => new Date(row.captured_at).getTime() >= hourlyCutoff);
+        const hourlyBaseline = [...snapshotResult.rows]
+          .reverse()
+          .find((row) => new Date(row.captured_at).getTime() <= hourlyCutoff);
 
         change5m = fiveMinuteBaseline ? Math.max(0, latestPoints - asNumber(fiveMinuteBaseline.points)) : 0;
 
