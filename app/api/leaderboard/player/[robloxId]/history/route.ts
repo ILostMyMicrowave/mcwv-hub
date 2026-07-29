@@ -40,6 +40,40 @@ function asNumber(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function pointsAtTime(rows: SnapshotRow[], targetMs: number) {
+  if (!rows.length) return null;
+
+  const sorted = [...rows].sort(
+    (a, b) => new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
+  );
+
+  const firstMs = new Date(sorted[0].captured_at).getTime();
+  if (targetMs < firstMs) return null;
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const currentMs = new Date(current.captured_at).getTime();
+    const currentPoints = asNumber(current.points);
+
+    if (currentMs === targetMs) return currentPoints;
+
+    const next = sorted[index + 1];
+    if (!next) return currentPoints;
+
+    const nextMs = new Date(next.captured_at).getTime();
+    const nextPoints = asNumber(next.points);
+
+    if (currentMs <= targetMs && targetMs <= nextMs) {
+      const span = nextMs - currentMs;
+      if (span <= 0) return currentPoints;
+      const ratio = (targetMs - currentMs) / span;
+      return currentPoints + (nextPoints - currentPoints) * ratio;
+    }
+  }
+
+  return asNumber(sorted[sorted.length - 1].points);
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ robloxId: string }> }
@@ -107,16 +141,12 @@ export async function GET(
         const latestTimeMs = new Date(latest.captured_at).getTime();
         const fiveMinuteCutoff = latestTimeMs - 5 * 60 * 1000;
         const hourlyCutoff = latestTimeMs - 60 * 60 * 1000;
-        const fiveMinuteBaseline = [...snapshotResult.rows]
-          .reverse()
-          .find((row) => new Date(row.captured_at).getTime() <= fiveMinuteCutoff);
-        const hourlyBaseline = [...snapshotResult.rows]
-          .reverse()
-          .find((row) => new Date(row.captured_at).getTime() <= hourlyCutoff);
+        const fiveMinuteBaseline = pointsAtTime(snapshotResult.rows, fiveMinuteCutoff);
+        const hourlyBaseline = pointsAtTime(snapshotResult.rows, hourlyCutoff);
 
-        change5m = fiveMinuteBaseline ? Math.max(0, latestPoints - asNumber(fiveMinuteBaseline.points)) : 0;
+        change5m = fiveMinuteBaseline !== null ? Math.max(0, Math.round(latestPoints - fiveMinuteBaseline)) : 0;
 
-        pph = hourlyBaseline ? Math.max(0, latestPoints - asNumber(hourlyBaseline.points)) : 0;
+        pph = hourlyBaseline !== null ? Math.max(0, Math.round(latestPoints - hourlyBaseline)) : 0;
       }
     }
 
