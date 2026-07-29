@@ -933,9 +933,16 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
 
   const now = new Date();
+  const latestSnapshotPoint = snapshotHistory[snapshotHistory.length - 1] ?? null;
+  const shouldAppendLivePoint =
+    !latestSnapshotPoint ||
+    now.getTime() - latestSnapshotPoint.capturedAt.getTime() > 60_000 ||
+    latestSnapshotPoint.points !== currentPoints ||
+    latestSnapshotPoint.rank !== rank;
+
   const pointsHistory = [
     ...snapshotHistory,
-    { capturedAt: now, points: currentPoints, rank },
+    ...(shouldAppendLivePoint ? [{ capturedAt: now, points: currentPoints, rank }] : []),
   ].filter((row, index, rows) => index === rows.findIndex((candidate) => candidate.capturedAt.getTime() === row.capturedAt.getTime()));
 
   const clanRateMap = await getClanRateMap(active.battleId);
@@ -1017,7 +1024,17 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     : "low" as const;
   const projectedFinalPoints = null;
   const inactiveMembers = legacyOverview?.inactiveMembers ?? (legacyOverview?.membersCount && participants !== null ? Math.max(0, legacyOverview.membersCount - participants) : null);
-  const finishOutlookReady = snapshotSpanMs >= 60 * 60 * 1000 && clanRateMap.size >= 8 && adjustedHourlyRate !== null;
+
+  // End-of-war projection is intentionally stricter than the 1h forecast.
+  // Projecting 20+ hours using only ~1h of noisy leaderboard samples can create
+  // nonsense like current #21 becoming #60. Until the model is mature, show the
+  // live rank and mark the finish model as warming up instead of publishing a fake forecast.
+  const finishOutlookReady =
+    snapshotSpanMs >= 4 * 60 * 60 * 1000 &&
+    clanRateMap.size >= 20 &&
+    adjustedHourlyRate !== null &&
+    nearbyWithUs.length >= 10;
+
   const finishProjection = finishOutlookReady
     ? nearbyWithUs.map((clan) => {
         const rate = namesMatch(clan.name, CLAN_NAME) ? adjustedHourlyRate : clanRate(clan.name) ?? 0;
@@ -1027,12 +1044,12 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
         };
       })
     : [];
-  const finishExpectedRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * remainingHours) : null;
+  const finishExpectedRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * remainingHours) : rank;
   const finishBestRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * 1.18 * remainingHours) : null;
   const finishWorstRank = finishOutlookReady ? projectedRankFromPoints(finishProjection, currentPoints + (adjustedHourlyRate ?? 0) * 0.78 * remainingHours) : null;
   const finishProjectedPoints = finishOutlookReady ? Math.round(currentPoints + (adjustedHourlyRate ?? 0) * remainingHours) : null;
   const finishConfidence = finishOutlookReady
-    ? confidenceFromInputs(snapshotRows.length, clanRateMap.size >= 8, reliability)
+    ? confidenceFromInputs(snapshotRows.length, clanRateMap.size >= 20, reliability)
     : "warming_up" as const;
 
   const latestHistoryPoint = pointsHistory[pointsHistory.length - 1] ?? null;
@@ -1068,6 +1085,19 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     : `Collecting race history — estimates will sharpen as more snapshots come in.`;
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
+
+  const displayHistoryByMinute = new Map<string, { capturedAt: string; points: number; rank: number | null }>();
+  for (const row of pointsHistory) {
+    const capturedAt = row.capturedAt.toISOString();
+    // The UI shows HH:mm, so keep only one row per displayed minute. This avoids
+    // duplicate-looking snapshot rows when a live point and saved snapshot land in the same minute.
+    displayHistoryByMinute.set(capturedAt.slice(0, 16), {
+      capturedAt,
+      points: row.points,
+      rank: row.rank,
+    });
+  }
+  const displayPointsHistory = [...displayHistoryByMinute.values()];
 
   return {
     success: true,
@@ -1146,7 +1176,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       confidence: finishConfidence,
       reason: finishOutlookReady
         ? `Based on ${formatNumber(clanRateMap.size)} clan pace tracks and ${formatShortDuration(remainingMs)} remaining.`
-        : `Warming up — needs at least 1 hour of snapshots and nearby clan pace history.`,
+        : `Showing live rank while finish forecast warms up — needs 4h of stable snapshots and 20+ clan pace tracks.`,
     },
     timing: {
       snapshotIntervalMs: updateEveryMs,
@@ -1154,11 +1184,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       nextUpdateText: formatShortDuration(nextUpdateMs),
     },
     history: {
-      points24h: pointsHistory.map((row) => ({
-        capturedAt: row.capturedAt.toISOString(),
-        points: row.points,
-        rank: row.rank,
-      })),
+      points24h: displayPointsHistory,
     },
     diagnostics: {
       snapshotsAvailable: snapshotRows.length,
