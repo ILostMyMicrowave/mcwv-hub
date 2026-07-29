@@ -66,6 +66,8 @@ function actionLabel(botPath: string) {
     "/admin/player/sync": "Player Synced",
     "/admin/player/add-alt": "Roblox Alt Added",
     "/admin/player/remove": "Player Removed",
+    "/admin/setup": "Bot System Setup Updated",
+    "/admin/hourly-stats/send": "Hourly Stats Sent",
   }
 
   return labels[botPath] ?? botPath.replace(/^\/admin\//, "Admin Action: ")
