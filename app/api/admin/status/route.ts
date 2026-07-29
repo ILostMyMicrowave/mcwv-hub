@@ -181,6 +181,8 @@ export async function GET() {
         hourlyStatsChannel: botInfo.hourlyStatsChannel ?? null,
         hourlyStatsEnabled: botInfo.hourlyStatsEnabled ?? false,
         hourlyStatsIntervalMinutes: botInfo.hourlyStatsIntervalMinutes ?? null,
+        hourlyStatsPingEnabled: botInfo.hourlyStatsPingEnabled ?? false,
+        hourlyStatsPingThreshold: botInfo.hourlyStatsPingThreshold ?? null,
         hourlyStatsLastSentAt: botInfo.hourlyStatsLastSentAt ?? null,
         database: db,
       },
