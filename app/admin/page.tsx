@@ -1785,10 +1785,14 @@ function BotAutomationPanel({
   const [placementChannel, setPlacementChannel] = useState("");
   const [clanLogChannel, setClanLogChannel] = useState("");
   const [hourlyChannel, setHourlyChannel] = useState("");
+  const [hourlyPingEnabled, setHourlyPingEnabled] = useState(false);
+  const [hourlyPingThreshold, setHourlyPingThreshold] = useState(100);
 
   const savedPlacement = savedChannelId(bot?.placementChannel);
   const savedClanLog = savedChannelId(bot?.clanLogChannel);
   const savedHourly = savedChannelId(bot?.hourlyStatsChannel);
+  const savedHourlyPingEnabled = bot?.hourlyStatsPingEnabled === true;
+  const savedHourlyPingThreshold = readNumber(bot, ["hourlyStatsPingThreshold"], 100);
 
   useEffect(() => {
     setPlacementChannel(savedPlacement);
@@ -1802,21 +1806,34 @@ function BotAutomationPanel({
     setHourlyChannel(savedHourly);
   }, [savedHourly]);
 
+  useEffect(() => {
+    setHourlyPingEnabled(savedHourlyPingEnabled);
+  }, [savedHourlyPingEnabled]);
+
+  useEffect(() => {
+    setHourlyPingThreshold(savedHourlyPingThreshold);
+  }, [savedHourlyPingThreshold]);
+
   const hourlyInterval = readString(bot, ["hourlyStatsIntervalMinutes"], "60");
   const hourlyLastSent = readString(bot, ["hourlyStatsLastSentAt"], "Never");
 
-  async function configure(system: "placement_alerts" | "clan_logs" | "hourly_stats", channelId: string) {
+  async function configure(
+    system: "placement_alerts" | "clan_logs" | "hourly_stats",
+    channelId: string,
+    extra: UnknownRecord = {}
+  ) {
     const parsed = parseDiscordChannelInput(channelId) ?? channelId.trim();
-    if (!parsed) {
-      await onAction("/api/admin/setup", { system, channel_id: "" });
-      return;
-    }
-    await onAction("/api/admin/sync", { target: "setup", system, channel_id: parsed });
+    await onAction("/api/admin/sync", { target: "setup", system, channel_id: parsed, ...extra });
   }
 
   async function sendHourlyNow(channelId: string) {
     const parsed = parseDiscordChannelInput(channelId) ?? channelId.trim();
-    await onAction("/api/admin/sync", parsed ? { target: "hourly_stats_send", channel_id: parsed } : { target: "hourly_stats_send" });
+    await onAction("/api/admin/sync", {
+      target: "hourly_stats_send",
+      ...(parsed ? { channel_id: parsed } : {}),
+      ping_enabled: hourlyPingEnabled,
+      ping_threshold: hourlyPingThreshold,
+    });
   }
 
   return (
@@ -1854,10 +1871,37 @@ function BotAutomationPanel({
           onChannelChange={setHourlyChannel}
           channels={sendableChannels}
           footer={`Last sent: ${formatTime(hourlyLastSent)}`}
-          onConfigure={() => configure("hourly_stats", hourlyChannel)}
+          onConfigure={() => configure("hourly_stats", hourlyChannel, {
+            ping_enabled: hourlyPingEnabled,
+            ping_threshold: hourlyPingThreshold,
+          })}
           onSecondary={() => sendHourlyNow(hourlyChannel)}
           secondaryLabel="Send now"
-        />
+        >
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3">
+            <label className="flex items-center gap-2 text-sm text-zinc-200">
+              <input
+                type="checkbox"
+                checked={hourlyPingEnabled}
+                onChange={(event) => setHourlyPingEnabled(event.target.checked)}
+              />
+              Send follow-up pings under threshold
+            </label>
+            <label className="mt-3 block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">PPH Threshold</span>
+              <input
+                type="number"
+                min={0}
+                className="admin-input"
+                value={hourlyPingThreshold}
+                onChange={(event) => setHourlyPingThreshold(Math.max(0, Number(event.target.value) || 0))}
+              />
+            </label>
+            <p className="mt-2 text-xs text-zinc-500">
+              Example: 100 pings linked Discord users below 100 PPH after the image.
+            </p>
+          </div>
+        </BotAutomationCard>
       </div>
     </Panel>
   );
@@ -1876,6 +1920,7 @@ function BotAutomationCard({
   onConfigure,
   onSecondary,
   secondaryLabel,
+  children,
 }: {
   title: string;
   icon: string;
@@ -1889,6 +1934,7 @@ function BotAutomationCard({
   onConfigure: () => void | Promise<void>;
   onSecondary?: () => void | Promise<void>;
   secondaryLabel?: string;
+  children?: ReactNode;
 }) {
   const savedChannelLabel = channels.find((channel) => channel.id === savedChannel);
   const status = enabled === "Yes" ? "Enabled" : "Disabled";
@@ -1938,11 +1984,13 @@ function BotAutomationCard({
         />
       </div>
 
+      {children}
+
       {footer && <p className="mt-3 text-xs text-zinc-500">{footer}</p>}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button className="admin-button" type="button" onClick={() => void onConfigure()}>
-          Save channel
+          Save settings
         </button>
         {onSecondary && (
           <button className="admin-button" type="button" onClick={() => void onSecondary()}>
