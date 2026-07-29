@@ -600,7 +600,7 @@ function levelTone(level?: string) {
 
 function statusTone(status?: string) {
   const normalized = String(status ?? "").toLowerCase();
-  if (normalized.includes("online") || normalized.includes("running") || normalized.includes("healthy") || normalized.includes("connected")) {
+  if (normalized.includes("online") || normalized.includes("running") || normalized.includes("healthy") || normalized.includes("connected") || normalized.includes("enabled") || normalized.includes("active")) {
     return "text-emerald-300 border-emerald-500/30 bg-emerald-500/10";
   }
   if (normalized.includes("offline") || normalized.includes("error") || normalized.includes("disconnect")) {
@@ -1144,7 +1144,7 @@ export default function AdminPage() {
               />
             )}
 
-            {section === "bot" && <BotSection bot={bot} />}
+            {section === "bot" && <BotSection bot={bot} channels={channels} onAction={postAction} />}
 
             {section === "broadcast" && (
               <BroadcastSection
@@ -1717,7 +1717,15 @@ function OverviewSection({
   );
 }
 
-function BotSection({ bot }: { bot: UnknownRecord | undefined }) {
+function BotSection({
+  bot,
+  channels,
+  onAction,
+}: {
+  bot: UnknownRecord | undefined;
+  channels: AdminChannel[];
+  onAction: AdminAction;
+}) {
   const loops = isRecord(bot?.loops) ? bot?.loops : {};
   const loopRows = Object.entries(loops).length
     ? Object.entries(loops)
@@ -1739,6 +1747,9 @@ function BotSection({ bot }: { bot: UnknownRecord | undefined }) {
         <Metric label="Users" value={readString(bot, ["users"], "—")} />
         <Metric label="Commands Executed" value={readString(bot, ["commandsExecuted"], "—")} />
       </div>
+
+      <BotAutomationPanel bot={bot} channels={channels} onAction={onAction} />
+
       <Panel title="Background Loops">
         <div className="grid gap-3 sm:grid-cols-2">
           {loopRows.map(([name, value], index) => {
@@ -1752,6 +1763,193 @@ function BotSection({ bot }: { bot: UnknownRecord | undefined }) {
           })}
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function savedChannelId(value: unknown) {
+  const text = valueToString(value, "") ?? "";
+  return text && text !== "0" ? text : "";
+}
+
+function BotAutomationPanel({
+  bot,
+  channels,
+  onAction,
+}: {
+  bot: UnknownRecord | undefined;
+  channels: AdminChannel[];
+  onAction: AdminAction;
+}) {
+  const sendableChannels = channels.filter((channel) => channel.canSendMessages || channel.usableForGiveaways);
+  const [placementChannel, setPlacementChannel] = useState("");
+  const [clanLogChannel, setClanLogChannel] = useState("");
+  const [hourlyChannel, setHourlyChannel] = useState("");
+
+  const savedPlacement = savedChannelId(bot?.placementChannel);
+  const savedClanLog = savedChannelId(bot?.clanLogChannel);
+  const savedHourly = savedChannelId(bot?.hourlyStatsChannel);
+
+  useEffect(() => {
+    setPlacementChannel(savedPlacement);
+  }, [savedPlacement]);
+
+  useEffect(() => {
+    setClanLogChannel(savedClanLog);
+  }, [savedClanLog]);
+
+  useEffect(() => {
+    setHourlyChannel(savedHourly);
+  }, [savedHourly]);
+
+  const hourlyInterval = readString(bot, ["hourlyStatsIntervalMinutes"], "60");
+  const hourlyLastSent = readString(bot, ["hourlyStatsLastSentAt"], "Never");
+
+  async function configure(system: "placement_alerts" | "clan_logs" | "hourly_stats", channelId: string) {
+    const parsed = parseDiscordChannelInput(channelId) ?? channelId.trim();
+    if (!parsed) {
+      await onAction("/api/admin/setup", { system, channel_id: "" });
+      return;
+    }
+    await onAction("/api/admin/setup", { system, channel_id: parsed });
+  }
+
+  async function sendHourlyNow(channelId: string) {
+    const parsed = parseDiscordChannelInput(channelId) ?? channelId.trim();
+    await onAction("/api/admin/hourly-stats/send", parsed ? { channel_id: parsed } : {});
+  }
+
+  return (
+    <Panel title="Bot Automation">
+      <div className="grid gap-4 xl:grid-cols-3">
+        <BotAutomationCard
+          title="Placement Alerts"
+          icon="📈"
+          description="Post MCWV placement cards when clan rank changes during active wars."
+          enabled={readString(bot, ["placementAlertsEnabled"], "No")}
+          savedChannel={savedPlacement}
+          channelValue={placementChannel}
+          onChannelChange={setPlacementChannel}
+          channels={sendableChannels}
+          onConfigure={() => configure("placement_alerts", placementChannel)}
+        />
+        <BotAutomationCard
+          title="Clan Logs"
+          icon="📜"
+          description="Post member joins, member leaves, and diamond donation logs."
+          enabled={readString(bot, ["clanLogsEnabled"], "No")}
+          savedChannel={savedClanLog}
+          channelValue={clanLogChannel}
+          onChannelChange={setClanLogChannel}
+          channels={sendableChannels}
+          onConfigure={() => configure("clan_logs", clanLogChannel)}
+        />
+        <BotAutomationCard
+          title="Hourly Stats"
+          icon="⏱"
+          description={`Auto-post the hourly points image every ${hourlyInterval} minutes.`}
+          enabled={readString(bot, ["hourlyStatsEnabled"], "No")}
+          savedChannel={savedHourly}
+          channelValue={hourlyChannel}
+          onChannelChange={setHourlyChannel}
+          channels={sendableChannels}
+          footer={`Last sent: ${formatTime(hourlyLastSent)}`}
+          onConfigure={() => configure("hourly_stats", hourlyChannel)}
+          onSecondary={() => sendHourlyNow(hourlyChannel)}
+          secondaryLabel="Send now"
+        />
+      </div>
+    </Panel>
+  );
+}
+
+function BotAutomationCard({
+  title,
+  icon,
+  description,
+  enabled,
+  savedChannel,
+  channelValue,
+  onChannelChange,
+  channels,
+  footer,
+  onConfigure,
+  onSecondary,
+  secondaryLabel,
+}: {
+  title: string;
+  icon: string;
+  description: string;
+  enabled: string;
+  savedChannel: string;
+  channelValue: string;
+  onChannelChange: (value: string) => void;
+  channels: AdminChannel[];
+  footer?: string;
+  onConfigure: () => void | Promise<void>;
+  onSecondary?: () => void | Promise<void>;
+  secondaryLabel?: string;
+}) {
+  const savedChannelLabel = channels.find((channel) => channel.id === savedChannel);
+  const status = enabled === "Yes" ? "Enabled" : "Disabled";
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-lg font-bold">
+            <span>{icon}</span>
+            <span>{title}</span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">{description}</p>
+        </div>
+        <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${statusTone(status)}`}>{status}</span>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-zinc-400">
+        <span className="font-semibold uppercase tracking-[0.2em] text-zinc-500">Current Channel</span>
+        <div className="mt-1 font-mono text-zinc-200">
+          {savedChannelLabel ? channelDisplayName(savedChannelLabel) : savedChannel || "Not configured"}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <label className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Set Channel</label>
+        {channels.length > 0 && (
+          <select
+            className="admin-input"
+            value={channelValue}
+            onChange={(event) => onChannelChange(event.target.value)}
+          >
+            <option value="">Select a channel...</option>
+            {channels.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                {channelDisplayName(channel)}
+                {channel.guildName ? ` · ${channel.guildName}` : ""}
+              </option>
+            ))}
+          </select>
+        )}
+        <input
+          className="admin-input"
+          placeholder="Or paste channel ID / #channel mention"
+          value={channelValue}
+          onChange={(event) => onChannelChange(event.target.value)}
+        />
+      </div>
+
+      {footer && <p className="mt-3 text-xs text-zinc-500">{footer}</p>}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button className="admin-button" type="button" onClick={() => void onConfigure()}>
+          Save channel
+        </button>
+        {onSecondary && (
+          <button className="admin-button" type="button" onClick={() => void onSecondary()}>
+            {secondaryLabel ?? "Run"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
