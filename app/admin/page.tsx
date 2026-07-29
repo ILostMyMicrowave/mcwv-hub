@@ -1811,12 +1811,12 @@ function BotAutomationPanel({
       await onAction("/api/admin/setup", { system, channel_id: "" });
       return;
     }
-    await onAction("/api/admin/setup", { system, channel_id: parsed });
+    await onAction("/api/admin/sync", { target: "setup", system, channel_id: parsed });
   }
 
   async function sendHourlyNow(channelId: string) {
     const parsed = parseDiscordChannelInput(channelId) ?? channelId.trim();
-    await onAction("/api/admin/hourly-stats/send", parsed ? { channel_id: parsed } : {});
+    await onAction("/api/admin/sync", parsed ? { target: "hourly_stats_send", channel_id: parsed } : { target: "hourly_stats_send" });
   }
 
   return (
