@@ -458,17 +458,16 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
     await ensureLeaderboardHistoryTable();
 
     const ids = activeEntries.map((entry) => String(entry.user_id));
-    const [fiveMinuteBaselines, hourlyBaselines, recentHourlyBaselines] = await Promise.all([
+    const [fiveMinuteBaselines, hourlyBaselines] = await Promise.all([
       getPointBaselines(ids, "5 minutes", battleKey),
       getPointBaselines(ids, "1 hour", battleKey),
-      getEarliestRecentBaselines(ids, "1 hour", battleKey),
     ]);
 
     const enriched = entries.map((entry) => {
       if (typeof entry.points !== "number") return entry;
       const key = String(entry.user_id);
       const fiveMinuteBaseline = fiveMinuteBaselines.get(key);
-      const hourlyBaseline = hourlyBaselines.get(key) ?? recentHourlyBaselines.get(key);
+      const hourlyBaseline = hourlyBaselines.get(key);
 
       return {
         ...entry,
