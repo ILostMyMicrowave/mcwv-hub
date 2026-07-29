@@ -70,8 +70,12 @@ export async function botAdminFetch<T>(
     const data = await res.json().catch(() => null)
 
     if (!res.ok) {
+      const routeHint = res.status === 404
+        ? `Bot admin API route not found (${normalizePath(path)}). Deploy/restart the latest MCWV-BOT code so this endpoint exists.`
+        : `Bot admin API failed with HTTP ${res.status}`
+
       throw new BotAdminApiError(
-        data?.error || data?.message || `Bot admin API failed with HTTP ${res.status}`,
+        data?.error || data?.message || routeHint,
         res.status
       )
     }
