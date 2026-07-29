@@ -1787,12 +1787,16 @@ function BotAutomationPanel({
   const [hourlyChannel, setHourlyChannel] = useState("");
   const [hourlyPingEnabled, setHourlyPingEnabled] = useState(false);
   const [hourlyPingThreshold, setHourlyPingThreshold] = useState(100);
+  const [hourlyStartTime, setHourlyStartTime] = useState("");
+  const [hourlyPingMessage, setHourlyPingMessage] = useState("");
 
   const savedPlacement = savedChannelId(bot?.placementChannel);
   const savedClanLog = savedChannelId(bot?.clanLogChannel);
   const savedHourly = savedChannelId(bot?.hourlyStatsChannel);
   const savedHourlyPingEnabled = bot?.hourlyStatsPingEnabled === true;
   const savedHourlyPingThreshold = readNumber(bot, ["hourlyStatsPingThreshold"], 100);
+  const savedHourlyStartTime = readString(bot, ["hourlyStatsStartTime"], "");
+  const savedHourlyPingMessage = readString(bot, ["hourlyStatsPingMessage"], "");
 
   useEffect(() => {
     setPlacementChannel(savedPlacement);
@@ -1814,6 +1818,14 @@ function BotAutomationPanel({
     setHourlyPingThreshold(savedHourlyPingThreshold);
   }, [savedHourlyPingThreshold]);
 
+  useEffect(() => {
+    setHourlyStartTime(savedHourlyStartTime === "—" ? "" : savedHourlyStartTime);
+  }, [savedHourlyStartTime]);
+
+  useEffect(() => {
+    setHourlyPingMessage(savedHourlyPingMessage === "—" ? "" : savedHourlyPingMessage);
+  }, [savedHourlyPingMessage]);
+
   const hourlyInterval = readString(bot, ["hourlyStatsIntervalMinutes"], "60");
   const hourlyLastSent = readString(bot, ["hourlyStatsLastSentAt"], "Never");
 
@@ -1833,6 +1845,7 @@ function BotAutomationPanel({
       ...(parsed ? { channel_id: parsed } : {}),
       ping_enabled: hourlyPingEnabled,
       ping_threshold: hourlyPingThreshold,
+      ping_message: hourlyPingMessage,
     });
   }
 
@@ -1874,6 +1887,8 @@ function BotAutomationPanel({
           onConfigure={() => configure("hourly_stats", hourlyChannel, {
             ping_enabled: hourlyPingEnabled,
             ping_threshold: hourlyPingThreshold,
+            start_time: hourlyStartTime,
+            ping_message: hourlyPingMessage,
           })}
           onSecondary={() => sendHourlyNow(hourlyChannel)}
           secondaryLabel="Send now"
@@ -1897,8 +1912,26 @@ function BotAutomationPanel({
                 onChange={(event) => setHourlyPingThreshold(Math.max(0, Number(event.target.value) || 0))}
               />
             </label>
+            <label className="mt-3 block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Auto-post start time UTC</span>
+              <input
+                type="time"
+                className="admin-input"
+                value={hourlyStartTime}
+                onChange={(event) => setHourlyStartTime(event.target.value)}
+              />
+            </label>
+            <label className="mt-3 block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Follow-up message</span>
+              <textarea
+                className="admin-input min-h-28"
+                value={hourlyPingMessage}
+                onChange={(event) => setHourlyPingMessage(event.target.value)}
+                placeholder="Message below the pings. Variables: {threshold}, {count}"
+              />
+            </label>
             <p className="mt-2 text-xs text-zinc-500">
-              Example: 100 pings linked Discord users below 100 PPH after the image.
+              Example: 100 pings linked Discord users below 100 PPH after the image. Variables: {"{threshold}"}, {"{count}"}.
             </p>
           </div>
         </BotAutomationCard>
