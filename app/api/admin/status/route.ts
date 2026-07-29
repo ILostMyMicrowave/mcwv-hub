@@ -183,6 +183,8 @@ export async function GET() {
         hourlyStatsIntervalMinutes: botInfo.hourlyStatsIntervalMinutes ?? null,
         hourlyStatsPingEnabled: botInfo.hourlyStatsPingEnabled ?? false,
         hourlyStatsPingThreshold: botInfo.hourlyStatsPingThreshold ?? null,
+        hourlyStatsStartTime: botInfo.hourlyStatsStartTime ?? null,
+        hourlyStatsPingMessage: botInfo.hourlyStatsPingMessage ?? null,
         hourlyStatsLastSentAt: botInfo.hourlyStatsLastSentAt ?? null,
         database: db,
       },
