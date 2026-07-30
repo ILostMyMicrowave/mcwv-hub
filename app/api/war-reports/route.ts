@@ -6,6 +6,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
+const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
+const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 
 type BattleRow = {
   battle_id: string;
@@ -33,6 +35,50 @@ function toIso(value: Date | string | null | undefined) {
 function asNumber(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toDateFromTimestamp(value: unknown) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const ms = parsed < 10_000_000_000 ? parsed * 1000 : parsed;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeBattleKey(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }) | null> {
+  try {
+    const res = await fetch(ACTIVE_BATTLE_API, {
+      cache: "no-store",
+      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const data = json?.data ?? {};
+    const config = data?.configData ?? {};
+    const battleId = data?.configName ?? data?.activeBattleConfigName ?? data?.activeBattleId ?? data?.battleId ?? null;
+    if (!battleId) return null;
+    const start = toDateFromTimestamp(config?.StartTime ?? data?.startTime);
+    const end = toDateFromTimestamp(config?.FinishTime ?? data?.finishTime);
+    const now = Date.now();
+    const isActive = start && end ? start.getTime() <= now && now <= end.getTime() : true;
+    if (!isActive) return null;
+    return {
+      battle_id: String(battleId),
+      battle_name: String(config?.Title ?? data?.title ?? battleId),
+      start_time: start,
+      end_time: end,
+      final_rank: null,
+      final_points: null,
+      captured_at: null,
+      is_active: true,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function formatBattleTitle(value: unknown) {
@@ -90,11 +136,28 @@ export async function GET() {
   if (!auth.ok) return auth.response;
 
   try {
-    if (!(await tableExists("battles"))) {
-      return NextResponse.json({ success: true, featured: null, reports: [] });
-    }
-
     const canManage = auth.user.role === "officer" || auth.user.role === "owner";
+    const activeBattle = canManage ? await getActiveBattleRow() : null;
+
+    if (!(await tableExists("battles"))) {
+      const rows = activeBattle ? [activeBattle] : [];
+      return NextResponse.json({ success: true, featured: null, reports: rows.map((battle) => ({
+        battleId: battle.battle_id,
+        battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
+        startTime: toIso(battle.start_time),
+        endTime: toIso(battle.end_time),
+        finalRank: null,
+        finalPoints: 0,
+        capturedAt: null,
+        isActive: true,
+        accounts: 0,
+        participants: 0,
+        zeroAccounts: 0,
+        averagePoints: 0,
+        medianPoints: 0,
+        topMembers: [],
+      })) });
+    }
 
     const battles = await pool.query<BattleRow & { is_active: boolean }>(
       `SELECT
@@ -128,7 +191,12 @@ export async function GET() {
       [CLAN_NAME, canManage]
     );
 
-    const battleIds = battles.rows.map((row) => row.battle_id);
+    const battleRows = [...battles.rows];
+    if (activeBattle && !battleRows.some((row) => normalizeBattleKey(row.battle_id) === normalizeBattleKey(activeBattle.battle_id))) {
+      battleRows.unshift(activeBattle);
+    }
+
+    const battleIds = battleRows.map((row) => row.battle_id);
     const linkedIds = await getLinkedRobloxIds();
     const byBattle = new Map<string, PlayerSnapshotRow[]>();
 
@@ -154,7 +222,7 @@ export async function GET() {
       }
     }
 
-    const reports = battles.rows.map((battle) => {
+    const reports = battleRows.map((battle) => {
       const rows = byBattle.get(battle.battle_id) ?? [];
       const points = rows.map((row) => asNumber(row.points));
       const positive = points.filter((value) => value > 0);
