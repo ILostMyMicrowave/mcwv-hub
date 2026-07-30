@@ -27,9 +27,13 @@ export default function Navbar() {
     opacity: number;
   }>({ left: 0, width: 0, opacity: 0 });
 
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const brandRef = useRef<HTMLAnchorElement | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
   const closeTimerRef = useRef<number | null>(null);
+  const measuredNavWidthRef = useRef(0);
+  const [collapseNav, setCollapseNav] = useState(false);
 
   const isOfficer = user?.role === "officer" || user?.role === "owner";
 
@@ -94,11 +98,43 @@ export default function Navbar() {
   }, [pathname]);
 
   useEffect(() => {
+    const updateResponsiveNav = () => {
+      const containerEl = containerRef.current;
+      const brandEl = brandRef.current;
+      const navEl = navRef.current;
+
+      if (!containerEl || !brandEl) return;
+
+      const containerWidth = containerEl.clientWidth;
+      const brandWidth = brandEl.getBoundingClientRect().width;
+
+      if (navEl && navEl.scrollWidth > 0) {
+        measuredNavWidthRef.current = Math.max(
+          measuredNavWidthRef.current,
+          navEl.scrollWidth
+        );
+      }
+
+      const navWidth = measuredNavWidthRef.current;
+      if (!navWidth) return;
+
+      // Brand + nav + breathing room + drawer button width. If the full nav would
+      // squeeze or collide, switch to the hamburger drawer even on tablet/desktop.
+      const requiredWidth = brandWidth + navWidth + 72;
+      setCollapseNav(requiredWidth > containerWidth);
+    };
+
+    updateResponsiveNav();
+    window.addEventListener("resize", updateResponsiveNav);
+    return () => window.removeEventListener("resize", updateResponsiveNav);
+  }, [links, collapseNav]);
+
+  useEffect(() => {
     const updateIndicator = () => {
       const navEl = navRef.current;
       const activeEl = activeLink ? itemRefs.current[activeLink.href] : null;
 
-      if (!navEl || !activeEl) {
+      if (collapseNav || !navEl || !activeEl) {
         setIndicator((prev) => ({ ...prev, opacity: 0 }));
         return;
       }
@@ -116,7 +152,7 @@ export default function Navbar() {
     updateIndicator();
     window.addEventListener("resize", updateIndicator);
     return () => window.removeEventListener("resize", updateIndicator);
-  }, [activeLink, pathname]);
+  }, [activeLink, pathname, collapseNav]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -166,6 +202,13 @@ export default function Navbar() {
   }
 
   useEffect(() => {
+    if (collapseNav) return;
+    if (typeof window !== "undefined" && window.innerWidth >= 640 && open) {
+      closeDrawer();
+    }
+  }, [collapseNav, open]);
+
+  useEffect(() => {
     const timer = window.setTimeout(closeDrawer, 0);
     return () => window.clearTimeout(timer);
   }, [pathname]);
@@ -190,10 +233,11 @@ export default function Navbar() {
         backdropFilter: isScrolled ? "blur(18px)" : "blur(12px)",
       }}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+      <div ref={containerRef} className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
         <Link
+          ref={brandRef}
           href="/"
-          className="font-bold tracking-widest transition duration-300 ease-out hover:scale-[1.02]"
+          className="shrink-0 font-bold tracking-widest transition duration-300 ease-out hover:scale-[1.02]"
           style={{
             color: "var(--foreground)",
             textShadow: "0 0 0 transparent",
@@ -210,7 +254,7 @@ export default function Navbar() {
 
         <nav
           ref={navRef}
-          className="relative hidden items-center gap-1 rounded-full border px-1 py-1 sm:flex"
+          className={`relative min-w-0 items-center gap-1 rounded-full border px-1 py-1 ${collapseNav ? "hidden" : "hidden sm:flex"}`}
           style={{
             borderColor: "var(--border)",
             background: "rgba(255,255,255,0.04)",
@@ -251,7 +295,7 @@ export default function Navbar() {
 
         <button
           onClick={open ? closeDrawer : openDrawer}
-          className="inline-flex items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] sm:hidden"
+          className={`inline-flex shrink-0 items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] ${collapseNav ? "" : "sm:hidden"}`}
           style={{ color: "var(--foreground)" }}
           aria-label={open ? "Close navigation menu" : "Open navigation menu"}
           aria-expanded={open}
@@ -267,7 +311,7 @@ export default function Navbar() {
       {renderDrawer && (
         <>
           <button
-            className={`fixed inset-0 z-50 sm:hidden transition-opacity duration-300 ${
+            className={`fixed inset-0 z-50 transition-opacity duration-300 ${collapseNav ? "" : "sm:hidden"} ${
               open ? "opacity-100" : "opacity-0"
             }`}
             onClick={closeDrawer}
@@ -275,7 +319,7 @@ export default function Navbar() {
             style={{ background: "rgba(0,0,0,0.6)" }}
           />
           <aside
-            className={`fixed top-0 right-0 z-50 h-dvh w-[86vw] max-w-xs overflow-y-auto border-l sm:hidden transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${
+            className={`fixed top-0 right-0 z-50 h-dvh w-[86vw] max-w-xs overflow-y-auto border-l transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${collapseNav ? "" : "sm:hidden"} ${
               open ? "translate-x-0 opacity-100 blur-0" : "translate-x-full opacity-0 blur-sm"
             }`}
             style={{
