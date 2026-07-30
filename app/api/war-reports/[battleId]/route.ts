@@ -9,6 +9,7 @@ const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
 const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
+const LEGACY_CLAN_API = `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
 const GRADES = ["A+", "A", "B", "C", "D", "F"] as const;
 type Grade = typeof GRADES[number];
 
@@ -74,6 +75,38 @@ function normalizeBattleKey(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+async function fetchRobloxNames(userIds: string[]) {
+  const ids = [...new Set(userIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+  const names = new Map<string, string>();
+
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    try {
+      const res = await fetch("https://users.roblox.com/v1/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "MCWV-Hub/1.0" },
+        body: JSON.stringify({ userIds: chunk, excludeBannedUsers: false }),
+        cache: "no-store",
+      });
+
+      if (!res.ok) continue;
+      const json = await res.json().catch(() => null);
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      for (const row of rows) {
+        const id = row?.id;
+        const name = row?.name ?? row?.displayName;
+        if (id !== null && id !== undefined && typeof name === "string" && name.trim()) {
+          names.set(String(id), name.trim());
+        }
+      }
+    } catch {
+      // Keep numeric fallback.
+    }
+  }
+
+  return names;
+}
+
 async function fetchJsonOrNull(url: string) {
   try {
     const res = await fetch(url, {
@@ -121,7 +154,10 @@ async function getActiveBattleRow(): Promise<BattleRow | null> {
 }
 
 async function getLiveClanBattleData(battleId: string) {
-  const json = await fetchJsonOrNull(CLAN_API);
+  // Always prefer the official legacy clan endpoint for live roster membership.
+  // Env CLAN_API can be changed for other views, but War Reports must reflect
+  // the actual in-game clan member list.
+  const json = (await fetchJsonOrNull(LEGACY_CLAN_API)) ?? (await fetchJsonOrNull(CLAN_API));
   const data = json?.data ?? {};
   const members = Array.isArray(data?.Members) ? data.Members : [];
   const memberIds = new Set<string>();
@@ -480,20 +516,20 @@ export async function GET(
     if (battle.is_active) {
       const liveData = await getLiveClanBattleData(battle.battle_id);
       if (liveData.memberIds.size > 0) {
+        const liveIds = [...liveData.memberIds];
+        const liveNames = await fetchRobloxNames(liveIds);
         const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
-        playerRows = [...liveData.memberIds]
-          .filter((robloxId) => linkedAccounts.has(robloxId))
-          .map((robloxId) => {
-            const existing = rowsById.get(robloxId);
-            const linked = linkedAccounts.get(robloxId);
-            return {
-              roblox_id: robloxId,
-              username: existing?.username ?? linked?.username ?? robloxId,
-              rank: existing?.rank ?? null,
-              points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
-              captured_at: existing?.captured_at ?? null,
-            };
-          });
+        playerRows = liveIds.map((robloxId) => {
+          const existing = rowsById.get(robloxId);
+          const linked = linkedAccounts.get(robloxId);
+          return {
+            roblox_id: robloxId,
+            username: existing?.username ?? linked?.username ?? liveNames.get(robloxId) ?? robloxId,
+            rank: existing?.rank ?? null,
+            points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+            captured_at: existing?.captured_at ?? null,
+          };
+        });
       }
     }
 
@@ -528,16 +564,20 @@ export async function GET(
       const grade = manualGrade ?? autoGrade;
       const flags: string[] = [];
 
+      if (battle.is_active) flags.push("Live");
       if (rank <= 3) flags.push("MVP");
       if (rank <= 10) flags.push("Top 10");
-      if (points > 0 && points >= average) flags.push("Above Average");
-      if (points < average) flags.push("Below Average");
+      else if (rank <= 25) flags.push("Top 25");
+      if (points > 0 && points >= average) flags.push("Above Avg");
+      if (points > 0 && points < average) flags.push("Below Avg");
       if (points > 0 && grade === "D") flags.push("Low Contribution");
       if (points <= 0) flags.push("Zero Points");
-      if (linked?.isAlt) flags.push("Alt Account");
-      if (!linked?.discordId) flags.push("No Discord Link");
+      if (linked?.isAlt) flags.push("Alt");
+      if (!linked) flags.push("Unlinked");
+      else if (!linked.discordId) flags.push("No Discord");
 
       const warning = points < average || grade === "D" || grade === "F";
+      if (warning) flags.push("Needs Review");
 
       return {
         rank,
