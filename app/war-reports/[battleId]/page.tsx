@@ -241,7 +241,7 @@ export default function WarReportDetailPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--primary)]">
-                      {data.battle.isActive ? "Live Officer Preview" : "War Report"}
+                      {data.battle.isActive ? "Live Preview" : "War Report"}
                     </p>
                     {data.battle.isActive && (
                       <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-sky-100">
