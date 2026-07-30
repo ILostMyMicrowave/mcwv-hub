@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 import { getDetectedWarWindow } from "@/lib/warDetection";
 
 const BASE = "https://ps99.biggamesapi.io";
@@ -228,6 +229,9 @@ function deriveState(meta: any, startTime: string | null, endTime: string | null
 }
 
 export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
   try {
     const activeRes = await fetch(`${BASE}/v1/clans/players`, {
       cache: "no-store",
