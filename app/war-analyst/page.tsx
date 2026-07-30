@@ -829,7 +829,7 @@ export default function BattleHQPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
                   <Card title="Hourly trend" value={data.summary.momentum ?? "Collecting data"} sub="Last hour compared with the hour before" />
-                  <Card title="Disconnect impact" value={data.summary.disconnectImpact ?? "Unknown"} sub={`${formatNumber(data.stats.disconnects24h ?? 0)} drops / 24h`} />
+                  <Card title="Disconnect impact" value={data.summary.disconnectImpact ?? "Unknown"} sub={`${formatNumber(data.stats.disconnects24h ?? 0)} disconnects / 24h`} />
                 </div>
               </div>
             </Panel>
