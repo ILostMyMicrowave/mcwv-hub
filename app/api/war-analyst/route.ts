@@ -1182,6 +1182,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       snapshotIntervalMs: updateEveryMs,
       nextUpdateInMs: nextUpdateMs,
       nextUpdateText: formatShortDuration(nextUpdateMs),
+      remainingMs,
     },
     history: {
       points24h: displayPointsHistory,
