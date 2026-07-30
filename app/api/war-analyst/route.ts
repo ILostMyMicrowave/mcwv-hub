@@ -513,6 +513,77 @@ function pointsGainedLast60Minutes(history: Array<{ capturedAt: Date; points: nu
   return Math.max(0, Math.round(latest.points - baseline));
 }
 
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function percentile(values: number[], percentileValue: number) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = clamp(percentileValue, 0, 1) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+function robustHourlyGainFromHistory(history: Array<{ capturedAt: Date; points: number }>) {
+  const sorted = [...history]
+    .filter((row) => Number.isFinite(row.points) && Number.isFinite(row.capturedAt.getTime()))
+    .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+
+  if (sorted.length < 3) return null;
+
+  const segmentRates: number[] = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const deltaPoints = current.points - previous.points;
+    const deltaHours = (current.capturedAt.getTime() - previous.capturedAt.getTime()) / 3_600_000;
+    if (deltaHours <= 0 || deltaHours > 0.75 || deltaPoints < 0) continue;
+    segmentRates.push(deltaPoints / deltaHours);
+  }
+
+  if (segmentRates.length < 3) return null;
+
+  const med = median(segmentRates);
+  if (med === null || med <= 0) return null;
+
+  const deviations = segmentRates.map((value) => Math.abs(value - med));
+  const mad = median(deviations) ?? 0;
+  const robustSigma = mad * 1.4826;
+  const upperLimit = med + Math.max(robustSigma * 3, med * 0.5, 1_000);
+  const filtered = segmentRates.filter((rate) => rate <= upperLimit);
+  const source = filtered.length >= Math.max(2, Math.floor(segmentRates.length * 0.5)) ? filtered : segmentRates;
+  return Math.max(0, Math.round(source.reduce((sum, value) => sum + value, 0) / source.length));
+}
+
+function safeProjectionHourlyGain(rawGain: number | null | undefined, robustGain: number | null, peerRates: number[]) {
+  const raw = Math.max(0, Number(rawGain ?? 0));
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+
+  let safe = raw;
+
+  if (robustGain !== null && robustGain > 0 && raw > robustGain * 1.6 && raw - robustGain > 2_000) {
+    safe = robustGain;
+  }
+
+  const positivePeers = peerRates.filter((value) => Number.isFinite(value) && value > 0);
+  if (positivePeers.length >= 4) {
+    const p75 = percentile(positivePeers, 0.75) ?? 0;
+    const med = median(positivePeers) ?? 0;
+    const peerCeiling = Math.max(p75 * 1.45, med * 1.65, 1_000);
+    if (safe > peerCeiling && safe - peerCeiling > 2_000) {
+      safe = peerCeiling;
+    }
+  }
+
+  return Math.max(0, Math.round(safe));
+}
+
 function weightedLiveRate(history: Array<{ capturedAt: Date; points: number }>, fallbackRate: number | null) {
   const windows = [
     { rate: rateForWindow(history, 30 * 60 * 1000), weight: 0.4 },
@@ -551,7 +622,9 @@ async function getClanRateMap(battleId: string) {
     }
 
     for (const [key, history] of grouped.entries()) {
-      const gained = pointsGainedLast60Minutes(history);
+      const rawGain = pointsGainedLast60Minutes(history);
+      const robustGain = robustHourlyGainFromHistory(history);
+      const gained = safeProjectionHourlyGain(rawGain, robustGain, []);
       if (gained > 0) map.set(key, gained);
     }
   } catch (err) {
@@ -957,7 +1030,14 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   // A lot of snapshots in the same few minutes is still not enough to forecast the whole war.
   const hasEnoughProjectionHistory = snapshotRows.length >= 10 && snapshotSpanMs >= 15 * 60 * 1000;
   const fallbackRate = hasEnoughProjectionHistory && elapsedHours ? currentPoints / elapsedHours : null;
-  const rawHourlyRate = hasEnoughProjectionHistory ? weightedLiveRate(pointsHistory, fallbackRate) : null;
+  const peerRatesForProjection = [...clanRateMap.entries()]
+    .filter(([key]) => !namesMatch(key, CLAN_NAME))
+    .map(([, value]) => value);
+  const robustLastHourGain = robustHourlyGainFromHistory(pointsHistory);
+  const factualLastHourGain = pointsGainedLast60Minutes(pointsHistory);
+  const projectionHourGain = safeProjectionHourlyGain(factualLastHourGain, robustLastHourGain, peerRatesForProjection);
+  const rawWeightedHourlyRate = hasEnoughProjectionHistory ? weightedLiveRate(pointsHistory, fallbackRate) : null;
+  const rawHourlyRate = rawWeightedHourlyRate === null ? null : safeProjectionHourlyGain(rawWeightedHourlyRate, robustLastHourGain, peerRatesForProjection);
   const disconnectStats = await getDisconnectStats();
   const reliability = reliabilityFromDisconnects(disconnectStats, participants);
   const adjustedHourlyRate = rawHourlyRate === null ? null : rawHourlyRate * reliability;
@@ -971,7 +1051,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   void preliminaryProjectedFinalPoints;
 
   const last24hPoints = pointsHistory.length >= 2 ? Math.max(0, pointsHistory[pointsHistory.length - 1].points - pointsHistory[0].points) : 0;
-  const lastHourGain = pointsGainedLast60Minutes(pointsHistory);
+  const lastHourGain = factualLastHourGain;
   const [targetTrend, threatTrend] = await Promise.all([
     above ? getGapTrend({
       battleId: active.battleId,
@@ -1001,14 +1081,14 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   // Do not project all 100 clans to war end unless we have a mature model; it creates fake #1/#100 results.
   const oneHourClanProjection = nearbyWithUs.map((clan) => ({
     name: clan.name,
-    points: clan.points + (namesMatch(clan.name, CLAN_NAME) ? lastHourGain : clanRate(clan.name) ?? 0),
+    points: clan.points + (namesMatch(clan.name, CLAN_NAME) ? projectionHourGain : clanRate(clan.name) ?? 0),
   }));
-  const oneHourExpectedPoints = currentPoints + lastHourGain;
-  const oneHourBestPoints = currentPoints + Math.round(lastHourGain * 1.15);
-  const oneHourWorstPoints = currentPoints + Math.round(lastHourGain * 0.85);
-  const predictedRank1h = lastHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourExpectedPoints) : rank;
-  const predictedBestRank1h = lastHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourBestPoints) : rank;
-  const predictedWorstRank1h = lastHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourWorstPoints) : rank;
+  const oneHourExpectedPoints = currentPoints + projectionHourGain;
+  const oneHourBestPoints = currentPoints + Math.round(projectionHourGain * 1.15);
+  const oneHourWorstPoints = currentPoints + Math.round(projectionHourGain * 0.85);
+  const predictedRank1h = projectionHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourExpectedPoints) : rank;
+  const predictedBestRank1h = projectionHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourBestPoints) : rank;
+  const predictedWorstRank1h = projectionHourGain > 0 ? projectedRankFromPoints(oneHourClanProjection, oneHourWorstPoints) : rank;
 
   const canPassTarget = rank !== null && etaAboveMs !== null && etaAboveMs > 0 && etaAboveMs <= remainingMs;
   const canBePassed = rank !== null && threatEtaMs !== null && threatEtaMs > 0 && threatEtaMs <= remainingMs;
