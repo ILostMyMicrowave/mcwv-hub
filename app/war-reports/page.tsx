@@ -13,6 +13,7 @@ type WarReportSummary = {
   finalRank: number | null;
   finalPoints: number;
   capturedAt: string | null;
+  isActive?: boolean;
   accounts: number;
   participants: number;
   zeroAccounts: number;
@@ -62,11 +63,18 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/45">
-              {featured ? "Featured War Report" : formatDate(report.endTime)}
+              {report.isActive ? "Live Officer Preview" : featured ? "Featured War Report" : formatDate(report.endTime)}
             </p>
-            <h2 className={`${featured ? "text-3xl sm:text-4xl" : "text-xl"} mt-2 font-black text-white`}>
-              {report.battleName}
-            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <h2 className={`${featured ? "text-3xl sm:text-4xl" : "text-xl"} font-black text-white`}>
+                {report.battleName}
+              </h2>
+              {report.isActive && (
+                <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-sky-100">
+                  Current War
+                </span>
+              )}
+            </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-right">
             <div className="text-xs uppercase tracking-[0.2em] text-[var(--foreground)]/45">Final Rank</div>
