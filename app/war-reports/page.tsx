@@ -88,7 +88,7 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--foreground)]/55">
-                {report.isActive ? "Live Officer Preview" : featured ? "Featured Report" : formatDate(report.endTime)}
+                {report.isActive ? "Live Preview" : featured ? "Featured Report" : formatDate(report.endTime)}
               </span>
               {report.isActive && (
                 <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-sky-100">
