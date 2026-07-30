@@ -9,6 +9,7 @@ const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
 const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
 const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
+const LEGACY_CLAN_API = `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
 
 type BattleRow = {
   battle_id: string;
@@ -133,7 +134,10 @@ async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }
 }
 
 async function getLiveClanBattleData(battleId: string) {
-  const json = await fetchJsonOrNull(CLAN_API);
+  // Always prefer the official legacy clan endpoint for live roster membership.
+  // Env CLAN_API can be changed for other views, but War Reports must reflect
+  // the actual in-game clan member list.
+  const json = (await fetchJsonOrNull(LEGACY_CLAN_API)) ?? (await fetchJsonOrNull(CLAN_API));
   const data = json?.data ?? {};
   const members = Array.isArray(data?.Members) ? data.Members : [];
   const memberIds = new Set<string>();
