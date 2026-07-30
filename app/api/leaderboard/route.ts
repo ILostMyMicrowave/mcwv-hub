@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -1146,6 +1147,9 @@ async function getCachedLeaderboard(
 /* ---------------- ROUTE ---------------- */
 
 export async function GET(req: Request) {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
   try {
     const url = new URL(req.url);
     const forceRefresh = url.searchParams.get("refresh") === "1";
