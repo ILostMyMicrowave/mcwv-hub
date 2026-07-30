@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 import { getDetectedWarWindow } from "@/lib/warDetection";
 
@@ -392,6 +393,9 @@ async function getRobloxNames(userIds: number[]) {
 }
 
 export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
   try {
     const activeWar = await getActiveWarInfo();
 
