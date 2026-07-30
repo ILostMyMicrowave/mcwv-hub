@@ -83,6 +83,18 @@ function gradeClass(grade: string) {
   }
 }
 
+function flagClass(flag: string) {
+  const key = flag.toLowerCase();
+  if (key.includes("mvp")) return "border-yellow-400/40 bg-yellow-400/15 text-yellow-100";
+  if (key.includes("top")) return "border-emerald-400/35 bg-emerald-400/12 text-emerald-100";
+  if (key.includes("above")) return "border-sky-400/35 bg-sky-400/12 text-sky-100";
+  if (key.includes("below") || key.includes("low") || key.includes("review")) return "border-amber-400/35 bg-amber-400/12 text-amber-100";
+  if (key.includes("zero") || key.includes("unlinked") || key.includes("discord")) return "border-rose-400/35 bg-rose-400/12 text-rose-100";
+  if (key.includes("alt")) return "border-violet-400/35 bg-violet-400/12 text-violet-100";
+  if (key.includes("live")) return "border-cyan-400/35 bg-cyan-400/12 text-cyan-100";
+  return "border-white/10 bg-white/5 text-zinc-300";
+}
+
 function copyText(text: string) {
   if (!text) return;
   void navigator.clipboard?.writeText(text);
@@ -383,7 +395,7 @@ export default function WarReportDetailPage() {
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex max-w-md flex-wrap gap-1">
-                            {member.flags.map((flag) => <span key={flag} className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-zinc-300">{flag}</span>)}
+                            {member.flags.map((flag) => <span key={flag} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${flagClass(flag)}`}>{flag}</span>)}
                           </div>
                           {data.canManage && member.staffNote && <p className="mt-2 max-w-md text-xs text-zinc-400">Note: {member.staffNote}</p>}
                         </td>
