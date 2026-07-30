@@ -8,6 +8,7 @@ export const revalidate = 0;
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
 const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
+const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
 
 type BattleRow = {
   battle_id: string;
@@ -97,6 +98,42 @@ async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }
       captured_at: null,
     is_active: true,
   };
+}
+
+async function getLiveClanBattleData(battleId: string) {
+  const json = await fetchJsonOrNull(CLAN_API);
+  const data = json?.data ?? {};
+  const members = Array.isArray(data?.Members) ? data.Members : [];
+  const memberIds = new Set<string>();
+
+  for (const member of members) {
+    const id = member?.UserID ?? member?.userId ?? member?.id;
+    if (id !== null && id !== undefined && String(id).trim()) memberIds.add(String(id).trim());
+  }
+
+  const battles = data?.Battles ?? data?.battles ?? {};
+  const targetKey = normalizeBattleKey(battleId);
+  const battle = Object.entries(battles).find(([key, value]) => {
+    const record = value as Record<string, unknown>;
+    const candidates = [key, record?.BattleID, record?.battleId, record?.configName, record?.Title, record?.title];
+    return candidates.some((candidate) => normalizeBattleKey(candidate) === targetKey);
+  })?.[1] as Record<string, unknown> | undefined;
+
+  const contributionPoints = new Map<string, number>();
+  const contributions = Array.isArray(battle?.PointContributions)
+    ? battle.PointContributions
+    : Array.isArray(battle?.pointContributions)
+    ? battle.pointContributions
+    : [];
+
+  for (const contribution of contributions) {
+    const entry = contribution as Record<string, unknown>;
+    const id = entry?.UserID ?? entry?.userId ?? entry?.user_id;
+    if (id === null || id === undefined) continue;
+    contributionPoints.set(String(id).trim(), asNumber(entry?.Points ?? entry?.points));
+  }
+
+  return { memberIds, contributionPoints };
 }
 
 
@@ -252,8 +289,34 @@ export async function GET() {
       }
     }
 
+    const liveDataByBattle = new Map<string, Awaited<ReturnType<typeof getLiveClanBattleData>>>();
+    for (const battle of battleRows) {
+      if (battle.is_active) {
+        liveDataByBattle.set(normalizeBattleKey(battle.battle_id), await getLiveClanBattleData(battle.battle_id));
+      }
+    }
+
     const reports = battleRows.map((battle) => {
-      const rows = byBattle.get(normalizeBattleKey(battle.battle_id)) ?? [];
+      const battleKey = normalizeBattleKey(battle.battle_id);
+      let rows = byBattle.get(battleKey) ?? [];
+      const liveData = liveDataByBattle.get(battleKey);
+
+      if (battle.is_active && liveData && liveData.memberIds.size > 0) {
+        const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
+        rows = [...liveData.memberIds]
+          .filter((robloxId) => linkedIds.has(robloxId))
+          .map((robloxId) => {
+            const existing = rowsById.get(robloxId);
+            return {
+              battle_key: battleKey,
+              battle_id: battle.battle_id,
+              roblox_id: robloxId,
+              username: existing?.username ?? robloxId,
+              points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+            };
+          });
+      }
+
       const points = rows.map((row) => asNumber(row.points));
       const positive = points.filter((value) => value > 0);
       const top = [...rows]
@@ -267,7 +330,7 @@ export async function GET() {
         startTime: toIso(battle.start_time),
         endTime: toIso(battle.end_time),
         finalRank: battle.final_rank === null ? null : asNumber(battle.final_rank),
-        finalPoints: asNumber(battle.final_points),
+        finalPoints: battle.is_active ? points.reduce((sum, value) => sum + value, 0) : asNumber(battle.final_points),
         capturedAt: toIso(battle.captured_at),
         isActive: Boolean(battle.is_active),
         accounts: rows.length,
