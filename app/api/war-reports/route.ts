@@ -51,6 +51,38 @@ function normalizeBattleKey(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+async function fetchRobloxNames(userIds: string[]) {
+  const ids = [...new Set(userIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+  const names = new Map<string, string>();
+
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    try {
+      const res = await fetch("https://users.roblox.com/v1/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "MCWV-Hub/1.0" },
+        body: JSON.stringify({ userIds: chunk, excludeBannedUsers: false }),
+        cache: "no-store",
+      });
+
+      if (!res.ok) continue;
+      const json = await res.json().catch(() => null);
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      for (const row of rows) {
+        const id = row?.id;
+        const name = row?.name ?? row?.displayName;
+        if (id !== null && id !== undefined && typeof name === "string" && name.trim()) {
+          names.set(String(id), name.trim());
+        }
+      }
+    } catch {
+      // Keep numeric fallback.
+    }
+  }
+
+  return names;
+}
+
 async function fetchJsonOrNull(url: string) {
   try {
     const res = await fetch(url, {
@@ -290,9 +322,13 @@ export async function GET() {
     }
 
     const liveDataByBattle = new Map<string, Awaited<ReturnType<typeof getLiveClanBattleData>>>();
+    const liveNamesByBattle = new Map<string, Map<string, string>>();
     for (const battle of battleRows) {
       if (battle.is_active) {
-        liveDataByBattle.set(normalizeBattleKey(battle.battle_id), await getLiveClanBattleData(battle.battle_id));
+        const key = normalizeBattleKey(battle.battle_id);
+        const liveData = await getLiveClanBattleData(battle.battle_id);
+        liveDataByBattle.set(key, liveData);
+        liveNamesByBattle.set(key, await fetchRobloxNames([...liveData.memberIds]));
       }
     }
 
@@ -302,19 +338,19 @@ export async function GET() {
       const liveData = liveDataByBattle.get(battleKey);
 
       if (battle.is_active && liveData && liveData.memberIds.size > 0) {
+        const liveIds = [...liveData.memberIds];
+        const liveNames = await fetchRobloxNames(liveIds);
         const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
-        rows = [...liveData.memberIds]
-          .filter((robloxId) => linkedIds.has(robloxId))
-          .map((robloxId) => {
-            const existing = rowsById.get(robloxId);
-            return {
-              battle_key: battleKey,
-              battle_id: battle.battle_id,
-              roblox_id: robloxId,
-              username: existing?.username ?? robloxId,
-              points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
-            };
-          });
+        rows = liveIds.map((robloxId) => {
+          const existing = rowsById.get(robloxId);
+          return {
+            battle_key: battleKey,
+            battle_id: battle.battle_id,
+            roblox_id: robloxId,
+            username: existing?.username ?? liveNames.get(robloxId) ?? robloxId,
+            points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+          };
+        });
       }
 
       const points = rows.map((row) => asNumber(row.points));
