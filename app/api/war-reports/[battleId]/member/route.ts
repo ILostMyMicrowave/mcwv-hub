@@ -131,6 +131,59 @@ function formatBattleTitle(value: unknown) {
     .trim();
 }
 
+async function getFallbackBattleFromHistory(requestedBattleId: string): Promise<BattleRow | null> {
+  const requestedKey = normalizeBattleKey(decodeURIComponent(requestedBattleId));
+  if (!requestedKey) return null;
+
+  if (await tableExists("player_leaderboard_history")) {
+    const result = await pool.query<{ battle_id: string; captured_at: Date | string | null }>(
+      `SELECT battle_id, MAX(captured_at) AS captured_at
+       FROM player_leaderboard_history
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+       GROUP BY battle_id
+       ORDER BY MAX(captured_at) DESC
+       LIMIT 1`,
+      [requestedKey]
+    );
+
+    const row = result.rows[0];
+    if (row?.battle_id) {
+      return {
+        battle_id: row.battle_id,
+        battle_name: formatBattleTitle(row.battle_id),
+        start_time: null,
+        end_time: null,
+        is_active: true,
+      };
+    }
+  }
+
+  if (await tableExists("war_snapshots")) {
+    const result = await pool.query<{ battle_id: string; captured_at: Date | string | null }>(
+      `SELECT battle_id, MAX(captured_at) AS captured_at
+       FROM war_snapshots
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+       GROUP BY battle_id
+       ORDER BY MAX(captured_at) DESC
+       LIMIT 1`,
+      [requestedKey]
+    );
+
+    const row = result.rows[0];
+    if (row?.battle_id) {
+      return {
+        battle_id: row.battle_id,
+        battle_name: formatBattleTitle(row.battle_id),
+        start_time: null,
+        end_time: null,
+        is_active: true,
+      };
+    }
+  }
+
+  return null;
+}
+
 function median(values: number[]) {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -316,17 +369,28 @@ export async function GET(
     }
 
     if (!battle) {
-      return NextResponse.json({ error: "Completed battle report not found" }, { status: 404 });
+      battle = await getFallbackBattleFromHistory(battleId);
     }
+
+    if (!battle) {
+      return NextResponse.json(
+        {
+          error: "Report not found yet. If this is the live war, wait for the first player snapshot or open it from /war-reports.",
+        },
+        { status: 404 }
+      );
+    }
+
+    const reportBattleKey = normalizeBattleKey(battle.battle_id);
 
     const snapshotResult = await pool.query<WarSnapshotRow>(
       `SELECT rank, battle_points, captured_at
        FROM war_snapshots
-       WHERE battle_id = $1
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
          AND LOWER(clan_name) = LOWER($2)
        ORDER BY captured_at DESC
        LIMIT 1`,
-      [battleId, CLAN_NAME]
+      [reportBattleKey, CLAN_NAME]
     );
     const snapshot = snapshotResult.rows[0] ?? null;
 
@@ -373,7 +437,7 @@ export async function GET(
        FROM war_report_member_overrides o
        LEFT JOIN users u ON u.id = o.updated_by
        WHERE o.battle_id = $1`,
-      [battleId]
+      [battle.battle_id]
     );
     const overrides = new Map(overridesResult.rows.map((row) => [String(row.roblox_id), row]));
 
