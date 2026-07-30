@@ -147,6 +147,48 @@ type BroadcastPreview = {
   missingTicketRecipients: BroadcastRecipient[];
 };
 
+type ActivityMember = {
+  robloxId: string;
+  username: string;
+  avatarUrl?: string;
+  discordId?: string | null;
+  isAlt?: boolean;
+  ownerUsername?: string | null;
+  points: number;
+  rank?: number | null;
+  pph: number;
+  pphReady: boolean;
+  change5m: number;
+  status: string;
+  statusTone: string;
+  statusUpdatedAt?: string | null;
+  disconnects24h: number;
+  disconnects1h: number;
+  reasons: string[];
+  needsAttention: boolean;
+};
+
+type ActivityData = {
+  success: boolean;
+  threshold: number;
+  battleId: string | null;
+  updatedAt: string;
+  summary: {
+    roster: number;
+    needsAttention: number;
+    lowPph: number;
+    zeroPoints: number;
+    offline: number;
+    disconnectWatch: number;
+  };
+  needsAttention: ActivityMember[];
+  lowPph: ActivityMember[];
+  zeroPoints: ActivityMember[];
+  offline: ActivityMember[];
+  disconnects: ActivityMember[];
+  topImprovers: ActivityMember[];
+};
+
 function renderBroadcastPreviewMessage(template: string, recipient?: BroadcastRecipient) {
   return template
     .replaceAll("{username}", String(recipient?.username ?? "ExampleUser"))
@@ -204,6 +246,7 @@ type AdminAction = (endpoint: string, body?: UnknownRecord) => Promise<boolean>;
 type AdminSection =
   | "overview"
   | "bot"
+  | "activity"
   | "broadcast"
   | "events"
   | "tickets"
@@ -216,6 +259,7 @@ type AdminSection =
 const SECTIONS: { id: AdminSection; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "🏠" },
   { id: "bot", label: "Bot", icon: "🤖" },
+  { id: "activity", label: "Activity", icon: "🚨" },
   { id: "broadcast", label: "Broadcast", icon: "📢" },
   { id: "events", label: "Events", icon: "🎉" },
   { id: "tickets", label: "Tickets", icon: "🎫" },
@@ -231,6 +275,8 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
     "A quick operational summary of bot health, database status, tracked players, events, and recent admin activity.",
   bot:
     "Live runtime health, Discord latency, process usage, queue status, and background loop monitoring.",
+  activity:
+    "Officer-only live war monitor for low PPH, zero points, offline members, disconnects, and top improvers.",
   broadcast:
     "Send themed staff broadcasts to filtered clan audiences through DMs or saved ticket channels.",
   events:
@@ -1146,6 +1192,8 @@ export default function AdminPage() {
 
             {section === "bot" && <BotSection bot={bot} channels={channels} onAction={postAction} />}
 
+            {section === "activity" && <ActivitySection />}
+
             {section === "broadcast" && (
               <BroadcastSection
                 roles={roles}
@@ -1716,6 +1764,173 @@ function OverviewSection({
     </div>
   );
 }
+
+function ActivitySection() {
+  const [threshold, setThreshold] = useState(100);
+  const [data, setData] = useState<ActivityData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"needs" | "low" | "zero" | "offline" | "disconnects" | "improvers">("needs");
+
+  const loadActivity = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/activity?threshold=${encodeURIComponent(String(threshold))}`, { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as ActivityData | null;
+      setData(json?.success ? json : null);
+    } catch {
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [threshold]);
+
+  useEffect(() => {
+    void loadActivity();
+  }, [loadActivity]);
+
+  const rows = activeTab === "needs"
+    ? data?.needsAttention ?? []
+    : activeTab === "low"
+    ? data?.lowPph ?? []
+    : activeTab === "zero"
+    ? data?.zeroPoints ?? []
+    : activeTab === "offline"
+    ? data?.offline ?? []
+    : activeTab === "disconnects"
+    ? data?.disconnects ?? []
+    : data?.topImprovers ?? [];
+
+  const tabs: Array<[typeof activeTab, string, number]> = [
+    ["needs", "Needs Attention", data?.summary.needsAttention ?? 0],
+    ["low", "Low PPH", data?.summary.lowPph ?? 0],
+    ["zero", "Zero Points", data?.summary.zeroPoints ?? 0],
+    ["offline", "Offline", data?.summary.offline ?? 0],
+    ["disconnects", "Disconnects", data?.summary.disconnectWatch ?? 0],
+    ["improvers", "Top Improvers", data?.topImprovers.length ?? 0],
+  ];
+
+  return (
+    <div className="space-y-6">
+      <Panel title="War Monitor">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm leading-6 text-zinc-400">
+              Strict live staff view. PPH only appears when a true 60-minute window exists.
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Battle: <span className="font-mono text-zinc-300">{data?.battleId ?? "—"}</span>
+              {data?.updatedAt ? ` · Updated ${formatTime(data.updatedAt)}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Low PPH threshold</span>
+              <input
+                className="admin-input w-36"
+                type="number"
+                min={0}
+                value={threshold}
+                onChange={(event) => setThreshold(Math.max(0, Number(event.target.value) || 0))}
+              />
+            </label>
+            <button className="admin-button" type="button" onClick={() => void loadActivity()}>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <MiniStat label="Roster" value={String(data?.summary.roster ?? "—")} />
+          <MiniStat label="Needs Attention" value={String(data?.summary.needsAttention ?? "—")} />
+          <MiniStat label="Low PPH" value={String(data?.summary.lowPph ?? "—")} />
+          <MiniStat label="Zero Points" value={String(data?.summary.zeroPoints ?? "—")} />
+          <MiniStat label="Offline" value={String(data?.summary.offline ?? "—")} />
+          <MiniStat label="Disconnect Watch" value={String(data?.summary.disconnectWatch ?? "—")} />
+        </div>
+      </Panel>
+
+      <Panel title="Attention Lists">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {tabs.map(([id, label, count]) => (
+            <button
+              key={id}
+              type="button"
+              className={`rounded-full border px-3 py-1 text-xs transition ${activeTab === id ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-100" : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/10"}`}
+              onClick={() => setActiveTab(id)}
+            >
+              {label} · {count}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="h-24 animate-pulse rounded-2xl bg-white/5" />
+            <div className="h-24 animate-pulse rounded-2xl bg-white/5" />
+          </div>
+        ) : !data ? (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">Failed to load activity data.</div>
+        ) : rows.length === 0 ? (
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center text-sm text-zinc-400">Nothing in this list right now.</div>
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {rows.map((member) => <ActivityMemberCard key={`${activeTab}-${member.robloxId}`} member={member} threshold={threshold} />)}
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function ActivityMemberCard({ member, threshold }: { member: ActivityMember; threshold: number }) {
+  const statusToneClass = member.statusTone === "ingame"
+    ? "text-emerald-200 border-emerald-400/25 bg-emerald-400/10"
+    : member.statusTone === "offline"
+    ? "text-red-200 border-red-400/25 bg-red-400/10"
+    : "text-zinc-200 border-white/10 bg-white/5";
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="flex items-start gap-3">
+        <img className="h-12 w-12 rounded-2xl border border-white/10 bg-black/30" src={member.avatarUrl ?? `/api/roblox/avatar?userId=${member.robloxId}`} alt="" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-bold text-white">{member.username}</p>
+            {member.isAlt && <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold text-violet-100">ALT</span>}
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusToneClass}`}>{member.status}</span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {member.isAlt && member.ownerUsername ? `Alt of ${member.ownerUsername}` : member.discordId ? `Discord linked` : "No Discord link"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-4 gap-2 text-sm">
+        <MiniStat label="Points" value={formatCompact(member.points)} />
+        <MiniStat label="PPH" value={member.pphReady ? formatCompact(member.pph) : "—"} />
+        <MiniStat label="5m" value={member.change5m > 0 ? `+${formatCompact(member.change5m)}` : "—"} />
+        <MiniStat label="Drops" value={String(member.disconnects24h)} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1">
+        {member.reasons.length ? member.reasons.map((reason) => (
+          <span key={reason} className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-100">{reason}</span>
+        )) : (
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-100">Above {threshold} PPH</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatCompact(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(Math.round(value));
+}
+
 
 function BotSection({
   bot,
