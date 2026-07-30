@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,9 @@ type Battle = {
 };
 
 export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
   try {
     const result = await pool.query<Battle>(
       `SELECT battle_id, battle_name, start_time, end_time
