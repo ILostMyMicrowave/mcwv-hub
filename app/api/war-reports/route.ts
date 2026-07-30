@@ -155,8 +155,7 @@ export async function GET() {
   if (!auth.ok) return auth.response;
 
   try {
-    const canManage = auth.user.role === "officer" || auth.user.role === "owner";
-    const activeBattle = canManage ? await getActiveBattleRow() : null;
+    const activeBattle = await getActiveBattleRow();
 
     if (!(await tableExists("battles"))) {
       const rows = activeBattle ? [activeBattle] : [];
@@ -202,14 +201,14 @@ export async function GET() {
        WHERE b.end_time IS NOT NULL
          AND (
            b.end_time <= NOW()
-           OR ($2::boolean = TRUE AND (b.start_time IS NULL OR b.start_time <= NOW()))
+           OR (b.start_time IS NULL OR b.start_time <= NOW())
          )
        ORDER BY
          CASE WHEN b.end_time > NOW() THEN 0 ELSE 1 END,
          b.end_time DESC NULLS LAST,
          ws.captured_at DESC NULLS LAST
        LIMIT 100`,
-      [CLAN_NAME, canManage]
+      [CLAN_NAME]
     );
 
     const battleRows = [...battles.rows];
