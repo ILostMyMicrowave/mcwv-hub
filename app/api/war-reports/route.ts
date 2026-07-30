@@ -49,37 +49,55 @@ function normalizeBattleKey(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }) | null> {
+async function fetchJsonOrNull(url: string) {
   try {
-    const res = await fetch(ACTIVE_BATTLE_API, {
+    const res = await fetch(url, {
       cache: "no-store",
       headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
     });
     if (!res.ok) return null;
-    const json = await res.json().catch(() => null);
-    const data = json?.data ?? {};
-    const config = data?.configData ?? {};
-    const battleId = data?.configName ?? data?.activeBattleConfigName ?? data?.activeBattleId ?? data?.battleId ?? null;
-    if (!battleId) return null;
-    const start = toDateFromTimestamp(config?.StartTime ?? data?.startTime);
-    const end = toDateFromTimestamp(config?.FinishTime ?? data?.finishTime);
-    const now = Date.now();
-    const isActive = start && end ? start.getTime() <= now && now <= end.getTime() : true;
-    if (!isActive) return null;
-    return {
-      battle_id: String(battleId),
-      battle_name: String(config?.Title ?? data?.title ?? battleId),
-      start_time: start,
-      end_time: end,
-      final_rank: null,
-      final_points: null,
-      captured_at: null,
-      is_active: true,
-    };
+    return await res.json().catch(() => null);
   } catch {
     return null;
   }
 }
+
+async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }) | null> {
+  const [v1, legacy] = await Promise.all([
+    fetchJsonOrNull(`${PS99_API}/v1/clans/players`),
+    fetchJsonOrNull(ACTIVE_BATTLE_API),
+  ]);
+
+  const legacyData = legacy?.data ?? {};
+  const config = legacyData?.configData ?? {};
+  const battleId =
+    v1?.data?.activeBattleConfigName ??
+    legacyData?.configName ??
+    legacyData?.activeBattleConfigName ??
+    legacyData?.activeBattleId ??
+    legacyData?.battleId ??
+    null;
+
+  if (!battleId) return null;
+
+  const start = toDateFromTimestamp(config?.StartTime ?? legacyData?.startTime ?? v1?.data?.startTime);
+  const end = toDateFromTimestamp(config?.FinishTime ?? legacyData?.finishTime ?? v1?.data?.finishTime);
+  const now = Date.now();
+  const isActive = start && end ? start.getTime() <= now && now <= end.getTime() : true;
+  if (!isActive) return null;
+
+  return {
+    battle_id: String(battleId),
+    battle_name: String(config?.Title ?? legacyData?.title ?? battleId),
+    start_time: start,
+    end_time: end,
+      final_rank: null,
+      final_points: null,
+      captured_at: null,
+    is_active: true,
+  };
+}
+
 
 function formatBattleTitle(value: unknown) {
   const raw = String(value ?? "").trim();
