@@ -418,6 +418,68 @@ function pointsGainedSince(currentPoints: number, baseline: PointBaseline | unde
   return Math.max(0, currentPoints - baseline.points);
 }
 
+type PlayerHistoryPoint = {
+  points: number;
+  capturedAt: Date;
+};
+
+async function getRecentPlayerHistory(ids: string[], battleKey: string) {
+  const history = new Map<string, PlayerHistoryPoint[]>();
+  if (!ids.length) return history;
+
+  const result = await pool.query<BaselineRow>(
+    `SELECT roblox_id, points, captured_at
+     FROM player_leaderboard_history
+     WHERE roblox_id = ANY($1)
+       AND battle_id = $2
+       AND points IS NOT NULL
+       AND captured_at >= NOW() - INTERVAL '2 hours'
+     ORDER BY roblox_id ASC, captured_at ASC`,
+    [ids, battleKey]
+  );
+
+  for (const row of result.rows) {
+    const key = String(row.roblox_id);
+    const list = history.get(key) ?? [];
+    list.push({
+      points: Number(row.points ?? 0),
+      capturedAt: new Date(row.captured_at),
+    });
+    history.set(key, list);
+  }
+
+  return history;
+}
+
+function pointsAtExactTime(history: PlayerHistoryPoint[], targetMs: number) {
+  const sorted = [...history]
+    .filter((row) => Number.isFinite(row.capturedAt.getTime()) && Number.isFinite(row.points))
+    .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+
+  if (!sorted.length) return null;
+  if (targetMs < sorted[0].capturedAt.getTime()) return null;
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const currentMs = current.capturedAt.getTime();
+
+    if (currentMs === targetMs) return current.points;
+
+    const next = sorted[index + 1];
+    if (!next) return current.points;
+
+    const nextMs = next.capturedAt.getTime();
+    if (currentMs <= targetMs && targetMs <= nextMs) {
+      const span = nextMs - currentMs;
+      if (span <= 0) return current.points;
+      const ratio = (targetMs - currentMs) / span;
+      return current.points + (next.points - current.points) * ratio;
+    }
+  }
+
+  return sorted[sorted.length - 1].points;
+}
+
 async function attachDisconnectCounts(entries: LeaderboardEntry[]) {
   if (!entries.length) return entries;
 
@@ -458,21 +520,27 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
     await ensureLeaderboardHistoryTable();
 
     const ids = activeEntries.map((entry) => String(entry.user_id));
-    const [fiveMinuteBaselines, hourlyBaselines] = await Promise.all([
-      getPointBaselines(ids, "5 minutes", battleKey),
-      getPointBaselines(ids, "1 hour", battleKey),
-    ]);
+    const historyById = await getRecentPlayerHistory(ids, battleKey);
+    const now = new Date();
+    const nowMs = now.getTime();
+    const fiveMinuteCutoff = nowMs - 5 * 60 * 1000;
+    const hourlyCutoff = nowMs - 60 * 60 * 1000;
 
     const enriched = entries.map((entry) => {
       if (typeof entry.points !== "number") return entry;
       const key = String(entry.user_id);
-      const fiveMinuteBaseline = fiveMinuteBaselines.get(key);
-      const hourlyBaseline = hourlyBaselines.get(key);
+      const history = [
+        ...(historyById.get(key) ?? []),
+        { points: entry.points, capturedAt: now },
+      ];
+
+      const fiveMinuteBaseline = pointsAtExactTime(history, fiveMinuteCutoff);
+      const hourlyBaseline = pointsAtExactTime(history, hourlyCutoff);
 
       return {
         ...entry,
-        change5m: fiveMinuteBaseline ? Math.max(0, entry.points - fiveMinuteBaseline.points) : 0,
-        pph: Math.round(pointsGainedSince(entry.points, hourlyBaseline)),
+        change5m: fiveMinuteBaseline === null ? 0 : Math.max(0, Math.round(entry.points - fiveMinuteBaseline)),
+        pph: hourlyBaseline === null ? 0 : Math.max(0, Math.round(entry.points - hourlyBaseline)),
       };
     });
 
