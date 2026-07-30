@@ -66,7 +66,7 @@ function rankTone(rank: number | null) {
 }
 
 function ReportCard({ report, featured = false }: { report: WarReportSummary; featured?: boolean }) {
-  const href = `/war-reports/${encodeURIComponent(report.battleId)}`;
+  const href = report.isActive ? "/war-reports/current" : `/war-reports/${encodeURIComponent(report.battleId)}`;
   const hasData = report.accounts > 0;
   const participantPct = report.accounts > 0 ? Math.round((report.participants / report.accounts) * 100) : 0;
 
