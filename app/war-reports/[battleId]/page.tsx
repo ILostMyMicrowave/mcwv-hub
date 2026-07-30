@@ -43,6 +43,7 @@ type ReportDetail = {
     finalRank: number | null;
     finalPoints: number;
     capturedAt: string | null;
+    isActive?: boolean;
   };
   summary: {
     accounts: number;
@@ -238,7 +239,16 @@ export default function WarReportDetailPage() {
             <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 sm:p-7">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--primary)]">War Report</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--primary)]">
+                      {data.battle.isActive ? "Live Officer Preview" : "War Report"}
+                    </p>
+                    {data.battle.isActive && (
+                      <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-sky-100">
+                        Current War
+                      </span>
+                    )}
+                  </div>
                   <h1 className="mt-2 text-4xl font-black text-white sm:text-6xl">{data.battle.battleName}</h1>
                   <p className="mt-3 text-sm text-zinc-400">{formatDate(data.battle.startTime)} → {formatDate(data.battle.endTime)}</p>
                 </div>
