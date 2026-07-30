@@ -20,6 +20,7 @@ type BattleRow = {
 };
 
 type PlayerSnapshotRow = {
+  battle_key: string;
   battle_id: string;
   roblox_id: string;
   username: string | null;
@@ -159,7 +160,7 @@ export async function GET() {
 
     if (!(await tableExists("battles"))) {
       const rows = activeBattle ? [activeBattle] : [];
-      return NextResponse.json({ success: true, featured: null, reports: rows.map((battle) => ({
+      const reports = rows.map((battle) => ({
         battleId: battle.battle_id,
         battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
         startTime: toIso(battle.start_time),
@@ -174,7 +175,9 @@ export async function GET() {
         averagePoints: 0,
         medianPoints: 0,
         topMembers: [],
-      })) });
+      }));
+
+      return NextResponse.json({ success: true, featured: reports[0] ?? null, reports });
     }
 
     const battles = await pool.query<BattleRow & { is_active: boolean }>(
@@ -214,34 +217,44 @@ export async function GET() {
       battleRows.unshift(activeBattle);
     }
 
-    const battleIds = battleRows.map((row) => row.battle_id);
+    const battleKeys = [...new Set(battleRows.map((row) => normalizeBattleKey(row.battle_id)).filter(Boolean))];
     const linkedIds = await getLinkedRobloxIds();
     const byBattle = new Map<string, PlayerSnapshotRow[]>();
 
-    if (battleIds.length && (await tableExists("player_leaderboard_history"))) {
+    if (battleKeys.length && (await tableExists("player_leaderboard_history"))) {
       const players = await pool.query<PlayerSnapshotRow>(
-        `SELECT DISTINCT ON (battle_id, roblox_id)
+        `SELECT DISTINCT ON (battle_key, roblox_id)
+           battle_key,
            battle_id,
-           roblox_id::text AS roblox_id,
+           roblox_id,
            username,
            points
-         FROM player_leaderboard_history
-         WHERE battle_id = ANY($1)
-           AND points IS NOT NULL
-         ORDER BY battle_id, roblox_id, captured_at DESC`,
-        [battleIds]
+         FROM (
+           SELECT
+             regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') AS battle_key,
+             battle_id,
+             roblox_id::text AS roblox_id,
+             username,
+             points,
+             captured_at
+           FROM player_leaderboard_history
+           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+             AND points IS NOT NULL
+         ) rows
+         ORDER BY battle_key, roblox_id, captured_at DESC`,
+        [battleKeys]
       );
 
       for (const row of players.rows) {
         if (!linkedIds.has(String(row.roblox_id))) continue;
-        const list = byBattle.get(row.battle_id) ?? [];
+        const list = byBattle.get(row.battle_key) ?? [];
         list.push(row);
-        byBattle.set(row.battle_id, list);
+        byBattle.set(row.battle_key, list);
       }
     }
 
     const reports = battleRows.map((battle) => {
-      const rows = byBattle.get(battle.battle_id) ?? [];
+      const rows = byBattle.get(normalizeBattleKey(battle.battle_id)) ?? [];
       const points = rows.map((row) => asNumber(row.points));
       const positive = points.filter((value) => value > 0);
       const top = [...rows]
