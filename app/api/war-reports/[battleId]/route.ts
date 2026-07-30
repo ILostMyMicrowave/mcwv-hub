@@ -8,6 +8,7 @@ export const revalidate = 0;
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
 const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
 const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
+const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
 const GRADES = ["A+", "A", "B", "C", "D", "F"] as const;
 type Grade = typeof GRADES[number];
 
@@ -117,6 +118,44 @@ async function getActiveBattleRow(): Promise<BattleRow | null> {
     end_time: end,
     is_active: true,
   };
+}
+
+async function getLiveClanBattleData(battleId: string) {
+  const json = await fetchJsonOrNull(CLAN_API);
+  const data = json?.data ?? {};
+  const members = Array.isArray(data?.Members) ? data.Members : [];
+  const memberIds = new Set<string>();
+
+  for (const member of members) {
+    const id = member?.UserID ?? member?.userId ?? member?.id;
+    if (id !== null && id !== undefined && String(id).trim()) {
+      memberIds.add(String(id).trim());
+    }
+  }
+
+  const battles = data?.Battles ?? data?.battles ?? {};
+  const targetKey = normalizeBattleKey(battleId);
+  const battle = Object.entries(battles).find(([key, value]) => {
+    const record = value as Record<string, unknown>;
+    const candidates = [key, record?.BattleID, record?.battleId, record?.configName, record?.Title, record?.title];
+    return candidates.some((candidate) => normalizeBattleKey(candidate) === targetKey);
+  })?.[1] as Record<string, unknown> | undefined;
+
+  const contributionPoints = new Map<string, number>();
+  const contributions = Array.isArray(battle?.PointContributions)
+    ? battle.PointContributions
+    : Array.isArray(battle?.pointContributions)
+    ? battle.pointContributions
+    : [];
+
+  for (const contribution of contributions) {
+    const entry = contribution as Record<string, unknown>;
+    const id = entry?.UserID ?? entry?.userId ?? entry?.user_id;
+    if (id === null || id === undefined) continue;
+    contributionPoints.set(String(id).trim(), asNumber(entry?.Points ?? entry?.points));
+  }
+
+  return { memberIds, contributionPoints };
 }
 
 
@@ -438,6 +477,26 @@ export async function GET(
       playerRows = players.rows.filter((row) => linkedAccounts.has(String(row.roblox_id)));
     }
 
+    if (battle.is_active) {
+      const liveData = await getLiveClanBattleData(battle.battle_id);
+      if (liveData.memberIds.size > 0) {
+        const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
+        playerRows = [...liveData.memberIds]
+          .filter((robloxId) => linkedAccounts.has(robloxId))
+          .map((robloxId) => {
+            const existing = rowsById.get(robloxId);
+            const linked = linkedAccounts.get(robloxId);
+            return {
+              roblox_id: robloxId,
+              username: existing?.username ?? linked?.username ?? robloxId,
+              rank: existing?.rank ?? null,
+              points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+              captured_at: existing?.captured_at ?? null,
+            };
+          });
+      }
+    }
+
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
 
     const pointValues = playerRows.map((row) => asNumber(row.points));
@@ -515,7 +574,7 @@ export async function GET(
         startTime: toIso(battle.start_time),
         endTime: toIso(battle.end_time),
         finalRank: snapshot?.rank === null || snapshot?.rank === undefined ? null : asNumber(snapshot.rank),
-        finalPoints: asNumber(snapshot?.battle_points),
+        finalPoints: battle.is_active ? totalMemberPoints : asNumber(snapshot?.battle_points),
         capturedAt: toIso(snapshot?.captured_at),
         isActive: Boolean(battle.is_active),
       },
