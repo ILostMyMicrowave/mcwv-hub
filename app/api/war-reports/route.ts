@@ -339,7 +339,7 @@ export async function GET() {
 
       if (battle.is_active && liveData && liveData.memberIds.size > 0) {
         const liveIds = [...liveData.memberIds];
-        const liveNames = await fetchRobloxNames(liveIds);
+        const liveNames = liveNamesByBattle.get(battleKey) ?? new Map<string, string>();
         const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
         rows = liveIds.map((robloxId) => {
           const existing = rowsById.get(robloxId);
