@@ -668,6 +668,42 @@ function confirmAction(message: string) {
   return window.confirm(message);
 }
 
+async function copyToClipboard(value: string) {
+  if (!value.trim()) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function uniqueDiscordMentions(rows: ActivityMember[]) {
+  return [...new Set(rows.map((row) => row.discordId).filter(Boolean).map((id) => `<@${id}>`))];
+}
+
+function buildActivityCopyMessage(rows: ActivityMember[], label: string, threshold: number) {
+  const mentions = uniqueDiscordMentions(rows);
+  if (!mentions.length) return "";
+
+  const reason = label.toLowerCase();
+  const details = rows
+    .filter((row) => row.discordId)
+    .slice(0, 20)
+    .map((row) => `• ${row.username}: ${row.pphReady ? `${row.pph} PPH` : "PPH warming up"}, ${row.points} pts${row.reasons.length ? ` — ${row.reasons.join(", ")}` : ""}`)
+    .join("\n");
+
+  return [
+    `The following members are on the **${reason}** activity list${label === "Low PPH" ? ` under **${threshold} PPH**` : ""}:`,
+    "",
+    mentions.join(" "),
+    "",
+    details,
+    "",
+    "Please lock in and improve your war activity.",
+  ].filter(Boolean).join("\n");
+}
+
 function shortenMiddle(value: unknown, start = 7, end = 5) {
   if (value === null || value === undefined || value === "") return "—";
 
@@ -1770,6 +1806,7 @@ function ActivitySection() {
   const [data, setData] = useState<ActivityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"needs" | "low" | "zero" | "offline" | "disconnects" | "improvers">("needs");
+  const [copyStatus, setCopyStatus] = useState("");
 
   const loadActivity = useCallback(async () => {
     setLoading(true);
@@ -1808,6 +1845,30 @@ function ActivitySection() {
     ["disconnects", "Disconnects", data?.summary.disconnectWatch ?? 0],
     ["improvers", "Top Improvers", data?.topImprovers.length ?? 0],
   ];
+
+  const activeLabel = tabs.find(([id]) => id === activeTab)?.[1] ?? "Activity";
+  const pingableRows = rows.filter((row) => row.discordId);
+
+  async function copyMentions() {
+    const text = uniqueDiscordMentions(pingableRows).join(" ");
+    const ok = await copyToClipboard(text);
+    setCopyStatus(ok ? `Copied ${uniqueDiscordMentions(pingableRows).length} mention(s).` : "No linked Discord users to copy.");
+    window.setTimeout(() => setCopyStatus(""), 2500);
+  }
+
+  async function copyMessage() {
+    const text = buildActivityCopyMessage(pingableRows, activeLabel, threshold);
+    const ok = await copyToClipboard(text);
+    setCopyStatus(ok ? "Copied activity message." : "No linked Discord users to copy.");
+    window.setTimeout(() => setCopyStatus(""), 2500);
+  }
+
+  async function copyUsernames() {
+    const text = rows.map((row) => row.username).join("\n");
+    const ok = await copyToClipboard(text);
+    setCopyStatus(ok ? `Copied ${rows.length} username(s).` : "No users to copy.");
+    window.setTimeout(() => setCopyStatus(""), 2500);
+  }
 
   return (
     <div className="space-y-6">
@@ -1861,6 +1922,22 @@ function ActivitySection() {
               {label} · {count}
             </button>
           ))}
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+          <button className="admin-button" type="button" onClick={() => void copyMentions()} disabled={!pingableRows.length}>
+            Copy mentions
+          </button>
+          <button className="admin-button" type="button" onClick={() => void copyMessage()} disabled={!pingableRows.length || activeTab === "improvers"}>
+            Copy warning message
+          </button>
+          <button className="admin-button" type="button" onClick={() => void copyUsernames()} disabled={!rows.length}>
+            Copy usernames
+          </button>
+          <span className="text-xs text-zinc-500">
+            {pingableRows.length} linked Discord user(s) in {activeLabel.toLowerCase()}
+          </span>
+          {copyStatus && <span className="text-xs text-emerald-300">{copyStatus}</span>}
         </div>
 
         {loading ? (
