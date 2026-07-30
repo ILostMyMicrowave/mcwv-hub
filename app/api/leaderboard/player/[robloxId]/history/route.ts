@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -78,6 +79,9 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ robloxId: string }> }
 ) {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
   try {
     const { robloxId } = await params;
     const userId = Number(robloxId);
