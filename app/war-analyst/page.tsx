@@ -78,6 +78,7 @@ type BattleHqResponse = {
     snapshotIntervalMs: number;
     nextUpdateInMs: number;
     nextUpdateText: string;
+    remainingMs?: number | null;
   };
   history: {
     points24h: Array<{
@@ -408,6 +409,253 @@ function ClanMiniProfile({
   );
 }
 
+
+type ProjectionClan = {
+  name: string;
+  rank: number | null;
+  points: number;
+  pph: number;
+  currentDelta: number;
+  projectedDelta: number;
+  color: string;
+  isUs: boolean;
+};
+
+const PROJECTION_COLORS = ["#f97316", "#38bdf8", "#34d399", "#f472b6", "#facc15", "#a855f7", "#fb7185"];
+
+function compactNumber(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(1)}K`;
+  return `${Math.round(value)}`;
+}
+
+function signedCompact(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+  return `${value > 0 ? "+" : ""}${compactNumber(value)}`;
+}
+
+function projectionOdds(data: BattleHqResponse) {
+  const currentRank = data.current.rank ?? data.stats.projectedPlacement ?? 0;
+  const expected = data.finishOutlook?.expectedRank ?? data.stats.projectedPlacement ?? currentRank;
+  const best = data.finishOutlook?.bestRank ?? data.stats.projectedBestPlacement ?? expected;
+  const worst = data.finishOutlook?.worstRank ?? data.stats.projectedWorstPlacement ?? expected;
+
+  const low = Math.max(1, Math.min(best || expected || currentRank || 1, worst || expected || currentRank || 1));
+  const high = Math.max(best || expected || currentRank || 1, worst || expected || currentRank || 1);
+  const ranks = Array.from({ length: Math.max(1, high - low + 1) }, (_, index) => low + index).slice(0, 7);
+
+  if (!data.finishOutlook?.ready || ranks.length === 1) {
+    const base = [currentRank - 1, currentRank, currentRank + 1]
+      .filter((rank) => rank > 0)
+      .filter((rank, index, rows) => rows.indexOf(rank) === index);
+    return base.map((rank) => ({ rank, pct: rank === currentRank ? 58 : 21 }));
+  }
+
+  const weights = ranks.map((rank) => 1 / (Math.abs(rank - expected) + 1));
+  const total = weights.reduce((sum, value) => sum + value, 0) || 1;
+  return ranks.map((rank, index) => ({ rank, pct: Math.max(4, Math.round((weights[index] / total) * 100)) }));
+}
+
+function buildProjectionClans(data: BattleHqResponse): ProjectionClan[] {
+  const currentName = data.current.clanName.toLowerCase();
+  const currentPoints = data.current.points;
+  const ourPph = data.stats.pointsLastHour ?? data.stats.adjustedHourlyRate ?? data.stats.hourlyRate ?? 0;
+  const remainingHours = Math.max(0, (data.timing.remainingMs ?? 0) / 3_600_000);
+  const base = data.nearby.length
+    ? data.nearby
+    : [{ rank: data.current.rank, name: data.current.clanName, points: currentPoints, pph: ourPph }];
+
+  const sorted = [...base]
+    .sort((a, b) => {
+      const ar = a.rank ?? 9999;
+      const br = b.rank ?? 9999;
+      if (ar !== br) return ar - br;
+      return b.points - a.points;
+    });
+
+  const ourIndex = sorted.findIndex((clan) => clan.name.toLowerCase() === currentName);
+  const windowed = ourIndex >= 0
+    ? sorted.slice(Math.max(0, ourIndex - 3), ourIndex + 4)
+    : sorted.slice(0, 7);
+
+  if (!windowed.some((clan) => clan.name.toLowerCase() === currentName)) {
+    windowed.push({ rank: data.current.rank, name: data.current.clanName, points: currentPoints, pph: ourPph });
+  }
+
+  return windowed.slice(0, 7).map((clan, index) => {
+    const pph = clan.name.toLowerCase() === currentName ? ourPph : clan.pph ?? 0;
+    const currentDelta = clan.points - currentPoints;
+    const projectedDelta = currentDelta + (pph - ourPph) * remainingHours;
+    return {
+      name: clan.name,
+      rank: clan.rank,
+      points: clan.points,
+      pph,
+      currentDelta,
+      projectedDelta,
+      color: clan.name.toLowerCase() === currentName ? "#fb923c" : PROJECTION_COLORS[index % PROJECTION_COLORS.length],
+      isUs: clan.name.toLowerCase() === currentName,
+    };
+  });
+}
+
+function ProjectionGraph({ data }: { data: BattleHqResponse }) {
+  const clans = buildProjectionClans(data);
+  const our = clans.find((clan) => clan.isUs) ?? clans[0];
+  const remainingMs = data.timing.remainingMs ?? 0;
+  const remainingHours = Math.max(0, remainingMs / 3_600_000);
+  const width = 820;
+  const height = 330;
+  const left = 70;
+  const right = 125;
+  const top = 22;
+  const bottom = 48;
+  const nowX = left + 245;
+  const finishX = width - right;
+  const startX = left;
+  const plotHeight = height - top - bottom;
+
+  const deltas = clans.flatMap((clan) => {
+    const backDelta = clan.currentDelta - (clan.pph - (our?.pph ?? 0)) * 12;
+    return [backDelta, clan.currentDelta, clan.projectedDelta];
+  });
+  const maxAbs = Math.max(1, ...deltas.map((value) => Math.abs(value))) * 1.25;
+  const yFor = (value: number) => top + (maxAbs - value) / (maxAbs * 2) * plotHeight;
+  const yTicks = [maxAbs * 0.75, maxAbs * 0.25, -maxAbs * 0.25, -maxAbs * 0.75];
+  const ourY = yFor(our?.projectedDelta ?? 0);
+  const band = Math.max(18, Math.min(70, Math.abs((our?.pph ?? 0) * remainingHours * 0.16) / maxAbs * plotHeight));
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-3 sm:p-5">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[330px] w-full">
+        <defs>
+          <linearGradient id="mcwvProjectionBand" x1="0" x2="1">
+            <stop offset="0" stopColor="#fb923c" stopOpacity="0.08" />
+            <stop offset="1" stopColor="#fb923c" stopOpacity="0.22" />
+          </linearGradient>
+          <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="2.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line x1={left} x2={finishX} y1={yFor(tick)} y2={yFor(tick)} stroke="rgba(255,255,255,0.08)" />
+            <text x={left - 12} y={yFor(tick) + 5} textAnchor="end" fill="rgba(226,232,240,0.62)" fontSize="13">
+              {signedCompact(tick)}
+            </text>
+          </g>
+        ))}
+
+        <line x1={nowX} x2={nowX} y1={top} y2={height - bottom} stroke="rgba(255,255,255,0.22)" strokeDasharray="6 8" />
+        <line x1={left} x2={finishX} y1={yFor(0)} y2={yFor(0)} stroke="rgba(255,255,255,0.10)" />
+
+        <polygon
+          points={`${nowX},${Math.max(top, yFor(our?.currentDelta ?? 0) - band * 0.45)} ${finishX},${Math.max(top, ourY - band)} ${finishX},${Math.min(height - bottom, ourY + band)} ${nowX},${Math.min(height - bottom, yFor(our?.currentDelta ?? 0) + band * 0.45)}`}
+          fill="url(#mcwvProjectionBand)"
+        />
+
+        {clans.map((clan) => {
+          const pastDelta = clan.currentDelta - (clan.pph - (our?.pph ?? 0)) * 12;
+          const yPast = yFor(pastDelta);
+          const yNow = yFor(clan.currentDelta);
+          const yFinish = yFor(clan.projectedDelta);
+          return (
+            <g key={clan.name} filter={clan.isUs ? "url(#softGlow)" : undefined}>
+              <line x1={startX} x2={nowX} y1={yPast} y2={yNow} stroke={clan.color} strokeWidth={clan.isUs ? 3 : 2.5} opacity={clan.isUs ? 0.95 : 0.8} />
+              <line x1={nowX} x2={finishX} y1={yNow} y2={yFinish} stroke={clan.color} strokeWidth={clan.isUs ? 3 : 2.5} strokeDasharray="7 7" opacity={clan.isUs ? 0.95 : 0.72} />
+              <circle cx={nowX} cy={yNow} r={clan.isUs ? 4 : 3} fill={clan.color} />
+              <text x={finishX + 10} y={yFinish + 5} fill={clan.color} fontSize="13" fontWeight="700">
+                {clan.rank !== null ? `#${clan.rank} ` : ""}{clan.name}{clan.isUs ? " (us)" : ""}
+              </text>
+            </g>
+          );
+        })}
+
+        <text x={startX} y={height - 16} fill="rgba(226,232,240,0.62)" fontSize="13">12h ago</text>
+        <text x={nowX - 14} y={height - 16} fill="rgba(226,232,240,0.7)" fontSize="13">now</text>
+        <text x={finishX - 22} y={height - 16} fill="rgba(226,232,240,0.7)" fontSize="13">finish</text>
+      </svg>
+      <p className="mt-2 text-xs leading-5 text-[var(--foreground)]/55">
+        Projected from nearby clan pace. Shaded band is the rough uncertainty range and narrows as battle history matures. Not a guarantee.
+      </p>
+    </div>
+  );
+}
+
+function ProjectionSection({ data }: { data: BattleHqResponse }) {
+  const odds = projectionOdds(data);
+  const clans = buildProjectionClans(data);
+  const currentRank = data.current.rank === null ? "—" : `#${data.current.rank}`;
+  const projectedRank = data.finishOutlook?.ready && data.finishOutlook.expectedRank
+    ? `#${data.finishOutlook.expectedRank}`
+    : data.stats.projectedPlacement
+    ? `#${data.stats.projectedPlacement}`
+    : currentRank;
+  const projectedPoints = data.finishOutlook?.projectedPoints ?? data.stats.projectedFinalPoints ?? null;
+  const ourPace = data.stats.pointsLastHour ?? data.stats.adjustedHourlyRate ?? data.stats.hourlyRate ?? null;
+  const above = clans.filter((clan) => !clan.isUs && clan.currentDelta > 0).sort((a, b) => a.currentDelta - b.currentDelta)[0] ?? null;
+  const extraNeeded = above && data.timing.remainingMs
+    ? Math.max(0, Math.ceil((above.points + above.pph * (data.timing.remainingMs / 3_600_000) + 1 - data.current.points) / Math.max(data.timing.remainingMs / 3_600_000, 0.1) - (ourPace ?? 0)))
+    : null;
+
+  return (
+    <Panel
+      title="Projection"
+      delay="0.4s"
+      right={<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[var(--foreground)]/60">Race model</span>}
+    >
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card title="Live rank" value={currentRank} sub={`${formatNumber(data.current.points)} pts`} />
+        <Card title="Projected finish" value={projectedRank} sub={projectedPoints ? `${formatNumber(projectedPoints)} projected` : data.finishOutlook?.reason ?? "Warming up"} />
+        <Card title="To catch" value={above ? above.name : "—"} sub={extraNeeded !== null ? `Need +${formatNumber(extraNeeded)}/hr` : data.summary.target} />
+        <Card title="Our pace" value={ourPace !== null ? `${compactNumber(ourPace)}/hr` : "—"} sub={`Last 5m context in nearby table`} />
+      </div>
+
+      <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-200">Finishing odds</h3>
+            <p className="mt-1 text-xs text-[var(--foreground)]/50">
+              {data.finishOutlook?.ready ? "Based on current nearby clan pace." : "Model warming up — odds are directional only."}
+            </p>
+          </div>
+          <span className="text-xs text-[var(--foreground)]/50">Confidence {(data.finishOutlook?.confidence ?? data.stats.confidence).replace("_", " ").toUpperCase()}</span>
+        </div>
+        <div className="space-y-2">
+          {odds.map((item, index) => (
+            <div key={item.rank} className="grid grid-cols-[4rem_1fr_3rem] items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2">
+              <span className="text-sm font-bold text-[var(--foreground)]/70">{item.rank}{item.rank === 1 ? "st" : item.rank === 2 ? "nd" : item.rank === 3 ? "rd" : "th"}</span>
+              <div className="h-3 overflow-hidden rounded-full bg-slate-700/40">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${Math.max(3, item.pct)}%`,
+                    background: `linear-gradient(90deg, ${PROJECTION_COLORS[index % PROJECTION_COLORS.length]}, #a855f7)`,
+                  }}
+                />
+              </div>
+              <span className="text-right text-sm font-bold text-white">{item.pct}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <ProjectionGraph data={data} />
+      </div>
+    </Panel>
+  );
+}
+
 export default function BattleHQPage() {
   const [data, setData] = useState<BattleHqResponse | null>(null);
   const [selectedClan, setSelectedClan] = useState<BattleHqResponse["nearby"][number] | null>(null);
@@ -673,82 +921,7 @@ export default function BattleHQPage() {
               </div>
 
               <div className="space-y-6">
-                <Panel title="Performance" delay="0.4s">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Card
-                      title="24h gain"
-                      value={`+${formatNumber(data.stats.gain24h)}`}
-                      sub="Total gained over the tracked 24h window"
-                      delay="0.4s"
-                    />
-                    <Card
-                      title="Predicted rank in 1h"
-                      value={forecastRange}
-                      sub={`Confidence: ${data.stats.confidence.toUpperCase()}`}
-                      delay="0.45s"
-                    />
-                    <Card
-                      title="Points last hour"
-                      value={formatNumber(data.stats.pointsLastHour ?? 0)}
-                      sub="Clan gain in the last 60 minutes"
-                      delay="0.5s"
-                    />
-                    <Card
-                      title="Stability"
-                      value={`${reliabilityPercent}%`}
-                      sub={`${formatNumber(data.stats.disconnectPlayers24h ?? 0)} players affected · ${formatNumber(data.stats.disconnects24h ?? 0)} drops / 24h`}
-                      delay="0.55s"
-                    />
-                    {data.stats.inactiveMembers !== null && data.stats.inactiveMembers !== undefined && data.stats.inactiveMembers > 0 && (
-                      <Card
-                        title="No points yet"
-                        value={formatNumber(data.stats.inactiveMembers)}
-                        sub="Members without battle points"
-                        delay="0.6s"
-                      />
-                    )}
-                  </div>
-                </Panel>
-
-                <Panel title="Finish outlook" delay="0.48s">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Card title="Likely finish" value={finishRange} sub={data.finishOutlook?.ready ? `Expected: #${data.finishOutlook.expectedRank ?? "—"}` : "Still warming up"} />
-                    <Card title="Projected final" value={data.finishOutlook?.projectedPoints ? formatNumber(data.finishOutlook.projectedPoints) : "—"} sub="End-of-war points" />
-                    <Card title="Confidence" value={(data.finishOutlook?.confidence ?? "warming_up").replace("_", " ").toUpperCase()} sub={data.finishOutlook?.reason ?? "Collecting data"} />
-                  </div>
-                </Panel>
-
-                <Panel title="Snapshot history" delay="0.5s">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Card title="Snapshots" value={formatNumber(data.diagnostics.snapshotsAvailable)} delay="0.5s" />
-                    <Card title="Latest rank" value={data.diagnostics.latestSnapshotRank === null ? "—" : `#${data.diagnostics.latestSnapshotRank}`} delay="0.55s" />
-                    <Card title="Next update" value={formatDuration(nextUpdateLeft)} delay="0.6s" />
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    {recentHistory.length === 0 ? (
-                      <p className="text-sm text-[var(--foreground)]/65">A few more snapshots are needed before the history row becomes useful.</p>
-                    ) : (
-                      recentHistory.map((row) => (
-                        <div
-                          key={`${row.capturedAt ?? "x"}-${row.points}`}
-                          className="flex items-center justify-between rounded-xl border px-3 py-2 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
-                          style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.12)", animation: "fadeInUp 0.3s ease-out forwards", opacity: 0 }}
-                        >
-                          <span className="text-xs text-[var(--foreground)]/60">
-                            {row.capturedAt
-                              ? new Date(row.capturedAt).toLocaleTimeString("en-GB", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })
-                              : "—"}
-                          </span>
-                          <span className="text-xs font-semibold text-white">{formatNumber(row.points)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </Panel>
+                <ProjectionSection data={data} />
               </div>
             </div>
           </div>
