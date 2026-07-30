@@ -6,6 +6,7 @@ const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = "MCWV";
 const CLAN_API = process.env.CLAN_API ?? "";
 const BIG_GAMES_INDEX_CLAN_URL = `https://db.biggames.io/clans/leaderboard?sort=Points&item=${encodeURIComponent(CLAN_NAME)}&tab=overview`;
+const LEGACY_CLANS_LEADERBOARD_URL = `${BASE}/api/clans?page=1&pageSize=50&sort=Points&sortOrder=desc`;
 
 function toMs(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -82,8 +83,64 @@ function getClanPoints(clan: any): number | null {
   );
 }
 
+function clanIconUrl(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const assetId = raw.match(/\d+/)?.[0];
+  return assetId ? `${BASE}/image/${assetId}` : null;
+}
+
+function getClanMemberCount(clan: any): number | null {
+  if (Array.isArray(clan?.Members)) return clan.Members.length;
+  return (
+    asNumber(clan?.Members) ??
+    asNumber(clan?.members) ??
+    asNumber(clan?.MemberCount) ??
+    asNumber(clan?.memberCount) ??
+    asNumber(clan?.membersCount) ??
+    null
+  );
+}
+
 function contributionPoints(entry: any): number {
   return asNumber(entry?.Points ?? entry?.points ?? entry?.BattlePoints ?? entry?.battlePoints) ?? 0;
+}
+
+function extractClanList(response: any): any[] {
+  return asArray(
+    response?.data?.clans ??
+      response?.data?.items ??
+      response?.data ??
+      response?.items ??
+      response?.clans
+  );
+}
+
+async function getTop50ClanLeaderboard() {
+  try {
+    const res = await fetch(LEGACY_CLANS_LEADERBOARD_URL, {
+      cache: "no-store",
+      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
+    });
+
+    if (!res.ok) return [];
+
+    const json = await res.json().catch(() => null);
+    const clans = extractClanList(json).slice(0, 50);
+
+    return clans.map((clan, index) => ({
+      rank: asNumber(clan?.rank ?? clan?.Rank ?? clan?.place ?? clan?.Place) ?? index + 1,
+      name: String(clan?.Name ?? clan?.name ?? clan?.ClanName ?? clan?.clanName ?? "Unknown"),
+      tag: String(clan?.Tag ?? clan?.tag ?? clan?.Name ?? clan?.name ?? "").trim() || null,
+      icon: clanIconUrl(clan?.Icon ?? clan?.icon),
+      countryCode: clan?.CountryCode ?? clan?.countryCode ?? clan?.country ?? null,
+      members: getClanMemberCount(clan),
+      memberCapacity: asNumber(clan?.MemberCapacity ?? clan?.memberCapacity) ?? null,
+      points: getClanPoints(clan) ?? 0,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function pickClanBattle(clanJson: any, battleId: string, warName?: string | null) {
@@ -275,9 +332,10 @@ export async function GET() {
 
     const state = deriveState(meta, startTime, endTime);
     const topContributor = topPlayers[0] ?? null;
-    const [mcwvStats, indexOverview] = await Promise.all([
+    const [mcwvStats, indexOverview, top50Clans] = await Promise.all([
       getMcwvBattleStats(battleId, warName),
       getBigGamesIndexClanOverview(),
+      getTop50ClanLeaderboard(),
     ]);
     const mcwvTotalPoints =
       indexOverview?.points ??
@@ -315,6 +373,11 @@ export async function GET() {
         headlineReward: meta?.headlineReward ?? null,
         placementRewards: asArray(meta?.placementRewards),
         tieredRewards: meta?.tieredRewards ?? null,
+      },
+      leaderboard: {
+        title: "Top 50 clans",
+        clans: top50Clans,
+        updatedAt: new Date().toISOString(),
       },
     });
   } catch {
