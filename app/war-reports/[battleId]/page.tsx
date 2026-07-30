@@ -88,6 +88,9 @@ function copyText(text: string) {
   void navigator.clipboard?.writeText(text);
 }
 
+const buttonClass = "rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-45";
+const inputClass = "w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 focus:bg-black/40";
+
 function exportCsv(data: ReportDetail) {
   const rows = [
     ["Rank", "Roblox", "Discord ID", "Points", "Share %", "Avg PPH", "Grade", "Auto Grade", "Flags", "Alt", "Owner"],
@@ -163,18 +166,18 @@ function EditModal({
         <p className="mt-1 text-sm text-zinc-400">{member.username}</p>
         <label className="mt-5 block space-y-2">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Manual Grade</span>
-          <select className="admin-input" value={manualGrade} onChange={(event) => setManualGrade(event.target.value as Grade | "")}>
+          <select className={inputClass} value={manualGrade} onChange={(event) => setManualGrade(event.target.value as Grade | "")}>
             <option value="">Use automatic grade ({member.autoGrade})</option>
             {GRADES.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
           </select>
         </label>
         <label className="mt-4 block space-y-2">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Officer Note</span>
-          <textarea className="admin-input min-h-32" value={staffNote} onChange={(event) => setStaffNote(event.target.value)} maxLength={1200} />
+          <textarea className={`${inputClass} min-h-32`} value={staffNote} onChange={(event) => setStaffNote(event.target.value)} maxLength={1200} />
         </label>
         <div className="mt-5 flex justify-end gap-2">
-          <button className="admin-button" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="admin-button" onClick={() => void submit()} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+          <button className={buttonClass} onClick={onClose} disabled={saving}>Cancel</button>
+          <button className={buttonClass} onClick={() => void submit()} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
         </div>
       </div>
     </div>
@@ -266,15 +269,21 @@ export default function WarReportDetailPage() {
                 </div>
                 {data.canManage && (
                   <div className="flex flex-wrap gap-2">
-                    <button className="admin-button" onClick={() => copyText(data.warningMessage)}>Copy warnings</button>
-                    <button className="admin-button" onClick={() => exportCsv(data)}>Export CSV</button>
+                    <button className={buttonClass} disabled={!data.warningMessage} onClick={() => copyText(data.warningMessage)}>Copy warnings</button>
+                    <button className={buttonClass} onClick={() => exportCsv(data)}>Export CSV</button>
                   </div>
                 )}
               </div>
 
+              {data.battle.isActive && (
+                <div className="mt-6 rounded-2xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
+                  This is a live preview. Points, ranks, grades, MVPs, and warning lists can change until the war ends.
+                </div>
+              )}
+
               <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                <StatCard label="Final Rank" value={data.battle.finalRank ? `#${data.battle.finalRank}` : "—"} />
-                <StatCard label="Final Points" value={formatNumber(data.battle.finalPoints)} />
+                <StatCard label={data.battle.isActive ? "Current Rank" : "Final Rank"} value={data.battle.finalRank ? `#${data.battle.finalRank}` : "—"} />
+                <StatCard label={data.battle.isActive ? "Current Points" : "Final Points"} value={formatNumber(data.battle.finalPoints)} />
                 <StatCard label="Participants" value={`${formatNumber(data.summary.participants)}/${formatNumber(data.summary.accounts)}`} />
                 <StatCard label="Average" value={formatNumber(data.summary.averagePoints)} />
                 <StatCard label="Median" value={formatNumber(data.summary.medianPoints)} />
@@ -380,7 +389,7 @@ export default function WarReportDetailPage() {
                         </td>
                         {data.canManage && (
                           <td className="rounded-r-2xl px-3 py-3 text-right">
-                            <button className="admin-button" onClick={() => setEditing(member)}>Edit</button>
+                            <button className={buttonClass} onClick={() => setEditing(member)}>Edit</button>
                           </td>
                         )}
                       </tr>
