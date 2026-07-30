@@ -94,12 +94,15 @@ export async function GET() {
       return NextResponse.json({ success: true, featured: null, reports: [] });
     }
 
-    const battles = await pool.query<BattleRow>(
+    const canManage = auth.user.role === "officer" || auth.user.role === "owner";
+
+    const battles = await pool.query<BattleRow & { is_active: boolean }>(
       `SELECT
          b.battle_id,
          b.battle_name,
          b.start_time,
          b.end_time,
+         (b.end_time IS NOT NULL AND b.end_time > NOW()) AS is_active,
          ws.rank AS final_rank,
          ws.battle_points AS final_points,
          ws.captured_at
@@ -113,10 +116,16 @@ export async function GET() {
          LIMIT 1
        ) ws ON TRUE
        WHERE b.end_time IS NOT NULL
-         AND b.end_time <= NOW()
-       ORDER BY b.end_time DESC NULLS LAST, ws.captured_at DESC NULLS LAST
+         AND (
+           b.end_time <= NOW()
+           OR ($2::boolean = TRUE AND (b.start_time IS NULL OR b.start_time <= NOW()))
+         )
+       ORDER BY
+         CASE WHEN b.end_time > NOW() THEN 0 ELSE 1 END,
+         b.end_time DESC NULLS LAST,
+         ws.captured_at DESC NULLS LAST
        LIMIT 100`,
-      [CLAN_NAME]
+      [CLAN_NAME, canManage]
     );
 
     const battleIds = battles.rows.map((row) => row.battle_id);
@@ -162,6 +171,7 @@ export async function GET() {
         finalRank: battle.final_rank === null ? null : asNumber(battle.final_rank),
         finalPoints: asNumber(battle.final_points),
         capturedAt: toIso(battle.captured_at),
+        isActive: Boolean(battle.is_active),
         accounts: rows.length,
         participants: positive.length,
         zeroAccounts: rows.filter((row) => asNumber(row.points) <= 0).length,
