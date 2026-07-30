@@ -186,15 +186,25 @@ export default function WarReportDetailPage() {
   const battleId = params.battleId;
   const [data, setData] = useState<ReportDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState<ReportMember | null>(null);
 
   async function load() {
     setLoading(true);
+    setError("");
     try {
       const res = await fetch(`/api/war-reports/${encodeURIComponent(battleId)}`, { cache: "no-store" });
-      const json = (await res.json().catch(() => null)) as ReportDetail | null;
-      setData(json?.success ? json : null);
+      const json = (await res.json().catch(() => null)) as (ReportDetail & { error?: string }) | null;
+      if (json?.success) {
+        setData(json);
+      } else {
+        setData(null);
+        setError(json?.error ?? `Report request failed (${res.status})`);
+      }
+    } catch (err) {
+      setData(null);
+      setError(err instanceof Error ? err.message : "Failed to load report");
     } finally {
       setLoading(false);
     }
@@ -233,7 +243,9 @@ export default function WarReportDetailPage() {
         {loading ? (
           <div className="mt-6 h-96 animate-pulse rounded-3xl bg-white/5" />
         ) : !data ? (
-          <div className="mt-6 rounded-3xl border border-red-500/30 bg-red-500/10 p-6 text-red-100">Report not found.</div>
+          <div className="mt-6 rounded-3xl border border-red-500/30 bg-red-500/10 p-6 text-red-100">
+            {error || "Report not found."}
+          </div>
         ) : (
           <div className="mt-6 space-y-6">
             <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 sm:p-7">
