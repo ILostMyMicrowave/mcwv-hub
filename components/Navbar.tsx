@@ -39,6 +39,7 @@ export default function Navbar() {
       { href: "/leaderboard", label: "Leaderboard" },
       { href: "/war-info", label: "War Info" },
       { href: "/war-analyst", label: "Battle HQ" },
+      { href: "/war-reports", label: "War Reports" },
       { href: "/contributions", label: "Contributions" },
       { href: "/admin?section=tickets", label: "Tickets", officerOnly: true },
       { href: "/admin", label: "Admin" },
