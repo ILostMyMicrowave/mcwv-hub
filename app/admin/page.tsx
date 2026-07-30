@@ -1986,7 +1986,7 @@ function ActivityMemberCard({ member, threshold }: { member: ActivityMember; thr
         <MiniStat label="Points" value={formatCompact(member.points)} />
         <MiniStat label="PPH" value={member.pphReady ? formatCompact(member.pph) : "—"} />
         <MiniStat label="5m" value={member.change5m > 0 ? `+${formatCompact(member.change5m)}` : "—"} />
-        <MiniStat label="Drops" value={String(member.disconnects24h)} />
+        <MiniStat label="Disconnects" value={String(member.disconnects24h)} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1">
