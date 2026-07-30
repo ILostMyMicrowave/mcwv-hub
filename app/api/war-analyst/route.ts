@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 import { getDetectedWarWindow } from "@/lib/warDetection";
 
@@ -1275,6 +1276,9 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
 }
 
 export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
   try {
     if (!pool) {
       return NextResponse.json(
