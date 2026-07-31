@@ -153,24 +153,27 @@ async function getActiveBattleRow(): Promise<BattleRow | null> {
   };
 }
 
-async function getLiveClanBattleData(battleId: string) {
-  // Always prefer the official legacy clan endpoint for live roster membership.
-  // Env CLAN_API can be changed for other views, but War Reports must reflect
-  // the actual in-game clan member list.
+async function getClanBattleReportData(battleId: string, includeCurrentRoster: boolean) {
+  // Always prefer the official legacy clan endpoint. For live wars we use the
+  // current in-game roster (Members + Owner). For completed wars we use that
+  // battle's PointContributions as the historical roster source so newer/current
+  // members do not leak into old reports like Gummy.
   const json = (await fetchJsonOrNull(LEGACY_CLAN_API)) ?? (await fetchJsonOrNull(CLAN_API));
   const data = json?.data ?? {};
   const members = Array.isArray(data?.Members) ? data.Members : [];
-  const memberIds = new Set<string>();
+  const currentMemberIds = new Set<string>();
 
-  const ownerId = data?.Owner ?? data?.owner ?? data?.OwnerUserID ?? data?.ownerUserId;
-  if (ownerId !== null && ownerId !== undefined && String(ownerId).trim()) {
-    memberIds.add(String(ownerId).trim());
-  }
+  const ownerIdRaw = data?.Owner ?? data?.owner ?? data?.OwnerUserID ?? data?.ownerUserId;
+  const ownerId = ownerIdRaw !== null && ownerIdRaw !== undefined && String(ownerIdRaw).trim()
+    ? String(ownerIdRaw).trim()
+    : null;
+
+  if (ownerId) currentMemberIds.add(ownerId);
 
   for (const member of members) {
     const id = member?.UserID ?? member?.userId ?? member?.id;
     if (id !== null && id !== undefined && String(id).trim()) {
-      memberIds.add(String(id).trim());
+      currentMemberIds.add(String(id).trim());
     }
   }
 
@@ -183,6 +186,7 @@ async function getLiveClanBattleData(battleId: string) {
   })?.[1] as Record<string, unknown> | undefined;
 
   const contributionPoints = new Map<string, number>();
+  const contributionIds = new Set<string>();
   const contributions = Array.isArray(battle?.PointContributions)
     ? battle.PointContributions
     : Array.isArray(battle?.pointContributions)
@@ -192,11 +196,29 @@ async function getLiveClanBattleData(battleId: string) {
   for (const contribution of contributions) {
     const entry = contribution as Record<string, unknown>;
     const id = entry?.UserID ?? entry?.userId ?? entry?.user_id;
-    if (id === null || id === undefined) continue;
-    contributionPoints.set(String(id).trim(), asNumber(entry?.Points ?? entry?.points));
+    if (id === null || id === undefined || !String(id).trim()) continue;
+    const normalizedId = String(id).trim();
+    contributionIds.add(normalizedId);
+    contributionPoints.set(normalizedId, asNumber(entry?.Points ?? entry?.points));
   }
 
-  return { memberIds, contributionPoints };
+  const memberIds = includeCurrentRoster
+    ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
+    : new Set(contributionIds);
+
+  // The Big Games Members array does not include the clan owner, so explicitly
+  // keep them in both live and historical reports when we have battle data.
+  if (ownerId && (includeCurrentRoster || memberIds.size > 0)) {
+    memberIds.add(ownerId);
+  }
+
+  return {
+    memberIds,
+    contributionPoints,
+    battleFound: Boolean(battle),
+    battlePoints: asNumber(battle?.Points ?? battle?.points),
+    ownerId,
+  };
 }
 
 
@@ -235,7 +257,7 @@ async function getFallbackBattleFromHistory(requestedBattleId: string): Promise<
         battle_name: formatBattleTitle(row.battle_id),
         start_time: null,
         end_time: null,
-        is_active: true,
+        is_active: false,
       };
     }
   }
@@ -260,7 +282,7 @@ async function getFallbackBattleFromHistory(requestedBattleId: string): Promise<
         battle_name: formatBattleTitle(row.battle_id),
         start_time: null,
         end_time: null,
-        is_active: true,
+        is_active: false,
       };
     }
   }
@@ -456,8 +478,7 @@ export async function GET(
         activeBattle &&
         (
           activeKeys.includes(requested) ||
-          activeKeys.some((key) => key.includes(requested) || requested.includes(key)) ||
-          requested.length >= 4
+          activeKeys.some((key) => requested.length >= 4 && key.length >= 4 && (key.includes(requested) || requested.includes(key)))
         )
       ) {
         battle = activeBattle;
@@ -515,27 +536,25 @@ export async function GET(
          ORDER BY roblox_id, captured_at DESC`,
         [normalizeBattleKey(battle.battle_id)]
       );
-      playerRows = players.rows.filter((row) => linkedAccounts.has(String(row.roblox_id)));
+      playerRows = players.rows;
     }
 
-    if (battle.is_active) {
-      const liveData = await getLiveClanBattleData(battle.battle_id);
-      if (liveData.memberIds.size > 0) {
-        const liveIds = [...liveData.memberIds];
-        const liveNames = await fetchRobloxNames(liveIds);
-        const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
-        playerRows = liveIds.map((robloxId) => {
-          const existing = rowsById.get(robloxId);
-          const linked = linkedAccounts.get(robloxId);
-          return {
-            roblox_id: robloxId,
-            username: existing?.username ?? linked?.username ?? liveNames.get(robloxId) ?? robloxId,
-            rank: existing?.rank ?? null,
-            points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
-            captured_at: existing?.captured_at ?? null,
-          };
-        });
-      }
+    const clanBattleData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
+    if (clanBattleData.memberIds.size > 0) {
+      const reportIds = [...clanBattleData.memberIds];
+      const reportNames = await fetchRobloxNames(reportIds);
+      const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
+      playerRows = reportIds.map((robloxId) => {
+        const existing = rowsById.get(robloxId);
+        const linked = linkedAccounts.get(robloxId);
+        return {
+          roblox_id: robloxId,
+          username: existing?.username ?? linked?.username ?? reportNames.get(robloxId) ?? robloxId,
+          rank: existing?.rank ?? null,
+          points: clanBattleData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+          captured_at: existing?.captured_at ?? null,
+        };
+      });
     }
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
@@ -621,7 +640,9 @@ export async function GET(
         startTime: toIso(battle.start_time),
         endTime: toIso(battle.end_time),
         finalRank: snapshot?.rank === null || snapshot?.rank === undefined ? null : asNumber(snapshot.rank),
-        finalPoints: battle.is_active ? totalMemberPoints : asNumber(snapshot?.battle_points),
+        finalPoints: battle.is_active
+          ? totalMemberPoints
+          : asNumber(snapshot?.battle_points) || clanBattleData.battlePoints || totalMemberPoints,
         capturedAt: toIso(snapshot?.captured_at),
         isActive: Boolean(battle.is_active),
       },
