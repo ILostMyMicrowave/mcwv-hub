@@ -819,6 +819,14 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   const titleSource = battle ? (isGenericBattleName(battle.battle_name) ? battle.battle_id : battle.battle_name) : battleId;
   const title = formatBattleTitle(titleSource || canonicalBattleId || "Historical War");
 
+  // For historical battles, the PS99 clan battle contribution list is the source
+  // of truth for who was actually in/contributed to the clan battle at that time.
+  // Prefer it when available so newer members added after the war do not appear.
+  const apiHistorical = await buildHistoricalFromClanApi(canonicalBattleId, title);
+  if (apiHistorical.data.length > 0) {
+    return apiHistorical;
+  }
+
   // Get MCWV's latest clan snapshot for this battle.
   const snapshotRes = await pool.query(
     `SELECT rank, battle_points, captured_at
