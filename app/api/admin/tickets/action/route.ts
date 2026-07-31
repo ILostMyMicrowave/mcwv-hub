@@ -24,6 +24,7 @@ export async function POST(req: Request) {
           description: body.description,
           button_label: body.button_label ?? body.buttonLabel,
           accent_color: body.accent_color ?? body.accentColor ?? body.hex_color ?? body.hexColor,
+          thumbnail_url: body.thumbnail_url ?? body.thumbnailUrl ?? body.thumbnail,
         }),
       })
       return NextResponse.json(data)
