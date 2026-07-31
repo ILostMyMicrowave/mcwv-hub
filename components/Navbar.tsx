@@ -7,8 +7,27 @@ import { usePathname } from "next/navigation";
 type NavLink = {
   href: string;
   label: string;
+  description?: string;
   officerOnly?: boolean;
 };
+
+type NavGroup =
+  | {
+      type: "link";
+      id: string;
+      href: string;
+      label: string;
+      icon?: string;
+      officerOnly?: boolean;
+    }
+  | {
+      type: "group";
+      id: string;
+      label: string;
+      icon?: string;
+      officerOnly?: boolean;
+      links: NavLink[];
+    };
 
 type NavbarUser = {
   role?: string | null;
@@ -21,6 +40,8 @@ export default function Navbar() {
   const [activeAdminSection, setActiveAdminSection] = useState<string | null>(null);
   const [renderDrawer, setRenderDrawer] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [collapseNav, setCollapseNav] = useState(false);
   const [indicator, setIndicator] = useState<{
     left: number;
     width: number;
@@ -30,42 +51,90 @@ export default function Navbar() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const brandRef = useRef<HTMLAnchorElement | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
-  const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const itemRefs = useRef<Record<string, HTMLElement | null>>({});
   const closeTimerRef = useRef<number | null>(null);
   const measuredNavWidthRef = useRef(0);
-  const [collapseNav, setCollapseNav] = useState(false);
 
   const isOfficer = user?.role === "officer" || user?.role === "owner";
 
-  const links: NavLink[] = useMemo(
-    () => [
-      { href: "/", label: "Home" },
-      { href: "/leaderboard", label: "Leaderboard" },
-      { href: "/war-info", label: "War Info" },
-      { href: "/war-analyst", label: "Battle HQ" },
-      { href: "/war-reports", label: "War Reports" },
-      { href: "/contributions", label: "Contributions" },
-      { href: "/admin?section=tickets", label: "Tickets", officerOnly: true },
-      { href: "/admin", label: "Admin", officerOnly: true },
-      { href: "/settings", label: "Settings" },
-    ].filter((link) => !link.officerOnly || isOfficer),
+  const navGroups: NavGroup[] = useMemo(
+    () => ([ 
+      { type: "link", id: "home", href: "/", label: "Home", icon: "⌂" },
+      {
+        type: "group",
+        id: "war",
+        label: "War",
+        icon: "⚔",
+        links: [
+          { href: "/war-info", label: "War Info", description: "Simple live war overview" },
+          { href: "/leaderboard", label: "Leaderboard", description: "Member contribution rankings" },
+          { href: "/war-analyst", label: "Battle HQ", description: "Race analytics and projections" },
+          { href: "/contributions", label: "Contributions", description: "Charts and clan activity" },
+        ],
+      },
+      {
+        type: "group",
+        id: "reports",
+        label: "Reports",
+        icon: "📊",
+        links: [
+          { href: "/war-reports", label: "War Reports", description: "Grades, MVPs, and war history" },
+          { href: "/achievements", label: "Achievements", description: "Clan placements and milestones" },
+          { href: "/hall-of-fame", label: "Hall of Fame", description: "Top members and legends" },
+        ],
+      },
+      {
+        type: "group",
+        id: "staff",
+        label: "Staff",
+        icon: "🛠",
+        officerOnly: true,
+        links: [
+          { href: "/admin?section=activity", label: "Activity Monitor", description: "Low PPH, zeros, disconnects" },
+          { href: "/admin?section=tickets", label: "Tickets", description: "Application tickets" },
+          { href: "/admin?section=bot", label: "Bot Controls", description: "Automation and bot health" },
+          { href: "/admin?section=broadcast", label: "Broadcast", description: "Send staff announcements" },
+          { href: "/admin?section=players", label: "Players", description: "Tracked members and presence" },
+          { href: "/admin?section=events", label: "Events", description: "Giveaways and invite events" },
+          { href: "/admin?section=logs", label: "Logs", description: "Audit and bot logs" },
+          { href: "/admin", label: "Admin Overview", description: "Control panel overview" },
+        ],
+      },
+      { type: "link", id: "settings", href: "/settings", label: "Settings", icon: "⚙" },
+    ] as NavGroup[]).filter((item) => !item.officerOnly || isOfficer),
     [isOfficer]
   );
 
+  const flatLinks = useMemo(() => {
+    return navGroups.flatMap((item) =>
+      item.type === "link"
+        ? [{ href: item.href, label: item.label, officerOnly: item.officerOnly }]
+        : item.links.filter((link) => !link.officerOnly || isOfficer)
+    );
+  }, [navGroups, isOfficer]);
+
   const isActiveHref = useMemo(() => {
     return (href: string) => {
+      const [baseHref, query = ""] = href.split("?");
+      const querySection = new URLSearchParams(query).get("section");
+
       if (href === "/") return pathname === "/";
-      if (href === "/admin?section=tickets") return pathname === "/admin" && activeAdminSection === "tickets";
-      if (href === "/admin") return pathname === "/admin" && activeAdminSection !== "tickets";
-      const baseHref = href.split("?")[0];
+      if (baseHref === "/admin" && querySection) {
+        return pathname === "/admin" && activeAdminSection === querySection;
+      }
+      if (href === "/admin") return pathname === "/admin" && !activeAdminSection;
       return pathname === baseHref || pathname.startsWith(`${baseHref}/`);
     };
   }, [pathname, activeAdminSection]);
 
-  const activeLink = useMemo(() => {
-    const sorted = [...links].sort((a, b) => b.href.length - a.href.length);
-    return sorted.find((link) => isActiveHref(link.href));
-  }, [links, isActiveHref]);
+  const activeTopId = useMemo(() => {
+    const active = navGroups.find((item) => {
+      if (item.type === "link") return isActiveHref(item.href);
+      return item.links.some((link) => isActiveHref(link.href));
+    });
+
+    return active?.id ?? null;
+  }, [navGroups, isActiveHref]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +167,8 @@ export default function Navbar() {
   }, [pathname]);
 
   useEffect(() => {
+    measuredNavWidthRef.current = 0;
+
     const updateResponsiveNav = () => {
       const containerEl = containerRef.current;
       const brandEl = brandRef.current;
@@ -105,9 +176,6 @@ export default function Navbar() {
 
       if (!containerEl || !brandEl) return;
 
-      // Always use the drawer on mobile/tablet. This avoids the browser toolbar /
-      // visual viewport resize jank that was making the drawer feel like it
-      // zoomed or glitched on some screens.
       if (window.innerWidth < 1280) {
         setCollapseNav(true);
         return;
@@ -124,12 +192,12 @@ export default function Navbar() {
       }
 
       const navWidth = measuredNavWidthRef.current;
-      if (!navWidth) return;
+      if (!navWidth) {
+        setCollapseNav(false);
+        return;
+      }
 
-      // Brand + nav + breathing room. If the full nav would squeeze/collide,
-      // keep the hamburger drawer even on desktop-sized custom widths.
-      const requiredWidth = brandWidth + navWidth + 96;
-      setCollapseNav(requiredWidth > containerWidth);
+      setCollapseNav(brandWidth + navWidth + 96 > containerWidth);
     };
 
     updateResponsiveNav();
@@ -142,12 +210,12 @@ export default function Navbar() {
       observer.disconnect();
       window.removeEventListener("resize", updateResponsiveNav);
     };
-  }, [links]);
+  }, [navGroups]);
 
   useEffect(() => {
     const updateIndicator = () => {
       const navEl = navRef.current;
-      const activeEl = activeLink ? itemRefs.current[activeLink.href] : null;
+      const activeEl = activeTopId ? itemRefs.current[activeTopId] : null;
 
       if (collapseNav || !navEl || !activeEl) {
         setIndicator((prev) => ({ ...prev, opacity: 0 }));
@@ -167,13 +235,10 @@ export default function Navbar() {
     updateIndicator();
     window.addEventListener("resize", updateIndicator);
     return () => window.removeEventListener("resize", updateIndicator);
-  }, [activeLink, pathname, collapseNav]);
+  }, [activeTopId, pathname, collapseNav]);
 
   useEffect(() => {
-    const onScroll = () => {
-      setIsScrolled(window.scrollY > 8);
-    };
-
+    const onScroll = () => setIsScrolled(window.scrollY > 8);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -186,10 +251,7 @@ export default function Navbar() {
     }
 
     setRenderDrawer(true);
-
-    window.requestAnimationFrame(() => {
-      setOpen(true);
-    });
+    window.requestAnimationFrame(() => setOpen(true));
   }
 
   function closeDrawer() {
@@ -202,7 +264,7 @@ export default function Navbar() {
     closeTimerRef.current = window.setTimeout(() => {
       setRenderDrawer(false);
       closeTimerRef.current = null;
-    }, 300);
+    }, 200);
   }
 
   useEffect(() => {
@@ -219,12 +281,90 @@ export default function Navbar() {
 
   useEffect(() => {
     return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     };
   }, []);
 
+  function DesktopMenuItem({ item }: { item: NavGroup }) {
+    const active = activeTopId === item.id;
+
+    if (item.type === "link") {
+      return (
+        <Link
+          href={item.href}
+          ref={(el) => {
+            itemRefs.current[item.id] = el;
+          }}
+          className="relative z-10 rounded-full px-3 py-1 text-sm transition-all duration-200 ease-out hover:-translate-y-[1px] hover:opacity-100 active:scale-[0.98]"
+          style={{ color: "var(--foreground)", opacity: active ? 1 : 0.72 }}
+        >
+          {item.label}
+        </Link>
+      );
+    }
+
+    return (
+      <div
+        className="relative z-20"
+        onMouseEnter={() => setOpenGroup(item.id)}
+        onMouseLeave={() => setOpenGroup((current) => (current === item.id ? null : current))}
+      >
+        <button
+          type="button"
+          ref={(el) => {
+            itemRefs.current[item.id] = el;
+          }}
+          onClick={() => setOpenGroup((current) => (current === item.id ? null : item.id))}
+          className="relative z-10 inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm transition-all duration-200 ease-out hover:-translate-y-[1px] hover:opacity-100 active:scale-[0.98]"
+          style={{ color: "var(--foreground)", opacity: active ? 1 : 0.72 }}
+          aria-expanded={openGroup === item.id}
+        >
+          <span>{item.label}</span>
+          <span className={`text-[10px] transition-transform duration-200 ${openGroup === item.id ? "rotate-180" : "rotate-0"}`}>⌄</span>
+        </button>
+
+        <div
+          className={`absolute left-1/2 top-full mt-3 w-72 -translate-x-1/2 rounded-3xl border p-2 shadow-2xl backdrop-blur-xl transition-[opacity,transform,filter] duration-200 ease-out ${
+            openGroup === item.id
+              ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
+              : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-sm"
+          }`}
+          style={{
+            background: "rgba(5,5,5,0.94)",
+            borderColor: "var(--border)",
+            boxShadow: "0 22px 70px rgba(0,0,0,0.45), 0 0 28px rgba(255,255,255,0.04)",
+          }}
+        >
+          <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
+            {item.icon} {item.label}
+          </div>
+          <div className="grid gap-1">
+            {item.links.map((link) => {
+              const activeLink = isActiveHref(link.href);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setOpenGroup(null)}
+                  className="group rounded-2xl border px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
+                  style={{
+                    borderColor: activeLink ? "var(--border)" : "transparent",
+                    background: activeLink ? "rgba(255,255,255,0.08)" : "transparent",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-white">{link.label}</span>
+                    <span className="text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-zinc-300">→</span>
+                  </div>
+                  {link.description && <p className="mt-1 text-xs leading-5 text-zinc-500">{link.description}</p>}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <header
@@ -233,7 +373,7 @@ export default function Navbar() {
         background: isScrolled ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.4)",
         borderColor: "var(--border)",
         boxShadow: isScrolled ? "0 10px 30px rgba(0,0,0,0.18)" : "none",
-        transition: "background 300ms ease, box-shadow 300ms ease, backdrop-filter 300ms ease",
+        transition: "background 200ms ease, box-shadow 200ms ease, backdrop-filter 200ms ease",
         backdropFilter: isScrolled ? "blur(18px)" : "blur(12px)",
       }}
     >
@@ -241,11 +381,8 @@ export default function Navbar() {
         <Link
           ref={brandRef}
           href="/"
-          className="shrink-0 font-bold tracking-widest transition duration-300 ease-out hover:scale-[1.02]"
-          style={{
-            color: "var(--foreground)",
-            textShadow: "0 0 0 transparent",
-          }}
+          className="shrink-0 font-bold tracking-widest transition duration-200 ease-out hover:scale-[1.02]"
+          style={{ color: "var(--foreground)", textShadow: "0 0 0 transparent" }}
           onMouseEnter={(e) => {
             e.currentTarget.style.textShadow = "0 0 18px var(--glow)";
           }}
@@ -259,42 +396,13 @@ export default function Navbar() {
         <nav
           ref={navRef}
           className={`relative min-w-0 items-center gap-1 rounded-full border px-1 py-1 ${collapseNav ? "hidden" : "hidden xl:flex"}`}
-          style={{
-            borderColor: "var(--border)",
-            background: "rgba(255,255,255,0.04)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
-          }}
+          style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.04)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)" }}
         >
           <div
-            className="absolute inset-y-1 left-0 rounded-full transition-[left,width,opacity,box-shadow] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
-            style={{
-              left: indicator.left,
-              width: indicator.width,
-              opacity: indicator.opacity,
-              background: "rgba(255,255,255,0.08)",
-              boxShadow: "0 0 18px rgba(255,255,255,0.08)",
-            }}
+            className="absolute inset-y-1 left-0 rounded-full transition-[left,width,opacity,box-shadow] duration-200 ease-out"
+            style={{ left: indicator.left, width: indicator.width, opacity: indicator.opacity, background: "rgba(255,255,255,0.08)", boxShadow: "0 0 18px rgba(255,255,255,0.08)" }}
           />
-          {links.map((link) => {
-            const isActive = isActiveHref(link.href);
-
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                ref={(el) => {
-                  itemRefs.current[link.href] = el;
-                }}
-                className="relative z-10 rounded-full px-3 py-1 text-sm transition-all duration-200 ease-out hover:-translate-y-[1px] hover:opacity-100 active:scale-[0.98]"
-                style={{
-                  color: "var(--foreground)",
-                  opacity: isActive ? 1 : 0.72,
-                }}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
+          {navGroups.map((item) => <DesktopMenuItem key={item.id} item={item} />)}
         </nav>
 
         <button
@@ -305,9 +413,9 @@ export default function Navbar() {
           aria-expanded={open}
         >
           <span className="relative h-5 w-5">
-            <span className={`absolute left-0 top-0 h-0.5 w-full rounded-full bg-current transition-transform duration-300 ease-out ${open ? "translate-y-2 rotate-45" : "translate-y-0 rotate-0"}`} />
+            <span className={`absolute left-0 top-0 h-0.5 w-full rounded-full bg-current transition-transform duration-200 ease-out ${open ? "translate-y-2 rotate-45" : "translate-y-0 rotate-0"}`} />
             <span className={`absolute left-0 top-2 h-0.5 w-full rounded-full bg-current transition-opacity duration-200 ease-out ${open ? "opacity-0" : "opacity-100"}`} />
-            <span className={`absolute left-0 top-4 h-0.5 w-full rounded-full bg-current transition-transform duration-300 ease-out ${open ? "-translate-y-2 -rotate-45" : "translate-y-0 rotate-0"}`} />
+            <span className={`absolute left-0 top-4 h-0.5 w-full rounded-full bg-current transition-transform duration-200 ease-out ${open ? "-translate-y-2 -rotate-45" : "translate-y-0 rotate-0"}`} />
           </span>
         </button>
       </div>
@@ -315,65 +423,58 @@ export default function Navbar() {
       {renderDrawer && (
         <>
           <button
-            className={`fixed inset-0 z-50 transition-opacity duration-200 ${collapseNav ? "" : "xl:hidden"} ${
-              open ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
+            className={`fixed inset-0 z-50 transition-opacity duration-200 ${collapseNav ? "" : "xl:hidden"} ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
             onClick={closeDrawer}
             aria-label="Close navigation overlay"
             style={{ background: "rgba(0,0,0,0.6)" }}
           />
           <aside
-            className={`fixed right-0 top-0 z-50 h-screen w-[min(22rem,86vw)] overflow-y-auto overscroll-contain border-l transition-transform duration-300 ease-out will-change-transform ${collapseNav ? "" : "xl:hidden"} ${
-              open ? "translate-x-0" : "translate-x-full"
-            }`}
-            style={{
-              background:
-                "linear-gradient(180deg, rgba(7,7,7,0.99) 0%, rgba(10,10,10,0.99) 100%)",
-              borderColor: "var(--border)",
-              boxShadow: "-18px 0 40px rgba(0,0,0,0.45)",
-            }}
+            className={`fixed right-0 top-0 z-50 h-screen w-[min(23rem,88vw)] overflow-y-auto overscroll-contain border-l transition-transform duration-200 ease-out will-change-transform ${collapseNav ? "" : "xl:hidden"} ${open ? "translate-x-0" : "translate-x-full"}`}
+            style={{ background: "linear-gradient(180deg, rgba(7,7,7,0.99) 0%, rgba(10,10,10,0.99) 100%)", borderColor: "var(--border)", boxShadow: "-18px 0 40px rgba(0,0,0,0.45)" }}
           >
-            <div
-              className="flex items-center justify-between border-b px-4 py-4"
-              style={{ borderColor: "var(--border)" }}
-            >
-              <div
-                className="font-bold tracking-widest"
-                style={{ color: "var(--foreground)" }}
-              >
-                MCWV
-              </div>
-              <button
-                onClick={closeDrawer}
-                className="rounded-md px-2 py-1 text-lg transition duration-200 ease-out active:scale-[0.96]"
-                style={{ color: "var(--foreground)" }}
-                aria-label="Close navigation menu"
-              >
-                ×
-              </button>
+            <div className="flex items-center justify-between border-b px-4 py-4" style={{ borderColor: "var(--border)" }}>
+              <div className="font-bold tracking-widest" style={{ color: "var(--foreground)" }}>MCWV</div>
+              <button onClick={closeDrawer} className="rounded-md px-2 py-1 text-lg transition duration-200 ease-out active:scale-[0.96]" style={{ color: "var(--foreground)" }} aria-label="Close navigation menu">×</button>
             </div>
 
-            <nav className="flex flex-col gap-2 p-4">
-              {links.map((link, index) => {
-                const isActive = isActiveHref(link.href);
+            <nav className="flex flex-col gap-4 p-4">
+              {navGroups.map((item) => {
+                if (item.type === "link") {
+                  const active = isActiveHref(item.href);
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      onClick={closeDrawer}
+                      className="rounded-2xl px-4 py-3 text-sm transition-all duration-200 ease-out active:scale-[0.98]"
+                      style={{ color: "var(--foreground)", background: active ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${active ? "var(--border)" : "transparent"}` }}
+                    >
+                      {item.icon ? `${item.icon} ` : ""}{item.label}
+                    </Link>
+                  );
+                }
 
                 return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    onClick={closeDrawer}
-                    className="rounded-2xl px-4 py-3 text-sm transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]"
-                    style={{
-                      color: "var(--foreground)",
-                      background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
-                      border: `1px solid ${isActive ? "var(--border)" : "transparent"}`,
-                      opacity: open ? (isActive ? 1 : 0.78) : 0,
-                      transform: open ? "translateX(0)" : "translateX(18px)",
-                      transitionDelay: open ? `${90 + index * 35}ms` : "0ms",
-                    }}
-                  >
-                    {link.label}
-                  </Link>
+                  <div key={item.id} className="rounded-3xl border border-white/10 bg-white/[0.03] p-2">
+                    <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">{item.icon} {item.label}</div>
+                    <div className="grid gap-1">
+                      {item.links.map((link) => {
+                        const active = isActiveHref(link.href);
+                        return (
+                          <Link
+                            key={link.href}
+                            href={link.href}
+                            onClick={closeDrawer}
+                            className="rounded-2xl px-3 py-3 text-sm transition-all duration-200 ease-out active:scale-[0.98]"
+                            style={{ color: "var(--foreground)", background: active ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${active ? "var(--border)" : "transparent"}` }}
+                          >
+                            <div className="font-semibold">{link.label}</div>
+                            {link.description && <div className="mt-1 text-xs leading-5 text-zinc-500">{link.description}</div>}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </nav>
