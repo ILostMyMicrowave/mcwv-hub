@@ -1,431 +1,638 @@
-"use client";
+import { NextResponse } from "next/server";
+import { pool } from "@/lib/db";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
-import Navbar from "@/components/Navbar";
-import AnimatedBackground from "@/components/AnimatedBackground";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
+const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
+const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
+const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
+const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
+const LEGACY_CLAN_API = `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
 const GRADES = ["A+", "A", "B", "C", "D", "F"] as const;
-
 type Grade = typeof GRADES[number];
 
-type ReportMember = {
-  rank: number;
+type BattleRow = {
+  battle_id: string;
+  battle_name: string | null;
+  start_time: Date | string | null;
+  end_time: Date | string | null;
+  is_active: boolean | null;
+};
+
+type WarSnapshotRow = {
+  rank: number | string | null;
+  battle_points: number | string | null;
+  captured_at: Date | string | null;
+};
+
+type PlayerSnapshotRow = {
+  roblox_id: string;
+  username: string | null;
+  rank: number | string | null;
+  points: number | string | null;
+  captured_at: Date | string | null;
+};
+
+type LinkedAccount = {
   robloxId: string;
   username: string;
-  avatarUrl: string;
   discordId: string | null;
   isAlt: boolean;
   ownerUsername: string | null;
   ownerRobloxId: string | null;
-  points: number;
-  sharePct: number;
-  averagePph: number | null;
-  autoGrade: Grade;
-  manualGrade: Grade | null;
-  grade: Grade;
-  flags: string[];
-  warning: boolean;
-  staffNote?: string;
-  noteUpdatedAt?: string | null;
-  noteUpdatedBy?: string | null;
 };
 
-type ReportDetail = {
-  success: boolean;
-  canManage: boolean;
-  battle: {
-    battleId: string;
-    battleName: string;
-    startTime: string | null;
-    endTime: string | null;
-    finalRank: number | null;
-    finalPoints: number;
-    capturedAt: string | null;
-    isActive?: boolean;
-  };
-  summary: {
-    accounts: number;
-    participants: number;
-    zeroAccounts: number;
-    averagePoints: number;
-    medianPoints: number;
-    totalMemberPoints: number;
-    mvp: ReportMember[];
-  };
-  distribution: Array<{ grade: Grade; count: number }>;
-  members: ReportMember[];
-  warningMessage: string;
-  error?: string;
+type OverrideRow = {
+  roblox_id: string;
+  manual_grade: string | null;
+  staff_note: string | null;
+  updated_at: Date | string | null;
+  updated_by_username: string | null;
 };
 
-function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-GB").format(value);
+function asNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+function toIso(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function gradeClass(grade: string) {
-  switch (grade) {
-    case "A+": return "border-yellow-400/40 bg-yellow-400/15 text-yellow-100";
-    case "A": return "border-emerald-400/35 bg-emerald-400/12 text-emerald-100";
-    case "B": return "border-sky-400/35 bg-sky-400/12 text-sky-100";
-    case "C": return "border-amber-400/35 bg-amber-400/12 text-amber-100";
-    case "D": return "border-orange-400/35 bg-orange-400/12 text-orange-100";
-    default: return "border-rose-400/35 bg-rose-400/12 text-rose-100";
-  }
+function toDateFromTimestamp(value: unknown) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const ms = parsed < 10_000_000_000 ? parsed * 1000 : parsed;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function flagMeta(flag: string) {
-  const key = flag.toLowerCase();
-  if (key.includes("mvp")) return { icon: "🏆", label: "MVP", className: "border-yellow-400/40 bg-yellow-400/15 text-yellow-100" };
-  if (key.includes("top 10")) return { icon: "🔥", label: "Top 10", className: "border-emerald-400/35 bg-emerald-400/12 text-emerald-100" };
-  if (key.includes("top 25")) return { icon: "⬆", label: "Top 25", className: "border-lime-400/30 bg-lime-400/10 text-lime-100" };
-  if (key.includes("above")) return { icon: "✅", label: "Above avg", className: "border-sky-400/35 bg-sky-400/12 text-sky-100" };
-  if (key.includes("below")) return { icon: "⚠", label: "Below avg", className: "border-amber-400/35 bg-amber-400/12 text-amber-100" };
-  if (key.includes("low")) return { icon: "📉", label: "Low", className: "border-orange-400/35 bg-orange-400/12 text-orange-100" };
-  if (key.includes("review")) return { icon: "👀", label: "Review", className: "border-amber-400/35 bg-amber-400/12 text-amber-100" };
-  if (key.includes("zero")) return { icon: "⛔", label: "Zero", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
-  if (key.includes("unlinked")) return { icon: "🔗", label: "Unlinked", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
-  if (key.includes("discord")) return { icon: "💬", label: "No Discord", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
-  if (key.includes("alt")) return { icon: "🔁", label: "Alt", className: "border-violet-400/35 bg-violet-400/12 text-violet-100" };
-  if (key.includes("live")) return { icon: "●", label: "Live", className: "border-cyan-400/35 bg-cyan-400/12 text-cyan-100" };
-  return { icon: "•", label: flag, className: "border-white/10 bg-white/5 text-zinc-300" };
+function normalizeBattleKey(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-function copyText(text: string) {
-  if (!text) return;
-  void navigator.clipboard?.writeText(text);
-}
+async function fetchRobloxNames(userIds: string[]) {
+  const ids = [...new Set(userIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+  const names = new Map<string, string>();
 
-const buttonClass = "rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-45";
-const inputClass = "w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 focus:bg-black/40";
-
-function exportCsv(data: ReportDetail) {
-  const rows = [
-    ["Rank", "Roblox", "Discord ID", "Points", "Share %", "Avg PPH", "Grade", "Auto Grade", "Flags", "Alt", "Owner"],
-    ...data.members.map((member) => [
-      member.rank,
-      member.username,
-      member.discordId ?? "",
-      member.points,
-      member.sharePct.toFixed(2),
-      member.averagePph === null ? "" : Math.round(member.averagePph),
-      member.grade,
-      member.autoGrade,
-      member.flags.join("; "),
-      member.isAlt ? "yes" : "no",
-      member.ownerUsername ?? "",
-    ]),
-  ];
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${data.battle.battleId}-war-report.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/45">{label}</p>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
-      {sub && <p className="mt-1 text-xs text-[var(--foreground)]/45">{sub}</p>}
-    </div>
-  );
-}
-
-function EditModal({
-  member,
-  onClose,
-  onSave,
-}: {
-  member: ReportMember | null;
-  onClose: () => void;
-  onSave: (robloxId: string, manualGrade: Grade | null, staffNote: string) => Promise<void>;
-}) {
-  const [manualGrade, setManualGrade] = useState<Grade | "">("");
-  const [staffNote, setStaffNote] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setManualGrade(member?.manualGrade ?? "");
-    setStaffNote(member?.staffNote ?? "");
-  }, [member]);
-
-  if (!member) return null;
-
-  async function submit() {
-    setSaving(true);
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
     try {
-      await onSave(member!.robloxId, manualGrade ? manualGrade : null, staffNote);
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  }
+      const res = await fetch("https://users.roblox.com/v1/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "MCWV-Hub/1.0" },
+        body: JSON.stringify({ userIds: chunk, excludeBannedUsers: false }),
+        cache: "no-store",
+      });
 
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center px-4 py-6">
-      <button className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close" />
-      <div className="relative z-10 w-full max-w-xl rounded-3xl border border-white/10 bg-[var(--background)] p-5 shadow-2xl">
-        <h2 className="text-2xl font-black text-white">Edit report note</h2>
-        <p className="mt-1 text-sm text-zinc-400">{member.username}</p>
-        <label className="mt-5 block space-y-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Manual Grade</span>
-          <select className={inputClass} value={manualGrade} onChange={(event) => setManualGrade(event.target.value as Grade | "")}>
-            <option value="">Use automatic grade ({member.autoGrade})</option>
-            {GRADES.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
-          </select>
-        </label>
-        <label className="mt-4 block space-y-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Officer Note</span>
-          <textarea className={`${inputClass} min-h-32`} value={staffNote} onChange={(event) => setStaffNote(event.target.value)} maxLength={1200} />
-        </label>
-        <div className="mt-5 flex justify-end gap-2">
-          <button className={buttonClass} onClick={onClose} disabled={saving}>Cancel</button>
-          <button className={buttonClass} onClick={() => void submit()} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function WarReportDetailPage() {
-  const params = useParams<{ battleId: string }>();
-  const battleId = params.battleId;
-  const [data, setData] = useState<ReportDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [editing, setEditing] = useState<ReportMember | null>(null);
-
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`/api/war-reports/${encodeURIComponent(battleId)}`, { cache: "no-store" });
-      const json = (await res.json().catch(() => null)) as (ReportDetail & { error?: string }) | null;
-      if (json?.success) {
-        setData(json);
-      } else {
-        setData(null);
-        setError(json?.error ?? `Report request failed (${res.status})`);
+      if (!res.ok) continue;
+      const json = await res.json().catch(() => null);
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      for (const row of rows) {
+        const id = row?.id;
+        const name = row?.name ?? row?.displayName;
+        if (id !== null && id !== undefined && typeof name === "string" && name.trim()) {
+          names.set(String(id), name.trim());
+        }
       }
-    } catch (err) {
-      setData(null);
-      setError(err instanceof Error ? err.message : "Failed to load report");
-    } finally {
-      setLoading(false);
+    } catch {
+      // Keep numeric fallback.
     }
   }
 
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [battleId]);
+  return names;
+}
 
-  const members = useMemo(() => {
-    const rows = data?.members ?? [];
-    if (filter === "mvp") return rows.filter((member) => member.flags.includes("MVP"));
-    if (filter === "low") return rows.filter((member) => member.warning);
-    if (filter === "alts") return rows.filter((member) => member.isAlt);
-    if (filter === "zero") return rows.filter((member) => member.points <= 0);
-    return rows;
-  }, [data?.members, filter]);
-
-  async function saveMember(robloxId: string, manualGrade: Grade | null, staffNote: string) {
-    await fetch(`/api/war-reports/${encodeURIComponent(battleId)}/member`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ robloxId, manualGrade, staffNote }),
+async function fetchJsonOrNull(url: string) {
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
     });
-    await load();
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  }
+}
+
+async function getActiveBattleRow(): Promise<BattleRow | null> {
+  const [v1, legacy] = await Promise.all([
+    fetchJsonOrNull(`${PS99_API}/v1/clans/players`),
+    fetchJsonOrNull(ACTIVE_BATTLE_API),
+  ]);
+
+  const legacyData = legacy?.data ?? {};
+  const config = legacyData?.configData ?? {};
+  const battleId =
+    v1?.data?.activeBattleConfigName ??
+    legacyData?.configName ??
+    legacyData?.activeBattleConfigName ??
+    legacyData?.activeBattleId ??
+    legacyData?.battleId ??
+    null;
+
+  if (!battleId) return null;
+
+  const start = toDateFromTimestamp(config?.StartTime ?? legacyData?.startTime ?? v1?.data?.startTime);
+  const end = toDateFromTimestamp(config?.FinishTime ?? legacyData?.finishTime ?? v1?.data?.finishTime);
+  const now = Date.now();
+  const isActive = start && end ? start.getTime() <= now && now <= end.getTime() : true;
+  if (!isActive) return null;
+
+  return {
+    battle_id: String(battleId),
+    battle_name: String(config?.Title ?? legacyData?.title ?? battleId),
+    start_time: start,
+    end_time: end,
+    is_active: true,
+  };
+}
+
+async function getLiveClanBattleData(battleId: string) {
+  // Always prefer the official legacy clan endpoint for live roster membership.
+  // Env CLAN_API can be changed for other views, but War Reports must reflect
+  // the actual in-game clan member list.
+  const json = (await fetchJsonOrNull(LEGACY_CLAN_API)) ?? (await fetchJsonOrNull(CLAN_API));
+  const data = json?.data ?? {};
+  const members = Array.isArray(data?.Members) ? data.Members : [];
+  const memberIds = new Set<string>();
+
+  for (const member of members) {
+    const id = member?.UserID ?? member?.userId ?? member?.id;
+    if (id !== null && id !== undefined && String(id).trim()) {
+      memberIds.add(String(id).trim());
+    }
   }
 
-  return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <AnimatedBackground />
-      <Navbar />
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:py-10">
-        <Link className="text-sm text-zinc-400 hover:text-white" href="/war-reports">← Back to reports</Link>
+  const battles = data?.Battles ?? data?.battles ?? {};
+  const targetKey = normalizeBattleKey(battleId);
+  const battle = Object.entries(battles).find(([key, value]) => {
+    const record = value as Record<string, unknown>;
+    const candidates = [key, record?.BattleID, record?.battleId, record?.configName, record?.Title, record?.title];
+    return candidates.some((candidate) => normalizeBattleKey(candidate) === targetKey);
+  })?.[1] as Record<string, unknown> | undefined;
 
-        {loading ? (
-          <div className="mt-6 h-96 animate-pulse rounded-3xl bg-white/5" />
-        ) : !data ? (
-          <div className="mt-6 rounded-3xl border border-red-500/30 bg-red-500/10 p-6 text-red-100">
-            {error || "Report not found."}
-          </div>
-        ) : (
-          <div className="mt-6 space-y-6">
-            <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 sm:p-7">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--primary)]">
-                      {data.battle.isActive ? "Live Preview" : "War Report"}
-                    </p>
-                    {data.battle.isActive && (
-                      <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-sky-100">
-                        Current War
-                      </span>
-                    )}
-                  </div>
-                  <h1 className="mt-2 text-4xl font-black text-white sm:text-6xl">{data.battle.battleName}</h1>
-                  <p className="mt-3 text-sm text-zinc-400">{formatDate(data.battle.startTime)} → {formatDate(data.battle.endTime)}</p>
-                </div>
-                {data.canManage && (
-                  <div className="flex flex-wrap gap-2">
-                    <button className={buttonClass} disabled={!data.warningMessage} onClick={() => copyText(data.warningMessage)}>Copy warnings</button>
-                    <button className={buttonClass} onClick={() => exportCsv(data)}>Export CSV</button>
-                  </div>
-                )}
-              </div>
+  const contributionPoints = new Map<string, number>();
+  const contributions = Array.isArray(battle?.PointContributions)
+    ? battle.PointContributions
+    : Array.isArray(battle?.pointContributions)
+    ? battle.pointContributions
+    : [];
 
-              {data.battle.isActive && (
-                <div className="mt-6 rounded-2xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
-                  This is a live preview. Points, ranks, grades, MVPs, and warning lists can change until the war ends.
-                </div>
-              )}
+  for (const contribution of contributions) {
+    const entry = contribution as Record<string, unknown>;
+    const id = entry?.UserID ?? entry?.userId ?? entry?.user_id;
+    if (id === null || id === undefined) continue;
+    contributionPoints.set(String(id).trim(), asNumber(entry?.Points ?? entry?.points));
+  }
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <StatCard label={data.battle.isActive ? "Current Rank" : "Final Rank"} value={data.battle.finalRank ? `#${data.battle.finalRank}` : "—"} />
-                <StatCard label={data.battle.isActive ? "Current Points" : "Final Points"} value={formatNumber(data.battle.finalPoints)} />
-                <StatCard label="Scored / In Clan" value={`${formatNumber(data.summary.participants)}/${formatNumber(data.summary.accounts)}`} />
-                <StatCard label="Average / Account" value={formatNumber(data.summary.averagePoints)} />
-                <StatCard label="Zero Points" value={formatNumber(data.summary.zeroAccounts)} />
-              </div>
-            </section>
+  return { memberIds, contributionPoints };
+}
 
-            <section className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Grade Distribution</h2>
-                <div className="mt-5 space-y-3">
-                  {data.distribution.map((item) => {
-                    const pct = data.members.length ? (item.count / data.members.length) * 100 : 0;
-                    return (
-                      <div key={item.grade} className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3">
-                        <span className={`rounded-full border px-2 py-1 text-center text-xs font-bold ${gradeClass(item.grade)}`}>{item.grade}</span>
-                        <div className="h-3 overflow-hidden rounded-full bg-white/10">
-                          <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-sky-400" style={{ width: `${Math.max(3, pct)}%` }} />
-                        </div>
-                        <span className="text-right text-sm font-bold text-white">{item.count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
 
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Top 3 MVPs</h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {data.summary.mvp.map((member) => (
-                    <div key={member.robloxId} className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-4">
-                      <img className="h-14 w-14 rounded-2xl border border-white/10 bg-black/30" src={member.avatarUrl} alt="" />
-                      <p className="mt-3 truncate font-bold text-white">#{member.rank} {member.username}</p>
-                      <p className="text-sm text-yellow-100">{formatNumber(member.points)} points</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
+function formatBattleTitle(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "Historical War";
+  return raw
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d{4})$/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Member Grades</h2>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    ["all", "All"],
-                    ["mvp", "MVP"],
-                    ["low", "Below Avg / D-F"],
-                    ["zero", "Zero"],
-                    ["alts", "Alts"],
-                  ].map(([id, label]) => (
-                    <button key={id} className={`rounded-full border px-3 py-1 text-xs ${filter === id ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-100" : "border-white/10 bg-black/20 text-zinc-300"}`} onClick={() => setFilter(id)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+async function getFallbackBattleFromHistory(requestedBattleId: string): Promise<BattleRow | null> {
+  const requestedKey = normalizeBattleKey(decodeURIComponent(requestedBattleId));
+  if (!requestedKey) return null;
 
-              <div className="mt-5 overflow-x-auto">
-                <table className="min-w-full border-separate border-spacing-y-2 text-sm">
-                  <thead className="text-left text-xs uppercase tracking-[0.18em] text-zinc-500">
-                    <tr>
-                      <th className="px-3 py-2">Rank</th>
-                      <th className="px-3 py-2">Member</th>
-                      <th className="px-3 py-2 text-right">Points</th>
-                      <th className="px-3 py-2 text-right">Share</th>
-                      <th className="px-3 py-2 text-right">Avg PPH</th>
-                      <th className="px-3 py-2">Grade</th>
-                      <th className="px-3 py-2">Flags</th>
-                      {data.canManage && <th className="px-3 py-2 text-right">Staff</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {members.map((member) => (
-                      <tr key={member.robloxId} className="rounded-2xl bg-black/20">
-                        <td className="rounded-l-2xl px-3 py-3 font-bold text-zinc-300">#{member.rank}</td>
-                        <td className="px-3 py-3">
-                          <div className="flex min-w-64 items-center gap-3">
-                            <img className="h-11 w-11 rounded-2xl border border-white/10 bg-black/30" src={member.avatarUrl} alt="" />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="truncate font-bold text-white">{member.username}</p>
-                                {member.isAlt && <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold text-violet-100">ALT</span>}
-                              </div>
-                              <p className="text-xs text-zinc-500">
-                                {member.isAlt && member.ownerUsername ? `Alt of ${member.ownerUsername}` : member.discordId ? `Discord linked` : "No Discord link"}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold text-white">{formatNumber(member.points)}</td>
-                        <td className="px-3 py-3 text-right text-zinc-300">{member.sharePct.toFixed(2)}%</td>
-                        <td className="px-3 py-3 text-right text-zinc-300">{member.averagePph === null ? "—" : formatNumber(Math.round(member.averagePph))}</td>
-                        <td className="px-3 py-3">
-                          <span className={`rounded-full border px-3 py-1 text-xs font-black ${gradeClass(member.grade)}`}>{member.grade}</span>
-                          {member.manualGrade && <span className="ml-2 text-[10px] uppercase tracking-[0.16em] text-zinc-500">Override</span>}
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex max-w-md flex-wrap gap-1">
-                            {member.flags.map((flag) => {
-                              const meta = flagMeta(flag);
-                              return (
-                                <span key={flag} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.className}`}>
-                                  <span>{meta.icon}</span>
-                                  <span>{meta.label}</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                          {data.canManage && member.staffNote && <p className="mt-2 max-w-md text-xs text-zinc-400">Note: {member.staffNote}</p>}
-                        </td>
-                        {data.canManage && (
-                          <td className="rounded-r-2xl px-3 py-3 text-right">
-                            <button className={buttonClass} onClick={() => setEditing(member)}>Edit</button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-        )}
-      </div>
-      {data?.canManage && <EditModal member={editing} onClose={() => setEditing(null)} onSave={saveMember} />}
-    </main>
+  if (await tableExists("player_leaderboard_history")) {
+    const result = await pool.query<{ battle_id: string; captured_at: Date | string | null }>(
+      `SELECT battle_id, MAX(captured_at) AS captured_at
+       FROM player_leaderboard_history
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+          OR regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') LIKE ($1 || '%')
+          OR $1 LIKE (regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') || '%')
+       GROUP BY battle_id
+       ORDER BY MAX(captured_at) DESC
+       LIMIT 1`,
+      [requestedKey]
+    );
+
+    const row = result.rows[0];
+    if (row?.battle_id) {
+      return {
+        battle_id: row.battle_id,
+        battle_name: formatBattleTitle(row.battle_id),
+        start_time: null,
+        end_time: null,
+        is_active: true,
+      };
+    }
+  }
+
+  if (await tableExists("war_snapshots")) {
+    const result = await pool.query<{ battle_id: string; captured_at: Date | string | null }>(
+      `SELECT battle_id, MAX(captured_at) AS captured_at
+       FROM war_snapshots
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+          OR regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') LIKE ($1 || '%')
+          OR $1 LIKE (regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') || '%')
+       GROUP BY battle_id
+       ORDER BY MAX(captured_at) DESC
+       LIMIT 1`,
+      [requestedKey]
+    );
+
+    const row = result.rows[0];
+    if (row?.battle_id) {
+      return {
+        battle_id: row.battle_id,
+        battle_name: formatBattleTitle(row.battle_id),
+        start_time: null,
+        end_time: null,
+        is_active: true,
+      };
+    }
+  }
+
+  return null;
+}
+
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function gradeRank(grade: string) {
+  const index = GRADES.indexOf(grade as Grade);
+  return index === -1 ? GRADES.length : index;
+}
+
+function betterGrade(a: Grade, b: Grade): Grade {
+  return gradeRank(a) <= gradeRank(b) ? a : b;
+}
+
+function computeAutoGrade(points: number, rank: number, average: number, med: number): Grade {
+  if (points <= 0) return "F";
+  if (rank <= 3) return "A+";
+
+  let grade: Grade;
+  if (points >= average) grade = "A";
+  else if (points >= med) grade = "B";
+  else if (points >= med * 0.5) grade = "C";
+  else grade = "D";
+
+  if (rank <= 10) grade = betterGrade(grade, "A");
+  return grade;
+}
+
+function gradeDistribution(members: Array<{ grade: string }>) {
+  return GRADES.map((grade) => ({
+    grade,
+    count: members.filter((member) => member.grade === grade).length,
+  }));
+}
+
+async function tableExists(tableName: string) {
+  const result = await pool.query<{ exists: boolean }>(
+    `SELECT to_regclass($1) IS NOT NULL AS exists`,
+    [`public.${tableName}`]
   );
+  return Boolean(result.rows[0]?.exists);
+}
+
+async function ensureOverridesTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS war_report_member_overrides (
+      id BIGSERIAL PRIMARY KEY,
+      battle_id TEXT NOT NULL,
+      roblox_id TEXT NOT NULL,
+      manual_grade TEXT,
+      staff_note TEXT,
+      updated_by INTEGER,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (battle_id, roblox_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS war_report_member_overrides_battle_idx ON war_report_member_overrides (battle_id)`);
+}
+
+async function getLinkedAccounts() {
+  const accounts = new Map<string, LinkedAccount>();
+
+  const users = await pool.query<{
+    roblox_id: string | null;
+    username: string | null;
+    discord_id: string | number | null;
+  }>(
+    `SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id, username, discord_id
+     FROM users
+     WHERE roblox_id IS NOT NULL
+       AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+  );
+
+  for (const row of users.rows) {
+    if (!row.roblox_id) continue;
+    accounts.set(String(row.roblox_id), {
+      robloxId: String(row.roblox_id),
+      username: row.username ?? String(row.roblox_id),
+      discordId: row.discord_id === null || row.discord_id === undefined ? null : String(row.discord_id),
+      isAlt: false,
+      ownerUsername: null,
+      ownerRobloxId: null,
+    });
+  }
+
+  if (await tableExists("user_alts")) {
+    const alts = await pool.query<{
+      roblox_id: string | null;
+      username: string | null;
+      discord_id: string | number | null;
+      owner_username: string | null;
+      owner_roblox_id: string | number | null;
+    }>(
+      `SELECT
+         TRIM(CAST(a.roblox_id AS TEXT)) AS roblox_id,
+         a.username,
+         a.discord_id,
+         u.username AS owner_username,
+         u.roblox_id AS owner_roblox_id
+       FROM user_alts a
+       LEFT JOIN users u ON u.discord_id::text = a.discord_id::text
+       WHERE a.roblox_id IS NOT NULL
+         AND TRIM(CAST(a.roblox_id AS TEXT)) <> ''`
+    );
+
+    for (const row of alts.rows) {
+      if (!row.roblox_id || accounts.has(String(row.roblox_id))) continue;
+      accounts.set(String(row.roblox_id), {
+        robloxId: String(row.roblox_id),
+        username: row.username ?? String(row.roblox_id),
+        discordId: row.discord_id === null || row.discord_id === undefined ? null : String(row.discord_id),
+        isAlt: true,
+        ownerUsername: row.owner_username ?? null,
+        ownerRobloxId: row.owner_roblox_id === null || row.owner_roblox_id === undefined ? null : String(row.owner_roblox_id),
+      });
+    }
+  }
+
+  return accounts;
+}
+
+function buildWarningMessage(members: Array<{ discordId: string | null; warning: boolean }>) {
+  const mentions = [...new Set(members.filter((member) => member.warning && member.discordId).map((member) => `<@${member.discordId}>`))];
+  if (!mentions.length) return "";
+  return [
+    "The following members were below average or had low contribution this war and need to improve next war:",
+    "",
+    mentions.join(" "),
+    "",
+    "Please lock in next war. Repeated low contribution may lead to removal.",
+  ].join("\n");
+}
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ battleId: string }> }
+) {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
+  const { battleId } = await params;
+  const canManage = auth.user.role === "officer" || auth.user.role === "owner";
+
+  try {
+    await ensureOverridesTable();
+
+    let battle: BattleRow | null = null;
+
+    if (await tableExists("battles")) {
+      const battleResult = await pool.query<BattleRow>(
+        `SELECT
+           battle_id,
+           battle_name,
+           start_time,
+           end_time,
+           (end_time IS NOT NULL AND end_time > NOW()) AS is_active
+         FROM battles
+         WHERE (
+             battle_id = $1
+             OR regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = regexp_replace(lower($1), '[^a-z0-9]+', '', 'g')
+             OR regexp_replace(lower(COALESCE(battle_name, '')), '[^a-z0-9]+', '', 'g') = regexp_replace(lower($1), '[^a-z0-9]+', '', 'g')
+           )
+           AND end_time IS NOT NULL
+           AND (
+             end_time <= NOW()
+             OR (start_time IS NULL OR start_time <= NOW())
+           )
+         ORDER BY end_time DESC NULLS LAST
+         LIMIT 1`,
+        [decodeURIComponent(battleId)]
+      );
+      battle = battleResult.rows[0] ?? null;
+    }
+
+    if (!battle) {
+      const activeBattle = await getActiveBattleRow();
+      const requested = normalizeBattleKey(decodeURIComponent(battleId));
+      const activeKeys = activeBattle
+        ? [activeBattle.battle_id, activeBattle.battle_name, formatBattleTitle(activeBattle.battle_name || activeBattle.battle_id), "current", "active"]
+            .map(normalizeBattleKey)
+        : [];
+
+      if (
+        activeBattle &&
+        (
+          activeKeys.includes(requested) ||
+          activeKeys.some((key) => key.includes(requested) || requested.includes(key)) ||
+          requested.length >= 4
+        )
+      ) {
+        battle = activeBattle;
+      }
+    }
+
+    if (!battle) {
+      battle = await getFallbackBattleFromHistory(battleId);
+    }
+
+    if (!battle) {
+      return NextResponse.json(
+        {
+          error: "Report not found yet. If this is the live war, wait for the first player snapshot or open it from /war-reports.",
+        },
+        { status: 404 }
+      );
+    }
+
+    const reportBattleKey = normalizeBattleKey(battle.battle_id);
+
+    const snapshotResult = await pool.query<WarSnapshotRow>(
+      `SELECT rank, battle_points, captured_at
+       FROM war_snapshots
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+         AND LOWER(clan_name) = LOWER($2)
+       ORDER BY captured_at DESC
+       LIMIT 1`,
+      [reportBattleKey, CLAN_NAME]
+    );
+    const snapshot = snapshotResult.rows[0] ?? null;
+
+    const linkedAccounts = await getLinkedAccounts();
+    let playerRows: PlayerSnapshotRow[] = [];
+
+    if (await tableExists("player_leaderboard_history")) {
+      const players = await pool.query<PlayerSnapshotRow>(
+        `SELECT DISTINCT ON (roblox_id)
+           roblox_id,
+           username,
+           rank,
+           points,
+           captured_at
+         FROM (
+           SELECT
+             roblox_id::text AS roblox_id,
+             username,
+             rank,
+             points,
+             captured_at
+           FROM player_leaderboard_history
+           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+             AND points IS NOT NULL
+         ) rows
+         ORDER BY roblox_id, captured_at DESC`,
+        [normalizeBattleKey(battle.battle_id)]
+      );
+      playerRows = players.rows.filter((row) => linkedAccounts.has(String(row.roblox_id)));
+    }
+
+    if (battle.is_active) {
+      const liveData = await getLiveClanBattleData(battle.battle_id);
+      if (liveData.memberIds.size > 0) {
+        const liveIds = [...liveData.memberIds];
+        const liveNames = await fetchRobloxNames(liveIds);
+        const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
+        playerRows = liveIds.map((robloxId) => {
+          const existing = rowsById.get(robloxId);
+          const linked = linkedAccounts.get(robloxId);
+          return {
+            roblox_id: robloxId,
+            username: existing?.username ?? linked?.username ?? liveNames.get(robloxId) ?? robloxId,
+            rank: existing?.rank ?? null,
+            points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+            captured_at: existing?.captured_at ?? null,
+          };
+        });
+      }
+    }
+
+    playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
+
+    const pointValues = playerRows.map((row) => asNumber(row.points));
+    const average = pointValues.length ? pointValues.reduce((sum, value) => sum + value, 0) / pointValues.length : 0;
+    const med = median(pointValues);
+    const totalMemberPoints = pointValues.reduce((sum, value) => sum + value, 0);
+    const durationHours = battle.start_time && battle.end_time
+      ? Math.max(0.01, (new Date(battle.end_time).getTime() - new Date(battle.start_time).getTime()) / 3_600_000)
+      : null;
+
+    const overridesResult = await pool.query<OverrideRow>(
+      `SELECT o.roblox_id, o.manual_grade, o.staff_note, o.updated_at, u.username AS updated_by_username
+       FROM war_report_member_overrides o
+       LEFT JOIN users u ON u.id = o.updated_by
+       WHERE o.battle_id = $1`,
+      [battle.battle_id]
+    );
+    const overrides = new Map(overridesResult.rows.map((row) => [String(row.roblox_id), row]));
+
+    const members = playerRows.map((row, index) => {
+      const linked = linkedAccounts.get(String(row.roblox_id));
+      const points = asNumber(row.points);
+      const rank = index + 1;
+      const autoGrade = computeAutoGrade(points, rank, average, med);
+      const override = overrides.get(String(row.roblox_id));
+      const manualGrade = GRADES.includes(String(override?.manual_grade ?? "") as Grade)
+        ? String(override?.manual_grade) as Grade
+        : null;
+      const grade = manualGrade ?? autoGrade;
+      const flags: string[] = [];
+
+      if (battle.is_active) flags.push("Live");
+      if (rank <= 3) flags.push("MVP");
+      if (rank <= 10) flags.push("Top 10");
+      else if (rank <= 25) flags.push("Top 25");
+      if (points > 0 && points >= average) flags.push("Above Avg");
+      if (points > 0 && points < average) flags.push("Below Avg");
+      if (points > 0 && grade === "D") flags.push("Low Contribution");
+      if (points <= 0) flags.push("Zero Points");
+      if (linked?.isAlt) flags.push("Alt");
+      if (!linked) flags.push("Unlinked");
+      else if (!linked.discordId) flags.push("No Discord");
+
+      const warning = points < average || grade === "D" || grade === "F";
+      if (warning) flags.push("Needs Review");
+
+      return {
+        rank,
+        robloxId: String(row.roblox_id),
+        username: linked?.username ?? row.username ?? String(row.roblox_id),
+        avatarUrl: `/api/roblox/avatar?userId=${encodeURIComponent(String(row.roblox_id))}`,
+        discordId: linked?.discordId ?? null,
+        isAlt: linked?.isAlt ?? false,
+        ownerUsername: linked?.ownerUsername ?? null,
+        ownerRobloxId: linked?.ownerRobloxId ?? null,
+        points,
+        sharePct: totalMemberPoints > 0 ? (points / totalMemberPoints) * 100 : 0,
+        averagePph: durationHours ? points / durationHours : null,
+        autoGrade,
+        manualGrade,
+        grade,
+        flags,
+        warning,
+        staffNote: canManage ? override?.staff_note ?? "" : undefined,
+        noteUpdatedAt: canManage ? toIso(override?.updated_at) : undefined,
+        noteUpdatedBy: canManage ? override?.updated_by_username ?? null : undefined,
+      };
+    });
+
+    const distribution = gradeDistribution(members);
+    const warningMessage = canManage ? buildWarningMessage(members) : "";
+
+    return NextResponse.json({
+      success: true,
+      canManage,
+      battle: {
+        battleId: battle.battle_id,
+        battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
+        startTime: toIso(battle.start_time),
+        endTime: toIso(battle.end_time),
+        finalRank: snapshot?.rank === null || snapshot?.rank === undefined ? null : asNumber(snapshot.rank),
+        finalPoints: battle.is_active ? totalMemberPoints : asNumber(snapshot?.battle_points),
+        capturedAt: toIso(snapshot?.captured_at),
+        isActive: Boolean(battle.is_active),
+      },
+      summary: {
+        accounts: members.length,
+        participants: members.filter((member) => member.points > 0).length,
+        zeroAccounts: members.filter((member) => member.points <= 0).length,
+        averagePoints: Math.round(average),
+        medianPoints: Math.round(med),
+        totalMemberPoints,
+        mvp: members.slice(0, 3),
+      },
+      distribution,
+      members,
+      warningMessage,
+    });
+  } catch (err) {
+    console.error("[war-reports] detail error:", err);
+    return NextResponse.json({ success: false, error: "Failed to load war report" }, { status: 500 });
+  }
 }
