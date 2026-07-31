@@ -341,51 +341,55 @@ export async function GET() {
       }
     }
 
-    const reports = battleRows.map((battle) => {
-      const battleKey = normalizeBattleKey(battle.battle_id);
-      let rows = byBattle.get(battleKey) ?? [];
-      const liveData = liveDataByBattle.get(battleKey);
+    const reports = battleRows
+      .map((battle) => {
+        const battleKey = normalizeBattleKey(battle.battle_id);
+        let rows = byBattle.get(battleKey) ?? [];
+        const liveData = liveDataByBattle.get(battleKey);
 
-      if (battle.is_active && liveData && liveData.memberIds.size > 0) {
-        const liveIds = [...liveData.memberIds];
-        const liveNames = liveNamesByBattle.get(battleKey) ?? new Map<string, string>();
-        const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
-        rows = liveIds.map((robloxId) => {
-          const existing = rowsById.get(robloxId);
-          return {
-            battle_key: battleKey,
-            battle_id: battle.battle_id,
-            roblox_id: robloxId,
-            username: existing?.username ?? liveNames.get(robloxId) ?? robloxId,
-            points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
-          };
-        });
-      }
+        if (battle.is_active && liveData && liveData.memberIds.size > 0) {
+          const liveIds = [...liveData.memberIds];
+          const liveNames = liveNamesByBattle.get(battleKey) ?? new Map<string, string>();
+          const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
+          rows = liveIds.map((robloxId) => {
+            const existing = rowsById.get(robloxId);
+            return {
+              battle_key: battleKey,
+              battle_id: battle.battle_id,
+              roblox_id: robloxId,
+              username: existing?.username ?? liveNames.get(robloxId) ?? robloxId,
+              points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+            };
+          });
+        }
 
-      const points = rows.map((row) => asNumber(row.points));
-      const positive = points.filter((value) => value > 0);
-      const top = [...rows]
-        .sort((a, b) => asNumber(b.points) - asNumber(a.points))
-        .slice(0, 3)
-        .map((row) => ({ robloxId: row.roblox_id, username: row.username ?? row.roblox_id, points: asNumber(row.points) }));
+        const points = rows.map((row) => asNumber(row.points));
+        const positive = points.filter((value) => value > 0);
+        const top = [...rows]
+          .sort((a, b) => asNumber(b.points) - asNumber(a.points))
+          .slice(0, 3)
+          .map((row) => ({ robloxId: row.roblox_id, username: row.username ?? row.roblox_id, points: asNumber(row.points) }));
 
-      return {
-        battleId: battle.battle_id,
-        battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
-        startTime: toIso(battle.start_time),
-        endTime: toIso(battle.end_time),
-        finalRank: battle.final_rank === null ? null : asNumber(battle.final_rank),
-        finalPoints: battle.is_active ? points.reduce((sum, value) => sum + value, 0) : asNumber(battle.final_points),
-        capturedAt: toIso(battle.captured_at),
-        isActive: Boolean(battle.is_active),
-        accounts: rows.length,
-        participants: positive.length,
-        zeroAccounts: rows.filter((row) => asNumber(row.points) <= 0).length,
-        averagePoints: points.length ? Math.round(points.reduce((sum, value) => sum + value, 0) / points.length) : 0,
-        medianPoints: Math.round(median(points)),
-        topMembers: top,
-      };
-    });
+        return {
+          battleId: battle.battle_id,
+          battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
+          startTime: toIso(battle.start_time),
+          endTime: toIso(battle.end_time),
+          finalRank: battle.final_rank === null ? null : asNumber(battle.final_rank),
+          finalPoints: battle.is_active ? points.reduce((sum, value) => sum + value, 0) : asNumber(battle.final_points),
+          capturedAt: toIso(battle.captured_at),
+          isActive: Boolean(battle.is_active),
+          accounts: rows.length,
+          participants: positive.length,
+          zeroAccounts: rows.filter((row) => asNumber(row.points) <= 0).length,
+          averagePoints: points.length ? Math.round(points.reduce((sum, value) => sum + value, 0) / points.length) : 0,
+          medianPoints: Math.round(median(points)),
+          topMembers: top,
+        };
+      })
+      // Hide completed blank wars (for example Lunar before data collection started).
+      // Keep live previews even if they are still warming up.
+      .filter((report) => report.isActive || report.accounts > 0);
 
     return NextResponse.json({
       success: true,
