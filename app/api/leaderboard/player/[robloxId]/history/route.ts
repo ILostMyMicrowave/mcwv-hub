@@ -41,6 +41,82 @@ function asNumber(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const CLAN_API = process.env.CLAN_API ?? "https://ps99.biggamesapi.io/api/clan/MCWV";
+
+type ClanBattleContribution = {
+  UserID?: number | string;
+  Points?: number | string;
+};
+
+type ClanBattleRecord = {
+  BattleID?: string;
+  Title?: string;
+  configName?: string;
+  FinishTime?: number | string;
+  EndTime?: number | string;
+  PointContributions?: ClanBattleContribution[];
+};
+
+function normalizeBattleKey(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeTimestamp(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed > 1e12 ? Math.floor(parsed / 1000) : Math.floor(parsed);
+}
+
+function contributionPoints(entry: ClanBattleContribution) {
+  return asNumber(entry.Points ?? 0);
+}
+
+async function fetchJson(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
+  return res.json();
+}
+
+async function getFrozenClanApiPoint(battleId: string, userId: number) {
+  try {
+    const targetKey = normalizeBattleKey(battleId);
+    if (!targetKey) return null;
+
+    const clan = await fetchJson(CLAN_API);
+    const battles = (clan?.data?.Battles ?? {}) as Record<string, ClanBattleRecord>;
+    const match = Object.entries(battles).find(([key, battle]) => {
+      const candidates = [key, battle?.BattleID, battle?.configName, battle?.Title];
+      return candidates.some((candidate) => normalizeBattleKey(candidate) === targetKey);
+    });
+
+    const battle = match?.[1];
+    const contributions = Array.isArray(battle?.PointContributions)
+      ? battle.PointContributions
+          .filter((entry): entry is ClanBattleContribution => !!entry && typeof entry === "object")
+          .sort((a, b) => contributionPoints(b) - contributionPoints(a))
+      : [];
+
+    const index = contributions.findIndex((entry) => String(entry.UserID ?? "") === String(userId));
+    if (index < 0) return null;
+
+    const finishSeconds = normalizeTimestamp(battle?.FinishTime ?? battle?.EndTime);
+    const time = finishSeconds > 0
+      ? new Date(finishSeconds * 1000).toISOString()
+      : new Date().toISOString();
+
+    return {
+      time,
+      points: contributionPoints(contributions[index]),
+      rank: index + 1,
+    };
+  } catch (err) {
+    console.warn("[leaderboard/player/history] frozen clan API fallback failed:", err);
+    return null;
+  }
+}
+
 function pointsAtTime(rows: SnapshotRow[], targetMs: number) {
   if (!rows.length) return null;
 
@@ -76,7 +152,7 @@ function pointsAtTime(rows: SnapshotRow[], targetMs: number) {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ robloxId: string }> }
 ) {
   const auth = await requireAuthenticatedUser();
@@ -85,6 +161,10 @@ export async function GET(
   try {
     const { robloxId } = await params;
     const userId = Number(robloxId);
+    const url = new URL(req.url);
+    const requestedBattleId = url.searchParams.get("battle_id") ?? url.searchParams.get("battleId");
+    const requestedBattleKey = normalizeBattleKey(requestedBattleId);
+    const historicalMode = Boolean(requestedBattleKey);
 
     if (!Number.isFinite(userId)) {
       return NextResponse.json({ error: "Invalid Roblox ID" }, { status: 400 });
@@ -99,26 +179,40 @@ export async function GET(
     const snapshotHistoryExists = await tableExists("player_leaderboard_history");
 
     if (snapshotHistoryExists) {
-      const latestBattleResult = await pool.query<{ battle_id: string | null }>(
-        `SELECT battle_id
-         FROM player_leaderboard_history
-         WHERE roblox_id::text = $1
-           AND points IS NOT NULL
-         ORDER BY captured_at DESC
-         LIMIT 1`,
-        [String(userId)]
-      );
-      const latestBattleId = latestBattleResult.rows[0]?.battle_id ?? null;
+      let snapshotResult: { rows: SnapshotRow[] };
+      if (historicalMode) {
+        snapshotResult = await pool.query<SnapshotRow>(
+          `SELECT battle_id, points, rank, pph, change_5m, captured_at
+           FROM player_leaderboard_history
+           WHERE roblox_id::text = $1
+             AND regexp_replace(lower(COALESCE(battle_id, '')), '[^a-z0-9]+', '', 'g') = $2
+             AND points IS NOT NULL
+           ORDER BY captured_at ASC
+           LIMIT 500`,
+          [String(userId), requestedBattleKey]
+        );
+      } else {
+        const latestBattleResult = await pool.query<{ battle_id: string | null }>(
+          `SELECT battle_id
+           FROM player_leaderboard_history
+           WHERE roblox_id::text = $1
+             AND points IS NOT NULL
+           ORDER BY captured_at DESC
+           LIMIT 1`,
+          [String(userId)]
+        );
+        const latestBattleId = latestBattleResult.rows[0]?.battle_id ?? null;
 
-      const snapshotResult = await pool.query<SnapshotRow>(
-        `SELECT battle_id, points, rank, pph, change_5m, captured_at
-         FROM player_leaderboard_history
-         WHERE roblox_id::text = $1
-           AND battle_id IS NOT DISTINCT FROM $2::text
-         ORDER BY captured_at ASC
-         LIMIT 500`,
-        [String(userId), latestBattleId]
-      );
+        snapshotResult = await pool.query<SnapshotRow>(
+          `SELECT battle_id, points, rank, pph, change_5m, captured_at
+           FROM player_leaderboard_history
+           WHERE roblox_id::text = $1
+             AND battle_id IS NOT DISTINCT FROM $2::text
+           ORDER BY captured_at ASC
+           LIMIT 500`,
+          [String(userId), latestBattleId]
+        );
+      }
 
       let previousPoints: number | null = null;
       for (const row of snapshotResult.rows) {
@@ -154,10 +248,19 @@ export async function GET(
       }
     }
 
+    if (historicalMode && !points.length && requestedBattleId) {
+      const frozenPoint = await getFrozenClanApiPoint(requestedBattleId, userId);
+      if (frozenPoint) {
+        points.push({ time: frozenPoint.time, value: frozenPoint.points, delta: 0 });
+        rank.push({ time: frozenPoint.time, value: frozenPoint.rank });
+      }
+    }
+
     const pointHistoryExists = await tableExists("point_history");
 
-    // Fallback for older installs before snapshot history existed.
-    if (!points.length && pointHistoryExists) {
+    // Fallback for older installs before snapshot history existed. Do not use this
+    // for historical wars; old wars should stay frozen to that battle only.
+    if (!historicalMode && !points.length && pointHistoryExists) {
       const result = await pool.query<PointRow>(
         `SELECT points_added, created_at
          FROM point_history
@@ -189,7 +292,7 @@ export async function GET(
     let disconnects24h = 0;
     const disconnects: Array<{ time: string; value: number }> = [];
 
-    if (presenceEventsExists) {
+    if (!historicalMode && presenceEventsExists) {
       const countResult = await pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
          FROM player_presence_events
@@ -222,6 +325,8 @@ export async function GET(
     return NextResponse.json({
       success: true,
       robloxId: String(userId),
+      battleId: requestedBattleId ?? null,
+      frozen: historicalMode,
       points,
       rank,
       disconnects,
