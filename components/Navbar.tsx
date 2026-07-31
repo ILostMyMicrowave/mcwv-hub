@@ -53,6 +53,7 @@ export default function Navbar() {
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLElement | null>>({});
   const closeTimerRef = useRef<number | null>(null);
+  const groupCloseTimerRef = useRef<number | null>(null);
   const measuredNavWidthRef = useRef(0);
 
   const isOfficer = user?.role === "officer" || user?.role === "owner";
@@ -176,7 +177,7 @@ export default function Navbar() {
 
       if (!containerEl || !brandEl) return;
 
-      if (window.innerWidth < 1280) {
+      if (window.innerWidth < 1024) {
         setCollapseNav(true);
         return;
       }
@@ -254,6 +255,25 @@ export default function Navbar() {
     window.requestAnimationFrame(() => setOpen(true));
   }
 
+  function openDesktopGroup(id: string) {
+    if (groupCloseTimerRef.current !== null) {
+      window.clearTimeout(groupCloseTimerRef.current);
+      groupCloseTimerRef.current = null;
+    }
+    setOpenGroup(id);
+  }
+
+  function closeDesktopGroupSoon(id: string) {
+    if (groupCloseTimerRef.current !== null) {
+      window.clearTimeout(groupCloseTimerRef.current);
+    }
+
+    groupCloseTimerRef.current = window.setTimeout(() => {
+      setOpenGroup((current) => (current === id ? null : current));
+      groupCloseTimerRef.current = null;
+    }, 120);
+  }
+
   function closeDrawer() {
     setOpen(false);
 
@@ -269,7 +289,7 @@ export default function Navbar() {
 
   useEffect(() => {
     if (collapseNav) return;
-    if (typeof window !== "undefined" && window.innerWidth >= 1280 && open) {
+    if (typeof window !== "undefined" && window.innerWidth >= 1024 && open) {
       closeDrawer();
     }
   }, [collapseNav, open]);
@@ -282,6 +302,7 @@ export default function Navbar() {
   useEffect(() => {
     return () => {
       if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+      if (groupCloseTimerRef.current !== null) window.clearTimeout(groupCloseTimerRef.current);
     };
   }, []);
 
@@ -306,8 +327,9 @@ export default function Navbar() {
     return (
       <div
         className="relative z-20"
-        onMouseEnter={() => setOpenGroup(item.id)}
-        onMouseLeave={() => setOpenGroup((current) => (current === item.id ? null : current))}
+        onMouseEnter={() => openDesktopGroup(item.id)}
+        onMouseLeave={() => closeDesktopGroupSoon(item.id)}
+        onFocus={() => openDesktopGroup(item.id)}
       >
         <button
           type="button"
@@ -324,10 +346,10 @@ export default function Navbar() {
         </button>
 
         <div
-          className={`absolute left-1/2 top-full mt-3 w-72 -translate-x-1/2 rounded-3xl border p-2 shadow-2xl backdrop-blur-xl transition-[opacity,transform,filter] duration-200 ease-out ${
+          className={`absolute left-1/2 top-full mt-3 w-72 -translate-x-1/2 rounded-3xl border p-2 shadow-2xl backdrop-blur-xl transition-[opacity,transform] duration-200 ease-out ${
             openGroup === item.id
-              ? "pointer-events-auto translate-y-0 scale-100 opacity-100 blur-0"
-              : "pointer-events-none translate-y-2 scale-95 opacity-0 blur-sm"
+              ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
+              : "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
           }`}
           style={{
             background: "rgba(5,5,5,0.94)",
@@ -335,6 +357,7 @@ export default function Navbar() {
             boxShadow: "0 22px 70px rgba(0,0,0,0.45), 0 0 28px rgba(255,255,255,0.04)",
           }}
         >
+          <div className="absolute -top-3 left-0 h-3 w-full" />
           <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
             {item.icon} {item.label}
           </div>
@@ -395,7 +418,7 @@ export default function Navbar() {
 
         <nav
           ref={navRef}
-          className={`relative min-w-0 items-center gap-1 rounded-full border px-1 py-1 ${collapseNav ? "hidden" : "hidden xl:flex"}`}
+          className={`relative min-w-0 items-center gap-1 rounded-full border px-1 py-1 ${collapseNav ? "hidden" : "hidden lg:flex"}`}
           style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.04)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)" }}
         >
           <div
@@ -407,7 +430,7 @@ export default function Navbar() {
 
         <button
           onClick={open ? closeDrawer : openDrawer}
-          className={`inline-flex shrink-0 items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] ${collapseNav ? "" : "xl:hidden"}`}
+          className={`inline-flex shrink-0 items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] ${collapseNav ? "" : "lg:hidden"}`}
           style={{ color: "var(--foreground)" }}
           aria-label={open ? "Close navigation menu" : "Open navigation menu"}
           aria-expanded={open}
@@ -423,13 +446,13 @@ export default function Navbar() {
       {renderDrawer && (
         <>
           <button
-            className={`fixed inset-0 z-50 transition-opacity duration-200 ${collapseNav ? "" : "xl:hidden"} ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+            className={`fixed inset-0 z-50 transition-opacity duration-200 ${collapseNav ? "" : "lg:hidden"} ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
             onClick={closeDrawer}
             aria-label="Close navigation overlay"
             style={{ background: "rgba(0,0,0,0.6)" }}
           />
           <aside
-            className={`fixed right-0 top-0 z-50 h-screen w-[min(23rem,88vw)] overflow-y-auto overscroll-contain border-l transition-transform duration-200 ease-out will-change-transform ${collapseNav ? "" : "xl:hidden"} ${open ? "translate-x-0" : "translate-x-full"}`}
+            className={`fixed right-0 top-0 z-50 h-screen w-[min(23rem,88vw)] overflow-y-auto overscroll-contain border-l transition-transform duration-200 ease-out will-change-transform ${collapseNav ? "" : "lg:hidden"} ${open ? "translate-x-0" : "translate-x-full"}`}
             style={{ background: "linear-gradient(180deg, rgba(7,7,7,0.99) 0%, rgba(10,10,10,0.99) 100%)", borderColor: "var(--border)", boxShadow: "-18px 0 40px rgba(0,0,0,0.45)" }}
           >
             <div className="flex items-center justify-between border-b px-4 py-4" style={{ borderColor: "var(--border)" }}>
@@ -438,7 +461,7 @@ export default function Navbar() {
             </div>
 
             <nav className="flex flex-col gap-4 p-4">
-              {navGroups.map((item) => {
+              {navGroups.map((item, groupIndex) => {
                 if (item.type === "link") {
                   const active = isActiveHref(item.href);
                   return (
@@ -447,7 +470,14 @@ export default function Navbar() {
                       href={item.href}
                       onClick={closeDrawer}
                       className="rounded-2xl px-4 py-3 text-sm transition-all duration-200 ease-out active:scale-[0.98]"
-                      style={{ color: "var(--foreground)", background: active ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${active ? "var(--border)" : "transparent"}` }}
+                      style={{
+                        color: "var(--foreground)",
+                        background: active ? "rgba(255,255,255,0.08)" : "transparent",
+                        border: `1px solid ${active ? "var(--border)" : "transparent"}`,
+                        opacity: open ? 1 : 0,
+                        transform: open ? "translateX(0)" : "translateX(14px)",
+                        transitionDelay: open ? `${50 + groupIndex * 25}ms` : "0ms",
+                      }}
                     >
                       {item.icon ? `${item.icon} ` : ""}{item.label}
                     </Link>
@@ -455,7 +485,15 @@ export default function Navbar() {
                 }
 
                 return (
-                  <div key={item.id} className="rounded-3xl border border-white/10 bg-white/[0.03] p-2">
+                  <div
+                    key={item.id}
+                    className="rounded-3xl border border-white/10 bg-white/[0.03] p-2 transition-all duration-200 ease-out"
+                    style={{
+                      opacity: open ? 1 : 0,
+                      transform: open ? "translateX(0)" : "translateX(14px)",
+                      transitionDelay: open ? `${50 + groupIndex * 25}ms` : "0ms",
+                    }}
+                  >
                     <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">{item.icon} {item.label}</div>
                     <div className="grid gap-1">
                       {item.links.map((link) => {
