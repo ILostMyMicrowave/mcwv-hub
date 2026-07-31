@@ -2957,6 +2957,7 @@ function TicketsSection({
   const [panelDescription, setPanelDescription] = useState("Ready to apply for MCWV? Open a private application ticket below. Inside the ticket, you’ll send screenshots and submit your Roblox details for staff review.");
   const [panelButton, setPanelButton] = useState("Open Application");
   const [panelColor, setPanelColor] = useState("#34D399");
+  const [panelThumbnail, setPanelThumbnail] = useState("");
   const [embedColors, setEmbedColors] = useState({
     banner: "#34D399",
     ticketInstructions: "#34D399",
@@ -2995,6 +2996,7 @@ function TicketsSection({
       if (panel.title) setPanelTitle(String(panel.title));
       if (panel.description) setPanelDescription(String(panel.description));
       if (panel.buttonLabel) setPanelButton(String(panel.buttonLabel));
+      if (panel.thumbnailUrl || panel.thumbnail) setPanelThumbnail(String(panel.thumbnailUrl ?? panel.thumbnail ?? ""));
       if (panel.accentColor !== undefined) {
         const rawColor = typeof panel.accentColor === "number"
           ? `#${panel.accentColor.toString(16).padStart(6, "0").slice(-6).toUpperCase()}`
@@ -3042,7 +3044,7 @@ function TicketsSection({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          panel: { title: panelTitle, description: panelDescription, buttonLabel: panelButton, accentColor: panelColor },
+          panel: { title: panelTitle, description: panelDescription, buttonLabel: panelButton, accentColor: panelColor, thumbnailUrl: panelThumbnail.trim() },
           messages: { welcomeTitle, welcomeDescription },
           embedColors,
           questions,
@@ -3076,6 +3078,7 @@ function TicketsSection({
           description: panelDescription,
           button_label: panelButton,
           accent_color: panelColor,
+          thumbnail_url: panelThumbnail.trim(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -3320,6 +3323,7 @@ function TicketsSection({
             </label>
             <LabeledInput label="Panel Title" value={panelTitle} onChange={setPanelTitle} />
             <LabeledInput label="Button Label" value={panelButton} onChange={setPanelButton} />
+            <LabeledInput label="Thumbnail URL" value={panelThumbnail} onChange={setPanelThumbnail} placeholder="Optional HTTPS image URL" />
             <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
               <label className="block space-y-2">
                 <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Hex Colour</span>
@@ -3342,7 +3346,17 @@ function TicketsSection({
             </div>
           </div>
           <div className="rounded-3xl border border-white/10 bg-black/25 p-5" style={{ borderLeft: `4px solid ${/^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399"}` }}>
-            <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Live Preview</div>
+            <div className="flex items-start justify-between gap-4">
+              <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Live Preview</div>
+              {panelThumbnail.trim().startsWith("https://") && (
+                <img
+                  src={panelThumbnail.trim()}
+                  alt="Panel thumbnail preview"
+                  className="h-20 w-20 rounded-2xl border border-white/10 object-cover"
+                  onError={(event) => { event.currentTarget.style.display = "none"; }}
+                />
+              )}
+            </div>
             <h4 className="mt-3 text-2xl font-bold text-white">{panelTitle || "MCWV Applications"}</h4>
             <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription}</p>
             <div
