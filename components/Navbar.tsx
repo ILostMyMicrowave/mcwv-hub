@@ -46,7 +46,7 @@ export default function Navbar() {
       { href: "/war-reports", label: "War Reports" },
       { href: "/contributions", label: "Contributions" },
       { href: "/admin?section=tickets", label: "Tickets", officerOnly: true },
-      { href: "/admin", label: "Admin" },
+      { href: "/admin", label: "Admin", officerOnly: true },
       { href: "/settings", label: "Settings" },
     ].filter((link) => !link.officerOnly || isOfficer),
     [isOfficer]
