@@ -162,6 +162,11 @@ async function getLiveClanBattleData(battleId: string) {
   const members = Array.isArray(data?.Members) ? data.Members : [];
   const memberIds = new Set<string>();
 
+  const ownerId = data?.Owner ?? data?.owner ?? data?.OwnerUserID ?? data?.ownerUserId;
+  if (ownerId !== null && ownerId !== undefined && String(ownerId).trim()) {
+    memberIds.add(String(ownerId).trim());
+  }
+
   for (const member of members) {
     const id = member?.UserID ?? member?.userId ?? member?.id;
     if (id !== null && id !== undefined && String(id).trim()) {
@@ -539,9 +544,6 @@ export async function GET(
     const average = pointValues.length ? pointValues.reduce((sum, value) => sum + value, 0) / pointValues.length : 0;
     const med = median(pointValues);
     const totalMemberPoints = pointValues.reduce((sum, value) => sum + value, 0);
-    const durationHours = battle.start_time && battle.end_time
-      ? Math.max(0.01, (new Date(battle.end_time).getTime() - new Date(battle.start_time).getTime()) / 3_600_000)
-      : null;
 
     const overridesResult = await pool.query<OverrideRow>(
       `SELECT o.roblox_id, o.manual_grade, o.staff_note, o.updated_at, u.username AS updated_by_username
@@ -564,7 +566,6 @@ export async function GET(
       const grade = manualGrade ?? autoGrade;
       const flags: string[] = [];
 
-      if (battle.is_active) flags.push("Live");
       if (rank <= 3) flags.push("MVP");
       if (rank <= 10) flags.push("Top 10");
       else if (rank <= 25) flags.push("Top 25");
@@ -590,7 +591,6 @@ export async function GET(
         ownerRobloxId: linked?.ownerRobloxId ?? null,
         points,
         sharePct: totalMemberPoints > 0 ? (points / totalMemberPoints) * 100 : 0,
-        averagePph: durationHours ? points / durationHours : null,
         autoGrade,
         manualGrade,
         grade,
