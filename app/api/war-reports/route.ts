@@ -133,23 +133,25 @@ async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }
   };
 }
 
-async function getLiveClanBattleData(battleId: string) {
-  // Always prefer the official legacy clan endpoint for live roster membership.
-  // Env CLAN_API can be changed for other views, but War Reports must reflect
-  // the actual in-game clan member list.
+async function getClanBattleReportData(battleId: string, includeCurrentRoster: boolean) {
+  // Live reports use the current in-game roster (Members + Owner). Completed
+  // reports use the historical PointContributions list so old wars only show
+  // people who were actually in that war, not today's clan roster.
   const json = (await fetchJsonOrNull(LEGACY_CLAN_API)) ?? (await fetchJsonOrNull(CLAN_API));
   const data = json?.data ?? {};
   const members = Array.isArray(data?.Members) ? data.Members : [];
-  const memberIds = new Set<string>();
+  const currentMemberIds = new Set<string>();
 
-  const ownerId = data?.Owner ?? data?.owner ?? data?.OwnerUserID ?? data?.ownerUserId;
-  if (ownerId !== null && ownerId !== undefined && String(ownerId).trim()) {
-    memberIds.add(String(ownerId).trim());
-  }
+  const ownerIdRaw = data?.Owner ?? data?.owner ?? data?.OwnerUserID ?? data?.ownerUserId;
+  const ownerId = ownerIdRaw !== null && ownerIdRaw !== undefined && String(ownerIdRaw).trim()
+    ? String(ownerIdRaw).trim()
+    : null;
+
+  if (ownerId) currentMemberIds.add(ownerId);
 
   for (const member of members) {
     const id = member?.UserID ?? member?.userId ?? member?.id;
-    if (id !== null && id !== undefined && String(id).trim()) memberIds.add(String(id).trim());
+    if (id !== null && id !== undefined && String(id).trim()) currentMemberIds.add(String(id).trim());
   }
 
   const battles = data?.Battles ?? data?.battles ?? {};
@@ -161,6 +163,7 @@ async function getLiveClanBattleData(battleId: string) {
   })?.[1] as Record<string, unknown> | undefined;
 
   const contributionPoints = new Map<string, number>();
+  const contributionIds = new Set<string>();
   const contributions = Array.isArray(battle?.PointContributions)
     ? battle.PointContributions
     : Array.isArray(battle?.pointContributions)
@@ -170,11 +173,27 @@ async function getLiveClanBattleData(battleId: string) {
   for (const contribution of contributions) {
     const entry = contribution as Record<string, unknown>;
     const id = entry?.UserID ?? entry?.userId ?? entry?.user_id;
-    if (id === null || id === undefined) continue;
-    contributionPoints.set(String(id).trim(), asNumber(entry?.Points ?? entry?.points));
+    if (id === null || id === undefined || !String(id).trim()) continue;
+    const normalizedId = String(id).trim();
+    contributionIds.add(normalizedId);
+    contributionPoints.set(normalizedId, asNumber(entry?.Points ?? entry?.points));
   }
 
-  return { memberIds, contributionPoints };
+  const memberIds = includeCurrentRoster
+    ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
+    : new Set(contributionIds);
+
+  // Big Games omits the clan owner from Members, so force include owner when
+  // there is a live roster or historical battle contribution data.
+  if (ownerId && (includeCurrentRoster || memberIds.size > 0)) memberIds.add(ownerId);
+
+  return {
+    memberIds,
+    contributionPoints,
+    battleFound: Boolean(battle),
+    battlePoints: asNumber(battle?.Points ?? battle?.points),
+    ownerId,
+  };
 }
 
 
@@ -202,30 +221,6 @@ async function tableExists(tableName: string) {
     [`public.${tableName}`]
   );
   return Boolean(result.rows[0]?.exists);
-}
-
-async function getLinkedRobloxIds() {
-  const ids = new Set<string>();
-
-  const users = await pool.query<{ roblox_id: string | null }>(
-    `SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id
-     FROM users
-     WHERE roblox_id IS NOT NULL
-       AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
-  );
-  for (const row of users.rows) if (row.roblox_id) ids.add(String(row.roblox_id));
-
-  if (await tableExists("user_alts")) {
-    const alts = await pool.query<{ roblox_id: string | null }>(
-      `SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id
-       FROM user_alts
-       WHERE roblox_id IS NOT NULL
-         AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
-    );
-    for (const row of alts.rows) if (row.roblox_id) ids.add(String(row.roblox_id));
-  }
-
-  return ids;
 }
 
 export async function GET() {
@@ -295,7 +290,6 @@ export async function GET() {
     }
 
     const battleKeys = [...new Set(battleRows.map((row) => normalizeBattleKey(row.battle_id)).filter(Boolean))];
-    const linkedIds = await getLinkedRobloxIds();
     const byBattle = new Map<string, PlayerSnapshotRow[]>();
 
     if (battleKeys.length && (await tableExists("player_leaderboard_history"))) {
@@ -323,21 +317,20 @@ export async function GET() {
       );
 
       for (const row of players.rows) {
-        if (!linkedIds.has(String(row.roblox_id))) continue;
         const list = byBattle.get(row.battle_key) ?? [];
         list.push(row);
         byBattle.set(row.battle_key, list);
       }
     }
 
-    const liveDataByBattle = new Map<string, Awaited<ReturnType<typeof getLiveClanBattleData>>>();
-    const liveNamesByBattle = new Map<string, Map<string, string>>();
+    const clanDataByBattle = new Map<string, Awaited<ReturnType<typeof getClanBattleReportData>>>();
+    const namesByBattle = new Map<string, Map<string, string>>();
     for (const battle of battleRows) {
-      if (battle.is_active) {
-        const key = normalizeBattleKey(battle.battle_id);
-        const liveData = await getLiveClanBattleData(battle.battle_id);
-        liveDataByBattle.set(key, liveData);
-        liveNamesByBattle.set(key, await fetchRobloxNames([...liveData.memberIds]));
+      const key = normalizeBattleKey(battle.battle_id);
+      const clanData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
+      if (clanData.memberIds.size > 0) {
+        clanDataByBattle.set(key, clanData);
+        namesByBattle.set(key, await fetchRobloxNames([...clanData.memberIds]));
       }
     }
 
@@ -345,20 +338,20 @@ export async function GET() {
       .map((battle) => {
         const battleKey = normalizeBattleKey(battle.battle_id);
         let rows = byBattle.get(battleKey) ?? [];
-        const liveData = liveDataByBattle.get(battleKey);
+        const clanData = clanDataByBattle.get(battleKey);
 
-        if (battle.is_active && liveData && liveData.memberIds.size > 0) {
-          const liveIds = [...liveData.memberIds];
-          const liveNames = liveNamesByBattle.get(battleKey) ?? new Map<string, string>();
+        if (clanData && clanData.memberIds.size > 0) {
+          const reportIds = [...clanData.memberIds];
+          const names = namesByBattle.get(battleKey) ?? new Map<string, string>();
           const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
-          rows = liveIds.map((robloxId) => {
+          rows = reportIds.map((robloxId) => {
             const existing = rowsById.get(robloxId);
             return {
               battle_key: battleKey,
               battle_id: battle.battle_id,
               roblox_id: robloxId,
-              username: existing?.username ?? liveNames.get(robloxId) ?? robloxId,
-              points: liveData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+              username: existing?.username ?? names.get(robloxId) ?? robloxId,
+              points: clanData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
             };
           });
         }
@@ -376,7 +369,9 @@ export async function GET() {
           startTime: toIso(battle.start_time),
           endTime: toIso(battle.end_time),
           finalRank: battle.final_rank === null ? null : asNumber(battle.final_rank),
-          finalPoints: battle.is_active ? points.reduce((sum, value) => sum + value, 0) : asNumber(battle.final_points),
+          finalPoints: battle.is_active
+            ? points.reduce((sum, value) => sum + value, 0)
+            : asNumber(battle.final_points) || clanData?.battlePoints || points.reduce((sum, value) => sum + value, 0),
           capturedAt: toIso(battle.captured_at),
           isActive: Boolean(battle.is_active),
           accounts: rows.length,
