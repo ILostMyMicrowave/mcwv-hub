@@ -92,15 +92,35 @@ function clanIconUrl(value: unknown) {
 }
 
 function getClanMemberCount(clan: any): number | null {
-  if (Array.isArray(clan?.Members)) return clan.Members.length;
-  return (
+  const capacity = asNumber(clan?.MemberCapacity ?? clan?.memberCapacity) ?? null;
+
+  if (Array.isArray(clan?.Members)) {
+    const ids = new Set(
+      clan.Members
+        .map((member: any) => member?.UserID ?? member?.userId ?? member?.id)
+        .filter((value: unknown) => value !== null && value !== undefined && String(value).trim())
+        .map((value: unknown) => String(value).trim())
+    );
+    const ownerId = clan?.Owner ?? clan?.owner ?? clan?.OwnerUserID ?? clan?.ownerUserId;
+    if (ownerId !== null && ownerId !== undefined && String(ownerId).trim()) {
+      ids.add(String(ownerId).trim());
+    }
+    return capacity ? Math.min(ids.size, capacity) : ids.size;
+  }
+
+  const rawCount =
     asNumber(clan?.Members) ??
     asNumber(clan?.members) ??
     asNumber(clan?.MemberCount) ??
     asNumber(clan?.memberCount) ??
     asNumber(clan?.membersCount) ??
-    null
-  );
+    null;
+
+  if (rawCount === null) return null;
+
+  // Legacy /api/clans reports Members without the owner. Show the true in-game
+  // clan size by adding owner and capping at capacity when known.
+  return capacity ? Math.min(rawCount + 1, capacity) : rawCount + 1;
 }
 
 function contributionPoints(entry: any): number {
