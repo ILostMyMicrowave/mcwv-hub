@@ -17,10 +17,28 @@ export async function GET() {
   if (!auth.ok) return auth.response;
 
   try {
+    const exists = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
+    );
+
+    if (!exists.rows[0]?.exists) {
+      return NextResponse.json({ success: true, battles: [] });
+    }
+
     const result = await pool.query<Battle>(
-      `SELECT battle_id, battle_name, start_time, end_time
-       FROM battles
-       ORDER BY start_time DESC NULLS LAST, created_at DESC
+      `SELECT b.battle_id, b.battle_name, b.start_time, b.end_time
+       FROM battles b
+       WHERE b.end_time IS NOT NULL
+         AND b.end_time <= NOW()
+         AND EXISTS (
+           SELECT 1
+           FROM player_leaderboard_history h
+           WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') =
+                 regexp_replace(lower(b.battle_id), '[^a-z0-9]+', '', 'g')
+             AND h.points IS NOT NULL
+           LIMIT 1
+         )
+       ORDER BY b.start_time DESC NULLS LAST, b.created_at DESC
        LIMIT 50`
     );
 
