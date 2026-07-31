@@ -540,6 +540,13 @@ export async function GET(
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
 
+    if (!battle.is_active && playerRows.length === 0) {
+      return NextResponse.json(
+        { error: "This completed battle has no stored player report data." },
+        { status: 404 }
+      );
+    }
+
     const pointValues = playerRows.map((row) => asNumber(row.points));
     const average = pointValues.length ? pointValues.reduce((sum, value) => sum + value, 0) / pointValues.length : 0;
     const med = median(pointValues);
