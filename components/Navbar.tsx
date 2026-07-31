@@ -105,6 +105,14 @@ export default function Navbar() {
 
       if (!containerEl || !brandEl) return;
 
+      // Always use the drawer on mobile/tablet. This avoids the browser toolbar /
+      // visual viewport resize jank that was making the drawer feel like it
+      // zoomed or glitched on some screens.
+      if (window.innerWidth < 1280) {
+        setCollapseNav(true);
+        return;
+      }
+
       const containerWidth = containerEl.clientWidth;
       const brandWidth = brandEl.getBoundingClientRect().width;
 
@@ -118,16 +126,23 @@ export default function Navbar() {
       const navWidth = measuredNavWidthRef.current;
       if (!navWidth) return;
 
-      // Brand + nav + breathing room + drawer button width. If the full nav would
-      // squeeze or collide, switch to the hamburger drawer even on tablet/desktop.
-      const requiredWidth = brandWidth + navWidth + 72;
+      // Brand + nav + breathing room. If the full nav would squeeze/collide,
+      // keep the hamburger drawer even on desktop-sized custom widths.
+      const requiredWidth = brandWidth + navWidth + 96;
       setCollapseNav(requiredWidth > containerWidth);
     };
 
     updateResponsiveNav();
-    window.addEventListener("resize", updateResponsiveNav);
-    return () => window.removeEventListener("resize", updateResponsiveNav);
-  }, [links, collapseNav]);
+
+    const observer = new ResizeObserver(updateResponsiveNav);
+    if (containerRef.current) observer.observe(containerRef.current);
+
+    window.addEventListener("resize", updateResponsiveNav, { passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateResponsiveNav);
+    };
+  }, [links]);
 
   useEffect(() => {
     const updateIndicator = () => {
@@ -164,17 +179,6 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = original;
-    };
-  }, [open]);
-
   function openDrawer() {
     if (closeTimerRef.current !== null) {
       window.clearTimeout(closeTimerRef.current);
@@ -203,7 +207,7 @@ export default function Navbar() {
 
   useEffect(() => {
     if (collapseNav) return;
-    if (typeof window !== "undefined" && window.innerWidth >= 640 && open) {
+    if (typeof window !== "undefined" && window.innerWidth >= 1280 && open) {
       closeDrawer();
     }
   }, [collapseNav, open]);
@@ -254,7 +258,7 @@ export default function Navbar() {
 
         <nav
           ref={navRef}
-          className={`relative min-w-0 items-center gap-1 rounded-full border px-1 py-1 ${collapseNav ? "hidden" : "hidden sm:flex"}`}
+          className={`relative min-w-0 items-center gap-1 rounded-full border px-1 py-1 ${collapseNav ? "hidden" : "hidden xl:flex"}`}
           style={{
             borderColor: "var(--border)",
             background: "rgba(255,255,255,0.04)",
@@ -295,7 +299,7 @@ export default function Navbar() {
 
         <button
           onClick={open ? closeDrawer : openDrawer}
-          className={`inline-flex shrink-0 items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] ${collapseNav ? "" : "sm:hidden"}`}
+          className={`inline-flex shrink-0 items-center justify-center rounded-md p-2 transition duration-200 ease-out active:scale-[0.96] ${collapseNav ? "" : "xl:hidden"}`}
           style={{ color: "var(--foreground)" }}
           aria-label={open ? "Close navigation menu" : "Open navigation menu"}
           aria-expanded={open}
@@ -311,16 +315,16 @@ export default function Navbar() {
       {renderDrawer && (
         <>
           <button
-            className={`fixed inset-0 z-50 transition-opacity duration-300 ${collapseNav ? "" : "sm:hidden"} ${
-              open ? "opacity-100" : "opacity-0"
+            className={`fixed inset-0 z-50 transition-opacity duration-200 ${collapseNav ? "" : "xl:hidden"} ${
+              open ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
             onClick={closeDrawer}
             aria-label="Close navigation overlay"
             style={{ background: "rgba(0,0,0,0.6)" }}
           />
           <aside
-            className={`fixed top-0 right-0 z-50 h-dvh w-[86vw] max-w-xs overflow-y-auto border-l transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${collapseNav ? "" : "sm:hidden"} ${
-              open ? "translate-x-0 opacity-100 blur-0" : "translate-x-full opacity-0 blur-sm"
+            className={`fixed right-0 top-0 z-50 h-screen w-[min(22rem,86vw)] overflow-y-auto overscroll-contain border-l transition-transform duration-300 ease-out will-change-transform ${collapseNav ? "" : "xl:hidden"} ${
+              open ? "translate-x-0" : "translate-x-full"
             }`}
             style={{
               background:
@@ -351,10 +355,7 @@ export default function Navbar() {
 
             <nav className="flex flex-col gap-2 p-4">
               {links.map((link, index) => {
-                const isActive =
-                  link.href === "/"
-                    ? pathname === "/"
-                    : pathname === link.href || pathname.startsWith(`${link.href}/`);
+                const isActive = isActiveHref(link.href);
 
                 return (
                   <Link
