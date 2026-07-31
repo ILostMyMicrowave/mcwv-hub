@@ -70,6 +70,8 @@ type PlayerHistory = {
   disconnects24h: number;
   change5m: number;
   pph: number;
+  frozen?: boolean;
+  battleId?: string | null;
 };
 
 type ApiResponse = {
@@ -920,12 +922,14 @@ function PlayerMiniProfile({
   entry,
   currentUser,
   badgePresets,
+  battleId,
   onClose,
   onEditCard,
 }: {
   entry: LeaderboardEntry | null;
   currentUser: CurrentUser | null;
   badgePresets: BadgePreset[];
+  battleId: string | null;
   onClose: () => void;
   onEditCard: (entry: LeaderboardEntry) => void;
 }) {
@@ -934,7 +938,8 @@ function PlayerMiniProfile({
   const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
-    if (!entry) return;
+    const userId = entry?.user_id;
+    if (!userId) return;
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
@@ -942,7 +947,11 @@ function PlayerMiniProfile({
       setHistory(null);
       setHistoryTab("points");
 
-      fetch(`/api/leaderboard/player/${entry.user_id}/history`, {
+      const historyParams = new URLSearchParams();
+      if (battleId) historyParams.set("battle_id", battleId);
+      const historyQuery = historyParams.toString();
+
+      fetch(`/api/leaderboard/player/${userId}/history${historyQuery ? `?${historyQuery}` : ""}`, {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -956,11 +965,13 @@ function PlayerMiniProfile({
           disconnects24h: Number(json.disconnects24h ?? 0),
           change5m: Number(json.change5m ?? 0),
           pph: Number(json.pph ?? 0),
+          frozen: Boolean(json.frozen),
+          battleId: typeof json.battleId === "string" ? json.battleId : null,
         });
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setHistory({ points: [], rank: [], disconnects: [], disconnects24h: 0, change5m: 0, pph: 0 });
+          setHistory({ points: [], rank: [], disconnects: [], disconnects24h: 0, change5m: 0, pph: 0, frozen: Boolean(battleId), battleId });
         }
       })
       .finally(() => {
@@ -972,7 +983,7 @@ function PlayerMiniProfile({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [entry]);
+  }, [entry?.user_id, battleId]);
 
   if (!entry) return null;
   const style = getStyle(entry);
@@ -981,6 +992,7 @@ function PlayerMiniProfile({
   const change5m = history?.change5m ?? entry.change5m ?? 0;
   const pph = history?.pph ?? entry.pph ?? 0;
   const chartPoints = history?.[historyTab] ?? [];
+  const historicalProfile = Boolean(battleId);
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
@@ -993,7 +1005,14 @@ function PlayerMiniProfile({
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <AvatarWithFrame entry={entry} size="lg" />
               <div>
-                <div className="text-xs uppercase tracking-[0.28em]" style={{ color: style.accentColor }}>Rank #{entry.rank}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.28em]" style={{ color: style.accentColor }}>
+                  <span>Rank #{entry.rank}</span>
+                  {historicalProfile && (
+                    <span className="rounded-full border border-sky-300/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.18em] text-sky-200">
+                      Frozen war snapshot
+                    </span>
+                  )}
+                </div>
                 <h2 className="mt-1 text-4xl font-bold text-white" style={fontStyle(style)}>{entry.name}</h2>
                 <p className="mt-2 max-w-xl text-sm italic text-zinc-300" style={fontStyle(style)}>{style.bio || "No bio yet. Customise your card to add one."}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -1012,16 +1031,18 @@ function PlayerMiniProfile({
 
           <div className="mt-8 grid gap-4 sm:grid-cols-4">
             <MiniProfileStat label="Battle Points" value={formatPoints(entry.points)} />
-            <MiniProfileStat label="PPH" value={pph > 0 ? formatNumber(pph) : "—"} />
-            <MiniProfileStat label="5m Change" value={change5m > 0 ? `+${formatNumber(change5m)}` : "—"} />
-            <MiniProfileStat label="Disconnects 24h" value={String(disconnects24h)} />
+            <MiniProfileStat label={historicalProfile ? "Final PPH" : "PPH"} value={pph > 0 ? formatNumber(pph) : "—"} />
+            <MiniProfileStat label={historicalProfile ? "Final 5m" : "5m Change"} value={change5m > 0 ? `+${formatNumber(change5m)}` : "—"} />
+            <MiniProfileStat label={historicalProfile ? "Live Disconnects" : "Disconnects 24h"} value={historicalProfile ? "—" : String(disconnects24h)} />
           </div>
 
           <div className="mt-6 rounded-3xl border border-white/10 bg-black/45 p-5">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Player History</h3>
-                <span className="text-xs text-zinc-500">Points • Rank • Disconnects</span>
+                <span className="text-xs text-zinc-500">
+                  {historicalProfile ? "Frozen to the selected historical war" : "Points • Rank • Disconnects"}
+                </span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["points", "rank", "disconnects"] as const).map((tab) => (
@@ -1045,7 +1066,11 @@ function PlayerMiniProfile({
                 Loading history...
               </div>
             ) : (
-              <MiniLineChart points={chartPoints} accentColor={style.accentColor} />
+              <MiniLineChart
+                points={chartPoints}
+                accentColor={style.accentColor}
+                emptyLabel={historicalProfile ? "No saved graph snapshots for this old war" : "Not enough data yet"}
+              />
             )}
           </div>
 
@@ -1412,6 +1437,11 @@ export default function LeaderboardPage() {
   const prevSnapshot = useRef<string>("");
   const prevRanksRef = useRef<Record<number, number>>({});
   const prevDataRef = useRef<LeaderboardEntry[]>([]);
+  const selectedEntryOpenRef = useRef(false);
+
+  useEffect(() => {
+    selectedEntryOpenRef.current = Boolean(selectedEntry);
+  }, [selectedEntry]);
 
   useEffect(() => {
     selectedBattleIdRef.current = selectedBattleId;
@@ -1464,7 +1494,7 @@ export default function LeaderboardPage() {
         setData([]);
         setTotalPoints(Number(json.total_points ?? 0));
         setActive(false);
-        setUpdatedAt(new Date().toISOString());
+        setUpdatedAt(json.updatedAt ?? new Date().toISOString());
         setError("No individual member data is saved for this historical battle. Data collection started after this war ended.");
         setLoading(false);
         return;
@@ -1491,14 +1521,19 @@ export default function LeaderboardPage() {
       });
 
       const isFirstLoad = prevSnapshot.current.length === 0;
-      const activityEvents = isFirstLoad
-        ? buildSeedEvents(nextData)
-        : generateEvents(prevDataRef.current, nextData);
 
-      if (activityEvents.length) {
-        setActivity((prev) => [...activityEvents, ...prev].slice(0, 20));
-      } else if (isFirstLoad && activity.length === 0) {
-        setActivity(buildSeedEvents(nextData));
+      if (!requestedBattleId) {
+        const activityEvents = isFirstLoad
+          ? buildSeedEvents(nextData)
+          : generateEvents(prevDataRef.current, nextData);
+
+        if (activityEvents.length) {
+          setActivity((prev) => [...activityEvents, ...prev].slice(0, 20));
+        } else if (isFirstLoad && activity.length === 0) {
+          setActivity(buildSeedEvents(nextData));
+        }
+      } else {
+        setActivity([]);
       }
 
       prevSnapshot.current = nextSnapshot;
@@ -1509,7 +1544,7 @@ export default function LeaderboardPage() {
       setData(nextData);
       setTitle(historicalTitle ?? json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
-      setUpdatedAt(new Date().toISOString());
+      setUpdatedAt(json.updatedAt ?? new Date().toISOString());
       setTotalPoints(Number(json.total_points ?? 0));
       setError(null);
       setLoading(false);
@@ -1523,7 +1558,13 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(true), 0);
-    const interval = setInterval(load, 10000);
+    const interval = setInterval(() => {
+      // Historical wars (like the old Gummy battle) are frozen snapshots.
+      // Also freeze polling while a player profile modal is open so its graph
+      // does not jitter/refetch every 10 seconds.
+      if (selectedBattleIdRef.current || selectedEntryOpenRef.current) return;
+      void load();
+    }, 10000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
@@ -1571,6 +1612,7 @@ export default function LeaderboardPage() {
   }, []);
 
   const podium = useMemo(() => data.slice(0, 3), [data]);
+  const historicalView = Boolean(selectedBattleId);
 
   const updatedAgo = updatedAt
     ? `${Math.max(1, Math.floor((now - new Date(updatedAt).getTime()) / 1000))}s ago`
@@ -1585,13 +1627,19 @@ export default function LeaderboardPage() {
             <div className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
+                  <div className={`mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+                    historicalView
+                      ? "border-sky-400/20 bg-sky-400/10 text-sky-300"
+                      : active
+                      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                      : "border-zinc-400/20 bg-zinc-400/10 text-zinc-300"
+                  }`}>
                     <span
                       className={`h-2 w-2 rounded-full ${
-                        active ? "bg-emerald-400" : "bg-zinc-500"
-                      } animate-pulse`}
+                        historicalView ? "bg-sky-400" : active ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"
+                      }`}
                     />
-                    {active ? "Live war tracking" : "No active war right now"}
+                    {historicalView ? "Historical snapshot" : active ? "Live war tracking" : "No active war right now"}
                   </div>
 
                   <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -1599,8 +1647,9 @@ export default function LeaderboardPage() {
                   </h1>
 
                   <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-                    Live updates refresh every 10 seconds. Roblox avatars and Discord-link
-                    badges appear automatically when the API provides them.
+                    {historicalView
+                      ? "This historical war is frozen. Leaderboard rows and profile graphs stay locked to this battle instead of following the current war."
+                      : "Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges appear automatically when the API provides them."}
                   </p>
                 </div>
 
@@ -1618,12 +1667,18 @@ export default function LeaderboardPage() {
                     </button>
                     <WarHistoryDropdown
                       selectedBattleId={selectedBattleId}
-                      onSelect={(battleId) => {
-                        const displayTitle = battleId ? formatWarDisplayName(battleId) : "No Active War";
+                      onSelect={(battleId, battleName) => {
+                        const displayTitle = battleId ? formatWarDisplayName(battleName ?? battleId) : "No Active War";
                         selectedBattleIdRef.current = battleId;
-                        selectedBattleNameRef.current = null;
+                        selectedBattleNameRef.current = battleName ?? null;
+                        prevSnapshot.current = "";
+                        prevRanksRef.current = {};
+                        prevDataRef.current = [];
+                        setRankChange({});
+                        setActivity([]);
+                        setSelectedEntry(null);
                         setSelectedBattleId(battleId);
-                        setSelectedBattleName(null);
+                        setSelectedBattleName(battleName ?? null);
                         setLoading(true);
                         setError(null);
                         setData([]);
@@ -1638,11 +1693,13 @@ export default function LeaderboardPage() {
                         ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
                         : "border-zinc-400/20 bg-zinc-400/10 text-zinc-300"
                     }`}>
-                      <span className={`h-2 w-2 animate-pulse rounded-full ${selectedBattleId ? "bg-sky-400" : active ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                      <span className={`h-2 w-2 rounded-full ${selectedBattleId ? "bg-sky-400" : active ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
                       {selectedBattleId ? "HISTORICAL" : active ? "LIVE" : "ROSTER"}
                     </span>
 
-                    <span className="text-sm text-zinc-300">updated {updatedAgo}</span>
+                    <span className="text-sm text-zinc-300">
+                      {historicalView ? "frozen snapshot" : `updated ${updatedAgo}`}
+                    </span>
                   </div>
 
                   <div>
@@ -1703,7 +1760,7 @@ export default function LeaderboardPage() {
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-xl font-semibold">Full leaderboard</h2>
                     <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Auto refresh
+                      {historicalView ? "Frozen snapshot" : "Auto refresh"}
                     </span>
                   </div>
 
@@ -1721,47 +1778,56 @@ export default function LeaderboardPage() {
                 </section>
               </Animated>
 
-              <Animated delay="0.35s">
-                <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-xl font-semibold">Live activity</h2>
-                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Animated updates
-                    </span>
-                  </div>
+              {historicalView ? (
+                <Animated delay="0.35s">
+                  <section className="mt-6 rounded-3xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm text-sky-100 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
+                    This is an old war snapshot, so it does not auto-refresh or create live activity events.
+                    Opening a player keeps their graph frozen to this selected battle.
+                  </section>
+                </Animated>
+              ) : (
+                <Animated delay="0.35s">
+                  <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-6">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h2 className="text-xl font-semibold">Live activity</h2>
+                      <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        Animated updates
+                      </span>
+                    </div>
 
-                  <div className="space-y-2">
-                    {activity.length === 0 ? (
-                      <p className="py-6 text-sm text-zinc-400">Waiting for live activity...</p>
-                    ) : (
-                      activity.map((item, index) => {
-                        const accent = feedAccent(item.type);
-                        const isNew = index === 0;
+                    <div className="space-y-2">
+                      {activity.length === 0 ? (
+                        <p className="py-6 text-sm text-zinc-400">Waiting for live activity...</p>
+                      ) : (
+                        activity.map((item, index) => {
+                          const accent = feedAccent(item.type);
+                          const isNew = index === 0;
 
-                        return (
-                          <Animated key={item.id} delay={`${Math.min(index * 0.04, 0.4)}s`}>
-                            <div
-                              className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)] ${
-                                isNew ? "ring-1 ring-yellow-300/30" : ""
-                              }`}
-                              style={{
-                                background:
-                                  index === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)",
-                                borderColor: accent.border,
-                              }}
-                            >
-                              <span
-                                className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${accent.dot}`}
-                              />
-                              <div className="flex-1 text-zinc-200">{item.text}</div>
-                            </div>
-                          </Animated>
-                        );
-                      })
-                    )}
-                  </div>
-                </section>
-              </Animated>
+                          return (
+                            <Animated key={item.id} delay={`${Math.min(index * 0.04, 0.4)}s`}>
+                              <div
+                                className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)] ${
+                                  isNew ? "ring-1 ring-yellow-300/30" : ""
+                                }`}
+                                style={{
+                                  background:
+                                    index === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)",
+                                  borderColor: accent.border,
+                                }}
+                              >
+                                <span
+                                  className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${accent.dot}`}
+                                />
+                                <div className="flex-1 text-zinc-200">{item.text}</div>
+                              </div>
+                            </Animated>
+                          );
+                        })
+                      )}
+                    </div>
+                  </section>
+                </Animated>
+              )}
             </>
           )}
         </div>
@@ -1770,6 +1836,7 @@ export default function LeaderboardPage() {
           entry={selectedEntry}
           currentUser={currentUser}
           badgePresets={badgePresets}
+          battleId={selectedBattleId}
           onClose={() => setSelectedEntry(null)}
           onEditCard={(entry) => {
             setSelectedStyleTarget(entry);
