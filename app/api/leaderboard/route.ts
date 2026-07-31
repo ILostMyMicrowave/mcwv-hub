@@ -798,50 +798,104 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
 /* ---------------- HISTORICAL LEADERBOARD (from DB) ---------------- */
 
 async function buildHistoricalLeaderboard(battleId: string): Promise<LeaderboardResponse> {
-  // Get battle info
+  const battleKey = normalizeKey(battleId);
+
+  // Get battle info. Match both exact and normalised IDs because older rows may
+  // have different casing/spacing between battles, snapshots, and player history.
   const battleRes = await pool.query(
     `SELECT battle_id, battle_name, start_time, end_time
      FROM battles
      WHERE battle_id = $1
+        OR regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $2
+        OR regexp_replace(lower(COALESCE(battle_name, '')), '[^a-z0-9]+', '', 'g') = $2
+     ORDER BY end_time DESC NULLS LAST, start_time DESC NULLS LAST
      LIMIT 1`,
-    [battleId]
+    [battleId, battleKey]
   );
 
-  if (!battleRes.rows[0]) {
-    return buildHistoricalFromClanApi(battleId, "Historical War");
-  }
-
   const battle = battleRes.rows[0];
-  const titleSource = isGenericBattleName(battle.battle_name) ? battle.battle_id : battle.battle_name;
-  const title = formatBattleTitle(titleSource || battle.battle_id || "Historical War");
+  const canonicalBattleId = String(battle?.battle_id ?? battleId);
+  const canonicalBattleKey = normalizeKey(canonicalBattleId);
+  const titleSource = battle ? (isGenericBattleName(battle.battle_name) ? battle.battle_id : battle.battle_name) : battleId;
+  const title = formatBattleTitle(titleSource || canonicalBattleId || "Historical War");
 
-  // Get MCWV's clan snapshot for this battle
+  // Get MCWV's latest clan snapshot for this battle.
   const snapshotRes = await pool.query(
     `SELECT rank, battle_points, captured_at
      FROM war_snapshots
-     WHERE battle_id = $1
+     WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
      ORDER BY captured_at DESC
      LIMIT 1`,
-    [battleId]
+    [canonicalBattleKey]
   );
 
-  // Get individual member contributions from battle_user_contributions
-  const membersRes = await pool.query(
-    `SELECT buc.user_id, buc.username, buc.points, buc.captured_at,
-            u.roblox_id, u.discord_id
-     FROM battle_user_contributions buc
-     LEFT JOIN users u ON u.roblox_id = buc.user_id
-     WHERE buc.battle_id = $1
-     ORDER BY buc.points DESC, buc.captured_at DESC`,
-    [battleId]
+  // Preferred source: player_leaderboard_history. This is what current data
+  // collection actually writes. battle_user_contributions is older/optional and
+  // may be empty, which caused blank historical leaderboards for Gummy.
+  let membersRows: Array<{
+    user_id: string | number;
+    username: string | null;
+    points: string | number | null;
+    captured_at: Date | string | null;
+    roblox_id: string | number | null;
+    discord_id: string | number | null;
+  }> = [];
+
+  const historyExists = await pool.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
   );
 
-  if (!membersRes.rows.length) {
-    return buildHistoricalFromClanApi(battleId, title);
+  if (historyExists.rows[0]?.exists) {
+    const historyRes = await pool.query(
+      `SELECT DISTINCT ON (h.roblox_id)
+          h.roblox_id::text AS user_id,
+          h.username,
+          h.points,
+          h.captured_at,
+          u.roblox_id,
+          u.discord_id
+       FROM player_leaderboard_history h
+       LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(h.roblox_id AS TEXT))
+       WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') = $1
+         AND h.points IS NOT NULL
+       ORDER BY h.roblox_id, h.captured_at DESC`,
+      [canonicalBattleKey]
+    );
+    membersRows = historyRes.rows;
   }
 
-  // Get Roblox names and avatars for members
-  const robloxIds = membersRes.rows
+  // Fallback for any future/imported reports that use battle_user_contributions.
+  if (!membersRows.length) {
+    try {
+      const bucExists = await pool.query<{ exists: boolean }>(
+        `SELECT to_regclass('public.battle_user_contributions') IS NOT NULL AS exists`
+      );
+
+      if (bucExists.rows[0]?.exists) {
+        const membersRes = await pool.query(
+          `SELECT buc.user_id, buc.username, buc.points, buc.captured_at,
+                  u.roblox_id, u.discord_id
+           FROM battle_user_contributions buc
+           LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(buc.user_id AS TEXT))
+           WHERE regexp_replace(lower(buc.battle_id), '[^a-z0-9]+', '', 'g') = $1
+           ORDER BY buc.points DESC, buc.captured_at DESC`,
+          [canonicalBattleKey]
+        );
+        membersRows = membersRes.rows;
+      }
+    } catch (err) {
+      console.warn("[leaderboard/history] battle_user_contributions fallback failed:", err);
+    }
+  }
+
+  if (!membersRows.length) {
+    return buildHistoricalFromClanApi(canonicalBattleId, title);
+  }
+
+  // Sort by final/latest points before ranking.
+  membersRows = [...membersRows].sort((a, b) => Number(b.points ?? 0) - Number(a.points ?? 0));
+
+  const robloxIds = membersRows
     .map((r) => Number(r.user_id))
     .filter((id) => Number.isFinite(id));
 
@@ -850,23 +904,31 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
     getAvatars(robloxIds),
   ]);
 
-  // Get alt mappings
-  const discordIds = membersRes.rows
+  const discordIds = membersRows
     .map((r) => r.discord_id)
     .filter(Boolean);
 
-  const altRes = await pool.query(
-    `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
-    [discordIds]
-  );
+  let altSet = new Set<string>();
+  if (discordIds.length) {
+    try {
+      const altTable = await pool.query<{ exists: boolean }>(
+        `SELECT to_regclass('public.user_alts') IS NOT NULL AS exists`
+      );
+      if (altTable.rows[0]?.exists) {
+        const altRes = await pool.query(
+          `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
+          [discordIds]
+        );
+        altSet = new Set(altRes.rows.map((r) => String(r.roblox_id)));
+      }
+    } catch {
+      altSet = new Set<string>();
+    }
+  }
 
-  const altSet = new Set(altRes.rows.map((r) => String(r.roblox_id)));
-
-  // Build leaderboard entries from member data
-  const entries: LeaderboardEntry[] = membersRes.rows.map((row, index) => {
+  const entries: LeaderboardEntry[] = membersRows.map((row, index) => {
     const user_id = Number(row.user_id);
     const points = Number(row.points || 0);
-    const robloxId = Number(row.roblox_id);
     const discordId = row.discord_id;
 
     return {
@@ -875,13 +937,13 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
       name: row.username || nameMap.get(user_id) || `Unknown (${user_id})`,
       points,
       avatar: avatarMap.get(user_id) ?? null,
-      discord_id: discordId ?? null,
+      discord_id: discordId === null || discordId === undefined ? null : String(discordId),
       is_alt: altSet.has(String(user_id)),
     };
   });
 
   if (!entries.length) {
-    return buildHistoricalFromClanApi(battleId, title);
+    return buildHistoricalFromClanApi(canonicalBattleId, title);
   }
 
   return {
