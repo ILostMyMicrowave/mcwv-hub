@@ -413,16 +413,16 @@ export default function WarInfoPage() {
         <AnimatedBackground />
         <Navbar />
         <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
-          <div className="space-y-6 animate-pulse">
+          <div className="space-y-6">
             <div className="rounded-3xl border p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-              <div className="h-8 w-48 rounded bg-zinc-800/50" />
-              <div className="mt-8 h-4 w-32 rounded bg-zinc-800/50" />
+              <div className="skeleton-shimmer h-8 w-48 rounded bg-zinc-800/50" />
+              <div className="skeleton-shimmer mt-8 h-4 w-32 rounded bg-zinc-800/50" />
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="h-28 rounded-2xl bg-zinc-800/50" />
-              <div className="h-28 rounded-2xl bg-zinc-800/50" />
-              <div className="h-28 rounded-2xl bg-zinc-800/50" />
-              <div className="h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="skeleton-shimmer h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="skeleton-shimmer h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="skeleton-shimmer h-28 rounded-2xl bg-zinc-800/50" />
+              <div className="skeleton-shimmer h-28 rounded-2xl bg-zinc-800/50" />
             </div>
           </div>
         </div>
