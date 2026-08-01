@@ -527,7 +527,7 @@ export default function AchievementsPage() {
                       data-card-id={entry.id}
                       ref={(el) => setCardRef(entry.id, el)}
                       className={`
-                        group relative overflow-hidden rounded-[2rem] border bg-[#0d0d0d] p-5
+                        shine-sweep glow-spin group relative overflow-hidden rounded-[2rem] border bg-[#0d0d0d] p-5
                         transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_0_30px_rgba(234,179,8,0.22)]
                         ${tone.border} ${tone.glow}
                         ${!isVisible ? "opacity-0 translate-y-4" : "opacity-100 translate-y-0"}
