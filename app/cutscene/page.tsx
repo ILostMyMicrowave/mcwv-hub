@@ -4,40 +4,43 @@ import Link from "next/link";
 import { useCallback, useState, type CSSProperties } from "react";
 import "./cutscene.css";
 
-const BOOT_LINES = ["CONNECTING TO BATTLE HQ", "SYNCING CLAN DATA", "SHARPENING SWORDS"];
-const WORDMARK = ["M", "C", "W", "V"];
+const BOOT_LINES = ["CONNECTING TO BATTLE HQ", "CHARGING NEON CORE", "SHARPENING SWORDS"];
 
-/**
- * ⚔️ MCWV sigil — crossed swords + ring, drawn stroke-by-stroke.
- * PLACEHOLDER: once the real logo lands, drop it in /public (e.g. /mcwv-logo.png)
- * and replace <Sigil /> below with:
- *   <img src="/mcwv-logo.png" alt="MCWV" className="cs-logo" />
- * (keep the same .cs-sigil wrappers so the glitch/entrance timing still works)
- */
-function Sigil() {
+// Light streaks that converge into the emblem at launch
+const STREAK_ROTATIONS = [0, 60, 120, 180, 240, 300];
+
+// Spark burst (wave 1 = first slash, wave 2 = second slash)
+const SPARKS: { sx: number; sy: number; wave: 1 | 2 }[] = [
+  { sx: -150, sy: -95, wave: 1 },
+  { sx: 145, sy: -115, wave: 1 },
+  { sx: -125, sy: 105, wave: 1 },
+  { sx: 165, sy: 85, wave: 1 },
+  { sx: -55, sy: -165, wave: 1 },
+  { sx: 75, sy: 155, wave: 2 },
+  { sx: -175, sy: -35, wave: 2 },
+  { sx: 135, sy: -55, wave: 2 },
+  { sx: -95, sy: 135, wave: 2 },
+  { sx: 55, sy: -145, wave: 2 },
+];
+
+function LogoImage({ decorative = false }: { decorative?: boolean }) {
   return (
-    <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle className="cs-draw-path" style={{ "--pi": 0 } as CSSProperties} pathLength={1} cx="60" cy="60" r="52" />
-      {/* Sword A — bottom-left to top-right */}
-      <path className="cs-draw-path" style={{ "--pi": 1 } as CSSProperties} pathLength={1} d="M86 32 L56 62" />
-      <path className="cs-draw-path" style={{ "--pi": 2 } as CSSProperties} pathLength={1} d="M48 54 L64 70" />
-      <path className="cs-draw-path" style={{ "--pi": 3 } as CSSProperties} pathLength={1} d="M56 62 L41 77" />
-      <circle className="cs-draw-path" style={{ "--pi": 4 } as CSSProperties} pathLength={1} cx="38" cy="80" r="3.5" />
-      {/* Sword B — bottom-right to top-left */}
-      <path className="cs-draw-path" style={{ "--pi": 5 } as CSSProperties} pathLength={1} d="M34 32 L64 62" />
-      <path className="cs-draw-path" style={{ "--pi": 6 } as CSSProperties} pathLength={1} d="M72 54 L56 70" />
-      <path className="cs-draw-path" style={{ "--pi": 7 } as CSSProperties} pathLength={1} d="M64 62 L79 77" />
-      <circle className="cs-draw-path" style={{ "--pi": 8 } as CSSProperties} pathLength={1} cx="82" cy="80" r="3.5" />
-    </svg>
+    <img
+      src="/mcwv-logo.png"
+      alt={decorative ? "" : "MCWV"}
+      aria-hidden={decorative || undefined}
+      draggable={false}
+    />
   );
 }
 
 function EndFrame({ onReplay, instant = false }: { onReplay: () => void; instant?: boolean }) {
   return (
     <div className={`cs-end${instant ? " cs-end-instant" : ""}`}>
-      <div className="cs-end-emblem">⚔️</div>
-      <div className="cs-end-title">MCWV</div>
-      <div className="cs-end-sub">CUTSCENE CONCEPT — 5.0S — PURE CSS</div>
+      <div className="cs-end-logo">
+        <LogoImage />
+      </div>
+      <div className="cs-end-sub">WAR MODE ENGAGED</div>
       <div className="cs-end-actions">
         <Link href="/" className="cs-btn cs-btn-primary">
           ENTER HUB
@@ -76,6 +79,7 @@ export default function CutscenePage() {
         <div className="cs-stars cs-stars-b" aria-hidden="true" />
         <div className="cs-sweepline" aria-hidden="true" />
         <div className="cs-vignette" aria-hidden="true" />
+        <div className="cs-hueflash" aria-hidden="true" />
         <div className="cs-scanlines" aria-hidden="true" />
         <div className="cs-grain" aria-hidden="true" />
 
@@ -83,28 +87,34 @@ export default function CutscenePage() {
         <div className="cs-bar cs-bar-top" aria-hidden="true" />
         <div className="cs-bar cs-bar-bottom" aria-hidden="true" />
 
-        {/* Hero */}
+        {/* Converging energy streaks */}
+        {STREAK_ROTATIONS.map((rotation, index) => (
+          <div
+            key={rotation}
+            className="cs-fly"
+            style={{ "--rot": `${rotation}deg`, "--fi": index } as CSSProperties}
+            aria-hidden="true"
+          />
+        ))}
+
+        {/* Hero: the MCWV sigil */}
         <div className="cs-hero">
           <div className="cs-emblem">
+            <div className="cs-reactor" aria-hidden="true" />
+            <div className="cs-reactor cs-reactor-2" aria-hidden="true" />
             <div className="cs-emblem-jitter">
-              <div className="cs-sigil cs-sigil-rgb cs-sigil-a" aria-hidden="true">
-                <Sigil />
+              <div className="cs-sigil cs-sigil-rgb cs-sigil-a">
+                <LogoImage decorative />
               </div>
-              <div className="cs-sigil cs-sigil-rgb cs-sigil-b" aria-hidden="true">
-                <Sigil />
+              <div className="cs-sigil cs-sigil-rgb cs-sigil-b">
+                <LogoImage decorative />
               </div>
               <div className="cs-sigil cs-sigil-main">
-                <Sigil />
+                <LogoImage />
               </div>
             </div>
-          </div>
-
-          <div className="cs-word" aria-label="MCWV">
-            {WORDMARK.map((letter, index) => (
-              <span key={letter} className="cs-letter" style={{ "--li": index } as CSSProperties}>
-                {letter}
-              </span>
-            ))}
+            <div className="cs-shock cs-shock-1" aria-hidden="true" />
+            <div className="cs-shock cs-shock-2" aria-hidden="true" />
           </div>
 
           <div className="cs-tagline">
@@ -116,6 +126,16 @@ export default function CutscenePage() {
         {/* Energy slashes */}
         <div className="cs-slash cs-slash-1" aria-hidden="true" />
         <div className="cs-slash cs-slash-2" aria-hidden="true" />
+
+        {/* Spark bursts, synced to the slashes */}
+        {SPARKS.map((spark, index) => (
+          <span
+            key={index}
+            className={`cs-spark cs-spark-w${spark.wave}`}
+            style={{ "--sx": `${spark.sx}px`, "--sy": `${spark.sy}px` } as CSSProperties}
+            aria-hidden="true"
+          />
+        ))}
 
         {/* Fake boot sequence */}
         <div className="cs-boot" aria-hidden="true">
