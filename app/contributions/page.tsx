@@ -267,7 +267,7 @@ function KpiCard({
 }) {
   return (
     <div
-      className="min-w-0 rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      className="shine-sweep glow-spin min-w-0 rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
       style={{
         background: "var(--card)",
         borderColor: "var(--border)",
