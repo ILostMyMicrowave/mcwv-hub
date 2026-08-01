@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AuthButton, AuthError, AuthField, AuthShell } from "@/components/AuthShell";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,11 +11,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (!username.trim() || !password) {
+      setError("Enter your username and password.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -22,7 +28,7 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: username.trim(), password }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -45,162 +51,48 @@ export default function LoginPage() {
   }
 
   return (
-    <main
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: "var(--background)" }}
+    <AuthShell
+      eyebrow="MEMBER ACCESS"
+      title="Welcome back"
+      subtitle="Log in to enter the hub and sync your settings."
+      footer={
+        <>
+          Don&apos;t have an account? <Link href="/signup">Sign up</Link>
+        </>
+      }
     >
-      <div
-        className="w-full max-w-md"
-        style={{ animation: "fadeInUp 0.6s ease-out forwards" }}
-      >
-        <div className="text-center mb-10">
-          <h1
-            className="text-4xl font-bold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            MCWV
-          </h1>
-        </div>
+      <form onSubmit={handleLogin} className="space-y-5" noValidate>
+        <AuthField
+          id="username"
+          label="Username"
+          icon="👤"
+          value={username}
+          onChange={setUsername}
+          placeholder="Enter your username"
+          autoComplete="username"
+          disabled={loading}
+          delay="0.24s"
+        />
 
-        <div
-          className="rounded-3xl border p-8"
-          style={{
-            background: "var(--card)",
-            borderColor: "var(--border)",
-            animation: "fadeInUp 0.6s ease-out forwards",
-            animationDelay: "0.1s",
-            opacity: 0,
-          }}
-        >
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-semibold">Welcome back</h2>
-            <p className="mt-2 text-zinc-400">
-              Log in to access your account and keep your settings in sync.
-            </p>
-          </div>
+        <AuthField
+          id="password"
+          label="Password"
+          icon="🔒"
+          value={password}
+          onChange={setPassword}
+          placeholder="Enter your password"
+          autoComplete="current-password"
+          disabled={loading}
+          allowReveal
+          delay="0.3s"
+        />
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div
-              className="relative"
-              style={{
-                animation: "fadeInUp 0.4s ease-out forwards",
-                animationDelay: "0.2s",
-                opacity: 0,
-              }}
-            >
-              <label
-                htmlFor="username"
-                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
-                style={{
-                  background: "var(--card)",
-                  color: focusedField === "username" ? "var(--primary)" : "var(--foreground)",
-                }}
-              >
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onFocus={() => setFocusedField("username")}
-                onBlur={() => setFocusedField(null)}
-                placeholder="Enter your username"
-                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
-                style={{
-                  borderColor: focusedField === "username" ? "var(--primary)" : "var(--border)",
-                }}
-                autoComplete="username"
-                disabled={loading}
-              />
-            </div>
+        <AuthError message={error} />
 
-            <div
-              className="relative"
-              style={{
-                animation: "fadeInUp 0.4s ease-out forwards",
-                animationDelay: "0.3s",
-                opacity: 0,
-              }}
-            >
-              <label
-                htmlFor="password"
-                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
-                style={{
-                  background: "var(--card)",
-                  color: focusedField === "password" ? "var(--primary)" : "var(--foreground)",
-                }}
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setFocusedField("password")}
-                onBlur={() => setFocusedField(null)}
-                placeholder="Enter your password"
-                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
-                style={{
-                  borderColor: focusedField === "password" ? "var(--primary)" : "var(--border)",
-                }}
-                autoComplete="current-password"
-                disabled={loading}
-              />
-            </div>
-
-            {error && (
-              <div
-                className="rounded-xl p-3 text-sm text-red-200 animate-shake"
-                style={{
-                  background: "rgba(239, 68, 68, 0.15)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
-                }}
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-full py-3 text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-              style={{
-                background: "var(--primary)",
-                color: "#000",
-              }}
-            >
-              {loading ? "Logging in..." : "Log In"}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-zinc-400" style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.4s", opacity: 0 }}>
-            Don&apos;t have an account?{" "}
-            <Link
-              href="/signup"
-              className="font-medium hover:underline transition-colors"
-              style={{ color: "var(--primary)" }}
-            >
-              Sign up
-            </Link>
-          </p>
-        </div>
-      </div>
-
-      <style jsx>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
-          20%, 40%, 60%, 80% { transform: translateX(4px); }
-        }
-        .animate-shake { animation: shake 0.5s ease-in-out; }
-      `}</style>
-    </main>
+        <AuthButton loading={loading} loadingText="Checking credentials..." delay="0.36s">
+          Log In
+        </AuthButton>
+      </form>
+    </AuthShell>
   );
 }
