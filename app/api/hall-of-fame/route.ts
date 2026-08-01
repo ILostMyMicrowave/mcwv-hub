@@ -34,17 +34,24 @@ async function getCurrentUser(): Promise<CurrentUser> {
 }
 
 // Zod schemas for validation
+// image_url may be a full https URL or our own stable same-origin avatar ref
+// (/api/roblox/avatar?userId=<id>), which never expires.
+const imageUrlField = z.union([
+  z.string().trim().url("Invalid image URL").max(2048),
+  z.string().regex(/^\/api\/roblox\/avatar\?userId=\d{1,20}$/, "Invalid avatar reference"),
+])
+
 const hallOfFameCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   reason: z.string().trim().min(1, "Reason is required").max(5000),
-  image_url: z.string().trim().url("Invalid image URL").max(2048).nullable().optional(),
+  image_url: imageUrlField.nullable().optional(),
 })
 
 const hallOfFameUpdateSchema = z.object({
   id: z.coerce.number().finite("Invalid id"),
   name: z.string().trim().min(1, "Name is required").max(200),
   reason: z.string().trim().min(1, "Reason is required").max(5000),
-  image_url: z.string().trim().url("Invalid image URL").max(2048).nullable().optional(),
+  image_url: imageUrlField.nullable().optional(),
 })
 
 export async function GET() {
