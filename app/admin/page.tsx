@@ -1762,7 +1762,7 @@ function OverviewSection({
           return (
             <div
               key={safeId("card", card.label, index)}
-              className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/10"
+              className="shine-sweep rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/10"
               title={isHeartbeat ? formatTime(card.value) : undefined}
             >
               <div className="flex items-center justify-between gap-3">
@@ -2290,7 +2290,7 @@ function BotAutomationCard({
   const isEnabled = enabled === "Yes";
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+    <div className="glow-spin rounded-3xl border border-white/10 bg-black/20 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-lg font-bold">
