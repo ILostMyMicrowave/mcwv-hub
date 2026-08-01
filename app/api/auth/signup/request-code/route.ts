@@ -17,8 +17,13 @@ function hashCode(code: string) {
 }
 
 function makeCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  // Crypto-grade RNG (Math.random is predictable given enough samples).
+  return String(crypto.randomInt(100000, 1000000));
 }
+
+// Server-side per-user DM cooldown: blocks bot-DM spam even if the caller
+// bypasses the client-side resend timer (and regardless of source IP).
+const DM_COOLDOWN_MS = 25_000;
 
 async function ensureSignupVerificationTable() {
   await pool.query(`
@@ -77,6 +82,25 @@ export async function POST(req: Request) {
     }
 
     await ensureSignupVerificationTable();
+
+    // DM cooldown: if a code went out to this user very recently, skip
+    // sending another (still answer success — no state leaks, no spam).
+    const recent = await pool.query<{ created_at: Date | string }>(
+      `SELECT created_at
+       FROM signup_verification_codes
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [user.id]
+    );
+
+    const lastSentAt = recent.rows[0]?.created_at;
+    if (lastSentAt && Date.now() - new Date(lastSentAt).getTime() < DM_COOLDOWN_MS) {
+      return NextResponse.json({
+        success: true,
+        message: "A code was just sent — check your Discord DMs (it can take a minute to arrive).",
+      });
+    }
 
     const code = makeCode();
     await pool.query(
