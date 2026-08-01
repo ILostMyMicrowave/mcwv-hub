@@ -149,7 +149,26 @@ export default function OnboardingTour() {
   const [stepId, setStepId] = useState("welcome");
   const [busy, setBusy] = useState(false);
 
+  // Hold the tour until the boot intro has finished (fires immediately if
+  // the intro already played earlier this session or was skipped).
+  const [introDone, setIntroDone] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return sessionStorage.getItem("mcwv_intro_seen_v1") === "1";
+    } catch {
+      return true;
+    }
+  });
+
   useEffect(() => {
+    if (introDone) return;
+    const onDone = () => setIntroDone(true);
+    window.addEventListener("mcwv:intro-done", onDone);
+    return () => window.removeEventListener("mcwv:intro-done", onDone);
+  }, [introDone]);
+
+  useEffect(() => {
+    if (!introDone) return;
     let alive = true;
 
     async function loadStatus() {
@@ -171,7 +190,7 @@ export default function OnboardingTour() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [introDone]);
 
   const steps = useMemo(
     () => buildSteps(Boolean(status?.user?.isOfficer)),
