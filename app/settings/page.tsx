@@ -326,7 +326,8 @@ export default function Settings() {
                       type="button"
                       onClick={() => setTheme(t.id)}
                       className={`
-                        rounded-2xl border p-5 text-left transition-all duration-300
+                        shine-sweep glow-spin rounded-2xl border p-5 text-left transition-all duration-300
+                        hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]
                         ${active
                           ? "border-white/40 bg-white/10 shadow-lg scale-[1.03]"
                           : "border-white/10 bg-white/5 hover:bg-white/10"}
