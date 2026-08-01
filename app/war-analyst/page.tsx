@@ -228,7 +228,7 @@ function KpiCard({
 }: { title: string; value: string | number; sub?: string; animate?: boolean; numericValue?: number; delay?: string }) {
   return (
     <div
-      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      className="shine-sweep glow-spin rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
       style={{
         background: "var(--card)",
         borderColor: "var(--border)",
@@ -286,7 +286,7 @@ function Card({
 }) {
   return (
     <div
-      className="rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+      className="shine-sweep glow-spin rounded-2xl border p-4 backdrop-blur transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]"
       style={{
         borderColor: "var(--border)",
         background: "var(--card)",
@@ -530,7 +530,7 @@ function ProjectionGraph({ data }: { data: BattleHqResponse }) {
   const band = Math.max(18, Math.min(70, Math.abs((our?.pph ?? 0) * remainingHours * 0.16) / maxAbs * plotHeight));
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-3 sm:p-5">
+    <div className="shine-sweep overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-3 sm:p-5">
       <svg viewBox={`0 0 ${width} ${height}`} className="h-[330px] w-full">
         <defs>
           <linearGradient id="mcwvProjectionBand" x1="0" x2="1">
@@ -570,9 +570,9 @@ function ProjectionGraph({ data }: { data: BattleHqResponse }) {
           const yFinish = yFor(clan.projectedDelta);
           return (
             <g key={clan.name} filter={clan.isUs ? "url(#softGlow)" : undefined}>
-              <line x1={startX} x2={nowX} y1={yPast} y2={yNow} stroke={clan.color} strokeWidth={clan.isUs ? 3 : 2.5} opacity={clan.isUs ? 0.95 : 0.8} />
+              <line className="chart-draw" x1={startX} x2={nowX} y1={yPast} y2={yNow} stroke={clan.color} strokeWidth={clan.isUs ? 3 : 2.5} opacity={clan.isUs ? 0.95 : 0.8} />
               <line x1={nowX} x2={finishX} y1={yNow} y2={yFinish} stroke={clan.color} strokeWidth={clan.isUs ? 3 : 2.5} strokeDasharray="7 7" opacity={clan.isUs ? 0.95 : 0.72} />
-              <circle cx={nowX} cy={yNow} r={clan.isUs ? 4 : 3} fill={clan.color} />
+              <circle className="chart-fade" cx={nowX} cy={yNow} r={clan.isUs ? 4 : 3} fill={clan.color} />
               <text x={finishX + 10} y={yFinish + 5} fill={clan.color} fontSize="13" fontWeight="700">
                 {clan.rank !== null ? `#${clan.rank} ` : ""}{clan.name}{clan.isUs ? " (us)" : ""}
               </text>
@@ -632,7 +632,7 @@ function ProjectionSection({ data }: { data: BattleHqResponse }) {
         </div>
         <div className="space-y-2">
           {odds.map((item, index) => (
-            <div key={item.rank} className="grid grid-cols-[4rem_1fr_3rem] items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2">
+            <div key={item.rank} className="row-lift grid grid-cols-[4rem_1fr_3rem] items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2">
               <span className="text-sm font-bold text-[var(--foreground)]/70">{item.rank}{item.rank === 1 ? "st" : item.rank === 2 ? "nd" : item.rank === 3 ? "rd" : "th"}</span>
               <div className="h-3 overflow-hidden rounded-full bg-slate-700/40">
                 <div
