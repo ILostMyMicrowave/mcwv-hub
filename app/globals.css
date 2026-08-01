@@ -239,6 +239,240 @@ body {
   }
 }
 
+/* =========================================
+   ✨ SHARED MICRO-ANIMATION TOOLKIT
+========================================= */
+
+/* Card hover: lift + accent border glow */
+.card-hover {
+  transition:
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35), 0 0 26px var(--glow);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+/* No sticky hover jump on touch devices */
+@media (hover: none) {
+  .card-hover:hover {
+    transform: none;
+  }
+}
+
+/* Shine sweep that slides across on hover (needs overflow hidden) */
+.shine-sweep {
+  position: relative;
+  overflow: hidden;
+}
+.shine-sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -70%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.75s ease;
+  pointer-events: none;
+}
+.shine-sweep:hover::after {
+  left: 125%;
+}
+@media (hover: none) {
+  .shine-sweep:hover::after {
+    left: -70%;
+  }
+}
+
+/* Staggered entrance: style={{"--i": index}} as CSS var */
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.stagger-in {
+  opacity: 0;
+  animation: stagger-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+/* Soft pulsing glow for LIVE / featured elements */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+  50% {
+    box-shadow: 0 0 26px var(--glow);
+  }
+}
+.pulse-glow {
+  animation: pulse-glow 2.6s ease-in-out infinite;
+}
+
+/* Radiating ring behind live dots */
+.live-dot {
+  position: relative;
+}
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 0 var(--glow);
+  animation: live-ring 1.8s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes live-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--glow);
+  }
+  70% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Rotating conic border glow (appears on hover/focus) */
+@property --mcwv-spin {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.glow-spin {
+  position: relative;
+}
+.glow-spin::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--mcwv-spin),
+    transparent 0 30%,
+    var(--glow) 42%,
+    transparent 55%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: mcwv-spin 4.5s linear infinite;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+.glow-spin:hover::before,
+.glow-spin:focus-within::before {
+  opacity: 1;
+}
+@keyframes mcwv-spin {
+  to {
+    --mcwv-spin: 360deg;
+  }
+}
+
+/* Loading shimmer for placeholder blocks */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: skeleton-slide 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes skeleton-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Gradient shimmer headline text */
+.shimmer-text {
+  background: linear-gradient(
+    105deg,
+    var(--foreground) 0%,
+    var(--foreground) 40%,
+    var(--accent) 50%,
+    var(--foreground) 60%,
+    var(--foreground) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: nav-brand-sheen 6s ease-in-out infinite;
+}
+
+/* Slow ambient float for decorative bits */
+@keyframes float-y {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.float-y {
+  animation: float-y 5s ease-in-out infinite;
+}
+
+/* Scale-in for modals / popovers */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-scale-in {
+  animation: scale-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Respect reduced motion across the toolkit */
+@media (prefers-reduced-motion: reduce) {
+  .card-hover,
+  .shine-sweep::after,
+  .stagger-in,
+  .pulse-glow,
+  .live-dot::after,
+  .glow-spin::before,
+  .skeleton-shimmer::after,
+  .shimmer-text,
+  .float-y,
+  .animate-scale-in {
+    animation: none !important;
+  }
+  .card-hover:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  .stagger-in {
+    opacity: 1;
+  }
+}
+
 /* optional glow system (used later in themes) */
 .glow-emerald {
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
