@@ -4,6 +4,7 @@ import "./globals.css";
 import UserSync from "@/components/UserSync";
 import OnboardingTour from "@/components/OnboardingTour";
 import WarReturnRecap from "@/components/WarReturnRecap";
+import BootIntroGate from "@/components/BootIntroGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,9 +45,24 @@ export default function RootLayout({
             `,
           }}
         />
+        {/* Hide the boot intro pre-paint when it already played this session */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                if (sessionStorage.getItem("mcwv_intro_seen_v1") === "1") {
+                  document.documentElement.setAttribute("data-intro-done", "1");
+                }
+              } catch {}
+            `,
+          }}
+        />
+        {/* Emblem must be painted instantly when the intro starts */}
+        <link rel="preload" as="image" href="/mcwv-logo.png" />
       </head>
 
       <body className="min-h-full flex flex-col">
+        <BootIntroGate />
         <UserSync />
         {children}
         <OnboardingTour />
