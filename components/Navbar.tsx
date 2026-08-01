@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 
 type NavLink = {
@@ -37,6 +38,7 @@ const SPRING = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 export default function Navbar() {
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<NavbarUser>(null);
   const [activeAdminSection, setActiveAdminSection] = useState<string | null>(null);
@@ -61,6 +63,11 @@ export default function Navbar() {
   const measuredNavWidthRef = useRef(0);
 
   const isOfficer = user?.role === "officer" || user?.role === "owner";
+
+  // Needed so the drawer portal only renders on the client.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const navGroups: NavGroup[] = useMemo(
     () => ([
@@ -244,10 +251,16 @@ export default function Navbar() {
   // Lock page scroll while the mobile drawer is open.
   useEffect(() => {
     if (!renderDrawer) return;
-    const previous = document.body.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousOverscroll = document.body.style.overscrollBehavior;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
     return () => {
-      document.body.style.overflow = previous;
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overscrollBehavior = previousOverscroll;
     };
   }, [renderDrawer]);
 
@@ -450,8 +463,9 @@ export default function Navbar() {
   }
 
   return (
-    <header
-      className="sticky top-0 z-50 border-b backdrop-blur animate-fade-in"
+    <>
+      <header
+        className="sticky top-0 z-50 border-b backdrop-blur animate-fade-in"
       style={{
         background: isScrolled ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.42)",
         borderColor: "var(--border)",
@@ -566,32 +580,45 @@ export default function Navbar() {
           </span>
         </button>
       </div>
+      </header>
 
-      {renderDrawer && (
-        <>
-          <button
-            className={`fixed inset-0 z-50 ${collapseNav ? "" : "lg:hidden"}`}
-            onClick={closeDrawer}
-            aria-label="Close navigation overlay"
-            style={{
-              background: "rgba(0,0,0,0.55)",
-              backdropFilter: open ? "blur(6px)" : "blur(0px)",
-              opacity: open ? 1 : 0,
-              pointerEvents: open ? "auto" : "none",
-              transition: "opacity 240ms ease, backdrop-filter 240ms ease",
-            }}
-          />
-          <aside
-            className={`fixed right-0 top-0 z-50 flex h-screen w-[min(23rem,90vw)] flex-col overflow-hidden border-l ${collapseNav ? "" : "lg:hidden"}`}
-            style={{
-              background: "linear-gradient(180deg, rgba(7,7,9,0.99) 0%, rgba(9,10,14,0.99) 100%)",
-              borderColor: "var(--border)",
-              boxShadow: "-22px 0 48px rgba(0,0,0,0.5)",
-              transform: open ? "translateX(0)" : "translateX(104%)",
-              transition: `transform 340ms ${SPRING}`,
-              willChange: "transform",
-            }}
-          >
+      {/* The drawer is portalled to <body> on purpose: the header uses
+          backdrop-blur + mount animations, and any ancestor with
+          backdrop-filter/transform becomes the containing block for
+          position:fixed children — that trapped the backdrop inside the
+          ~64px header bar so page content bled through next to the drawer
+          on pages like Admin. Portalling removes the trap entirely, and the
+          higher z-index keeps the drawer above page modals/toasts. */}
+      {mounted &&
+        renderDrawer &&
+        createPortal(
+          <>
+            <button
+              className={`fixed inset-0 ${collapseNav ? "" : "lg:hidden"}`}
+              onClick={closeDrawer}
+              aria-label="Close navigation overlay"
+              style={{
+                zIndex: 120,
+                background: "rgba(0,0,0,0.55)",
+                backdropFilter: open ? "blur(6px)" : "blur(0px)",
+                WebkitBackdropFilter: open ? "blur(6px)" : "blur(0px)",
+                opacity: open ? 1 : 0,
+                pointerEvents: open ? "auto" : "none",
+                transition: "opacity 240ms ease, backdrop-filter 240ms ease",
+              }}
+            />
+            <aside
+              className={`fixed inset-y-0 right-0 flex w-[min(23rem,90vw)] flex-col overflow-hidden border-l ${collapseNav ? "" : "lg:hidden"}`}
+              style={{
+                zIndex: 130,
+                background: "linear-gradient(180deg, rgba(7,7,9,0.99) 0%, rgba(9,10,14,0.99) 100%)",
+                borderColor: "var(--border)",
+                boxShadow: "-22px 0 48px rgba(0,0,0,0.5)",
+                transform: open ? "translateX(0)" : "translateX(104%)",
+                transition: `transform 340ms ${SPRING}`,
+                willChange: "transform",
+              }}
+            >
             {/* Gradient strip at the top edge of the drawer */}
             <div
               className="pointer-events-none absolute inset-x-0 top-0 h-[2px] nav-accent-line"
@@ -755,9 +782,10 @@ export default function Navbar() {
                 )}
               </div>
             </div>
-          </aside>
-        </>
-      )}
-    </header>
+            </aside>
+          </>,
+          document.body
+        )}
+    </>
   );
 }
