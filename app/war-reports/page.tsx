@@ -73,7 +73,7 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
   return (
     <Link
       href={href}
-      className={`group relative block overflow-hidden rounded-[2rem] border p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(52,211,153,0.14)] ${featured ? "min-h-[22rem]" : ""}`}
+      className={`shine-sweep glow-spin group relative block overflow-hidden rounded-[2rem] border p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(52,211,153,0.14)] ${featured ? "min-h-[22rem]" : ""}`}
       style={{
         borderColor: featured ? "color-mix(in srgb, var(--primary) 44%, var(--border))" : "var(--border)",
         background: featured
@@ -128,7 +128,7 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
           {report.topMembers.length ? (
             <div className="grid gap-2 sm:grid-cols-3">
               {report.topMembers.map((member, index) => (
-                <div key={`${member.robloxId}-${index}`} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                <div key={`${member.robloxId}-${index}`} className="shine-sweep flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 transition duration-300 hover:-translate-y-0.5 hover:bg-white/[0.08]">
                   <img className="h-8 w-8 rounded-xl border border-white/10 bg-black/30" src={`/api/roblox/avatar?userId=${encodeURIComponent(member.robloxId)}`} alt="" />
                   <div className="min-w-0">
                     <p className="truncate text-xs font-bold text-white">#{index + 1} {member.username}</p>
@@ -148,7 +148,7 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
 
 function MiniStat({ label, value, sub, tone = "normal" }: { label: string; value: string; sub?: string; tone?: "normal" | "danger" }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+    <div className="card-hover rounded-2xl border border-white/10 bg-black/20 p-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground)]/45">{label}</p>
       <p className={`mt-2 text-xl font-black ${tone === "danger" ? "text-rose-200" : "text-white"}`}>{value}</p>
       {sub && <p className="mt-1 text-[11px] text-[var(--foreground)]/40">{sub}</p>}
@@ -158,7 +158,7 @@ function MiniStat({ label, value, sub, tone = "normal" }: { label: string; value
 
 function OverviewStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+    <div className="card-hover rounded-2xl border border-white/10 bg-white/[0.04] p-4">
       <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--foreground)]/40">{label}</p>
       <p className="mt-2 text-2xl font-black text-white">{value}</p>
     </div>
