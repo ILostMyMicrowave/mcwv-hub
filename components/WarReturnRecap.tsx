@@ -143,6 +143,24 @@ export default function WarReturnRecap() {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
 
+  // Hold the recap until the boot intro has finished (fires immediately if
+  // the intro already played earlier this session or was skipped).
+  const [introDone, setIntroDone] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return sessionStorage.getItem("mcwv_intro_seen_v1") === "1";
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (introDone) return;
+    const onDone = () => setIntroDone(true);
+    window.addEventListener("mcwv:intro-done", onDone);
+    return () => window.removeEventListener("mcwv:intro-done", onDone);
+  }, [introDone]);
+
   const closeModal = useCallback((afterClose?: () => void) => {
     if (closing) return;
     setClosing(true);
@@ -159,6 +177,7 @@ export default function WarReturnRecap() {
 
   useEffect(() => {
     if (pathname === "/login" || pathname === "/signup") return;
+    if (!introDone) return;
     let alive = true;
     let lastCheckedAt = 0;
 
@@ -195,7 +214,7 @@ export default function WarReturnRecap() {
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
       window.removeEventListener("focus", handleVisibilityOrFocus);
     };
-  }, [pathname]);
+  }, [pathname, introDone]);
 
   useEffect(() => {
     if (!open) return;
