@@ -47,6 +47,46 @@ function getInitials(name: string) {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
+// Renders a Hall of Fame image through the MCWV proxy (external URLs) or
+// directly (same-origin refs like /api/roblox/avatar?userId=...). Falls back
+// to an initials tile on any error so broken links never show as broken-image
+// icons.
+function HofImage({
+  url,
+  name,
+  imgClassName,
+  fallbackClassName = "",
+}: {
+  url: string | null;
+  name: string;
+  imgClassName?: string;
+  fallbackClassName?: string;
+}) {
+  const [broken, setBroken] = useState(false);
+
+  if (!url || broken) {
+    return (
+      <div
+        className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-yellow-400/20 to-yellow-600/10 font-black text-yellow-200 ${fallbackClassName}`}
+      >
+        {getInitials(name)}
+      </div>
+    );
+  }
+
+  const src = url.startsWith("/") ? url : `/api/img-proxy?url=${encodeURIComponent(url)}`;
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      className={imgClassName ?? "h-full w-full object-cover"}
+      loading="lazy"
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 export default function HallOfFamePage() {
   const [entries, setEntries] = useState<HallOfFameEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +96,8 @@ export default function HallOfFamePage() {
   const [name, setName] = useState("");
   const [reason, setReason] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [robloxName, setRobloxName] = useState("");
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
 
@@ -151,7 +193,33 @@ export default function HallOfFamePage() {
     setName("");
     setReason("");
     setImageUrl("");
+    setRobloxName("");
     setStatus("");
+  }
+
+  async function useRobloxAvatar() {
+    const username = robloxName.trim();
+    if (!username) {
+      setStatus("Enter a Roblox username first");
+      return;
+    }
+
+    setAvatarBusy(true);
+    setStatus("");
+
+    try {
+      const res = await fetch(`/api/roblox/resolve?username=${encodeURIComponent(username)}`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.userId) {
+        throw new Error(data?.error || "Roblox user not found");
+      }
+      setImageUrl(`/api/roblox/avatar?userId=${data.userId}`);
+      setStatus(`Avatar linked: ${data.name ?? username} ✓`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Roblox lookup failed");
+    } finally {
+      setAvatarBusy(false);
+    }
   }
 
   async function refreshEntries() {
@@ -214,6 +282,7 @@ export default function HallOfFamePage() {
       setName("");
       setReason("");
       setImageUrl("");
+      setRobloxName("");
       setEditId(null);
       setStatus(isEditing ? "Entry updated" : "Added to Hall of Fame");
 
@@ -332,17 +401,13 @@ export default function HallOfFamePage() {
                   </p>
                   <div className="mt-3 grid gap-4 md:grid-cols-[160px_1fr] md:items-center">
                     <div className="mx-auto flex h-36 w-36 items-center justify-center overflow-hidden rounded-[1.5rem] border-2 border-yellow-400/40 bg-black/40 shadow-[0_0_24px_rgba(234,179,8,0.18)]">
-                      {featuredEntry.image_url ? (
-                        <img
-                          src={featuredEntry.image_url}
-                          alt={featuredEntry.name}
-                          className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-yellow-400/20 to-yellow-600/10 text-3xl font-black text-yellow-200">
-                          {getInitials(featuredEntry.name)}
-                        </div>
-                      )}
+                      <HofImage
+                        key={featuredEntry.image_url ?? "none"}
+                        url={featuredEntry.image_url}
+                        name={featuredEntry.name}
+                        imgClassName="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+                        fallbackClassName="text-3xl"
+                      />
                     </div>
 
                     <div>
@@ -399,17 +464,13 @@ export default function HallOfFamePage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-4">
                             <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-yellow-400/30 bg-gradient-to-br from-yellow-400/15 to-yellow-600/10 shadow-[0_0_20px_rgba(234,179,8,0.10)]">
-                              {entry.image_url ? (
-                                <img
-                                  src={entry.image_url}
-                                  alt={entry.name}
-                                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                />
-                              ) : (
-                                <span className="text-lg font-black text-yellow-200">
-                                  {getInitials(entry.name)}
-                                </span>
-                              )}
+                              <HofImage
+                                key={entry.image_url ?? "none"}
+                                url={entry.image_url}
+                                name={entry.name}
+                                imgClassName="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                fallbackClassName="text-lg"
+                              />
                             </div>
 
                             <div>
@@ -510,6 +571,31 @@ export default function HallOfFamePage() {
                   />
                 </div>
 
+                <div className="rounded-2xl border border-yellow-400/15 bg-black/20 p-4">
+                  <label className="mb-2 block text-sm font-semibold text-zinc-200">
+                    Roblox username → permanent avatar (recommended)
+                  </label>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <input
+                      value={robloxName}
+                      onChange={(e) => setRobloxName(e.target.value)}
+                      className="flex-1 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-yellow-400/40"
+                      placeholder="e.g. Builderman"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void useRobloxAvatar()}
+                      disabled={avatarBusy || saving}
+                      className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-5 py-3 text-sm font-bold text-yellow-200 transition hover:bg-yellow-400/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {avatarBusy ? "Looking up..." : "🤖 Use Roblox Avatar"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Stores a same-origin avatar ref that never expires and always matches their current look.
+                  </p>
+                </div>
+
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-zinc-200">
                     Image URL (optional)
@@ -520,6 +606,25 @@ export default function HallOfFamePage() {
                     className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-yellow-400/40"
                     placeholder="https://..."
                   />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    ⚠️ Discord CDN links expire ~24h after copying and Roblox thumbnail links are signed — use the
+                    Roblox avatar button above, or a permanent host (imgur, etc.). Everything loads through the MCWV
+                    proxy with automatic fallback, so broken links show initials instead of a broken image.
+                  </p>
+                  {imageUrl.trim() && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-yellow-400/30 bg-black/40">
+                        <HofImage
+                          key={imageUrl.trim()}
+                          url={imageUrl.trim()}
+                          name={name.trim() || "Preview"}
+                          imgClassName="h-full w-full object-cover"
+                          fallbackClassName="text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-zinc-500">Live preview — if the link is dead you'll see initials here before saving.</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row">
