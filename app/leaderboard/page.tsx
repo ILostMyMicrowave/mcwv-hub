@@ -789,7 +789,7 @@ function LeaderboardRow({
     <button
       type="button"
       onClick={onOpen}
-      className="smooth-card group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5"
+      className="shine-sweep glow-spin smooth-card group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5"
       style={{ borderColor: `${style.accentColor}55` }}
     >
       <BackgroundLayer style={style} />
@@ -797,7 +797,7 @@ function LeaderboardRow({
       <div className="absolute inset-x-0 bottom-0 h-px" style={{ background: style.accentColor }} />
 
       <div className="relative grid min-h-28 grid-cols-[4.5rem_1fr] items-center gap-4 p-4 sm:grid-cols-[5rem_5rem_1.6fr_1fr_1fr_1fr] sm:gap-5">
-        <div className="relative flex h-14 w-14 items-center justify-center rounded-full border bg-black/35 text-lg font-bold text-zinc-100 sm:h-16 sm:w-16" style={{ borderColor: `${style.accentColor}55` }}>
+        <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border bg-black/35 text-lg font-bold text-zinc-100 sm:h-16 sm:w-16 ${entry.rank <= 3 ? "pulse-glow" : ""}`} style={{ borderColor: `${style.accentColor}55` }}>
           {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : `#${entry.rank}`}
           {change !== 0 && (
             <span className={`absolute -right-2 -top-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${change > 0 ? "bg-emerald-400 text-black" : "bg-red-400 text-black"}`}>
@@ -997,7 +997,7 @@ function PlayerMiniProfile({
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
       <button className="modal-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
-      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
+      <div className="modal-panel animate-scale-in relative z-10 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
         <BackgroundLayer style={style} />
         <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" />
         <div className="relative p-6 sm:p-8">
