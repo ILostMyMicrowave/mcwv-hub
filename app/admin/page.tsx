@@ -2130,6 +2130,17 @@ function BotAutomationPanel({
     await onAction("/api/admin/sync", { target: "setup", system, channel_id: parsed, ...extra });
   }
 
+  async function toggleSystem(
+    system: "placement_alerts" | "clan_logs" | "hourly_stats",
+    enabled: boolean
+  ) {
+    await onAction("/api/admin/sync", { target: "setup", system, enabled });
+  }
+
+  const placementEnabled = readString(bot, ["placementAlertsEnabled"], "No") === "Yes";
+  const clanLogsEnabled = readString(bot, ["clanLogsEnabled"], "No") === "Yes";
+  const hourlyEnabled = readString(bot, ["hourlyStatsEnabled"], "No") === "Yes";
+
   async function sendHourlyNow(channelId: string) {
     const parsed = parseDiscordChannelInput(channelId) ?? channelId.trim();
     await onAction("/api/admin/sync", {
@@ -2154,6 +2165,8 @@ function BotAutomationPanel({
           onChannelChange={setPlacementChannel}
           channels={sendableChannels}
           onConfigure={() => configure("placement_alerts", placementChannel)}
+          onToggle={() => toggleSystem("placement_alerts", !placementEnabled)}
+          toggleDisabled={false}
         />
         <BotAutomationCard
           title="Clan Logs"
@@ -2165,6 +2178,8 @@ function BotAutomationPanel({
           onChannelChange={setClanLogChannel}
           channels={sendableChannels}
           onConfigure={() => configure("clan_logs", clanLogChannel)}
+          onToggle={() => toggleSystem("clan_logs", !clanLogsEnabled)}
+          toggleDisabled={false}
         />
         <BotAutomationCard
           title="Hourly Stats"
@@ -2175,13 +2190,16 @@ function BotAutomationPanel({
           channelValue={hourlyChannel}
           onChannelChange={setHourlyChannel}
           channels={sendableChannels}
-          footer={`Last sent: ${formatTime(hourlyLastSent)}`}
+          footer={`Last sent: ${formatTime(hourlyLastSent)} · Auto-pauses when no clan war is active`}
           onConfigure={() => configure("hourly_stats", hourlyChannel, {
             ping_enabled: hourlyPingEnabled,
             ping_threshold: hourlyPingThreshold,
             start_time: hourlyStartTime,
             ping_message: hourlyPingMessage,
           })}
+          onToggle={() => toggleSystem("hourly_stats", !hourlyEnabled)}
+          toggleDisabled={!savedHourly && !hourlyEnabled}
+          toggleDisabledHint="Set a channel first, then you can enable it."
           onSecondary={() => sendHourlyNow(hourlyChannel)}
           secondaryLabel="Send now"
         >
@@ -2243,6 +2261,9 @@ function BotAutomationCard({
   channels,
   footer,
   onConfigure,
+  onToggle,
+  toggleDisabled,
+  toggleDisabledHint,
   onSecondary,
   secondaryLabel,
   children,
@@ -2257,12 +2278,16 @@ function BotAutomationCard({
   channels: AdminChannel[];
   footer?: string;
   onConfigure: () => void | Promise<void>;
+  onToggle?: () => void | Promise<void>;
+  toggleDisabled?: boolean;
+  toggleDisabledHint?: string;
   onSecondary?: () => void | Promise<void>;
   secondaryLabel?: string;
   children?: ReactNode;
 }) {
   const savedChannelLabel = channels.find((channel) => channel.id === savedChannel);
   const status = enabled === "Yes" ? "Enabled" : "Disabled";
+  const isEnabled = enabled === "Yes";
 
   return (
     <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
@@ -2313,10 +2338,25 @@ function BotAutomationCard({
 
       {footer && <p className="mt-3 text-xs text-zinc-500">{footer}</p>}
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <button className="admin-button" type="button" onClick={() => void onConfigure()}>
           Save settings
         </button>
+        {onToggle && (
+          <button
+            className={`admin-button ${
+              isEnabled
+                ? "border-red-400/40 text-red-300 hover:bg-red-500/10"
+                : "border-emerald-400/40 text-emerald-300 hover:bg-emerald-500/10"
+            }`}
+            type="button"
+            disabled={Boolean(toggleDisabled)}
+            title={toggleDisabled ? toggleDisabledHint ?? "Not available yet" : undefined}
+            onClick={() => void onToggle()}
+          >
+            {isEnabled ? "Disable" : "Enable"}
+          </button>
+        )}
         {onSecondary && (
           <button className="admin-button" type="button" onClick={() => void onSecondary()}>
             {secondaryLabel ?? "Run"}
