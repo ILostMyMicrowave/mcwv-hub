@@ -19,6 +19,11 @@ const loginSchema = z.object({
     .max(128, "Password must be at most 128 characters."),
 })
 
+// Real-format bcrypt hash compared against when the user doesn't exist, so
+// "unknown username" takes the same time as "wrong password" — closes the
+// response-timing account-enumeration oracle.
+const DUMMY_PASSWORD_HASH = "$2a$10$IcxHJrnJo1Q72QLmb0PFA.JX1jOGqBHjqlzZe3c.TJPd4O4lJIUT6"
+
 export async function POST(req: Request) {
   try {
     // Rate limiting
@@ -59,6 +64,8 @@ export async function POST(req: Request) {
     const user = userRes.rows[0]
 
     if (!user) {
+      // Timing-oracle guard: spend the same bcrypt cost as a real compare.
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH)
       return NextResponse.json(
         { error: "Invalid credentials" },
         { status: 401 }
