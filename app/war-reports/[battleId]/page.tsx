@@ -21,7 +21,6 @@ type ReportMember = {
   ownerRobloxId: string | null;
   points: number;
   sharePct: number;
-  averagePph: number | null;
   autoGrade: Grade;
   manualGrade: Grade | null;
   grade: Grade;
@@ -83,16 +82,21 @@ function gradeClass(grade: string) {
   }
 }
 
-function flagClass(flag: string) {
+function flagMeta(flag: string) {
   const key = flag.toLowerCase();
-  if (key.includes("mvp")) return "border-yellow-400/40 bg-yellow-400/15 text-yellow-100";
-  if (key.includes("top")) return "border-emerald-400/35 bg-emerald-400/12 text-emerald-100";
-  if (key.includes("above")) return "border-sky-400/35 bg-sky-400/12 text-sky-100";
-  if (key.includes("below") || key.includes("low") || key.includes("review")) return "border-amber-400/35 bg-amber-400/12 text-amber-100";
-  if (key.includes("zero") || key.includes("unlinked") || key.includes("discord")) return "border-rose-400/35 bg-rose-400/12 text-rose-100";
-  if (key.includes("alt")) return "border-violet-400/35 bg-violet-400/12 text-violet-100";
-  if (key.includes("live")) return "border-cyan-400/35 bg-cyan-400/12 text-cyan-100";
-  return "border-white/10 bg-white/5 text-zinc-300";
+  if (key.includes("mvp")) return { icon: "🏆", label: "MVP", className: "border-yellow-400/40 bg-yellow-400/15 text-yellow-100" };
+  if (key.includes("top 10")) return { icon: "🔥", label: "Top 10", className: "border-emerald-400/35 bg-emerald-400/12 text-emerald-100" };
+  if (key.includes("top 25")) return { icon: "⬆", label: "Top 25", className: "border-lime-400/30 bg-lime-400/10 text-lime-100" };
+  if (key.includes("above")) return { icon: "✅", label: "Above avg", className: "border-sky-400/35 bg-sky-400/12 text-sky-100" };
+  if (key.includes("below")) return { icon: "⚠", label: "Below avg", className: "border-amber-400/35 bg-amber-400/12 text-amber-100" };
+  if (key.includes("low")) return { icon: "📉", label: "Low", className: "border-orange-400/35 bg-orange-400/12 text-orange-100" };
+  if (key.includes("review")) return { icon: "👀", label: "Review", className: "border-amber-400/35 bg-amber-400/12 text-amber-100" };
+  if (key.includes("zero")) return { icon: "⛔", label: "Zero", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
+  if (key.includes("unlinked")) return { icon: "🔗", label: "Unlinked", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
+  if (key.includes("discord")) return { icon: "💬", label: "No Discord", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
+  if (key.includes("alt")) return { icon: "🔁", label: "Alt", className: "border-violet-400/35 bg-violet-400/12 text-violet-100" };
+  if (key.includes("live")) return { icon: "●", label: "Live", className: "border-cyan-400/35 bg-cyan-400/12 text-cyan-100" };
+  return { icon: "•", label: flag, className: "border-white/10 bg-white/5 text-zinc-300" };
 }
 
 function copyText(text: string) {
@@ -105,14 +109,13 @@ const inputClass = "w-full rounded-2xl border border-white/10 bg-black/30 px-4 p
 
 function exportCsv(data: ReportDetail) {
   const rows = [
-    ["Rank", "Roblox", "Discord ID", "Points", "Share %", "Avg PPH", "Grade", "Auto Grade", "Flags", "Alt", "Owner"],
+    ["Rank", "Roblox", "Discord ID", "Points", "Share %", "Grade", "Auto Grade", "Flags", "Alt", "Owner"],
     ...data.members.map((member) => [
       member.rank,
       member.username,
       member.discordId ?? "",
       member.points,
       member.sharePct.toFixed(2),
-      member.averagePph === null ? "" : Math.round(member.averagePph),
       member.grade,
       member.autoGrade,
       member.flags.join("; "),
@@ -132,7 +135,7 @@ function exportCsv(data: ReportDetail) {
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+    <div className="card-hover rounded-2xl border border-white/10 bg-black/20 p-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/45">{label}</p>
       <p className="mt-2 text-2xl font-black text-white">{value}</p>
       {sub && <p className="mt-1 text-xs text-[var(--foreground)]/45">{sub}</p>}
@@ -293,13 +296,12 @@ export default function WarReportDetailPage() {
                 </div>
               )}
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <StatCard label={data.battle.isActive ? "Current Rank" : "Final Rank"} value={data.battle.finalRank ? `#${data.battle.finalRank}` : "—"} />
                 <StatCard label={data.battle.isActive ? "Current Points" : "Final Points"} value={formatNumber(data.battle.finalPoints)} />
-                <StatCard label="Participants" value={`${formatNumber(data.summary.participants)}/${formatNumber(data.summary.accounts)}`} />
-                <StatCard label="Average" value={formatNumber(data.summary.averagePoints)} />
-                <StatCard label="Median" value={formatNumber(data.summary.medianPoints)} />
-                <StatCard label="Zeros" value={formatNumber(data.summary.zeroAccounts)} />
+                <StatCard label="Scored / In Clan" value={`${formatNumber(data.summary.participants)}/${formatNumber(data.summary.accounts)}`} />
+                <StatCard label="Average / Account" value={formatNumber(data.summary.averagePoints)} />
+                <StatCard label="Zero Points" value={formatNumber(data.summary.zeroAccounts)} />
               </div>
             </section>
 
@@ -326,7 +328,7 @@ export default function WarReportDetailPage() {
                 <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">Top 3 MVPs</h2>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   {data.summary.mvp.map((member) => (
-                    <div key={member.robloxId} className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-4">
+                    <div key={member.robloxId} className="shine-sweep glow-spin rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-4 transition duration-300 hover:-translate-y-0.5">
                       <img className="h-14 w-14 rounded-2xl border border-white/10 bg-black/30" src={member.avatarUrl} alt="" />
                       <p className="mt-3 truncate font-bold text-white">#{member.rank} {member.username}</p>
                       <p className="text-sm text-yellow-100">{formatNumber(member.points)} points</p>
@@ -362,7 +364,6 @@ export default function WarReportDetailPage() {
                       <th className="px-3 py-2">Member</th>
                       <th className="px-3 py-2 text-right">Points</th>
                       <th className="px-3 py-2 text-right">Share</th>
-                      <th className="px-3 py-2 text-right">Avg PPH</th>
                       <th className="px-3 py-2">Grade</th>
                       <th className="px-3 py-2">Flags</th>
                       {data.canManage && <th className="px-3 py-2 text-right">Staff</th>}
@@ -388,14 +389,21 @@ export default function WarReportDetailPage() {
                         </td>
                         <td className="px-3 py-3 text-right font-bold text-white">{formatNumber(member.points)}</td>
                         <td className="px-3 py-3 text-right text-zinc-300">{member.sharePct.toFixed(2)}%</td>
-                        <td className="px-3 py-3 text-right text-zinc-300">{member.averagePph === null ? "—" : formatNumber(Math.round(member.averagePph))}</td>
                         <td className="px-3 py-3">
                           <span className={`rounded-full border px-3 py-1 text-xs font-black ${gradeClass(member.grade)}`}>{member.grade}</span>
                           {member.manualGrade && <span className="ml-2 text-[10px] uppercase tracking-[0.16em] text-zinc-500">Override</span>}
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex max-w-md flex-wrap gap-1">
-                            {member.flags.map((flag) => <span key={flag} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${flagClass(flag)}`}>{flag}</span>)}
+                            {member.flags.map((flag) => {
+                              const meta = flagMeta(flag);
+                              return (
+                                <span key={flag} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.className}`}>
+                                  <span>{meta.icon}</span>
+                                  <span>{meta.label}</span>
+                                </span>
+                              );
+                            })}
                           </div>
                           {data.canManage && member.staffNote && <p className="mt-2 max-w-md text-xs text-zinc-400">Note: {member.staffNote}</p>}
                         </td>
