@@ -179,6 +179,66 @@ body {
   background-size: 200% 200%;
 }
 
+/* =========================================
+   🧭 NAVBAR ANIMATIONS
+========================================= */
+
+@keyframes nav-drop-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes nav-brand-sheen {
+  0% {
+    background-position: 180% 0;
+  }
+  55% {
+    background-position: -80% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+.nav-brand-text {
+  background: linear-gradient(
+    105deg,
+    var(--foreground) 0%,
+    var(--foreground) 40%,
+    var(--accent) 50%,
+    var(--foreground) 60%,
+    var(--foreground) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: nav-brand-sheen 6s ease-in-out infinite;
+}
+
+/* Respect reduced-motion preferences for all navbar effects */
+@media (prefers-reduced-motion: reduce) {
+  .nav-brand-text {
+    animation: none;
+    background: none;
+    color: var(--foreground);
+  }
+
+  .animate-fade-in,
+  .animate-slide-in,
+  .animate-pop,
+  .animate-gradientMove,
+  .animate-blob {
+    animation: none !important;
+  }
+}
+
 /* optional glow system (used later in themes) */
 .glow-emerald {
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
