@@ -144,8 +144,12 @@ export default function CutscenePage() {
               ▸ {line} <span className="cs-boot-ok">[OK]</span>
             </div>
           ))}
+          <div className="cs-boot-line cs-boot-granted" style={{ "--bi": 3 } as CSSProperties}>
+            ✦ CLEARANCE: MCWV OWNER <span className="cs-boot-ok">[GRANTED]</span>
+          </div>
           <div className="cs-progress">
             <div className="cs-progress-fill" />
+            <span className="cs-progress-head" />
           </div>
         </div>
 
