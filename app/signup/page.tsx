@@ -1,8 +1,66 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { AuthButton, AuthError, AuthField, AuthShell } from "@/components/AuthShell";
+
+const RESEND_COOLDOWN_S = 30;
+
+function SignupSteps({ step }: { step: 1 | 2 }) {
+  return (
+    <div className="signup-steps" aria-hidden="true">
+      <style jsx>{`
+        .signup-steps {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 20px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          color: #6d6d7d;
+        }
+        .signup-step {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          transition: color 250ms ease;
+        }
+        .signup-step.on { color: #c4b5fd; }
+        .signup-step-dot {
+          display: grid;
+          place-items: center;
+          width: 19px;
+          height: 19px;
+          border-radius: 50%;
+          border: 1px solid rgba(196, 181, 253, 0.3);
+          font-size: 9.5px;
+          transition: all 250ms ease;
+        }
+        .signup-step.on .signup-step-dot {
+          background: rgba(167, 139, 250, 0.18);
+          border-color: rgba(167, 139, 250, 0.75);
+          color: #e9e3ff;
+          box-shadow: 0 0 12px rgba(167, 139, 250, 0.4);
+        }
+        .signup-step-line {
+          flex: 1;
+          height: 1px;
+          background: linear-gradient(90deg, rgba(167, 139, 250, 0.4), rgba(255, 255, 255, 0.07));
+        }
+      `}</style>
+      <span className={`signup-step${step >= 1 ? " on" : ""}`}>
+        <span className="signup-step-dot">1</span> CREDENTIALS
+      </span>
+      <span className="signup-step-line" />
+      <span className={`signup-step${step === 2 ? " on" : ""}`}>
+        <span className="signup-step-dot">2</span> VERIFY
+      </span>
+    </div>
+  );
+}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -12,11 +70,24 @@ export default function SignupPage() {
   const [confirm, setConfirm] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
+  const [created, setCreated] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // Resend cooldown ticker
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((v) => Math.max(0, v - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
 
   async function requestCode() {
+    if (!username.trim()) {
+      setError("Enter your Roblox username first.");
+      return false;
+    }
+
     setLoading(true);
     setError("");
 
@@ -24,7 +95,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup/request-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username: username.trim() }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -34,6 +105,7 @@ export default function SignupPage() {
       }
 
       setCodeSent(true);
+      setResendIn(RESEND_COOLDOWN_S);
       return true;
     } catch {
       setError("Something went wrong while sending your code");
@@ -68,7 +140,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, verificationCode }),
+        body: JSON.stringify({ username: username.trim(), password, verificationCode }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -78,7 +150,8 @@ export default function SignupPage() {
         return;
       }
 
-      router.push("/login");
+      setCreated(true);
+      window.setTimeout(() => router.push("/login"), 1200);
     } catch {
       setError("Something went wrong");
     } finally {
@@ -87,243 +160,189 @@ export default function SignupPage() {
   }
 
   return (
-    <main
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: "var(--background)" }}
+    <AuthShell
+      eyebrow="NEW RECRUIT"
+      title="Join MCWV"
+      subtitle={
+        <>
+          Enter your Roblox username — the clan bot DMs a one-time
+          code to your linked Discord account.
+        </>
+      }
+      footer={
+        <>
+          Already have an account? <Link href="/login">Log in</Link>
+        </>
+      }
     >
-      <div
-        className="w-full max-w-md"
-        style={{ animation: "fadeInUp 0.6s ease-out forwards" }}
-      >
-        <div className="text-center mb-10">
-          <h1
-            className="text-4xl font-bold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            MCWV
-          </h1>
-        </div>
-
-        <div
-          className="rounded-3xl border p-8"
-          style={{
-            background: "var(--card)",
-            borderColor: "var(--border)",
-            animation: "fadeInUp 0.6s ease-out forwards",
-            animationDelay: "0.1s",
-            opacity: 0,
-          }}
-        >
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-semibold">Create account</h2>
-            <p className="mt-2 text-zinc-400">
-              Enter your Roblox username. MCWV-BOT will DM the linked Discord account a one-time code.
-            </p>
+      {created ? (
+        <div>
+          <style jsx>{`
+            .signup-success {
+              text-align: center;
+              padding: 26px 8px 10px;
+              animation: signup-success-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+            @keyframes signup-success-in {
+              from { opacity: 0; transform: scale(0.92); }
+              to { opacity: 1; transform: scale(1); }
+            }
+            .signup-success-ring {
+              display: grid;
+              place-items: center;
+              width: 62px;
+              height: 62px;
+              margin: 0 auto 16px;
+              border-radius: 50%;
+              background: rgba(52, 211, 153, 0.12);
+              border: 1px solid rgba(52, 211, 153, 0.45);
+              color: #6ee7b7;
+              font-size: 26px;
+              box-shadow: 0 0 30px rgba(52, 211, 153, 0.25);
+            }
+            .signup-success-title { font-size: 1.15rem; font-weight: 800; color: #f4f4f5; }
+            .signup-success-sub { margin-top: 6px; font-size: 0.84rem; color: #9d9dab; }
+          `}</style>
+          <div className="signup-success" role="status">
+            <div className="signup-success-ring">✓</div>
+            <div className="signup-success-title">Account created</div>
+            <div className="signup-success-sub">Taking you to log in…</div>
           </div>
+        </div>
+      ) : (
+        <>
+          <SignupSteps step={codeSent ? 2 : 1} />
 
-          <form onSubmit={handleSignup} className="space-y-5">
-            <div
-              className="relative"
-              style={{
-                animation: "fadeInUp 0.4s ease-out forwards",
-                animationDelay: "0.2s",
-                opacity: 0,
-              }}
-            >
-              <label
-                htmlFor="username"
-                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
-                style={{
-                  background: "var(--card)",
-                  color: focusedField === "username" ? "var(--primary)" : "var(--foreground)",
-                }}
-              >
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onFocus={() => setFocusedField("username")}
-                onBlur={() => setFocusedField(null)}
-                placeholder="Choose a username"
-                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
-                style={{
-                  borderColor: focusedField === "username" ? "var(--primary)" : "var(--border)",
-                }}
-                disabled={loading}
-              />
-            </div>
+          <form onSubmit={handleSignup} className="space-y-5" noValidate>
+            <AuthField
+              id="username"
+              label="Roblox username"
+              icon="👤"
+              value={username}
+              onChange={setUsername}
+              placeholder="Your exact Roblox username"
+              autoComplete="username"
+              disabled={loading}
+              delay="0.24s"
+            />
 
-            <div
-              className="relative"
-              style={{
-                animation: "fadeInUp 0.4s ease-out forwards",
-                animationDelay: "0.25s",
-                opacity: 0,
-              }}
-            >
-              <label
-                htmlFor="password"
-                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
-                style={{
-                  background: "var(--card)",
-                  color: focusedField === "password" ? "var(--primary)" : "var(--foreground)",
-                }}
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setFocusedField("password")}
-                onBlur={() => setFocusedField(null)}
-                placeholder="Create a password"
-                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
-                style={{
-                  borderColor: focusedField === "password" ? "var(--primary)" : "var(--border)",
-                }}
-                disabled={loading}
-              />
-            </div>
+            <AuthField
+              id="password"
+              label="Password"
+              icon="🔒"
+              value={password}
+              onChange={setPassword}
+              placeholder="Create a password"
+              autoComplete="new-password"
+              disabled={loading}
+              allowReveal
+              delay="0.3s"
+            />
 
-            <div
-              className="relative"
-              style={{
-                animation: "fadeInUp 0.4s ease-out forwards",
-                animationDelay: "0.3s",
-                opacity: 0,
-              }}
-            >
-              <label
-                htmlFor="confirm"
-                className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
-                style={{
-                  background: "var(--card)",
-                  color: focusedField === "confirm" ? "var(--primary)" : "var(--foreground)",
-                }}
-              >
-                Confirm password
-              </label>
-              <input
-                id="confirm"
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                onFocus={() => setFocusedField("confirm")}
-                onBlur={() => setFocusedField(null)}
-                placeholder="Repeat your password"
-                className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
-                style={{
-                  borderColor: focusedField === "confirm" ? "var(--primary)" : "var(--border)",
-                }}
-                disabled={loading}
-              />
-            </div>
+            <AuthField
+              id="confirm"
+              label="Confirm password"
+              icon="🔐"
+              value={confirm}
+              onChange={setConfirm}
+              placeholder="Repeat your password"
+              autoComplete="new-password"
+              disabled={loading}
+              allowReveal
+              delay="0.36s"
+            />
 
             {codeSent && (
-              <div
-                className="relative"
-                style={{
-                  animation: "fadeInUp 0.4s ease-out forwards",
-                  animationDelay: "0.34s",
-                  opacity: 0,
-                }}
-              >
-                <label
-                  htmlFor="verificationCode"
-                  className="absolute -top-2 left-3 bg-card px-1 text-xs text-zinc-400 transition-colors duration-200"
-                  style={{
-                    background: "var(--card)",
-                    color: focusedField === "verificationCode" ? "var(--primary)" : "var(--foreground)",
-                  }}
-                >
-                  Verification code
-                </label>
-                <input
+              <div className="signup-verify">
+                <style jsx>{`
+                  .signup-verify {
+                    border-radius: 16px;
+                    border: 1px solid rgba(167, 139, 250, 0.22);
+                    background: rgba(124, 58, 237, 0.08);
+                    padding: 14px;
+                    animation: signup-verify-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+                  }
+                  @keyframes signup-verify-in {
+                    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+                    to { opacity: 1; transform: translateY(0) scale(1); }
+                  }
+                  .signup-verify-note {
+                    display: flex;
+                    gap: 9px;
+                    align-items: flex-start;
+                    margin-bottom: 12px;
+                    font-size: 0.78rem;
+                    line-height: 1.55;
+                    color: #c4b5fd;
+                  }
+                  .signup-verify-note .dot {
+                    flex-shrink: 0;
+                    width: 7px;
+                    height: 7px;
+                    margin-top: 6px;
+                    border-radius: 50%;
+                    background: #34d399;
+                    box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+                  }
+                  .signup-resend {
+                    margin-top: 10px;
+                    background: none;
+                    border: none;
+                    padding: 0;
+                    font-size: 0.76rem;
+                    font-weight: 600;
+                    color: #a78bfa;
+                    cursor: pointer;
+                  }
+                  .signup-resend:hover:not(:disabled) { text-decoration: underline; }
+                  .signup-resend:disabled { color: #6d6d7d; cursor: not-allowed; }
+                `}</style>
+
+                <div className="signup-verify-note">
+                  <span className="dot" aria-hidden="true" />
+                  <span>
+                    Code sent — check the Discord DM linked to that Roblox user.
+                    It expires in 10 minutes.
+                  </span>
+                </div>
+
+                <AuthField
                   id="verificationCode"
-                  type="text"
-                  inputMode="numeric"
+                  label="Verification code"
+                  icon="✉️"
                   value={verificationCode}
-                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  onFocus={() => setFocusedField("verificationCode")}
-                  onBlur={() => setFocusedField(null)}
-                  placeholder="6-digit code from Discord DM"
-                  className="w-full rounded-2xl border bg-zinc-950/50 px-4 py-3 text-white placeholder-zinc-600 transition-all duration-200 focus:outline-none"
-                  style={{
-                    borderColor: focusedField === "verificationCode" ? "var(--primary)" : "var(--border)",
-                  }}
+                  onChange={(v) => setVerificationCode(v.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="6-digit code"
+                  inputMode="numeric"
+                  maxLength={6}
                   disabled={loading}
+                  delay="0.05s"
+                  hint={
+                    <button
+                      type="button"
+                      disabled={loading || resendIn > 0}
+                      onClick={() => void requestCode()}
+                      className="signup-resend"
+                    >
+                      {resendIn > 0 ? `Resend available in ${resendIn}s` : "Resend code"}
+                    </button>
+                  }
                 />
-                <p className="mt-2 text-xs text-zinc-500">
-                  Check the Discord account linked to this Roblox user. The code expires in 10 minutes.
-                </p>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void requestCode()}
-                  className="mt-2 text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: "var(--primary)" }}
-                >
-                  Resend code
-                </button>
               </div>
             )}
 
-            {error && (
-              <div
-                className="rounded-xl p-3 text-sm text-red-200 animate-shake"
-                style={{
-                  background: "rgba(239, 68, 68, 0.15)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
-                }}
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
+            <AuthError message={error} />
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-full py-3 text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-              style={{
-                background: "var(--primary)",
-                color: "#000",
-              }}
+            <AuthButton
+              loading={loading}
+              loadingText={codeSent ? "Verifying..." : "Sending code..."}
+              delay="0.42s"
             >
-              {loading ? (codeSent ? "Verifying..." : "Sending code...") : codeSent ? "Verify & Create Account" : "Send Verification Code"}
-            </button>
+              {codeSent ? "Verify & Create Account" : "Send Verification Code"}
+            </AuthButton>
           </form>
-
-          <p className="mt-6 text-center text-sm text-zinc-400" style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.4s", opacity: 0 }}>
-            Already have an account?{" "}
-            <Link
-              href="/login"
-              className="font-medium hover:underline transition-colors"
-              style={{ color: "var(--primary)" }}
-            >
-              Log in
-            </Link>
-          </p>
-        </div>
-      </div>
-
-      <style jsx>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
-          20%, 40%, 60%, 80% { transform: translateX(4px); }
-        }
-        .animate-shake { animation: shake 0.5s ease-in-out; }
-      `}</style>
-    </main>
+        </>
+      )}
+    </AuthShell>
   );
 }
