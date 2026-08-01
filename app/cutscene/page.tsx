@@ -5,6 +5,7 @@ import { useCallback, useState, type CSSProperties } from "react";
 import "./cutscene.css";
 
 const BOOT_LINES = ["CONNECTING TO BATTLE HQ", "CHARGING NEON CORE", "SHARPENING SWORDS"];
+const END_SUB_TEXT = "WAR MODE ENGAGED";
 
 // Light streaks that converge into the emblem at launch
 const STREAK_ROTATIONS = [0, 60, 120, 180, 240, 300];
@@ -37,10 +38,20 @@ function LogoImage({ decorative = false }: { decorative?: boolean }) {
 function EndFrame({ onReplay, instant = false }: { onReplay: () => void; instant?: boolean }) {
   return (
     <div className={`cs-end${instant ? " cs-end-instant" : ""}`}>
-      <div className="cs-end-logo">
-        <LogoImage />
+      <div className="cs-end-emblem-wrap">
+        <div className="cs-end-reactor" aria-hidden="true" />
+        <div className="cs-end-reactor cs-end-reactor-2" aria-hidden="true" />
+        <div className="cs-end-logo">
+          <LogoImage />
+        </div>
       </div>
-      <div className="cs-end-sub">WAR MODE ENGAGED</div>
+      <div className="cs-end-sub" aria-label={END_SUB_TEXT}>
+        {Array.from(END_SUB_TEXT).map((char, index) => (
+          <span key={index} className="cs-end-letter" style={{ "--ei": index } as CSSProperties} aria-hidden="true">
+            {char === " " ? " " : char}
+          </span>
+        ))}
+      </div>
       <div className="cs-end-actions">
         <Link href="/" className="cs-btn cs-btn-primary">
           ENTER HUB
@@ -77,6 +88,7 @@ export default function CutscenePage() {
         {/* Atmosphere */}
         <div className="cs-stars cs-stars-a" aria-hidden="true" />
         <div className="cs-stars cs-stars-b" aria-hidden="true" />
+        <div className="cs-static" aria-hidden="true" />
         <div className="cs-sweepline" aria-hidden="true" />
         <div className="cs-vignette" aria-hidden="true" />
         <div className="cs-hueflash" aria-hidden="true" />
@@ -97,7 +109,12 @@ export default function CutscenePage() {
           />
         ))}
 
-        {/* Hero: the MCWV sigil */}
+        {/* Materialization FX: collapse ring + implosion core + strobe */}
+        <div className="cs-implode-ring" aria-hidden="true" />
+        <div className="cs-implode-core" aria-hidden="true" />
+        <div className="cs-strobe" aria-hidden="true" />
+
+        {/* ONE centered column: emblem → tagline → terminal (can never overlap) */}
         <div className="cs-hero">
           <div className="cs-emblem">
             <div className="cs-reactor" aria-hidden="true" />
@@ -121,11 +138,28 @@ export default function CutscenePage() {
             <span className="cs-typed">FORGED FOR WAR.</span>
             <span className="cs-caret">▍</span>
           </div>
+
+          {/* Terminal boot panel — in normal flow, margin keeps it clear of the tagline */}
+          <div className="cs-boot" aria-hidden="true">
+            {BOOT_LINES.map((line, index) => (
+              <div key={line} className="cs-boot-line" style={{ "--bi": index } as CSSProperties}>
+                ▸ {line} <span className="cs-boot-ok">[OK]</span>
+              </div>
+            ))}
+            <div className="cs-boot-line cs-boot-granted" style={{ "--bi": 3 } as CSSProperties}>
+              ✦ CLEARANCE: MCWV OWNER <span className="cs-boot-ok">[GRANTED]</span>
+            </div>
+            <div className="cs-progress">
+              <div className="cs-progress-fill" />
+              <span className="cs-progress-head" />
+            </div>
+          </div>
         </div>
 
         {/* Energy slashes */}
         <div className="cs-slash cs-slash-1" aria-hidden="true" />
         <div className="cs-slash cs-slash-2" aria-hidden="true" />
+        <div className="cs-afterglow" aria-hidden="true" />
 
         {/* Spark bursts, synced to the slashes */}
         {SPARKS.map((spark, index) => (
@@ -137,30 +171,14 @@ export default function CutscenePage() {
           />
         ))}
 
-        {/* Fake boot sequence */}
-        <div className="cs-boot" aria-hidden="true">
-          {BOOT_LINES.map((line, index) => (
-            <div key={line} className="cs-boot-line" style={{ "--bi": index } as CSSProperties}>
-              ▸ {line} <span className="cs-boot-ok">[OK]</span>
-            </div>
-          ))}
-          <div className="cs-boot-line cs-boot-granted" style={{ "--bi": 3 } as CSSProperties}>
-            ✦ CLEARANCE: MCWV OWNER <span className="cs-boot-ok">[GRANTED]</span>
-          </div>
-          <div className="cs-progress">
-            <div className="cs-progress-fill" />
-            <span className="cs-progress-head" />
-          </div>
-        </div>
-
         {/* Outro flash */}
         <div className="cs-flash" aria-hidden="true" />
 
         <button type="button" className="cs-skip" onClick={() => setSkipped(true)}>
-          SKIP ⏵
+          SKIP
         </button>
 
-        {/* End frame — fades in at ~4.95s */}
+        {/* End frame — fades in at ~6.0s */}
         <EndFrame onReplay={replay} />
       </div>
     </main>
