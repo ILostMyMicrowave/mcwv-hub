@@ -493,6 +493,73 @@ body {
   }
 }
 
+/* =========================================
+   🛠 ADMIN ANIMATIONS
+========================================= */
+
+/* Section swap entrance */
+@keyframes admin-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.admin-section-in {
+  animation: admin-section-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Flowing accent stripe for panel/sidebar top edges */
+@keyframes admin-stripe-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+.admin-stripe {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 65%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: admin-stripe-flow 6s linear infinite;
+}
+
+/* Toast pop-in */
+@keyframes admin-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.admin-toast-in {
+  animation: admin-toast-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Modal backdrop fade */
+@keyframes admin-modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.admin-modal-backdrop-in {
+  animation: admin-modal-backdrop-in 0.22s ease;
+}
+
 /* Respect reduced motion across the toolkit */
 @media (prefers-reduced-motion: reduce) {
   .card-hover,
@@ -506,7 +573,11 @@ body {
   .float-y,
   .animate-scale-in,
   .chart-draw,
-  .chart-fade {
+  .chart-fade,
+  .admin-section-in,
+  .admin-stripe,
+  .admin-toast-in,
+  .admin-modal-backdrop-in {
     animation: none !important;
   }
   .row-lift:hover {
