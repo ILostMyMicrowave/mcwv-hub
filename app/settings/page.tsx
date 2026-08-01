@@ -2,7 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTheme, Theme } from "@/hooks/useTheme";
 
 type GlobalSettings = {
@@ -36,6 +36,102 @@ type AuthMeResponse =
   | AppUser
   | null;
 
+const INTRO_SESSION_KEY = "mcwv_intro_seen_v1";
+
+const fieldClass =
+  "w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 focus:bg-black/50";
+
+function Section({
+  icon,
+  eyebrow,
+  title,
+  status,
+  delay = 0,
+  children,
+}: {
+  icon: string;
+  eyebrow: string;
+  title: string;
+  status?: string;
+  delay?: number;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className="st-rise rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur"
+      style={{ animationDelay: `${delay}s` }}
+    >
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-lg">
+            {icon}
+          </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">{eyebrow}</p>
+            <h2 className="text-xl font-bold text-white">{title}</h2>
+          </div>
+        </div>
+        {status ? <p className="shrink-0 text-xs font-semibold text-emerald-300">{status}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function FieldBlock({
+  label,
+  hint,
+  onSave,
+  saving,
+  disabled,
+  saveLabel,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  onSave: () => void;
+  saving: boolean;
+  disabled: boolean;
+  saveLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-semibold text-zinc-200">{label}</label>
+      {children}
+      {hint && <p className="mt-2 text-xs text-zinc-500">{hint}</p>}
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={disabled || saving}
+        className="mt-3 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-300 px-4 py-2 text-sm font-bold text-black transition hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+      >
+        {saving ? "Saving..." : saveLabel}
+      </button>
+    </div>
+  );
+}
+
+function ActionRow({
+  title,
+  desc,
+  action,
+}: {
+  title: string;
+  desc: string;
+  action: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="font-semibold text-white">{title}</p>
+        <p className="mt-1 text-sm text-zinc-400">{desc}</p>
+      </div>
+      <div className="shrink-0">{action}</div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const [role, setRole] = useState<AppUser["role"] | null>(null);
@@ -59,50 +155,13 @@ export default function Settings() {
     desc: string;
     color: string;
   }[] = [
-    {
-      id: "default",
-      name: "Default",
-      desc: "Classic dark MCWV theme",
-      color: "bg-emerald-400",
-    },
-    {
-      id: "ice",
-      name: "Ice",
-      desc: "Blue frost battlefield theme",
-      color: "bg-sky-400",
-    },
-    {
-      id: "inferno",
-      name: "Inferno",
-      desc: "Fire & war intensity theme",
-      color: "bg-red-500",
-    },
+    { id: "default", name: "Default", desc: "Classic dark MCWV theme", color: "bg-emerald-400" },
+    { id: "ice", name: "Ice", desc: "Blue frost battlefield theme", color: "bg-sky-400" },
+    { id: "inferno", name: "Inferno", desc: "Fire & war intensity theme", color: "bg-red-500" },
   ];
 
   const canEditGlobal = role === "officer" || role === "owner";
   const canManageRoles = role === "owner";
-
-  const pillStyle = useMemo(() => {
-    if (theme === "ice") {
-      return {
-        background: "rgba(56, 189, 248, 0.12)",
-        border: "1px solid rgba(56, 189, 248, 0.24)",
-        color: "var(--primary)",
-      };
-    }
-    if (theme === "inferno") {
-      return {
-        background: "rgba(239, 68, 68, 0.12)",
-        border: "1px solid rgba(239, 68, 68, 0.24)",
-        color: "var(--primary)",
-      };
-    }
-    return {
-      background: "rgba(52, 211, 153, 0.10)",
-      border: "1px solid rgba(52, 211, 153, 0.22)",
-      color: "var(--primary)",
-    };
-  }, [theme]);
 
   useEffect(() => {
     async function load() {
@@ -190,7 +249,7 @@ export default function Settings() {
       if (!res.ok) {
         throw new Error("save failed");
       }
-      setStatus("Saved");
+      setStatus("Saved ✓");
     } catch {
       setStatus("Save failed");
     } finally {
@@ -200,7 +259,6 @@ export default function Settings() {
   }
 
   async function restartTutorial() {
-    setStatus("Restarting tutorial...");
     try {
       const res = await fetch("/api/onboarding", {
         method: "PATCH",
@@ -214,6 +272,16 @@ export default function Settings() {
       setStatus("Could not restart tutorial");
       window.setTimeout(() => setStatus(""), 1800);
     }
+  }
+
+  function replayIntro() {
+    try {
+      sessionStorage.removeItem(INTRO_SESSION_KEY);
+      document.documentElement.removeAttribute("data-intro-done");
+    } catch {
+      // Storage blocked — the intro gate will simply behave normally.
+    }
+    window.location.href = "/";
   }
 
   async function updateRole(userId: number, nextRole: "member" | "officer") {
@@ -236,7 +304,7 @@ export default function Settings() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error ?? "role update failed");
       }
-      setRolesStatus("Role updated");
+      setRolesStatus("Role updated ✓");
       const refreshed = await fetch("/api/admin/users", { cache: "no-store" });
       if (refreshed.ok) {
         const data: AdminUsersResponse = await refreshed.json();
@@ -298,131 +366,37 @@ export default function Settings() {
     });
   }, [members, memberSearch]);
 
-  // Member-only view
-  if (role === "member") {
-    return (
-      <>
-        <Navbar />
-        <main className="min-h-screen bg-black px-4 py-8 text-white" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
-          <div className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur">
-            <h1 className="text-3xl font-bold">Settings</h1>
-            <p className="mt-3 text-zinc-400">
-              You can change your theme here. Global settings are available to officers
-              and above.
-            </p>
-            <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-xl font-bold">Theme</h2>
-                <p className="text-xs text-zinc-500">
-                  Current: <span className="text-zinc-300">{theme}</span>
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                {themes.map((t) => {
-                  const active = theme === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTheme(t.id)}
-                      className={`
-                        shine-sweep glow-spin rounded-2xl border p-5 text-left transition-all duration-300
-                        hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]
-                        ${active
-                          ? "border-white/40 bg-white/10 shadow-lg scale-[1.03]"
-                          : "border-white/10 bg-white/5 hover:bg-white/10"}
-                      `}
-                      style={{
-                        animation: "fadeInUp 0.4s ease-out forwards",
-                        animationDelay: `${themes.indexOf(t) * 0.1}s`,
-                        opacity: 0,
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`h-3 w-3 rounded-full ${t.color} ${
-                            active ? "ring-2 ring-white/60" : ""
-                          }`}
-                        />
-                        <p className="font-semibold">{t.name}</p>
-                      </div>
-                      <p className="mt-2 text-sm text-zinc-400">{t.desc}</p>
-                      {active && <p className="mt-3 text-xs text-emerald-300">Active</p>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-6 text-left backdrop-blur">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-bold">Website tutorial</h2>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Want a quick refresher? Restart the guided tour whenever you like.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void restartTutorial()}
-                  className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-black transition hover:scale-105 hover:opacity-90"
-                >
-                  Restart Tutorial
-                </button>
-              </div>
-            </div>
-          </div>
-        </main>
-
-        <style jsx>{`
-          @keyframes fadeInUp {
-            from {
-              opacity: 0;
-              transform: translateY(20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-        `}</style>
-      </>
-    );
-  }
+  const roleBadge =
+    role === "owner"
+      ? "border-yellow-400/30 bg-yellow-400/10 text-yellow-200"
+      : role === "officer"
+      ? "border-sky-400/30 bg-sky-400/10 text-sky-200"
+      : "border-white/10 bg-white/5 text-zinc-300";
 
   return (
     <>
       <Navbar />
       <main className="min-h-screen bg-black px-4 py-8 text-white">
-        <div className="mx-auto max-w-6xl">
-          <div
-            className="mb-8"
-            style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
-          >
-            <h1 className="text-3xl font-bold">Settings</h1>
+        <div className="mx-auto max-w-5xl">
+          {/* Header */}
+          <div className="st-rise mb-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300/80">Control Panel</p>
+            <h1 className="mt-2 text-4xl font-black text-white sm:text-5xl">Settings</h1>
             <p className="mt-2 text-zinc-400">
               Manage display options, clan preferences, and system configuration.
             </p>
             {currentUser && (
-              <p className="mt-2 text-xs text-zinc-500">
-                Logged in as{" "}
-                <span className="text-zinc-300">
-                  {currentUser.username} ({role})
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                Logged in as <span className="font-semibold text-zinc-300">{currentUser.username}</span>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] ${roleBadge}`}>
+                  {role}
                 </span>
               </p>
             )}
           </div>
 
-          <div
-            className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.1s", opacity: 0 }}
-          >
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-xl font-bold">Theme</h2>
-              <p className="text-xs text-zinc-500">
-                Current: <span className="text-zinc-300">{theme}</span>
-              </p>
-            </div>
+          {/* Theme */}
+          <Section icon="🎨" eyebrow="Appearance" title="Theme" status={theme ? `Active: ${theme}` : undefined} delay={0.05}>
             <div className="grid gap-4 sm:grid-cols-3">
               {themes.map((t) => {
                 const active = theme === t.id;
@@ -432,324 +406,283 @@ export default function Settings() {
                     type="button"
                     onClick={() => setTheme(t.id)}
                     className={`
-                      rounded-2xl border p-5 text-left transition-all duration-300
-                      ${
-                        active
-                          ? "border-white/40 bg-white/10 shadow-lg scale-[1.03]"
-                          : "border-white/10 bg-white/5 hover:bg-white/10"
-                      }
+                      shine-sweep glow-spin rounded-2xl border p-5 text-left transition-all duration-300
+                      hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]
+                      ${active
+                        ? "border-white/40 bg-white/10 shadow-lg scale-[1.03]"
+                        : "border-white/10 bg-white/5 hover:bg-white/10"}
                     `}
-                    style={{
-                      animation: "fadeInUp 0.4s ease-out forwards",
-                      animationDelay: `${0.15 + themes.indexOf(t) * 0.1}s`,
-                      opacity: 0,
-                    }}
                   >
                     <div className="flex items-center gap-3">
-                      <span
-                        className={`h-3 w-3 rounded-full ${t.color} ${
-                          active ? "ring-2 ring-white/60" : ""
-                        }`}
-                      />
+                      <span className={`h-3 w-3 rounded-full ${t.color} ${active ? "ring-2 ring-white/60" : ""}`} />
                       <p className="font-semibold">{t.name}</p>
                     </div>
                     <p className="mt-2 text-sm text-zinc-400">{t.desc}</p>
-                    {active && <p className="mt-3 text-xs text-emerald-300">Active</p>}
+                    {active && <p className="mt-3 text-xs font-semibold text-emerald-300">Active ✓</p>}
                   </button>
                 );
               })}
             </div>
+          </Section>
+
+          {/* Experience */}
+          <div className="mt-6">
+            <Section icon="⚡" eyebrow="Onboarding & Intro" title="Experience" status={!canEditGlobal ? status : undefined} delay={0.1}>
+              <div className="space-y-3">
+                <ActionRow
+                  title="Boot intro"
+                  desc="Re-watch the MCWV boot sequence — the logo reveal, reactor rings and all. You'll land back home when it ends."
+                  action={
+                    <button
+                      type="button"
+                      onClick={replayIntro}
+                      className="rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-3 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:opacity-90"
+                    >
+                      ⚡ Replay Intro
+                    </button>
+                  }
+                />
+                <ActionRow
+                  title="Website tutorial"
+                  desc="Want a quick refresher? Restart the guided tour whenever you like."
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => void restartTutorial()}
+                      className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:-translate-y-0.5 hover:bg-emerald-400/15"
+                    >
+                      Restart Tutorial
+                    </button>
+                  }
+                />
+              </div>
+            </Section>
           </div>
 
-          {canEditGlobal ? (
-            <div
-              className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-              style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.2s", opacity: 0 }}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-xl font-bold">Global Settings</h2>
-                <p className="text-xs text-zinc-500 animate-fade-in">{status}</p>
-              </div>
-              <div className="mt-6 space-y-8">
-                <div
-                  style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}
-                >
-                  <label className="mb-2 block text-sm font-semibold text-zinc-200">
-                    Scrolling banner text
-                  </label>
-                  <textarea
-                    value={bannerText}
-                    onChange={(e) => setBannerText(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40"
-                    placeholder="Recruiting now!!"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => saveField("banner_text")}
-                    disabled={!loaded || saving !== null}
-                    className="mt-3 rounded-2xl bg-emerald-400 px-4 py-2 font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saving === "banner_text" ? "Saving..." : "Save Banner"}
-                  </button>
-                </div>
-
-                <div
-                  style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.3s", opacity: 0 }}
-                >
-                  <label className="mb-2 block text-sm font-semibold text-zinc-200">
-                    Banner speed ({bannerSpeed}s)
-                  </label>
-                  <input
-                    type="range"
-                    min={8}
-                    max={40}
-                    step={1}
-                    value={bannerSpeed}
-                    onChange={(e) => setBannerSpeed(Number(e.target.value))}
-                    className="w-full accent-emerald-400"
-                  />
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-emerald-400 transition-all duration-300"
-                      style={{ width: `${speedPercent}%` }}
-                    />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
-                    <span>Fast</span>
-                    <span>{bannerSpeed}s</span>
-                    <span>Slow</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => saveField("banner_speed")}
-                    disabled={!loaded || saving !== null}
-                    className="mt-3 rounded-2xl bg-emerald-400 px-4 py-2 font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saving === "banner_speed" ? "Saving..." : "Save Speed"}
-                  </button>
-                </div>
-
-                <div
-                  style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.35s", opacity: 0 }}
-                >
-                  <label className="mb-2 block text-sm font-semibold text-zinc-200">
-                    Discord invite link
-                  </label>
-                  <input
-                    type="url"
-                    value={discordLink}
-                    onChange={(e) => setDiscordLink(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40"
-                    placeholder="https://discord.gg/yourinvite"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => saveField("discord_link")}
-                    disabled={!loaded || saving !== null}
-                    className="mt-3 rounded-2xl bg-emerald-400 px-4 py-2 font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saving === "discord_link" ? "Saving..." : "Save Discord"}
-                  </button>
-                </div>
-
-                <div
-                  style={{ animation: "fadeInUp 0.4s ease-out forwards", animationDelay: "0.4s", opacity: 0 }}
-                >
-                  <label className="mb-2 block text-sm font-semibold text-zinc-200">
-                    Requirements text
-                  </label>
-                  <textarea
-                    value={requirementsText}
-                    onChange={(e) => setRequirementsText(e.target.value)}
-                    rows={10}
-                    className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40"
-                    placeholder={`# Heading
-Subheading
-bold
-italic
-underline`}
-                  />
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Supports headings, subheadings, bold, italics, underline, and line
-                    breaks.
+          {/* Account */}
+          <div className="mt-6">
+            <Section icon="🔐" eyebrow="Security" title="Account" delay={0.14}>
+              <div className="text-sm text-zinc-400">
+                {currentUser ? (
+                  <p>
+                    Signed in as <span className="font-semibold text-zinc-200">{currentUser.username}</span>
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => saveField("requirements_text")}
-                    disabled={!loaded || saving !== null}
-                    className="mt-3 rounded-2xl bg-emerald-400 px-4 py-2 font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saving === "requirements_text" ? "Saving..." : "Save Requirements"}
-                  </button>
-                </div>
+                ) : (
+                  <p>Account actions are available for logged-in users.</p>
+                )}
               </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setPasswordOpen(true)}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/10"
+                >
+                  Change Password
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/auth/logout", { method: "POST" });
+                    } catch {}
+                    window.location.href = "/login";
+                  }}
+                  className="rounded-2xl border border-red-400/30 bg-red-500/15 px-5 py-3 text-sm font-semibold text-red-200 transition hover:-translate-y-0.5 hover:bg-red-500/25"
+                >
+                  Log Out
+                </button>
+              </div>
+              <p className="mt-4 text-xs text-zinc-500">You will be signed out of this device only.</p>
+            </Section>
+          </div>
+
+          {/* Global settings (officer+) */}
+          {canEditGlobal ? (
+            <div className="mt-6">
+              <Section icon="🛰️" eyebrow="Officer Controls" title="Global Settings" status={status} delay={0.18}>
+                <div className="space-y-8">
+                  <FieldBlock
+                    label="Scrolling banner text"
+                    onSave={() => saveField("banner_text")}
+                    saving={saving === "banner_text"}
+                    disabled={!loaded || saving !== null}
+                    saveLabel="Save Banner"
+                  >
+                    <textarea
+                      value={bannerText}
+                      onChange={(e) => setBannerText(e.target.value)}
+                      rows={3}
+                      className={fieldClass}
+                      placeholder="Recruiting now!!"
+                    />
+                  </FieldBlock>
+
+                  <FieldBlock
+                    label={`Banner speed (${bannerSpeed}s)`}
+                    onSave={() => saveField("banner_speed")}
+                    saving={saving === "banner_speed"}
+                    disabled={!loaded || saving !== null}
+                    saveLabel="Save Speed"
+                  >
+                    <input
+                      type="range"
+                      min={8}
+                      max={40}
+                      step={1}
+                      value={bannerSpeed}
+                      onChange={(e) => setBannerSpeed(Number(e.target.value))}
+                      className="w-full accent-emerald-400"
+                    />
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-300 transition-all duration-300"
+                        style={{ width: `${speedPercent}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+                      <span>Fast</span>
+                      <span>{bannerSpeed}s</span>
+                      <span>Slow</span>
+                    </div>
+                  </FieldBlock>
+
+                  <FieldBlock
+                    label="Discord invite link"
+                    onSave={() => saveField("discord_link")}
+                    saving={saving === "discord_link"}
+                    disabled={!loaded || saving !== null}
+                    saveLabel="Save Discord"
+                  >
+                    <input
+                      type="url"
+                      value={discordLink}
+                      onChange={(e) => setDiscordLink(e.target.value)}
+                      className={fieldClass}
+                      placeholder="https://discord.gg/yourinvite"
+                    />
+                  </FieldBlock>
+
+                  <FieldBlock
+                    label="Requirements text"
+                    hint="Supports headings, subheadings, bold, italics, underline, and line breaks."
+                    onSave={() => saveField("requirements_text")}
+                    saving={saving === "requirements_text"}
+                    disabled={!loaded || saving !== null}
+                    saveLabel="Save Requirements"
+                  >
+                    <textarea
+                      value={requirementsText}
+                      onChange={(e) => setRequirementsText(e.target.value)}
+                      rows={10}
+                      className={fieldClass}
+                      placeholder={`# Heading\nSubheading\nbold\nitalic\nunderline`}
+                    />
+                  </FieldBlock>
+                </div>
+              </Section>
             </div>
           ) : null}
 
+          {/* Officer management (owner) */}
           {canManageRoles ? (
-            <div
-              className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-              style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.25s", opacity: 0 }}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-xl font-bold">Officer Management</h2>
-                <p className="text-xs text-zinc-500 animate-fade-in">{rolesStatus}</p>
-              </div>
-              <p className="mt-2 text-sm text-zinc-400">
-                Promote or demote members. Only the owner can see this section.
-              </p>
-              <div className="mt-5">
+            <div className="mt-6">
+              <Section icon="👥" eyebrow="Owner Only" title="Officer Management" status={rolesStatus} delay={0.22}>
+                <p className="-mt-2 mb-4 text-sm text-zinc-400">
+                  Promote or demote members. Only the owner can see this section.
+                </p>
                 <input
                   value={memberSearch}
                   onChange={(e) => setMemberSearch(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40"
+                  className={fieldClass}
                   placeholder="Search by username, Discord ID, or role"
                 />
-              </div>
-              <div className="mt-5 space-y-3">
-                {filteredMembers.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No members found.</p>
-                ) : (
-                  filteredMembers.map((member) => {
-                    const isOfficer = member.role === "officer";
-                    const isOwner = member.role === "owner";
-                    return (
-                      <div
-                        key={member.id}
-                        className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 md:flex-row md:items-center md:justify-between"
-                        style={{ animation: "fadeInUp 0.3s ease-out forwards", animationDelay: `${0.3 + filteredMembers.indexOf(member) * 0.05}s`, opacity: 0 }}
-                      >
-                        <div>
-                          <p className="font-semibold text-white">
-                            {member.username}
-                          </p>
-                          <p className="text-xs text-zinc-500">
-                            Discord ID: {member.discord_id ?? "—"} · Role:{" "}
-                            <span className="text-zinc-300">{member.role}</span>
-                          </p>
+                <div className="mt-5 space-y-3">
+                  {filteredMembers.length === 0 ? (
+                    <p className="text-sm text-zinc-400">No members found.</p>
+                  ) : (
+                    filteredMembers.map((member) => {
+                      const isOfficer = member.role === "officer";
+                      const isOwner = member.role === "owner";
+                      return (
+                        <div
+                          key={member.id}
+                          className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <p className="font-semibold text-white">{member.username}</p>
+                            <p className="text-xs text-zinc-500">
+                              Discord ID: {member.discord_id ?? "—"} · Role:{" "}
+                              <span className="text-zinc-300">{member.role}</span>
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {!isOwner && !isOfficer && (
+                              <button
+                                type="button"
+                                onClick={() => updateRole(member.id, "officer")}
+                                disabled={rolesLoading}
+                                className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-black transition hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                              >
+                                Promote to Officer
+                              </button>
+                            )}
+                            {isOfficer && (
+                              <button
+                                type="button"
+                                onClick={() => updateRole(member.id, "member")}
+                                disabled={rolesLoading}
+                                className="rounded-2xl bg-orange-400 px-4 py-2 text-sm font-semibold text-black transition hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                              >
+                                Demote to Member
+                              </button>
+                            )}
+                            {!isOwner && (member.has_account ?? member.hasAccount) && (
+                              <button
+                                type="button"
+                                onClick={() => deleteWebsiteAccount(member.id, member.username)}
+                                disabled={rolesLoading}
+                                className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:-translate-y-0.5 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                                title="Deletes only their website login. Roblox/Discord links stay saved."
+                              >
+                                Delete Website Account
+                              </button>
+                            )}
+                            {!isOwner && !(member.has_account ?? member.hasAccount) && (
+                              <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-400">
+                                No Website Login
+                              </span>
+                            )}
+                            {isOwner && (
+                              <span className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-2 text-sm font-semibold text-yellow-300">
+                                Owner
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {!isOwner && !isOfficer && (
-                            <button
-                              type="button"
-                              onClick={() => updateRole(member.id, "officer")}
-                              disabled={rolesLoading}
-                              className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-                            >
-                              Promote to Officer
-                            </button>
-                          )}
-                          {isOfficer && (
-                            <button
-                              type="button"
-                              onClick={() => updateRole(member.id, "member")}
-                              disabled={rolesLoading}
-                              className="rounded-2xl bg-orange-400 px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-                            >
-                              Demote to Member
-                            </button>
-                          )}
-                          {!isOwner && (member.has_account ?? member.hasAccount) && (
-                            <button
-                              type="button"
-                              onClick={() => deleteWebsiteAccount(member.id, member.username)}
-                              disabled={rolesLoading}
-                              className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:scale-105 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-                              title="Deletes only their website login. Roblox/Discord links stay saved."
-                            >
-                              Delete Website Account
-                            </button>
-                          )}
-                          {!isOwner && !(member.has_account ?? member.hasAccount) && (
-                            <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-400">
-                              No Website Login
-                            </span>
-                          )}
-                          {isOwner && (
-                            <span className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-2 text-sm font-semibold text-yellow-300">
-                              Owner
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                      );
+                    })
+                  )}
+                </div>
+              </Section>
             </div>
           ) : null}
-
-          <div
-            className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            style={{ animation: "fadeInUp 0.5s ease-out forwards", animationDelay: "0.3s", opacity: 0 }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-xl font-bold">Account</h2>
-              <p className="text-xs text-zinc-500">Manage your session</p>
-            </div>
-            <div className="mt-4 text-sm text-zinc-400">
-              {currentUser ? (
-                <p>
-                  {currentUser.username} · {role}
-                </p>
-              ) : (
-                <p>Account actions are available for logged-in users.</p>
-              )}
-            </div>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => setPasswordOpen(true)}
-                className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 hover:scale-105"
-              >
-                Change Password
-              </button>
-              <button
-                type="button"
-                onClick={() => void restartTutorial()}
-                className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:scale-105 hover:bg-emerald-400/15"
-              >
-                Restart Tutorial
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await fetch("/api/auth/logout", { method: "POST" });
-                  } catch {}
-                  window.location.href = "/login";
-                }}
-                className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 hover:scale-105"
-              >
-                Log Out
-              </button>
-            </div>
-            <p className="mt-4 text-xs text-zinc-500">
-              You will be signed out of this device only.
-            </p>
-          </div>
         </div>
       </main>
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
 
       <style jsx>{`
-        @keyframes fadeInUp {
+        .st-rise {
+          animation: st-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes st-rise {
           from {
             opacity: 0;
-            transform: translateY(20px);
+            transform: translateY(16px);
           }
           to {
             opacity: 1;
             transform: translateY(0);
           }
-        }
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.3s ease-out forwards;
         }
       `}</style>
     </>
