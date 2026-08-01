@@ -899,15 +899,16 @@ function MiniLineChart({
           </linearGradient>
         </defs>
         <polyline
+          className="chart-fade"
           points={`${padding},${height - padding} ${coords.join(" ")} ${width - padding},${height - padding}`}
           fill="url(#playerChartFill)"
           stroke="none"
         />
-        <polyline points={coords.join(" ")} fill="none" stroke={accentColor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <polyline className="chart-draw" points={coords.join(" ")} fill="none" stroke={accentColor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
         {coords.map((coord, index) => {
           if (index !== coords.length - 1 && index !== 0) return null;
           const [x, y] = coord.split(",").map(Number);
-          return <circle key={coord} cx={x} cy={y} r="5" fill={accentColor} />;
+          return <circle key={coord} className="chart-fade" cx={x} cy={y} r="5" fill={accentColor} />;
         })}
       </svg>
       <div className="mt-2 flex justify-between text-xs text-zinc-500">
