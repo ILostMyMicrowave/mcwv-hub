@@ -329,7 +329,7 @@ function StatCard({
 }: { label: string; value: string | number; sub?: string; animate?: boolean; numericValue?: number; delay?: string; accent?: string }) {
   return (
     <Animated delay={delay}>
-      <div className="relative overflow-hidden rounded-3xl border p-5 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+      <div className="shine-sweep glow-spin relative overflow-hidden rounded-3xl border p-5 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
         <div className="absolute inset-x-0 top-0 h-1" style={{ background: accent ?? "var(--primary)" }} />
         <p className="text-xs uppercase tracking-[0.25em] text-zinc-400">{label}</p>
         <p className="mt-3 text-3xl font-bold text-white">
@@ -364,7 +364,7 @@ function CurrentStatusPill({ presence }: { presence: PresenceState }) {
         boxShadow: `0 0 24px ${colors.border}`,
       }}
     >
-      <span className="h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: colors.dot }} />
+      <span className="live-dot h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: colors.dot }} />
       My Status: {presence.status}
     </div>
   );
@@ -542,7 +542,7 @@ export default function HomePage() {
                 <div className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--primary)" }} />{active ? "Tracking active" : "Waiting for the next battle"}</div>
                 <Animated delay="0.1s">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl">MCWV Hub</h1>
+                    <h1 className="shimmer-text max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl">MCWV Hub</h1>
                     <div className="lg:pr-6">
                       <CurrentStatusPill presence={presence} />
                     </div>
