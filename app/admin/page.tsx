@@ -8,6 +8,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 
@@ -1098,7 +1099,7 @@ export default function AdminPage() {
     return Array.from(map.values());
   }, [links, players]);
 
-  if (!authLoaded || loading) {
+  if (!authLoaded || (loading && !status)) {
     return (
       <>
         <Navbar />
@@ -1145,30 +1146,74 @@ export default function AdminPage() {
         <div className={`mx-auto flex flex-col gap-6 ${section === "tickets" ? "max-w-[94rem]" : "max-w-7xl lg:flex-row"}`}>
           {section !== "tickets" && (
           <aside className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:w-64 lg:shrink-0">
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
+              <div className="admin-stripe pointer-events-none absolute inset-x-0 top-0 h-px" />
               <div className="px-3 py-4">
                 <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Admin</div>
                 <h1 className="mt-1 text-2xl font-bold">Control Panel</h1>
-                <p className="mt-1 text-xs text-zinc-400">
-                  Signed in as {currentUser.username} · {currentUser.role}
-                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span
+                    className="grid h-7 w-7 place-items-center rounded-full border text-xs font-black"
+                    style={{
+                      borderColor: "color-mix(in srgb, var(--primary) 45%, transparent)",
+                      background: "color-mix(in srgb, var(--primary) 16%, transparent)",
+                      color: "var(--foreground)",
+                    }}
+                  >
+                    {String(currentUser.username ?? "?").slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 truncate text-xs text-zinc-400">{currentUser.username}</span>
+                  <span
+                    className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
+                      currentUser.role === "owner"
+                        ? "border-yellow-400/40 bg-yellow-400/10 text-yellow-200"
+                        : "border-sky-400/40 bg-sky-400/10 text-sky-200"
+                    }`}
+                  >
+                    {currentUser.role}
+                  </span>
+                </div>
               </div>
-              <nav className="grid gap-1">
+              <nav className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:gap-1 lg:overflow-visible lg:pb-0">
                 {visibleSections.map((item) => {
                   const active = section === item.id;
+                  const ticketBadge =
+                    item.id === "tickets" ? pickRecordNumber(ticketMetrics, ["open"], 0) : 0;
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => selectSection(item.id)}
-                      className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm transition hover:bg-white/10"
+                      className="relative flex shrink-0 items-center gap-3 whitespace-nowrap rounded-2xl px-3 py-3 text-left text-sm transition-all duration-300 hover:translate-x-1 hover:bg-white/10 active:scale-[0.98] lg:whitespace-normal"
                       style={{
-                        background: active ? "rgba(255,255,255,0.10)" : "transparent",
-                        border: `1px solid ${active ? "var(--border)" : "transparent"}`,
+                        background: active
+                          ? "linear-gradient(90deg, color-mix(in srgb, var(--primary) 18%, transparent), rgba(255,255,255,0.06))"
+                          : "transparent",
+                        border: `1px solid ${active ? "color-mix(in srgb, var(--primary) 35%, var(--border))" : "transparent"}`,
+                        boxShadow: active ? "0 0 18px var(--glow)" : "none",
                       }}
                     >
-                      <span>{item.icon}</span>
-                      <span>{item.label}</span>
+                      {active && (
+                        <span
+                          className="absolute left-0 top-1/2 hidden h-6 w-1 -translate-y-1/2 rounded-full lg:block"
+                          style={{ background: "var(--primary)", boxShadow: "0 0 12px var(--glow)" }}
+                        />
+                      )}
+                      <span
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border text-sm"
+                        style={{
+                          borderColor: active ? "color-mix(in srgb, var(--primary) 40%, transparent)" : "var(--border)",
+                          background: active ? "color-mix(in srgb, var(--primary) 18%, transparent)" : "rgba(255,255,255,0.04)",
+                        }}
+                      >
+                        {item.icon}
+                      </span>
+                      <span style={{ color: active ? "var(--accent)" : "var(--foreground)" }}>{item.label}</span>
+                      {ticketBadge > 0 && (
+                        <span className="ml-auto rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold text-amber-200">
+                          {ticketBadge}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -1177,22 +1222,40 @@ export default function AdminPage() {
           </aside>
           )}
 
-          <section className="min-w-0 flex-1 space-y-6">
+          <section key={section} className="admin-section-in min-w-0 flex-1 space-y-6">
             {section !== "tickets" && (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl sm:p-6">
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl sm:p-6">
+              <div className="admin-stripe pointer-events-none absolute inset-x-0 top-0 h-px" />
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">MCWV Hub</div>
-                  <h2 className="mt-1 text-3xl font-bold sm:text-4xl">
-                    {activeSection.icon} {activeSection.label}
+                  <h2 className="mt-1 flex items-center gap-3 text-3xl font-bold sm:text-4xl">
+                    <span
+                      className="grid h-11 w-11 place-items-center rounded-2xl border text-xl"
+                      style={{
+                        borderColor: "color-mix(in srgb, var(--primary) 40%, var(--border))",
+                        background: "color-mix(in srgb, var(--primary) 14%, transparent)",
+                        boxShadow: "0 0 18px var(--glow)",
+                      }}
+                    >
+                      {activeSection.icon}
+                    </span>
+                    {activeSection.label}
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm text-zinc-400">
                     {SECTION_DESCRIPTIONS[activeSection.id]}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2 lg:justify-end">
-                  <button className="admin-button" type="button" onClick={loadAdminData}>
-                    Refresh
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  {status?.loadedAt && (
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      <span className="live-dot mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      Updated {formatRelativeTime(status.loadedAt, undefined)}
+                    </span>
+                  )}
+                  <button className="admin-button" type="button" onClick={loadAdminData} disabled={loading}>
+                    <span className={loading ? "mr-1 inline-block animate-spin" : "mr-1 inline-block"}>⟳</span>
+                    {loading ? "Refreshing…" : "Refresh"}
                   </button>
                   {isOwner && (
                     <button
@@ -1210,7 +1273,7 @@ export default function AdminPage() {
                 </div>
               </div>
               {actionStatus && (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200">
+                <div className="admin-section-in mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200">
                   {actionStatus}
                 </div>
               )}
@@ -1314,18 +1377,39 @@ export default function AdminPage() {
 
       <style jsx global>{`
         .admin-button {
+          position: relative;
+          overflow: hidden;
           border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
           border-radius: 999px;
           background: color-mix(in srgb, var(--primary) 13%, transparent);
           padding: 0.55rem 0.9rem;
           color: var(--foreground);
           font-size: 0.85rem;
-          transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+          transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .admin-button::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: -70%;
+          width: 45%;
+          background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+          transform: skewX(-20deg);
+          transition: left 0.6s ease;
+          pointer-events: none;
         }
         .admin-button:hover:not(:disabled) {
           background: color-mix(in srgb, var(--primary) 22%, transparent);
           border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
           transform: translateY(-1px);
+          box-shadow: 0 6px 22px color-mix(in srgb, var(--primary) 22%, transparent);
+        }
+        .admin-button:hover:not(:disabled)::after {
+          left: 125%;
+        }
+        .admin-button:active:not(:disabled) {
+          transform: scale(0.96);
         }
         .admin-button:disabled {
           cursor: not-allowed;
@@ -1340,10 +1424,14 @@ export default function AdminPage() {
           padding: 0.75rem 1rem;
           font-size: 0.875rem;
           outline: none;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+        .admin-input:hover:not(:focus) {
+          border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
         }
         .admin-input:focus {
           border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
-          box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent), 0 0 18px var(--glow);
         }
         .admin-input::placeholder {
           color: color-mix(in srgb, var(--foreground) 35%, transparent);
@@ -1352,12 +1440,24 @@ export default function AdminPage() {
           color: color-mix(in srgb, var(--foreground) 55%, transparent);
         }
         .admin-button-danger {
+          position: relative;
+          overflow: hidden;
           border: 1px solid rgba(248, 113, 113, 0.35);
           border-radius: 999px;
           background: rgba(248, 113, 113, 0.12);
           padding: 0.55rem 0.9rem;
           color: rgb(252, 165, 165);
           font-size: 0.85rem;
+          transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .admin-button-danger:hover {
+          background: rgba(248, 113, 113, 0.2);
+          border-color: rgba(248, 113, 113, 0.55);
+          transform: translateY(-1px);
+          box-shadow: 0 6px 22px rgba(248, 113, 113, 0.18);
+        }
+        .admin-button-danger:active {
+          transform: scale(0.96);
         }
       `}</style>
     </>
@@ -1381,12 +1481,12 @@ function ModalShell({
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
       <button
         type="button"
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="admin-modal-backdrop-in absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
         aria-label="Close modal"
       />
       <div
-        className="relative z-10 w-full max-w-xl rounded-3xl border p-5 shadow-2xl sm:p-6"
+        className="animate-scale-in relative z-10 w-full max-w-xl rounded-3xl border p-5 shadow-2xl sm:p-6"
         style={{
           background:
             "linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, var(--primary) 8%), var(--background))",
@@ -1702,8 +1802,9 @@ function Toast({ message, tone }: { message: string; tone: "success" | "error" |
       : "border-white/10 bg-white/10 text-white";
 
   return (
-    <div className={`fixed bottom-5 right-5 z-[90] max-w-sm rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur ${toneClass}`}>
-      {message}
+    <div className={`admin-toast-in fixed bottom-5 right-5 z-[90] flex max-w-sm items-center gap-3 rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur ${toneClass}`}>
+      <span className="text-base">{tone === "success" ? "✅" : tone === "error" ? "⚠️" : "ℹ️"}</span>
+      <span>{message}</span>
     </div>
   );
 }
@@ -1726,9 +1827,15 @@ function AccessState({ title, message, children }: { title: string; message: str
 
 function Panel({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl sm:p-6">
+    <section className="card-hover rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl sm:p-6">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">{title}</h3>
+        <h3 className="flex items-center gap-2.5 text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">
+          <span
+            className="inline-block h-3.5 w-1 rounded-full"
+            style={{ background: "var(--primary)", boxShadow: "0 0 10px var(--glow)" }}
+          />
+          {title}
+        </h3>
         {right}
       </div>
       {children}
@@ -1762,7 +1869,8 @@ function OverviewSection({
           return (
             <div
               key={safeId("card", card.label, index)}
-              className="shine-sweep rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/10"
+              className="shine-sweep stagger-in rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/10"
+              style={{ "--i": index } as CSSProperties}
               title={isHeartbeat ? formatTime(card.value) : undefined}
             >
               <div className="flex items-center justify-between gap-3">
@@ -1967,14 +2075,24 @@ function ActivityMemberCard({ member, threshold }: { member: ActivityMember; thr
     : "text-zinc-200 border-white/10 bg-white/5";
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+    <div
+      className="card-hover rounded-2xl border border-white/10 bg-black/20 p-4"
+      style={{
+        borderLeft: `3px solid ${
+          member.statusTone === "ingame" ? "rgba(52,211,153,0.55)" : member.statusTone === "offline" ? "rgba(248,113,113,0.5)" : "rgba(255,255,255,0.12)"
+        }`,
+      }}
+    >
       <div className="flex items-start gap-3">
-        <img className="h-12 w-12 rounded-2xl border border-white/10 bg-black/30" src={member.avatarUrl ?? `/api/roblox/avatar?userId=${member.robloxId}`} alt="" />
+        <img className="h-12 w-12 rounded-2xl border border-white/10 bg-black/30 transition duration-300 hover:scale-105" src={member.avatarUrl ?? `/api/roblox/avatar?userId=${member.robloxId}`} alt="" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate font-bold text-white">{member.username}</p>
             {member.isAlt && <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold text-violet-100">ALT</span>}
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusToneClass}`}>{member.status}</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusToneClass}`}>
+              {member.statusTone === "ingame" && <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+              {member.status}
+            </span>
           </div>
           <p className="mt-1 text-xs text-zinc-500">
             {member.isAlt && member.ownerUsername ? `Alt of ${member.ownerUsername}` : member.discordId ? `Discord linked` : "No Discord link"}
@@ -2047,7 +2165,7 @@ function BotSection({
           {loopRows.map(([name, value], index) => {
             const text = isRecord(value) ? readString(value, ["status", "state"], "Unknown") : String(value ?? "Unknown");
             return (
-              <div key={safeId("loop", name, index)} className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <div key={safeId("loop", name, index)} className="row-lift flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
                 <span>{name}</span>
                 <span className={`rounded-full border px-3 py-1 text-xs ${statusTone(text)}`}>{text}</span>
               </div>
@@ -2806,7 +2924,7 @@ function InvitesSection({
       <Panel title="Invite Leaderboard">
         <div className="grid gap-3">
           {leaderboard.length ? leaderboard.slice(0, 10).map((row, index) => (
-            <div key={safeId("invite-leader", row.user_id ?? row.discord_id, index)} className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+            <div key={safeId("invite-leader", row.user_id ?? row.discord_id, index)} className="row-lift flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
               <span>{index + 1}. {readString(row, ["name", "username", "user", "user_id", "discord_id"])}</span>
               <span className="font-semibold">{readString(row, ["invites", "count"], "0")} invites</span>
             </div>
@@ -3525,7 +3643,7 @@ function TicketsSection({
             {filters.map((item) => (
               <button
                 key={item}
-                className={`rounded-full border px-3 py-1 text-xs capitalize ${filter === item ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400"}`}
+                className={`rounded-full border px-3 py-1 text-xs capitalize transition-all duration-300 hover:-translate-y-0.5 active:scale-95 ${filter === item ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.2)]" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
                 onClick={() => setFilter(item)}
                 type="button"
               >
@@ -3542,7 +3660,7 @@ function TicketsSection({
                 key={ticket.ticketId}
                 type="button"
                 onClick={() => void openTicket(ticket.ticketId)}
-                className="group relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 text-left shadow-xl shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/35 hover:bg-white/[0.08] hover:shadow-emerald-950/30 active:scale-[0.99]"
+                className="shine-sweep glow-spin group relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 text-left shadow-xl shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/35 hover:bg-white/[0.08] hover:shadow-emerald-950/30 active:scale-[0.99]"
               >
                 <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 opacity-70 transition group-hover:opacity-100" />
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -3712,7 +3830,7 @@ function PlayersSection({
       title="Tracked Players"
       right={
         <input
-          className="w-full rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm outline-none placeholder:text-zinc-600 sm:w-72"
+          className="w-full rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 focus:shadow-[0_0_0_3px_rgba(52,211,153,0.12)] sm:w-72"
           placeholder="Search players..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -3744,7 +3862,7 @@ function PlayersSection({
               const protectedOwner = String(player.clanRank ?? player.clan_rank ?? "").toLowerCase() === "owner";
 
               return (
-                <tr key={safeId("player", id, index)} className="transition hover:bg-white/[0.03]">
+                <tr key={safeId("player", id, index)} className="transition-colors duration-200 hover:bg-white/[0.05]">
                   <td className="px-3 py-4">
                     {player.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -3823,7 +3941,7 @@ function LinksSection({
               const protectedOwner = String(row.role ?? "").toLowerCase() === "owner";
 
               return (
-              <tr key={safeId("link", row.discord, index)} className="transition hover:bg-white/[0.03]">
+              <tr key={safeId("link", row.discord, index)} className="transition-colors duration-200 hover:bg-white/[0.05]">
                 <td className="px-3 py-4 font-mono text-xs text-zinc-400" title={row.discord}>
                   {shortenMiddle(row.discord)}
                 </td>
@@ -3982,7 +4100,7 @@ function LogsSection({
             <button
               key={item}
               type="button"
-              className={`rounded-full border px-3 py-1 text-xs capitalize ${filter === item ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400"}`}
+              className={`rounded-full border px-3 py-1 text-xs capitalize transition-all duration-300 hover:-translate-y-0.5 active:scale-95 ${filter === item ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.2)]" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
               onClick={() => setFilter(item)}
             >
               {item}
@@ -4217,7 +4335,7 @@ function SettingsSection({ bot, isOwner }: { bot: UnknownRecord | undefined; isO
 
 function Metric({ label, value, suffix }: { label: string; value: string; suffix?: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
+    <div className="shine-sweep card-hover rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{label}</div>
       <div className="mt-3 text-3xl font-bold">
         {value}{value !== "—" && suffix ? <span className="ml-1 text-base text-zinc-500">{suffix}</span> : null}
@@ -4228,7 +4346,7 @@ function Metric({ label, value, suffix }: { label: string; value: string; suffix
 
 function MiniStat({ label, value }: { label: string; value: unknown }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+    <div className="card-hover rounded-2xl border border-white/10 bg-white/5 p-4">
       <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{label}</div>
       <div className="mt-2 font-semibold text-white">{toDisplayValue(value)}</div>
     </div>
@@ -4253,8 +4371,11 @@ function ActivityList({
       {items.slice(0, limit).map((item, index) => {
         const level = item.level ?? "info";
         return (
-          <div key={safeId("activity", item.id, index)} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            key={safeId("activity", item.id, index)}
+            className="row-lift stagger-in rounded-2xl border border-white/10 bg-black/20 p-4"
+            style={{ "--i": Math.min(index, 10) } as CSSProperties}
+          >            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`w-fit rounded-full border px-3 py-1 text-xs capitalize ${levelTone(level)}`}>{level}</span>
                 {showActor && item.actorUsername && (
