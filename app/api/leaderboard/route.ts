@@ -621,6 +621,112 @@ function extractCurrentRosterIds(clanPayload: unknown): Set<string> {
   return ids;
 }
 
+type HistoryExtraRow = {
+  roblox_id: string;
+  username: string | null;
+  points: number | string | null;
+};
+
+/**
+ * Historical wars are the PointContributions ledger (people who actually
+ * competed) PLUS zero-point members — but ONLY ones we can verify against
+ * the current in-game roster. That keeps genuine clan members who never
+ * scored (and never linked a hub account), while dropping people who were
+ * passing through and have since left: "not in the clan" means they are not
+ * part of the war's story.
+ */
+async function appendRosterVerifiedZeroMembers(
+  entries: LeaderboardEntry[],
+  battleKeys: string[],
+  rosterIds: Set<string>
+): Promise<LeaderboardEntry[]> {
+  const keys = [...new Set(battleKeys.map(normalizeKey).filter(Boolean))];
+  if (!keys.length || !rosterIds.size) return entries;
+
+  try {
+    const tableCheck = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
+    );
+    if (!tableCheck.rows[0]?.exists) return entries;
+
+    const knownIds = new Set(entries.map((entry) => String(entry.user_id)));
+
+    const historyRes = await pool.query<HistoryExtraRow>(
+      `WITH latest AS (
+         SELECT MAX(captured_at) AS ts
+         FROM player_leaderboard_history
+         WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+       )
+       SELECT DISTINCT ON (player_leaderboard_history.roblox_id)
+         roblox_id::text AS roblox_id,
+         username,
+         points
+       FROM player_leaderboard_history
+       CROSS JOIN latest
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+         AND points IS NOT NULL
+         AND captured_at >= latest.ts - INTERVAL '24 hours'
+       ORDER BY player_leaderboard_history.roblox_id, captured_at DESC`,
+      [keys]
+    );
+
+    const missingRows = historyRes.rows.filter(
+      (row) =>
+        !knownIds.has(String(row.roblox_id)) && rosterIds.has(String(row.roblox_id).trim())
+    );
+    if (!missingRows.length) return entries;
+
+    const missingIds = missingRows.map((row) => String(row.roblox_id).trim());
+    const missingNumericIds = missingIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+
+    const [extraNames, extraAvatars, extraUsersRes] = await Promise.all([
+      getNames(missingNumericIds),
+      getAvatars(missingNumericIds),
+      pool.query<{ roblox_id: string; discord_id: string | number | null }>(
+        `SELECT roblox_id::text AS roblox_id, discord_id
+         FROM users
+         WHERE roblox_id::text = ANY($1)`,
+        [missingIds]
+      ),
+    ]);
+
+    const extraDiscordMap = new Map(
+      extraUsersRes.rows.map((row) => [String(row.roblox_id), row.discord_id])
+    );
+    const extraDiscordIds = Array.from(extraDiscordMap.values()).filter(Boolean);
+
+    let extraAltSet = new Set<string>();
+    if (extraDiscordIds.length) {
+      const extraAltRes = await pool.query<{ roblox_id: string | number }>(
+        `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
+        [extraDiscordIds]
+      );
+      extraAltSet = new Set(extraAltRes.rows.map((row) => String(row.roblox_id)));
+    }
+
+    const extraEntries: LeaderboardEntry[] = missingRows.map((row) => {
+      const userId = Number(row.roblox_id);
+      const discordId = extraDiscordMap.get(String(row.roblox_id));
+      return {
+        rank: 0, // re-ranked below
+        user_id: userId,
+        name: row.username || extraNames.get(userId) || `Unknown (${userId})`,
+        points: Number(row.points ?? 0),
+        avatar: extraAvatars.get(userId) ?? null,
+        discord_id: discordId === null || discordId === undefined ? null : String(discordId),
+        is_alt: extraAltSet.has(String(row.roblox_id)),
+      };
+    });
+
+    return [...entries, ...extraEntries]
+      .sort((a, b) => Number(b.points ?? 0) - Number(a.points ?? 0))
+      .map((entry, index) => ({ ...entry, rank: index + 1 }));
+  } catch (err) {
+    console.error("[leaderboard/roster-zeros] merge error:", err);
+    return entries;
+  }
+}
+
 /* ---------------- ROBLOX HELPERS ---------------- */
 
 async function getNames(userIds: number[]) {
@@ -802,11 +908,23 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       };
     });
 
-    // Historical wars show ONLY people who actually competed in that war
-    // (the PointContributions ledger) — nobody who joined after, nobody who
-    // passed through. Mark anyone who competed but is no longer in the clan
-    // today, so the UI can show a "left clan" marker.
+    // Historical wars = the PointContributions ledger (people who actually
+    // competed) + zero-point members who are verifiably in the clan today.
     const currentRosterIds = extractCurrentRosterIds(clan);
+    entries = await appendRosterVerifiedZeroMembers(
+      entries,
+      [
+        match?.key ?? "",
+        battle?.BattleID ?? "",
+        battle?.configName ?? "",
+        battle?.Title ?? "",
+        battleId,
+      ],
+      currentRosterIds
+    );
+
+    // Mark anyone who competed but is no longer in the clan today, so the
+    // UI can show a "left clan" marker.
     if (currentRosterIds.size) {
       entries = entries.map((entry) => ({
         ...entry,
