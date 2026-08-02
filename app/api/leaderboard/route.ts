@@ -602,16 +602,49 @@ type DepartedHistoryRow = {
   points: number | string | null;
 };
 
+/** Current in-game roster (Members + Owner) from a clan API payload. */
+function extractCurrentRosterIds(clanPayload: unknown): Set<string> {
+  const ids = new Set<string>();
+  const data = (clanPayload as Record<string, unknown> | null)?.data as
+    | Record<string, unknown>
+    | undefined;
+  if (!data) return ids;
+
+  const owner = data.Owner ?? data.owner;
+  if (owner !== null && owner !== undefined && String(owner).trim()) {
+    ids.add(String(owner).trim());
+  }
+
+  const members = Array.isArray(data.Members) ? data.Members : [];
+  for (const member of members) {
+    const record = member as Record<string, unknown> | null;
+    const id = record?.UserID ?? record?.userId ?? record?.id;
+    if (id !== null && id !== undefined && String(id).trim()) {
+      ids.add(String(id).trim());
+    }
+  }
+
+  return ids;
+}
+
 /**
  * Big Games removes players from a battle's PointContributions when they are
  * kicked/leave the clan mid-war — but they still contributed while they were
  * in. Our own player_leaderboard_history keeps their snapshots, so union
- * anyone back in that the official contribution list is missing. Merged
- * players are flagged `departed: true` and the list is re-sorted/re-ranked.
+ * anyone back in that the official contribution list is missing.
+ *
+ * finalCaptureOnly=false (live war): union across the whole war so kicked
+ * members stay visible while the war is running.
+ * finalCaptureOnly=true (ended war): union ONLY the war's final snapshot —
+ * the roster exactly as it was when the war ended (zero-point members too),
+ * without resurrecting people who joined and left mid-war.
+ *
+ * The merged list is re-sorted/re-ranked by points.
  */
 async function mergeDepartedMembers(
   entries: LeaderboardEntry[],
-  battleKeys: string[]
+  battleKeys: string[],
+  options: { finalCaptureOnly?: boolean } = {}
 ): Promise<LeaderboardEntry[]> {
   const keys = [...new Set(battleKeys.map(normalizeKey).filter(Boolean))];
   if (!keys.length) return entries;
@@ -624,22 +657,37 @@ async function mergeDepartedMembers(
 
     const knownIds = new Set(entries.map((entry) => String(entry.user_id)));
 
-    const historyRes = await pool.query<DepartedHistoryRow>(
-      `SELECT DISTINCT ON (roblox_id)
-          roblox_id::text AS roblox_id,
-          username,
-          points
-       FROM player_leaderboard_history
-       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
-         AND points IS NOT NULL
-       ORDER BY roblox_id, captured_at DESC`,
-      [keys]
-    );
+    const historyRes = options.finalCaptureOnly
+      ? await pool.query<DepartedHistoryRow>(
+          `WITH latest AS (
+             SELECT MAX(captured_at) AS ts
+             FROM player_leaderboard_history
+             WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+           )
+           SELECT roblox_id::text AS roblox_id, username, points
+           FROM player_leaderboard_history
+           CROSS JOIN latest
+           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+             AND points IS NOT NULL
+             AND captured_at = latest.ts`,
+          [keys]
+        )
+      : await pool.query<DepartedHistoryRow>(
+          `SELECT DISTINCT ON (roblox_id)
+              roblox_id::text AS roblox_id,
+              username,
+              points
+           FROM player_leaderboard_history
+           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+             AND points IS NOT NULL
+           ORDER BY roblox_id, captured_at DESC`,
+          [keys]
+        );
 
-    const missingRows = historyRes.rows.filter((row) => !knownIds.has(String(row.roblox_id)));
+    const missingRows = historyRes.rows.filter((row) => !knownIds.has(String(row.roblox_id).trim()));
     if (!missingRows.length) return entries;
 
-    const missingIds = missingRows.map((row) => String(row.roblox_id));
+    const missingIds = missingRows.map((row) => String(row.roblox_id).trim());
     const missingNumericIds = missingIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
 
     const [missingNames, missingAvatars, missingUsersRes] = await Promise.all([
@@ -678,7 +726,6 @@ async function mergeDepartedMembers(
         avatar: missingAvatars.get(userId) ?? null,
         discord_id: discordId === null || discordId === undefined ? null : String(discordId),
         is_alt: missingAltSet.has(String(row.roblox_id)),
-        departed: true,
       };
     });
 
@@ -872,15 +919,31 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       };
     });
 
-    // Keep players who contributed during the war but have since been
-    // kicked/left the clan — Big Games drops them from PointContributions.
-    entries = await mergeDepartedMembers(entries, [
-      match?.key ?? "",
-      battle?.BattleID ?? "",
-      battle?.configName ?? "",
-      battle?.Title ?? "",
-      battleId,
-    ]);
+    // Ended war: union the war's FINAL snapshot back in — the roster exactly
+    // as it was when the war ended (including zero-point members and anyone
+    // kicked after the war), without resurrecting people who passed through
+    // mid-war.
+    entries = await mergeDepartedMembers(
+      entries,
+      [
+        match?.key ?? "",
+        battle?.BattleID ?? "",
+        battle?.configName ?? "",
+        battle?.Title ?? "",
+        battleId,
+      ],
+      { finalCaptureOnly: true }
+    );
+
+    // Mark anyone who is in this war's final group but no longer in the clan
+    // today, so the UI can show a "left clan" marker.
+    const currentRosterIds = extractCurrentRosterIds(clan);
+    if (currentRosterIds.size) {
+      entries = entries.map((entry) => ({
+        ...entry,
+        departed: !currentRosterIds.has(String(entry.user_id)),
+      }));
+    }
 
     const title = formatBattleTitle(battle.Title ?? battle.configName ?? battle.BattleID ?? fallbackTitle);
 
@@ -964,8 +1027,15 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   );
 
   if (historyExists.rows[0]?.exists) {
+    // Ended war: use the war's FINAL snapshot — the roster exactly as it was
+    // when the war ended — not everyone who passed through during it.
     const historyRes = await pool.query(
-      `SELECT DISTINCT ON (h.roblox_id)
+      `WITH latest AS (
+         SELECT MAX(captured_at) AS ts
+         FROM player_leaderboard_history
+         WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+       )
+       SELECT
           h.roblox_id::text AS user_id,
           h.username,
           h.points,
@@ -973,10 +1043,12 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
           u.roblox_id,
           u.discord_id
        FROM player_leaderboard_history h
+       CROSS JOIN latest
        LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(h.roblox_id AS TEXT))
        WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') = $1
          AND h.points IS NOT NULL
-       ORDER BY h.roblox_id, h.captured_at DESC`,
+         AND h.captured_at = latest.ts
+       ORDER BY h.points DESC`,
       [canonicalBattleKey]
     );
     membersRows = historyRes.rows;
@@ -1346,6 +1418,16 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
   // Union back anyone we snapshotted earlier this war who has since been
   // kicked/left the clan — Big Games drops them from live PointContributions.
   entries = await mergeDepartedMembers(entries, [battleKey]);
+
+  // Flag rows for players no longer in the clan right now (kicked/left
+  // mid-war) so the UI can show a "left clan" marker.
+  const liveRosterIds = extractCurrentRosterIds(clan);
+  if (liveRosterIds.size) {
+    entries = entries.map((entry) => ({
+      ...entry,
+      departed: !liveRosterIds.has(String(entry.user_id)),
+    }));
+  }
 
   await logPointHistory(entries, battleKey);
 
