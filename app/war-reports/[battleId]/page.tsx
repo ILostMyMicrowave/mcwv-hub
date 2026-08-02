@@ -115,6 +115,7 @@ function flagMeta(flag: string) {
   if (key.includes("discord")) return { icon: "💬", label: "No Discord", className: "border-rose-400/35 bg-rose-400/12 text-rose-100" };
   if (key.includes("alt")) return { icon: "🔁", label: "Alt", className: "border-violet-400/35 bg-violet-400/12 text-violet-100" };
   if (key.includes("live")) return { icon: "●", label: "Live", className: "border-cyan-400/35 bg-cyan-400/12 text-cyan-100" };
+  if (key.includes("left")) return { icon: "👋", label: "Left clan", className: "border-zinc-400/35 bg-zinc-400/10 text-zinc-200" };
   return { icon: "•", label: flag, className: "border-white/10 bg-white/5 text-zinc-300" };
 }
 
@@ -264,6 +265,7 @@ const FILTERS: Array<{ id: string; label: string; test: (m: ReportMember) => boo
   { id: "low", label: "Below Avg / D-F", test: (m) => m.warning },
   { id: "zero", label: "Zero", test: (m) => m.points <= 0 },
   { id: "alts", label: "Alts", test: (m) => m.isAlt },
+  { id: "left", label: "Left clan", test: (m) => m.flags.includes("Left Clan") },
 ];
 
 export default function WarReportDetailPage() {
@@ -489,7 +491,10 @@ export default function WarReportDetailPage() {
               {/* Mobile: stacked cards */}
               <div className="mt-5 space-y-3 md:hidden">
                 {members.map((member) => (
-                  <div key={member.robloxId} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div
+                    key={member.robloxId}
+                    className={`rounded-2xl border p-4 ${member.flags.includes("Left Clan") ? "border-zinc-500/20 bg-zinc-500/5 opacity-70" : "border-white/10 bg-black/20"}`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-3">
                         <img className="h-11 w-11 rounded-2xl border border-white/10 bg-black/30" src={member.avatarUrl} alt="" />
@@ -540,7 +545,10 @@ export default function WarReportDetailPage() {
                   </thead>
                   <tbody>
                     {members.map((member) => (
-                      <tr key={member.robloxId} className="rounded-2xl bg-black/20 transition hover:bg-black/30">
+                      <tr
+                        key={member.robloxId}
+                        className={`rounded-2xl transition hover:bg-black/30 ${member.flags.includes("Left Clan") ? "bg-zinc-500/10 opacity-70" : "bg-black/20"}`}
+                      >
                         <td className="rounded-l-2xl px-3 py-3 font-bold text-zinc-300">#{member.rank}</td>
                         <td className="px-3 py-3">
                           <div className="flex min-w-64 items-center gap-3">
