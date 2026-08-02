@@ -540,11 +540,13 @@ export async function GET(
     }
 
     const clanBattleData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
+    const departedMemberIds = new Set<string>();
     if (clanBattleData.memberIds.size > 0) {
       const reportIds = [...clanBattleData.memberIds];
       const reportNames = await fetchRobloxNames(reportIds);
       const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
-      playerRows = reportIds.map((robloxId) => {
+      const rosterIdSet = new Set(reportIds.map((id) => String(id)));
+      const mappedRows = reportIds.map((robloxId) => {
         const existing = rowsById.get(robloxId);
         const linked = linkedAccounts.get(robloxId);
         return {
@@ -555,6 +557,11 @@ export async function GET(
           captured_at: existing?.captured_at ?? null,
         };
       });
+      // Anyone we snapshotted during this war who is no longer on the roster
+      // was kicked/left mid-war — keep them in the report, flagged departed.
+      const departedRows = [...rowsById.values()].filter((row) => !rosterIdSet.has(String(row.roblox_id)));
+      for (const row of departedRows) departedMemberIds.add(String(row.roblox_id));
+      playerRows = [...mappedRows, ...departedRows];
     }
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
@@ -592,6 +599,7 @@ export async function GET(
       const grade = manualGrade ?? autoGrade;
       const flags: string[] = [];
 
+      if (departedMemberIds.has(String(row.roblox_id))) flags.push("Left Clan");
       if (rank <= 3) flags.push("MVP");
       if (rank <= 10) flags.push("Top 10");
       else if (rank <= 25) flags.push("Top 25");
