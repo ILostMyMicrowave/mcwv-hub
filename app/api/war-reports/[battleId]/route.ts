@@ -33,6 +33,9 @@ type PlayerSnapshotRow = {
   rank: number | string | null;
   points: number | string | null;
   captured_at: Date | string | null;
+  /** true when this row comes from the battle's final snapshot batch — i.e.
+   * the player was in the clan when the war ended. */
+  in_final: boolean;
 };
 
 type LinkedAccount = {
@@ -215,6 +218,7 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
   return {
     memberIds,
     contributionPoints,
+    currentMemberIds,
     battleFound: Boolean(battle),
     battlePoints: asNumber(battle?.Points ?? battle?.points),
     ownerId,
@@ -521,14 +525,16 @@ export async function GET(
            username,
            rank,
            points,
-           captured_at
+           captured_at,
+           (captured_at = last_ts) AS in_final
          FROM (
            SELECT
              roblox_id::text AS roblox_id,
              username,
              rank,
              points,
-             captured_at
+             captured_at,
+             MAX(captured_at) OVER () AS last_ts
            FROM player_leaderboard_history
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
              AND points IS NOT NULL
@@ -540,7 +546,6 @@ export async function GET(
     }
 
     const clanBattleData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
-    const departedMemberIds = new Set<string>();
     if (clanBattleData.memberIds.size > 0) {
       const reportIds = [...clanBattleData.memberIds];
       const reportNames = await fetchRobloxNames(reportIds);
@@ -555,12 +560,17 @@ export async function GET(
           rank: existing?.rank ?? null,
           points: clanBattleData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
           captured_at: existing?.captured_at ?? null,
+          in_final: existing?.in_final ?? false,
         };
       });
-      // Anyone we snapshotted during this war who is no longer on the roster
-      // was kicked/left mid-war — keep them in the report, flagged departed.
-      const departedRows = [...rowsById.values()].filter((row) => !rosterIdSet.has(String(row.roblox_id)));
-      for (const row of departedRows) departedMemberIds.add(String(row.roblox_id));
+      // Union back players we snapshotted during this war who are missing
+      // from the roster source. Live wars: anyone ever seen (kicked members
+      // stay visible mid-war). Ended wars: only the war's final snapshot —
+      // the roster exactly as it ended — so people who passed through
+      // mid-war do not inflate the report.
+      const departedRows = [...rowsById.values()].filter(
+        (row) => !rosterIdSet.has(String(row.roblox_id)) && (battle.is_active || row.in_final)
+      );
       playerRows = [...mappedRows, ...departedRows];
     }
 
@@ -599,7 +609,10 @@ export async function GET(
       const grade = manualGrade ?? autoGrade;
       const flags: string[] = [];
 
-      if (departedMemberIds.has(String(row.roblox_id))) flags.push("Left Clan");
+      // "Left Clan" = took part in this war but is not in the clan today
+      // (kicked/left afterwards). Works for live and ended wars alike.
+      const rosterNow = clanBattleData.currentMemberIds;
+      if (rosterNow.size > 0 && !rosterNow.has(String(row.roblox_id))) flags.push("Left Clan");
       if (rank <= 3) flags.push("MVP");
       if (rank <= 10) flags.push("Top 10");
       else if (rank <= 25) flags.push("Top 25");
