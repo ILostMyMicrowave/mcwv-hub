@@ -33,6 +33,9 @@ type PlayerSnapshotRow = {
   rank: number | string | null;
   points: number | string | null;
   captured_at: Date | string | null;
+  /** true when the player was still present in the clan during the battle's
+   * final 24 hours (used to re-attach zero-point members for ended wars). */
+  in_final: boolean;
 };
 
 type LinkedAccount = {
@@ -522,14 +525,16 @@ export async function GET(
            username,
            rank,
            points,
-           captured_at
+           captured_at,
+           (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
          FROM (
            SELECT
              roblox_id::text AS roblox_id,
              username,
              rank,
              points,
-             captured_at
+             captured_at,
+             MAX(captured_at) OVER () AS last_ts
            FROM player_leaderboard_history
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
              AND points IS NOT NULL
@@ -545,7 +550,8 @@ export async function GET(
       const reportIds = [...clanBattleData.memberIds];
       const reportNames = await fetchRobloxNames(reportIds);
       const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
-      playerRows = reportIds.map((robloxId) => {
+      const rosterIdSet = new Set(reportIds.map((id) => String(id)));
+      const mappedRows = reportIds.map((robloxId) => {
         const existing = rowsById.get(robloxId);
         const linked = linkedAccounts.get(robloxId);
         return {
@@ -554,8 +560,21 @@ export async function GET(
           rank: existing?.rank ?? null,
           points: clanBattleData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
           captured_at: existing?.captured_at ?? null,
+          in_final: existing?.in_final ?? false,
         };
       });
+      // Ended wars: re-attach zero-point members from the war's final day —
+      // but ONLY if they are verifiably in the current in-game roster.
+      // People who passed through and have since left do not count.
+      const verifiedExtras = battle.is_active
+        ? []
+        : [...rowsById.values()].filter(
+            (row) =>
+              !rosterIdSet.has(String(row.roblox_id)) &&
+              row.in_final &&
+              clanBattleData.currentMemberIds.has(String(row.roblox_id).trim())
+          );
+      playerRows = [...mappedRows, ...verifiedExtras];
     }
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
