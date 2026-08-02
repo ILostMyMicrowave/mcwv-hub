@@ -33,10 +33,6 @@ type PlayerSnapshotRow = {
   rank: number | string | null;
   points: number | string | null;
   captured_at: Date | string | null;
-  /** true when the player was still in the clan during the battle's final
-   * 3 hours — i.e. part of the end-of-war group. A window (not one exact
-   * batch) because the bot and the site snapshot at different cadences. */
-  in_final: boolean;
 };
 
 type LinkedAccount = {
@@ -526,16 +522,14 @@ export async function GET(
            username,
            rank,
            points,
-           captured_at,
-           (captured_at >= last_ts - INTERVAL '3 hours') AS in_final
+           captured_at
          FROM (
            SELECT
              roblox_id::text AS roblox_id,
              username,
              rank,
              points,
-             captured_at,
-             MAX(captured_at) OVER () AS last_ts
+             captured_at
            FROM player_leaderboard_history
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
              AND points IS NOT NULL
@@ -551,8 +545,7 @@ export async function GET(
       const reportIds = [...clanBattleData.memberIds];
       const reportNames = await fetchRobloxNames(reportIds);
       const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
-      const rosterIdSet = new Set(reportIds.map((id) => String(id)));
-      const mappedRows = reportIds.map((robloxId) => {
+      playerRows = reportIds.map((robloxId) => {
         const existing = rowsById.get(robloxId);
         const linked = linkedAccounts.get(robloxId);
         return {
@@ -561,18 +554,8 @@ export async function GET(
           rank: existing?.rank ?? null,
           points: clanBattleData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
           captured_at: existing?.captured_at ?? null,
-          in_final: existing?.in_final ?? false,
         };
       });
-      // Union back players we snapshotted during this war who are missing
-      // from the roster source. Live wars: anyone ever seen (kicked members
-      // stay visible mid-war). Ended wars: only the war's final snapshot —
-      // the roster exactly as it ended — so people who passed through
-      // mid-war do not inflate the report.
-      const departedRows = [...rowsById.values()].filter(
-        (row) => !rosterIdSet.has(String(row.roblox_id)) && (battle.is_active || row.in_final)
-      );
-      playerRows = [...mappedRows, ...departedRows];
     }
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
