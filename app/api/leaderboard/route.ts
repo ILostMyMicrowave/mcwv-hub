@@ -636,7 +636,7 @@ function extractCurrentRosterIds(clanPayload: unknown): Set<string> {
  * endOfWarOnly=false (live war): union across the whole war so kicked
  * members stay visible while the war is running.
  * endOfWarOnly=true (ended war): union ONLY players still present during the
- * final 24 hours of the war — the roster as it was when the war ended
+ * final 3 hours of the war — the roster as it was when the war ended
  * (zero-point members included, people who left mid-war excluded). A window
  * is used instead of one exact batch because snapshots are written by two
  * collectors (bot hourly with the full roster, site per-minute with
@@ -675,7 +675,7 @@ async function mergeDepartedMembers(
            CROSS JOIN latest
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
              AND points IS NOT NULL
-             AND captured_at >= latest.ts - INTERVAL '24 hours'
+             AND captured_at >= latest.ts - INTERVAL '3 hours'
            ORDER BY player_leaderboard_history.roblox_id, captured_at DESC`,
           [keys]
         )
@@ -927,7 +927,7 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
     });
 
     // Ended war: union players who were still in the clan during the war's
-    // final 24 hours — the end-of-war group (zero-point members and anyone
+    // final 3 hours — the end-of-war group (zero-point members and anyone
     // kicked after the war included), without resurrecting people who passed
     // through mid-war.
     entries = await mergeDepartedMembers(
@@ -1035,7 +1035,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
 
   if (historyExists.rows[0]?.exists) {
     // Ended war: the end-of-war group = anyone still present during the
-    // war's final 24 hours (a window, because the bot and the site snapshot
+    // war's final 3 hours (a window, because the bot and the site snapshot
     // at different cadences) — not everyone who passed through during it.
     const historyRes = await pool.query(
       `WITH latest AS (
@@ -1055,7 +1055,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
        LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(h.roblox_id AS TEXT))
        WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') = $1
          AND h.points IS NOT NULL
-         AND h.captured_at >= latest.ts - INTERVAL '24 hours'
+         AND h.captured_at >= latest.ts - INTERVAL '3 hours'
        ORDER BY h.roblox_id, h.captured_at DESC`,
       [canonicalBattleKey]
     );
