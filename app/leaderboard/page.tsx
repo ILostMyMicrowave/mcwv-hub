@@ -1620,6 +1620,9 @@ export default function LeaderboardPage() {
 
   const podium = useMemo(() => data.slice(0, 3), [data]);
   const historicalView = Boolean(selectedBattleId);
+  // When no war is running the API serves the last war's final standings
+  // (rows with points). Without those it falls back to the tracked roster.
+  const hasPointData = data.some((entry) => typeof entry.points === "number");
 
   const updatedAgo = updatedAt
     ? `${Math.max(1, Math.floor((now - new Date(updatedAt).getTime()) / 1000))}s ago`
@@ -1646,7 +1649,7 @@ export default function LeaderboardPage() {
                         historicalView ? "bg-sky-400" : active ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"
                       }`}
                     />
-                    {historicalView ? "Historical snapshot" : active ? "Live war tracking" : "No active war right now"}
+                    {historicalView ? "Historical snapshot" : active ? "Live war tracking" : hasPointData ? "No active war — last war's final standings" : "No active war right now"}
                   </div>
 
                   <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -1656,7 +1659,11 @@ export default function LeaderboardPage() {
                   <p className="mt-2 max-w-2xl text-sm text-zinc-400">
                     {historicalView
                       ? "This historical war is frozen. Leaderboard rows and profile graphs stay locked to this battle instead of following the current war."
-                      : "Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges appear automatically when the API provides them."}
+                      : active
+                      ? "Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges appear automatically when the API provides them."
+                      : hasPointData
+                      ? "No war is running right now — these are the final standings of the last war, exactly as it ended (including members who have left the clan since)."
+                      : "No war is running right now. Standings will appear here as soon as the next war begins."}
                   </p>
                 </div>
 
@@ -1701,7 +1708,7 @@ export default function LeaderboardPage() {
                         : "border-zinc-400/20 bg-zinc-400/10 text-zinc-300"
                     }`}>
                       <span className={`h-2 w-2 rounded-full ${selectedBattleId ? "bg-sky-400" : active ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
-                      {selectedBattleId ? "HISTORICAL" : active ? "LIVE" : "ROSTER"}
+                      {selectedBattleId ? "HISTORICAL" : active ? "LIVE" : hasPointData ? "LAST WAR" : "ROSTER"}
                     </span>
 
                     <span className="text-sm text-zinc-300">
