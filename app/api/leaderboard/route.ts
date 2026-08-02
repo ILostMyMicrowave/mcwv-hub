@@ -123,6 +123,9 @@ type LeaderboardEntry = {
   avatar: string | null;
   discord_id: string | null;
   is_alt?: boolean;
+  /** true when the player was snapshotted this war but has since left/been
+   * kicked from the clan — kept on the board with their last known points. */
+  departed?: boolean;
   disconnects24h?: number;
   change5m?: number;
   pph?: number;
@@ -591,6 +594,103 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
   }
 }
 
+/* ---------------- DEPARTED MEMBER MERGE ---------------- */
+
+type DepartedHistoryRow = {
+  roblox_id: string;
+  username: string | null;
+  points: number | string | null;
+};
+
+/**
+ * Big Games removes players from a battle's PointContributions when they are
+ * kicked/leave the clan mid-war — but they still contributed while they were
+ * in. Our own player_leaderboard_history keeps their snapshots, so union
+ * anyone back in that the official contribution list is missing. Merged
+ * players are flagged `departed: true` and the list is re-sorted/re-ranked.
+ */
+async function mergeDepartedMembers(
+  entries: LeaderboardEntry[],
+  battleKeys: string[]
+): Promise<LeaderboardEntry[]> {
+  const keys = [...new Set(battleKeys.map(normalizeKey).filter(Boolean))];
+  if (!keys.length) return entries;
+
+  try {
+    const tableCheck = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
+    );
+    if (!tableCheck.rows[0]?.exists) return entries;
+
+    const knownIds = new Set(entries.map((entry) => String(entry.user_id)));
+
+    const historyRes = await pool.query<DepartedHistoryRow>(
+      `SELECT DISTINCT ON (roblox_id)
+          roblox_id::text AS roblox_id,
+          username,
+          points
+       FROM player_leaderboard_history
+       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+         AND points IS NOT NULL
+       ORDER BY roblox_id, captured_at DESC`,
+      [keys]
+    );
+
+    const missingRows = historyRes.rows.filter((row) => !knownIds.has(String(row.roblox_id)));
+    if (!missingRows.length) return entries;
+
+    const missingIds = missingRows.map((row) => String(row.roblox_id));
+    const missingNumericIds = missingIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+
+    const [missingNames, missingAvatars, missingUsersRes] = await Promise.all([
+      getNames(missingNumericIds),
+      getAvatars(missingNumericIds),
+      pool.query<{ roblox_id: string; discord_id: string | number | null }>(
+        `SELECT roblox_id::text AS roblox_id, discord_id
+         FROM users
+         WHERE roblox_id::text = ANY($1)`,
+        [missingIds]
+      ),
+    ]);
+
+    const missingDiscordMap = new Map(
+      missingUsersRes.rows.map((row) => [String(row.roblox_id), row.discord_id])
+    );
+    const missingDiscordIds = Array.from(missingDiscordMap.values()).filter(Boolean);
+
+    let missingAltSet = new Set<string>();
+    if (missingDiscordIds.length) {
+      const missingAltRes = await pool.query<{ roblox_id: string | number }>(
+        `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
+        [missingDiscordIds]
+      );
+      missingAltSet = new Set(missingAltRes.rows.map((row) => String(row.roblox_id)));
+    }
+
+    const departedEntries: LeaderboardEntry[] = missingRows.map((row) => {
+      const userId = Number(row.roblox_id);
+      const discordId = missingDiscordMap.get(String(row.roblox_id));
+      return {
+        rank: 0, // re-ranked below
+        user_id: userId,
+        name: row.username || missingNames.get(userId) || `Unknown (${userId})`,
+        points: Number(row.points ?? 0),
+        avatar: missingAvatars.get(userId) ?? null,
+        discord_id: discordId === null || discordId === undefined ? null : String(discordId),
+        is_alt: missingAltSet.has(String(row.roblox_id)),
+        departed: true,
+      };
+    });
+
+    return [...entries, ...departedEntries]
+      .sort((a, b) => Number(b.points ?? 0) - Number(a.points ?? 0))
+      .map((entry, index) => ({ ...entry, rank: index + 1 }));
+  } catch (err) {
+    console.error("[leaderboard/departed] merge error:", err);
+    return entries;
+  }
+}
+
 /* ---------------- ROBLOX HELPERS ---------------- */
 
 async function getNames(userIds: number[]) {
@@ -759,7 +859,7 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       altSet = new Set(altRes.rows.map((row) => String(row.roblox_id)));
     }
 
-    const entries: LeaderboardEntry[] = contributions.map((entry, index) => {
+    let entries: LeaderboardEntry[] = contributions.map((entry, index) => {
       const user_id = Number(entry.UserID ?? 0);
       return {
         rank: index + 1,
@@ -771,6 +871,16 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
         is_alt: altSet.has(String(user_id)),
       };
     });
+
+    // Keep players who contributed during the war but have since been
+    // kicked/left the clan — Big Games drops them from PointContributions.
+    entries = await mergeDepartedMembers(entries, [
+      match?.key ?? "",
+      battle?.BattleID ?? "",
+      battle?.configName ?? "",
+      battle?.Title ?? "",
+      battleId,
+    ]);
 
     const title = formatBattleTitle(battle.Title ?? battle.configName ?? battle.BattleID ?? fallbackTitle);
 
@@ -1148,7 +1258,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
   const total_points = Number(battle.Points ?? 0);
 
-  const entries: LeaderboardEntry[] = contributions.map((entry, index) => {
+  let entries: LeaderboardEntry[] = contributions.map((entry, index) => {
     const user_id = Number(entry.UserID ?? 0);
     const points = getPoints(entry);
 
@@ -1167,6 +1277,10 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
   const battleKey = normalizeKey(
     battleEntry?.key ?? battle?.BattleID ?? battle?.configName ?? title
   );
+
+  // Union back anyone we snapshotted earlier this war who has since been
+  // kicked/left the clan — Big Games drops them from live PointContributions.
+  entries = await mergeDepartedMembers(entries, [battleKey]);
 
   await logPointHistory(entries, battleKey);
 
