@@ -633,18 +633,21 @@ function extractCurrentRosterIds(clanPayload: unknown): Set<string> {
  * in. Our own player_leaderboard_history keeps their snapshots, so union
  * anyone back in that the official contribution list is missing.
  *
- * finalCaptureOnly=false (live war): union across the whole war so kicked
+ * endOfWarOnly=false (live war): union across the whole war so kicked
  * members stay visible while the war is running.
- * finalCaptureOnly=true (ended war): union ONLY the war's final snapshot —
- * the roster exactly as it was when the war ended (zero-point members too),
- * without resurrecting people who joined and left mid-war.
+ * endOfWarOnly=true (ended war): union ONLY players still present during the
+ * final 24 hours of the war — the roster as it was when the war ended
+ * (zero-point members included, people who left mid-war excluded). A window
+ * is used instead of one exact batch because snapshots are written by two
+ * collectors (bot hourly with the full roster, site per-minute with
+ * contributors only), so a single "latest batch" can under-count.
  *
  * The merged list is re-sorted/re-ranked by points.
  */
 async function mergeDepartedMembers(
   entries: LeaderboardEntry[],
   battleKeys: string[],
-  options: { finalCaptureOnly?: boolean } = {}
+  options: { endOfWarOnly?: boolean } = {}
 ): Promise<LeaderboardEntry[]> {
   const keys = [...new Set(battleKeys.map(normalizeKey).filter(Boolean))];
   if (!keys.length) return entries;
@@ -657,19 +660,23 @@ async function mergeDepartedMembers(
 
     const knownIds = new Set(entries.map((entry) => String(entry.user_id)));
 
-    const historyRes = options.finalCaptureOnly
+    const historyRes = options.endOfWarOnly
       ? await pool.query<DepartedHistoryRow>(
           `WITH latest AS (
              SELECT MAX(captured_at) AS ts
              FROM player_leaderboard_history
              WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
            )
-           SELECT roblox_id::text AS roblox_id, username, points
+           SELECT DISTINCT ON (player_leaderboard_history.roblox_id)
+             roblox_id::text AS roblox_id,
+             username,
+             points
            FROM player_leaderboard_history
            CROSS JOIN latest
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
              AND points IS NOT NULL
-             AND captured_at = latest.ts`,
+             AND captured_at >= latest.ts - INTERVAL '24 hours'
+           ORDER BY player_leaderboard_history.roblox_id, captured_at DESC`,
           [keys]
         )
       : await pool.query<DepartedHistoryRow>(
@@ -919,10 +926,10 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       };
     });
 
-    // Ended war: union the war's FINAL snapshot back in — the roster exactly
-    // as it was when the war ended (including zero-point members and anyone
-    // kicked after the war), without resurrecting people who passed through
-    // mid-war.
+    // Ended war: union players who were still in the clan during the war's
+    // final 24 hours — the end-of-war group (zero-point members and anyone
+    // kicked after the war included), without resurrecting people who passed
+    // through mid-war.
     entries = await mergeDepartedMembers(
       entries,
       [
@@ -932,7 +939,7 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
         battle?.Title ?? "",
         battleId,
       ],
-      { finalCaptureOnly: true }
+      { endOfWarOnly: true }
     );
 
     // Mark anyone who is in this war's final group but no longer in the clan
@@ -1027,15 +1034,16 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   );
 
   if (historyExists.rows[0]?.exists) {
-    // Ended war: use the war's FINAL snapshot — the roster exactly as it was
-    // when the war ended — not everyone who passed through during it.
+    // Ended war: the end-of-war group = anyone still present during the
+    // war's final 24 hours (a window, because the bot and the site snapshot
+    // at different cadences) — not everyone who passed through during it.
     const historyRes = await pool.query(
       `WITH latest AS (
          SELECT MAX(captured_at) AS ts
          FROM player_leaderboard_history
          WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
        )
-       SELECT
+       SELECT DISTINCT ON (h.roblox_id)
           h.roblox_id::text AS user_id,
           h.username,
           h.points,
@@ -1047,8 +1055,8 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
        LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(h.roblox_id AS TEXT))
        WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') = $1
          AND h.points IS NOT NULL
-         AND h.captured_at = latest.ts
-       ORDER BY h.points DESC`,
+         AND h.captured_at >= latest.ts - INTERVAL '24 hours'
+       ORDER BY h.roblox_id, h.captured_at DESC`,
       [canonicalBattleKey]
     );
     membersRows = historyRes.rows;
@@ -1144,56 +1152,6 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
     updatedAt: new Date().toISOString(),
     data: await attachProfileStyles(entries),
   };
-}
-
-/* ---------------- LAST COMPLETED WAR ---------------- */
-
-/**
- * When no war is running we want the leaderboard to show the final standings
- * of the war that just ended — exactly the roster that finished that war,
- * including members who have left/been kicked since — instead of today's
- * tracked roster (which includes people who joined after the war).
- */
-async function getLastCompletedBattleId(): Promise<string | null> {
-  try {
-    const battlesCheck = await pool.query<{ exists: boolean }>(
-      `SELECT to_regclass('public.battles') IS NOT NULL AS exists`
-    );
-    if (battlesCheck.rows[0]?.exists) {
-      const res = await pool.query<{ battle_id: string }>(
-        `SELECT battle_id
-         FROM battles
-         WHERE end_time IS NOT NULL
-           AND end_time <= NOW()
-         ORDER BY end_time DESC
-         LIMIT 1`
-      );
-      if (res.rows[0]?.battle_id) return res.rows[0].battle_id;
-    }
-  } catch (err) {
-    console.error("[leaderboard/last-war] battles lookup error:", err);
-  }
-
-  try {
-    const historyCheck = await pool.query<{ exists: boolean }>(
-      `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
-    );
-    if (historyCheck.rows[0]?.exists) {
-      const res = await pool.query<{ battle_id: string }>(
-        `SELECT battle_id
-         FROM player_leaderboard_history
-         WHERE battle_id IS NOT NULL
-         GROUP BY battle_id
-         ORDER BY MAX(captured_at) DESC
-         LIMIT 1`
-      );
-      if (res.rows[0]?.battle_id) return res.rows[0].battle_id;
-    }
-  } catch (err) {
-    console.error("[leaderboard/last-war] history lookup error:", err);
-  }
-
-  return null;
 }
 
 /* ---------------- INACTIVE ROSTER FALLBACK ---------------- */
@@ -1299,21 +1257,7 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
   if (!active) {
     resetPointHistoryTracking();
-
-    // No war running: show the final standings of the last completed war —
-    // the roster exactly as it was at the end of that war (including members
-    // who have left since) — rather than today's tracked roster, which
-    // includes people who joined after the war.
-    try {
-      const lastBattleId = await getLastCompletedBattleId();
-      if (lastBattleId) {
-        const lastWar = await buildHistoricalLeaderboard(lastBattleId);
-        if (lastWar.data.length) return lastWar;
-      }
-    } catch (err) {
-      console.error("[leaderboard/last-war] fallback error:", err);
-    }
-
+    // No war running — just show the tracked roster.
     return buildInactiveRoster(title);
   }
 
