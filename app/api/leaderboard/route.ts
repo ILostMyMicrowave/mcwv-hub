@@ -594,13 +594,7 @@ async function attachLiveMetricsAndSnapshot(entries: LeaderboardEntry[], battleK
   }
 }
 
-/* ---------------- DEPARTED MEMBER MERGE ---------------- */
-
-type DepartedHistoryRow = {
-  roblox_id: string;
-  username: string | null;
-  points: number | string | null;
-};
+/* ---------------- CURRENT ROSTER HELPER ---------------- */
 
 /** Current in-game roster (Members + Owner) from a clan API payload. */
 function extractCurrentRosterIds(clanPayload: unknown): Set<string> {
@@ -625,124 +619,6 @@ function extractCurrentRosterIds(clanPayload: unknown): Set<string> {
   }
 
   return ids;
-}
-
-/**
- * Big Games removes players from a battle's PointContributions when they are
- * kicked/leave the clan mid-war — but they still contributed while they were
- * in. Our own player_leaderboard_history keeps their snapshots, so union
- * anyone back in that the official contribution list is missing.
- *
- * endOfWarOnly=false (live war): union across the whole war so kicked
- * members stay visible while the war is running.
- * endOfWarOnly=true (ended war): union ONLY players still present during the
- * final 3 hours of the war — the roster as it was when the war ended
- * (zero-point members included, people who left mid-war excluded). A window
- * is used instead of one exact batch because snapshots are written by two
- * collectors (bot hourly with the full roster, site per-minute with
- * contributors only), so a single "latest batch" can under-count.
- *
- * The merged list is re-sorted/re-ranked by points.
- */
-async function mergeDepartedMembers(
-  entries: LeaderboardEntry[],
-  battleKeys: string[],
-  options: { endOfWarOnly?: boolean } = {}
-): Promise<LeaderboardEntry[]> {
-  const keys = [...new Set(battleKeys.map(normalizeKey).filter(Boolean))];
-  if (!keys.length) return entries;
-
-  try {
-    const tableCheck = await pool.query<{ exists: boolean }>(
-      `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
-    );
-    if (!tableCheck.rows[0]?.exists) return entries;
-
-    const knownIds = new Set(entries.map((entry) => String(entry.user_id)));
-
-    const historyRes = options.endOfWarOnly
-      ? await pool.query<DepartedHistoryRow>(
-          `WITH latest AS (
-             SELECT MAX(captured_at) AS ts
-             FROM player_leaderboard_history
-             WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
-           )
-           SELECT DISTINCT ON (player_leaderboard_history.roblox_id)
-             roblox_id::text AS roblox_id,
-             username,
-             points
-           FROM player_leaderboard_history
-           CROSS JOIN latest
-           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
-             AND points IS NOT NULL
-             AND captured_at >= latest.ts - INTERVAL '3 hours'
-           ORDER BY player_leaderboard_history.roblox_id, captured_at DESC`,
-          [keys]
-        )
-      : await pool.query<DepartedHistoryRow>(
-          `SELECT DISTINCT ON (roblox_id)
-              roblox_id::text AS roblox_id,
-              username,
-              points
-           FROM player_leaderboard_history
-           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
-             AND points IS NOT NULL
-           ORDER BY roblox_id, captured_at DESC`,
-          [keys]
-        );
-
-    const missingRows = historyRes.rows.filter((row) => !knownIds.has(String(row.roblox_id).trim()));
-    if (!missingRows.length) return entries;
-
-    const missingIds = missingRows.map((row) => String(row.roblox_id).trim());
-    const missingNumericIds = missingIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
-
-    const [missingNames, missingAvatars, missingUsersRes] = await Promise.all([
-      getNames(missingNumericIds),
-      getAvatars(missingNumericIds),
-      pool.query<{ roblox_id: string; discord_id: string | number | null }>(
-        `SELECT roblox_id::text AS roblox_id, discord_id
-         FROM users
-         WHERE roblox_id::text = ANY($1)`,
-        [missingIds]
-      ),
-    ]);
-
-    const missingDiscordMap = new Map(
-      missingUsersRes.rows.map((row) => [String(row.roblox_id), row.discord_id])
-    );
-    const missingDiscordIds = Array.from(missingDiscordMap.values()).filter(Boolean);
-
-    let missingAltSet = new Set<string>();
-    if (missingDiscordIds.length) {
-      const missingAltRes = await pool.query<{ roblox_id: string | number }>(
-        `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
-        [missingDiscordIds]
-      );
-      missingAltSet = new Set(missingAltRes.rows.map((row) => String(row.roblox_id)));
-    }
-
-    const departedEntries: LeaderboardEntry[] = missingRows.map((row) => {
-      const userId = Number(row.roblox_id);
-      const discordId = missingDiscordMap.get(String(row.roblox_id));
-      return {
-        rank: 0, // re-ranked below
-        user_id: userId,
-        name: row.username || missingNames.get(userId) || `Unknown (${userId})`,
-        points: Number(row.points ?? 0),
-        avatar: missingAvatars.get(userId) ?? null,
-        discord_id: discordId === null || discordId === undefined ? null : String(discordId),
-        is_alt: missingAltSet.has(String(row.roblox_id)),
-      };
-    });
-
-    return [...entries, ...departedEntries]
-      .sort((a, b) => Number(b.points ?? 0) - Number(a.points ?? 0))
-      .map((entry, index) => ({ ...entry, rank: index + 1 }));
-  } catch (err) {
-    console.error("[leaderboard/departed] merge error:", err);
-    return entries;
-  }
 }
 
 /* ---------------- ROBLOX HELPERS ---------------- */
@@ -926,23 +802,9 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       };
     });
 
-    // Ended war: union players who were still in the clan during the war's
-    // final 3 hours — the end-of-war group (zero-point members and anyone
-    // kicked after the war included), without resurrecting people who passed
-    // through mid-war.
-    entries = await mergeDepartedMembers(
-      entries,
-      [
-        match?.key ?? "",
-        battle?.BattleID ?? "",
-        battle?.configName ?? "",
-        battle?.Title ?? "",
-        battleId,
-      ],
-      { endOfWarOnly: true }
-    );
-
-    // Mark anyone who is in this war's final group but no longer in the clan
+    // Historical wars show ONLY people who actually competed in that war
+    // (the PointContributions ledger) — nobody who joined after, nobody who
+    // passed through. Mark anyone who competed but is no longer in the clan
     // today, so the UI can show a "left clan" marker.
     const currentRosterIds = extractCurrentRosterIds(clan);
     if (currentRosterIds.size) {
@@ -1034,16 +896,8 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   );
 
   if (historyExists.rows[0]?.exists) {
-    // Ended war: the end-of-war group = anyone still present during the
-    // war's final 3 hours (a window, because the bot and the site snapshot
-    // at different cadences) — not everyone who passed through during it.
     const historyRes = await pool.query(
-      `WITH latest AS (
-         SELECT MAX(captured_at) AS ts
-         FROM player_leaderboard_history
-         WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
-       )
-       SELECT DISTINCT ON (h.roblox_id)
+      `SELECT DISTINCT ON (h.roblox_id)
           h.roblox_id::text AS user_id,
           h.username,
           h.points,
@@ -1051,11 +905,9 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
           u.roblox_id,
           u.discord_id
        FROM player_leaderboard_history h
-       CROSS JOIN latest
        LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(h.roblox_id AS TEXT))
        WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') = $1
          AND h.points IS NOT NULL
-         AND h.captured_at >= latest.ts - INTERVAL '3 hours'
        ORDER BY h.roblox_id, h.captured_at DESC`,
       [canonicalBattleKey]
     );
@@ -1157,6 +1009,74 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
 /* ---------------- INACTIVE ROSTER FALLBACK ---------------- */
 
 async function buildInactiveRoster(title = "MCWV Roster"): Promise<LeaderboardResponse> {
+  // No active war: show the CURRENT in-game roster (Members + Owner) — clan
+  // members who never linked a hub account still appear, and linked accounts
+  // no longer in the clan do not. Falls back to tracked hub accounts if the
+  // clan API can't be read.
+  try {
+    const clan = await fetchJson(CLAN_API);
+    const rosterIds = [...extractCurrentRosterIds(clan)];
+
+    if (rosterIds.length) {
+      const rosterNumericIds = rosterIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+      const [rosterNames, rosterAvatars] = await Promise.all([
+        getNames(rosterNumericIds),
+        getAvatars(rosterNumericIds),
+      ]);
+
+      const rosterUsersRes = await pool.query(
+        `SELECT roblox_id, discord_id
+         FROM users
+         WHERE roblox_id = ANY($1)`,
+        [rosterIds]
+      );
+      const rosterDiscordMap = new Map(
+        rosterUsersRes.rows.map((u) => [String(u.roblox_id), u.discord_id])
+      );
+
+      const rosterDiscordIds = Array.from(rosterDiscordMap.values()).filter(Boolean);
+      let rosterAltSet = new Set<string>();
+      if (rosterDiscordIds.length) {
+        const rosterAltRes = await pool.query(
+          `SELECT roblox_id
+           FROM user_alts
+           WHERE discord_id = ANY($1)`,
+          [rosterDiscordIds]
+        );
+        rosterAltSet = new Set(rosterAltRes.rows.map((r) => String(r.roblox_id)));
+      }
+
+      const rosterEntries: LeaderboardEntry[] = rosterIds
+        .map((id) => {
+          const userId = Number(id);
+          const discordId = rosterDiscordMap.get(id);
+          return {
+            rank: 0, // re-ranked after sorting by name
+            user_id: userId,
+            name: rosterNames.get(userId) ?? `Unknown (${userId})`,
+            points: null,
+            avatar: rosterAvatars.get(userId) ?? null,
+            discord_id: discordId === null || discordId === undefined ? null : String(discordId),
+            is_alt: rosterAltSet.has(id),
+            disconnects24h: 0,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+      return {
+        success: true,
+        active: false,
+        title: "No Active War",
+        total_points: 0,
+        updatedAt: new Date().toISOString(),
+        data: await attachProfileStyles(rosterEntries),
+      };
+    }
+  } catch (err) {
+    console.error("[leaderboard/roster] clan API roster read failed, using tracked accounts:", err);
+  }
+
   const rows: Array<{
     roblox_id: string;
     username: string | null;
@@ -1281,28 +1201,30 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
     };
   }
 
+  // Note: no early return when contributions are empty — a brand-new war
+  // should still show the current roster with 0 points.
   const rawContributions: Contribution[] = Array.isArray(battle.PointContributions)
     ? battle.PointContributions
     : [];
-
-  if (!rawContributions.length) {
-    return {
-      success: true,
-      active: true,
-      title,
-      total_points: Number(battle.Points ?? 0),
-      updatedAt: new Date().toISOString(),
-      data: [],
-    };
-  }
 
   const contributions = rawContributions
     .filter((e): e is Contribution => !!e && typeof e === "object")
     .sort((a, b) => getPoints(b) - getPoints(a));
 
+  const contributionPoints = new Map<string, number>();
+  for (const c of contributions) {
+    const id = String(c.UserID ?? "").trim();
+    if (id) contributionPoints.set(id, getPoints(c));
+  }
+
+  // The live board shows the CURRENT in-game roster (Members + Owner): clan
+  // members who never linked a hub account still appear, linked accounts no
+  // longer in the clan do not, and kicked members drop out immediately.
+  // Falls back to the contribution list if the roster can't be read.
+  const liveRosterIds = extractCurrentRosterIds(clan);
   const userIds = [
-    ...new Set(contributions.map((c) => String(c.UserID)))
-  ].filter(Boolean);
+    ...new Set(liveRosterIds.size ? [...liveRosterIds] : [...contributionPoints.keys()]),
+  ];
 
   const [nameMap, avatarMap] = await Promise.all([
     getNames(userIds.map(Number).filter(Number.isFinite)),
@@ -1339,39 +1261,27 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
   const total_points = Number(battle.Points ?? 0);
 
-  let entries: LeaderboardEntry[] = contributions.map((entry, index) => {
-    const user_id = Number(entry.UserID ?? 0);
-    const points = getPoints(entry);
+  const entries: LeaderboardEntry[] = userIds
+    .map((id) => {
+      const user_id = Number(id);
 
-    return {
-      rank: index + 1,
-      user_id,
-      name: nameMap.get(user_id) ?? `Unknown (${user_id})`,
-      points,
-      avatar: avatarMap.get(user_id) ?? null,
-      discord_id: discordMap.get(String(user_id)) ?? null,
-      is_alt: altSet.has(String(user_id)),
-    };
-  });
+      return {
+        rank: 0, // re-ranked after sorting by points
+        user_id,
+        name: nameMap.get(user_id) ?? `Unknown (${user_id})`,
+        points: contributionPoints.get(id) ?? 0,
+        avatar: avatarMap.get(user_id) ?? null,
+        discord_id: discordMap.get(String(user_id)) ?? null,
+        is_alt: altSet.has(String(user_id)),
+      };
+    })
+    .sort((a, b) => Number(b.points ?? 0) - Number(a.points ?? 0))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
   /* ---------------- POINT HISTORY LOGGING ---------------- */
   const battleKey = normalizeKey(
     battleEntry?.key ?? battle?.BattleID ?? battle?.configName ?? title
   );
-
-  // Union back anyone we snapshotted earlier this war who has since been
-  // kicked/left the clan — Big Games drops them from live PointContributions.
-  entries = await mergeDepartedMembers(entries, [battleKey]);
-
-  // Flag rows for players no longer in the clan right now (kicked/left
-  // mid-war) so the UI can show a "left clan" marker.
-  const liveRosterIds = extractCurrentRosterIds(clan);
-  if (liveRosterIds.size) {
-    entries = entries.map((entry) => ({
-      ...entry,
-      departed: !liveRosterIds.has(String(entry.user_id)),
-    }));
-  }
 
   await logPointHistory(entries, battleKey);
 
