@@ -1074,6 +1074,56 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   };
 }
 
+/* ---------------- LAST COMPLETED WAR ---------------- */
+
+/**
+ * When no war is running we want the leaderboard to show the final standings
+ * of the war that just ended — exactly the roster that finished that war,
+ * including members who have left/been kicked since — instead of today's
+ * tracked roster (which includes people who joined after the war).
+ */
+async function getLastCompletedBattleId(): Promise<string | null> {
+  try {
+    const battlesCheck = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.battles') IS NOT NULL AS exists`
+    );
+    if (battlesCheck.rows[0]?.exists) {
+      const res = await pool.query<{ battle_id: string }>(
+        `SELECT battle_id
+         FROM battles
+         WHERE end_time IS NOT NULL
+           AND end_time <= NOW()
+         ORDER BY end_time DESC
+         LIMIT 1`
+      );
+      if (res.rows[0]?.battle_id) return res.rows[0].battle_id;
+    }
+  } catch (err) {
+    console.error("[leaderboard/last-war] battles lookup error:", err);
+  }
+
+  try {
+    const historyCheck = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.player_leaderboard_history') IS NOT NULL AS exists`
+    );
+    if (historyCheck.rows[0]?.exists) {
+      const res = await pool.query<{ battle_id: string }>(
+        `SELECT battle_id
+         FROM player_leaderboard_history
+         WHERE battle_id IS NOT NULL
+         GROUP BY battle_id
+         ORDER BY MAX(captured_at) DESC
+         LIMIT 1`
+      );
+      if (res.rows[0]?.battle_id) return res.rows[0].battle_id;
+    }
+  } catch (err) {
+    console.error("[leaderboard/last-war] history lookup error:", err);
+  }
+
+  return null;
+}
+
 /* ---------------- INACTIVE ROSTER FALLBACK ---------------- */
 
 async function buildInactiveRoster(title = "MCWV Roster"): Promise<LeaderboardResponse> {
@@ -1177,6 +1227,21 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 
   if (!active) {
     resetPointHistoryTracking();
+
+    // No war running: show the final standings of the last completed war —
+    // the roster exactly as it was at the end of that war (including members
+    // who have left since) — rather than today's tracked roster, which
+    // includes people who joined after the war.
+    try {
+      const lastBattleId = await getLastCompletedBattleId();
+      if (lastBattleId) {
+        const lastWar = await buildHistoricalLeaderboard(lastBattleId);
+        if (lastWar.data.length) return lastWar;
+      }
+    } catch (err) {
+      console.error("[leaderboard/last-war] fallback error:", err);
+    }
+
     return buildInactiveRoster(title);
   }
 
