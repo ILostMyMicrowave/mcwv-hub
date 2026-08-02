@@ -344,7 +344,8 @@ export async function GET() {
           const reportIds = [...clanData.memberIds];
           const names = namesByBattle.get(battleKey) ?? new Map<string, string>();
           const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
-          rows = reportIds.map((robloxId) => {
+          const rosterIdSet = new Set(reportIds.map((id) => String(id)));
+          const mappedRows = reportIds.map((robloxId) => {
             const existing = rowsById.get(robloxId);
             return {
               battle_key: battleKey,
@@ -354,6 +355,11 @@ export async function GET() {
               points: clanData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
             };
           });
+          // Union back players we snapshotted during this war who are no
+          // longer on the roster (kicked/left) so counts stay true to the
+          // full group who actually fought in it.
+          const departedRows = rows.filter((row) => !rosterIdSet.has(String(row.roblox_id)));
+          rows = [...mappedRows, ...departedRows];
         }
 
         const points = rows.map((row) => asNumber(row.points));
