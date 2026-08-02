@@ -33,8 +33,9 @@ type PlayerSnapshotRow = {
   rank: number | string | null;
   points: number | string | null;
   captured_at: Date | string | null;
-  /** true when this row comes from the battle's final snapshot batch — i.e.
-   * the player was in the clan when the war ended. */
+  /** true when the player was still in the clan during the battle's final
+   * 24 hours — i.e. part of the end-of-war group. A window (not one exact
+   * batch) because the bot and the site snapshot at different cadences. */
   in_final: boolean;
 };
 
@@ -526,7 +527,7 @@ export async function GET(
            rank,
            points,
            captured_at,
-           (captured_at = last_ts) AS in_final
+           (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
          FROM (
            SELECT
              roblox_id::text AS roblox_id,
