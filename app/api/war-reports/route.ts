@@ -27,6 +27,9 @@ type PlayerSnapshotRow = {
   roblox_id: string;
   username: string | null;
   points: number | string | null;
+  /** true when this row comes from that battle's final snapshot batch — i.e.
+   * the player was in the clan when the war ended. */
+  in_final: boolean;
 };
 
 function toIso(value: Date | string | null | undefined) {
@@ -299,7 +302,8 @@ export async function GET() {
            battle_id,
            roblox_id,
            username,
-           points
+           points,
+           (captured_at = last_ts) AS in_final
          FROM (
            SELECT
              regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') AS battle_key,
@@ -307,7 +311,10 @@ export async function GET() {
              roblox_id::text AS roblox_id,
              username,
              points,
-             captured_at
+             captured_at,
+             MAX(captured_at) OVER (
+               PARTITION BY regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g')
+             ) AS last_ts
            FROM player_leaderboard_history
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
              AND points IS NOT NULL
@@ -353,12 +360,17 @@ export async function GET() {
               roblox_id: robloxId,
               username: existing?.username ?? names.get(robloxId) ?? robloxId,
               points: clanData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+              in_final: existing?.in_final ?? false,
             };
           });
-          // Union back players we snapshotted during this war who are no
-          // longer on the roster (kicked/left) so counts stay true to the
-          // full group who actually fought in it.
-          const departedRows = rows.filter((row) => !rosterIdSet.has(String(row.roblox_id)));
+          // Union back players we snapshotted during this war who are missing
+          // from the roster source. Live wars: anyone ever seen (kicked
+          // members stay visible mid-war). Ended wars: only the war's final
+          // snapshot — the roster exactly as it ended — so people who passed
+          // through mid-war do not inflate the count.
+          const departedRows = rows.filter(
+            (row) => !rosterIdSet.has(String(row.roblox_id)) && (battle.is_active || row.in_final)
+          );
           rows = [...mappedRows, ...departedRows];
         }
 
