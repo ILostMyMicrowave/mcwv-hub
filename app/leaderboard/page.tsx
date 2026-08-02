@@ -28,6 +28,9 @@ type LeaderboardEntry = {
   avatar: string | null;
   discord_id: string | null;
   is_alt?: boolean;
+  /** true when the player left/was kicked from the clan mid-war but still
+   * appears with their last snapshotted points. */
+  departed?: boolean;
   disconnects24h?: number;
   change5m?: number;
   pph?: number;
@@ -789,7 +792,7 @@ function LeaderboardRow({
     <button
       type="button"
       onClick={onOpen}
-      className="shine-sweep glow-spin smooth-card group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5"
+      className={`shine-sweep glow-spin smooth-card group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5 ${entry.departed ? "opacity-70 saturate-50" : ""}`}
       style={{ borderColor: `${style.accentColor}55` }}
     >
       <BackgroundLayer style={style} />
@@ -827,6 +830,9 @@ function LeaderboardRow({
           <div className="mt-3 flex flex-wrap gap-2">
             {entry.is_alt && (
               <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-100">Alt</span>
+            )}
+            {entry.departed && (
+              <span className="rounded-full border border-zinc-400/30 bg-zinc-400/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">👋 Left clan</span>
             )}
             {badges.slice(0, 4).map((badge) => (
               <BadgePill key={badge} badgeKey={badge} presets={badgePresets} />
