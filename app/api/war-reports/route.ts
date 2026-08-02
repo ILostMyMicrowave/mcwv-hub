@@ -1,470 +1,398 @@
-"use client";
+import { NextResponse } from "next/server";
+import { pool } from "@/lib/db";
+import { requireAuthenticatedUser } from "@/lib/authUser";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import Navbar from "@/components/Navbar";
-import AnimatedBackground from "@/components/AnimatedBackground";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-type WarReportSummary = {
-  battleId: string;
-  battleName: string;
-  startTime: string | null;
-  endTime: string | null;
-  finalRank: number | null;
-  finalPoints: number;
-  capturedAt: string | null;
-  isActive?: boolean;
-  accounts: number;
-  participants: number;
-  zeroAccounts: number;
-  averagePoints: number;
-  medianPoints: number;
-  topMembers: Array<{ robloxId: string; username: string; points: number }>;
+const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
+const PS99_API = process.env.PS99_API ?? "https://ps99.biggamesapi.io";
+const ACTIVE_BATTLE_API = `${PS99_API}/api/activeClanBattle`;
+const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
+const LEGACY_CLAN_API = `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
+
+type BattleRow = {
+  battle_id: string;
+  battle_name: string | null;
+  start_time: Date | string | null;
+  end_time: Date | string | null;
+  final_rank: number | string | null;
+  final_points: number | string | null;
+  captured_at: Date | string | null;
 };
 
-type ReportListResponse = {
-  success: boolean;
-  featured: WarReportSummary | null;
-  reports: WarReportSummary[];
-  error?: string;
+type PlayerSnapshotRow = {
+  battle_key: string;
+  battle_id: string;
+  roblox_id: string;
+  username: string | null;
+  points: number | string | null;
 };
 
-function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-GB").format(value);
+function toIso(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function formatCompact(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(Math.round(value));
+function asNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+function toDateFromTimestamp(value: unknown) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const ms = parsed < 10_000_000_000 ? parsed * 1000 : parsed;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatDateRange(report: WarReportSummary) {
-  const start = formatDate(report.startTime);
-  const end = formatDate(report.endTime);
-  if (start === "—" && end === "—") return "Dates unavailable";
-  return `${start} → ${end}`;
+function normalizeBattleKey(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-function rankMeta(rank: number | null) {
-  if (!rank) {
-    return {
-      tier: "UNRANKED",
-      medal: "border-white/15 text-zinc-300",
-      glow: "0 0 0 rgba(0,0,0,0)",
-      chip: "border-white/10 bg-white/5 text-zinc-300",
-    };
+async function fetchRobloxNames(userIds: string[]) {
+  const ids = [...new Set(userIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+  const names = new Map<string, string>();
+
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    try {
+      const res = await fetch("https://users.roblox.com/v1/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "MCWV-Hub/1.0" },
+        body: JSON.stringify({ userIds: chunk, excludeBannedUsers: false }),
+        cache: "no-store",
+      });
+
+      if (!res.ok) continue;
+      const json = await res.json().catch(() => null);
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      for (const row of rows) {
+        const id = row?.id;
+        const name = row?.name ?? row?.displayName;
+        if (id !== null && id !== undefined && typeof name === "string" && name.trim()) {
+          names.set(String(id), name.trim());
+        }
+      }
+    } catch {
+      // Keep numeric fallback.
+    }
   }
-  if (rank <= 10) {
-    return {
-      tier: "TOP 10 GLOBAL",
-      medal: "border-yellow-300/60 text-yellow-100",
-      glow: "0 0 45px rgba(250,204,21,0.28)",
-      chip: "border-yellow-400/35 bg-yellow-400/12 text-yellow-100",
-    };
+
+  return names;
+}
+
+async function fetchJsonOrNull(url: string) {
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
   }
-  if (rank <= 25) {
-    return {
-      tier: "TOP 25 GLOBAL",
-      medal: "border-emerald-300/50 text-emerald-100",
-      glow: "0 0 40px rgba(52,211,153,0.24)",
-      chip: "border-emerald-400/35 bg-emerald-400/12 text-emerald-100",
-    };
-  }
-  if (rank <= 50) {
-    return {
-      tier: "TOP 50 GLOBAL",
-      medal: "border-sky-300/50 text-sky-100",
-      glow: "0 0 40px rgba(56,189,248,0.22)",
-      chip: "border-sky-400/35 bg-sky-400/12 text-sky-100",
-    };
-  }
+}
+
+async function getActiveBattleRow(): Promise<(BattleRow & { is_active: boolean }) | null> {
+  const [v1, legacy] = await Promise.all([
+    fetchJsonOrNull(`${PS99_API}/v1/clans/players`),
+    fetchJsonOrNull(ACTIVE_BATTLE_API),
+  ]);
+
+  const legacyData = legacy?.data ?? {};
+  const config = legacyData?.configData ?? {};
+  const battleId =
+    v1?.data?.activeBattleConfigName ??
+    legacyData?.configName ??
+    legacyData?.activeBattleConfigName ??
+    legacyData?.activeBattleId ??
+    legacyData?.battleId ??
+    null;
+
+  if (!battleId) return null;
+
+  const start = toDateFromTimestamp(config?.StartTime ?? legacyData?.startTime ?? v1?.data?.startTime);
+  const end = toDateFromTimestamp(config?.FinishTime ?? legacyData?.finishTime ?? v1?.data?.finishTime);
+  const now = Date.now();
+  const isActive = start && end ? start.getTime() <= now && now <= end.getTime() : true;
+  if (!isActive) return null;
+
   return {
-    tier: "RANKED",
-    medal: "border-violet-300/45 text-violet-100",
-    glow: "0 0 36px rgba(167,139,250,0.20)",
-    chip: "border-violet-400/35 bg-violet-400/12 text-violet-100",
+    battle_id: String(battleId),
+    battle_name: String(config?.Title ?? legacyData?.title ?? battleId),
+    start_time: start,
+    end_time: end,
+      final_rank: null,
+      final_points: null,
+      captured_at: null,
+    is_active: true,
   };
 }
 
-const PODIUM = [
-  { medal: "🥇", ring: "border-yellow-300/60", halo: "0 0 34px rgba(250,204,21,0.30)", text: "text-yellow-100" },
-  { medal: "🥈", ring: "border-zinc-300/50", halo: "0 0 24px rgba(212,212,216,0.20)", text: "text-zinc-100" },
-  { medal: "🥉", ring: "border-amber-500/55", halo: "0 0 24px rgba(245,158,11,0.22)", text: "text-amber-100" },
-];
+async function getClanBattleReportData(battleId: string, includeCurrentRoster: boolean) {
+  // Live reports use the current in-game roster (Members + Owner). Completed
+  // reports use the historical PointContributions list so old wars only show
+  // people who were actually in that war, not today's clan roster.
+  const json = (await fetchJsonOrNull(LEGACY_CLAN_API)) ?? (await fetchJsonOrNull(CLAN_API));
+  const data = json?.data ?? {};
+  const members = Array.isArray(data?.Members) ? data.Members : [];
+  const currentMemberIds = new Set<string>();
 
-function ParticipationBar({ pct }: { pct: number }) {
-  return (
-    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-      <div
-        className="wr-bar h-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--accent)]"
-        style={{ width: `${Math.max(pct > 0 ? 4 : 0, Math.min(100, pct))}%` }}
-      />
-    </div>
-  );
+  const ownerIdRaw = data?.Owner ?? data?.owner ?? data?.OwnerUserID ?? data?.ownerUserId;
+  const ownerId = ownerIdRaw !== null && ownerIdRaw !== undefined && String(ownerIdRaw).trim()
+    ? String(ownerIdRaw).trim()
+    : null;
+
+  if (ownerId) currentMemberIds.add(ownerId);
+
+  for (const member of members) {
+    const id = member?.UserID ?? member?.userId ?? member?.id;
+    if (id !== null && id !== undefined && String(id).trim()) currentMemberIds.add(String(id).trim());
+  }
+
+  const battles = data?.Battles ?? data?.battles ?? {};
+  const targetKey = normalizeBattleKey(battleId);
+  const battle = Object.entries(battles).find(([key, value]) => {
+    const record = value as Record<string, unknown>;
+    const candidates = [key, record?.BattleID, record?.battleId, record?.configName, record?.Title, record?.title];
+    return candidates.some((candidate) => normalizeBattleKey(candidate) === targetKey);
+  })?.[1] as Record<string, unknown> | undefined;
+
+  const contributionPoints = new Map<string, number>();
+  const contributionIds = new Set<string>();
+  const contributions = Array.isArray(battle?.PointContributions)
+    ? battle.PointContributions
+    : Array.isArray(battle?.pointContributions)
+    ? battle.pointContributions
+    : [];
+
+  for (const contribution of contributions) {
+    const entry = contribution as Record<string, unknown>;
+    const id = entry?.UserID ?? entry?.userId ?? entry?.user_id;
+    if (id === null || id === undefined || !String(id).trim()) continue;
+    const normalizedId = String(id).trim();
+    contributionIds.add(normalizedId);
+    contributionPoints.set(normalizedId, asNumber(entry?.Points ?? entry?.points));
+  }
+
+  const memberIds = includeCurrentRoster
+    ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
+    : new Set(contributionIds);
+
+  // Big Games omits the clan owner from Members, so force include owner when
+  // there is a live roster or historical battle contribution data.
+  if (ownerId && (includeCurrentRoster || memberIds.size > 0)) memberIds.add(ownerId);
+
+  return {
+    memberIds,
+    contributionPoints,
+    battleFound: Boolean(battle),
+    battlePoints: asNumber(battle?.Points ?? battle?.points),
+    ownerId,
+  };
 }
 
-function StatChip({
-  label,
-  value,
-  sub,
-  tone = "normal",
-  barPct,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "normal" | "danger";
-  barPct?: number;
-}) {
-  return (
-    <div className="card-hover rounded-2xl border border-white/10 bg-black/25 p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground)]/45">{label}</p>
-      <p className={`mt-2 text-xl font-black ${tone === "danger" ? "text-rose-200" : "text-white"}`}>{value}</p>
-      {typeof barPct === "number" && <ParticipationBar pct={barPct} />}
-      {sub && <p className="mt-1.5 text-[11px] text-[var(--foreground)]/40">{sub}</p>}
-    </div>
-  );
+
+function formatBattleTitle(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "Historical War";
+  return raw
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d{4})$/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function PodiumCard({
-  member,
-  place,
-  elevated,
-}: {
-  member: { robloxId: string; username: string; points: number };
-  place: number;
-  elevated: boolean;
-}) {
-  const meta = PODIUM[place] ?? PODIUM[2];
-  return (
-    <div
-      className={`shine-sweep flex flex-col items-center rounded-2xl border border-white/10 bg-black/25 px-3 pb-4 pt-5 text-center transition duration-300 hover:-translate-y-1 ${elevated ? "sm:-translate-y-3 sm:scale-[1.06]" : ""}`}
-    >
-      <span className="text-lg leading-none">{meta.medal}</span>
-      <img
-        className={`mt-2 rounded-2xl border-2 bg-black/30 ${meta.ring} ${elevated ? "h-16 w-16" : "h-12 w-12"}`}
-        style={{ boxShadow: meta.halo }}
-        src={`/api/roblox/avatar?userId=${encodeURIComponent(member.robloxId)}`}
-        alt=""
-      />
-      <p className="mt-2 w-full truncate text-xs font-bold text-white">{member.username}</p>
-      <p className={`text-[11px] font-bold ${meta.text}`}>{formatCompact(member.points)} pts</p>
-    </div>
-  );
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function ReportCard({ report, featured = false }: { report: WarReportSummary; featured?: boolean }) {
-  const href = report.isActive ? "/war-reports/current" : `/war-reports/${encodeURIComponent(report.battleId)}`;
-  const hasData = report.accounts > 0;
-  const participantPct = report.accounts > 0 ? Math.round((report.participants / report.accounts) * 100) : 0;
-  const rank = rankMeta(report.finalRank);
-  const podium = report.topMembers.slice(0, 3);
-  // Podium display order on desktop: 2nd, 1st (elevated centre), 3rd.
-  const podiumDisplay = [podium[1] && { member: podium[1], place: 1 }, podium[0] && { member: podium[0], place: 0 }, podium[2] && { member: podium[2], place: 2 }].filter(
-    Boolean
-  ) as Array<{ member: (typeof podium)[number]; place: number }>;
-
-  return (
-    <Link
-      href={href}
-      className={`shine-sweep glow-spin group relative block overflow-hidden rounded-[2rem] border p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(52,211,153,0.14)] ${featured ? "sm:p-7" : ""}`}
-      style={{
-        borderColor: featured ? "color-mix(in srgb, var(--primary) 44%, var(--border))" : "var(--border)",
-        background: featured
-          ? "linear-gradient(135deg, color-mix(in srgb, var(--primary) 16%, var(--card)), color-mix(in srgb, var(--accent) 10%, var(--card)) 55%, var(--card))"
-          : "linear-gradient(180deg, color-mix(in srgb, var(--card) 96%, transparent), color-mix(in srgb, var(--card) 88%, transparent))",
-      }}
-    >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(52,211,153,0.14),transparent_32%),radial-gradient(circle_at_bottom_left,rgba(56,189,248,0.10),transparent_38%)] opacity-70 transition duration-300 group-hover:opacity-100" />
-      <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[var(--primary)]/10 blur-3xl" />
-
-      <div className="relative">
-        {/* Top row: badges + name + rank medal */}
-        <div className={`flex gap-4 ${featured ? "flex-col sm:flex-row sm:items-center sm:justify-between" : "items-start justify-between"}`}>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              {report.isActive ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-sky-100">
-                  <span className="wr-pulse inline-block h-1.5 w-1.5 rounded-full bg-sky-300" />
-                  Live Preview
-                </span>
-              ) : (
-                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--foreground)]/55">
-                  {featured ? "Featured Report" : formatDate(report.endTime)}
-                </span>
-              )}
-              {report.isActive && (
-                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--foreground)]/55">
-                  Current War
-                </span>
-              )}
-              {!hasData && (
-                <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100">
-                  Warming Up
-                </span>
-              )}
-              {report.finalRank ? (
-                <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${rank.chip}`}>{rank.tier}</span>
-              ) : null}
-            </div>
-            <h2 className={`${featured ? "mt-3 text-4xl sm:text-6xl" : "mt-3 text-2xl"} truncate font-black text-white`}>{report.battleName}</h2>
-            <p className="mt-2 text-sm text-[var(--foreground)]/55">{formatDateRange(report)}</p>
-          </div>
-
-          <div
-            className={`flex shrink-0 flex-col items-center justify-center rounded-full border-2 ${rank.medal} ${featured ? "h-32 w-32 sm:h-36 sm:w-36" : "h-20 w-20"}`}
-            style={{ boxShadow: rank.glow, background: "radial-gradient(circle at 30% 25%, rgba(255,255,255,0.10), rgba(0,0,0,0.35))" }}
-          >
-            <span className={`font-black leading-none ${featured ? "text-3xl sm:text-4xl" : "text-lg"}`}>
-              {report.finalRank ? `#${report.finalRank}` : "—"}
-            </span>
-            <span className="mt-1 text-[8px] font-bold uppercase tracking-[0.22em] opacity-70">{report.isActive ? "Live Rank" : "Final Rank"}</span>
-          </div>
-        </div>
-
-        {/* Stat chips */}
-        <div className={`grid gap-3 sm:grid-cols-2 xl:grid-cols-4 ${featured ? "mt-6" : "mt-5"}`}>
-          <StatChip label={report.isActive ? "Live Points" : "Final Points"} value={formatCompact(report.finalPoints)} sub={formatNumber(report.finalPoints)} />
-          <StatChip
-            label="Participants"
-            value={`${formatNumber(report.participants)}/${formatNumber(report.accounts)}`}
-            sub={hasData ? `${participantPct}% of accounts scored` : "No snapshot data"}
-            barPct={hasData ? participantPct : 0}
-          />
-          <StatChip
-            label="Zero Accounts"
-            value={formatNumber(report.zeroAccounts)}
-            tone={report.zeroAccounts > 0 ? "danger" : "normal"}
-            sub={report.zeroAccounts > 0 ? "Needs review" : "Clean report"}
-          />
-          <StatChip label="Average" value={formatCompact(report.averagePoints)} sub={`Median ${formatCompact(report.medianPoints)}`} />
-        </div>
-
-        {/* MVPs: podium on featured, compact chips otherwise */}
-        {featured ? (
-          <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--foreground)]/45">MVP Podium</p>
-              <span className="text-xs text-[var(--foreground)]/40 transition group-hover:text-[var(--foreground)]/70">Open full report →</span>
-            </div>
-            {podiumDisplay.length ? (
-              <div className="mx-auto grid max-w-xl grid-cols-3 items-end gap-3">
-                {podiumDisplay.map((entry) => (
-                  <PodiumCard key={entry.member.robloxId} member={entry.member} place={entry.place} elevated={entry.place === 0} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-500">MVP data appears once player snapshots are available.</p>
-            )}
-          </div>
-        ) : (
-          <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-            {podium.length ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-                {podium.map((member, index) => (
-                  <span key={`${member.robloxId}-${index}`} className="inline-flex min-w-0 items-center gap-2 text-xs">
-                    <span>{PODIUM[index]?.medal}</span>
-                    <img className="h-6 w-6 rounded-lg border border-white/10 bg-black/30" src={`/api/roblox/avatar?userId=${encodeURIComponent(member.robloxId)}`} alt="" />
-                    <span className="truncate font-bold text-white">{member.username}</span>
-                    <span className="text-[var(--foreground)]/45">{formatCompact(member.points)}</span>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-zinc-500">MVP data pending snapshots.</p>
-            )}
-            <span className="shrink-0 text-xs text-[var(--foreground)]/40 transition group-hover:text-[var(--foreground)]/70">Open →</span>
-          </div>
-        )}
-      </div>
-    </Link>
+async function tableExists(tableName: string) {
+  const result = await pool.query<{ exists: boolean }>(
+    `SELECT to_regclass($1) IS NOT NULL AS exists`,
+    [`public.${tableName}`]
   );
+  return Boolean(result.rows[0]?.exists);
 }
 
-function OverviewStat({ icon, label, value, delay }: { icon: string; label: string; value: string; delay: number }) {
-  return (
-    <div className="card-hover wr-rise rounded-2xl border border-white/10 bg-white/[0.04] p-4" style={{ animationDelay: `${delay}s` }}>
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{icon}</span>
-        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--foreground)]/40">{label}</p>
-      </div>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
-    </div>
-  );
-}
+export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
 
-export default function WarReportsPage() {
-  const [data, setData] = useState<ReportListResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  try {
+    const activeBattle = await getActiveBattleRow();
 
-  useEffect(() => {
-    let alive = true;
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/war-reports", { cache: "no-store" });
-        const json = (await res.json().catch(() => null)) as ReportListResponse | null;
-        if (alive) setData(json?.success ? json : { success: false, featured: null, reports: [], error: json?.error ?? "Failed to load reports" });
-      } catch (err) {
-        if (alive) setData({ success: false, featured: null, reports: [], error: err instanceof Error ? err.message : "Failed to load reports" });
-      } finally {
-        if (alive) setLoading(false);
+    if (!(await tableExists("battles"))) {
+      const rows = activeBattle ? [activeBattle] : [];
+      const reports = rows.map((battle) => ({
+        battleId: battle.battle_id,
+        battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
+        startTime: toIso(battle.start_time),
+        endTime: toIso(battle.end_time),
+        finalRank: null,
+        finalPoints: 0,
+        capturedAt: null,
+        isActive: true,
+        accounts: 0,
+        participants: 0,
+        zeroAccounts: 0,
+        averagePoints: 0,
+        medianPoints: 0,
+        topMembers: [],
+      }));
+
+      return NextResponse.json({ success: true, featured: reports[0] ?? null, reports });
+    }
+
+    const battles = await pool.query<BattleRow & { is_active: boolean }>(
+      `SELECT
+         b.battle_id,
+         b.battle_name,
+         b.start_time,
+         b.end_time,
+         (b.end_time IS NOT NULL AND b.end_time > NOW()) AS is_active,
+         ws.rank AS final_rank,
+         ws.battle_points AS final_points,
+         ws.captured_at
+       FROM battles b
+       LEFT JOIN LATERAL (
+         SELECT rank, battle_points, captured_at
+         FROM war_snapshots
+         WHERE battle_id = b.battle_id
+           AND LOWER(clan_name) = LOWER($1)
+         ORDER BY captured_at DESC
+         LIMIT 1
+       ) ws ON TRUE
+       WHERE b.end_time IS NOT NULL
+         AND (
+           b.end_time <= NOW()
+           OR (b.start_time IS NULL OR b.start_time <= NOW())
+         )
+       ORDER BY
+         CASE WHEN b.end_time > NOW() THEN 0 ELSE 1 END,
+         b.end_time DESC NULLS LAST,
+         ws.captured_at DESC NULLS LAST
+       LIMIT 100`,
+      [CLAN_NAME]
+    );
+
+    const battleRows = [...battles.rows];
+    if (activeBattle && !battleRows.some((row) => normalizeBattleKey(row.battle_id) === normalizeBattleKey(activeBattle.battle_id))) {
+      battleRows.unshift(activeBattle);
+    }
+
+    const battleKeys = [...new Set(battleRows.map((row) => normalizeBattleKey(row.battle_id)).filter(Boolean))];
+    const byBattle = new Map<string, PlayerSnapshotRow[]>();
+
+    if (battleKeys.length && (await tableExists("player_leaderboard_history"))) {
+      const players = await pool.query<PlayerSnapshotRow>(
+        `SELECT DISTINCT ON (battle_key, roblox_id)
+           battle_key,
+           battle_id,
+           roblox_id,
+           username,
+           points
+         FROM (
+           SELECT
+             regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') AS battle_key,
+             battle_id,
+             roblox_id::text AS roblox_id,
+             username,
+             points,
+             captured_at
+           FROM player_leaderboard_history
+           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+             AND points IS NOT NULL
+         ) rows
+         ORDER BY battle_key, roblox_id, captured_at DESC`,
+        [battleKeys]
+      );
+
+      for (const row of players.rows) {
+        const list = byBattle.get(row.battle_key) ?? [];
+        list.push(row);
+        byBattle.set(row.battle_key, list);
       }
     }
-    void load();
-    return () => { alive = false; };
-  }, []);
 
-  const olderReports = useMemo(() => {
-    const base = data?.featured
-      ? (data.reports ?? []).filter((report) => report.battleId !== data.featured?.battleId)
-      : data?.reports ?? [];
-    const query = search.trim().toLowerCase();
-    if (!query) return base;
-    return base.filter((report) => report.battleName.toLowerCase().includes(query) || report.battleId.toLowerCase().includes(query));
-  }, [data, search]);
+    const clanDataByBattle = new Map<string, Awaited<ReturnType<typeof getClanBattleReportData>>>();
+    const namesByBattle = new Map<string, Map<string, string>>();
+    for (const battle of battleRows) {
+      const key = normalizeBattleKey(battle.battle_id);
+      const clanData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
+      if (clanData.memberIds.size > 0) {
+        clanDataByBattle.set(key, clanData);
+        namesByBattle.set(key, await fetchRobloxNames([...clanData.memberIds]));
+      }
+    }
 
-  const summary = useMemo(() => {
-    const reports = data?.reports ?? [];
-    const completed = reports.filter((report) => !report.isActive);
-    const bestRank = completed.map((report) => report.finalRank).filter((rank): rank is number => typeof rank === "number" && rank > 0).sort((a, b) => a - b)[0] ?? null;
-    const totalPoints = completed.reduce((sum, report) => sum + (report.finalPoints || 0), 0);
-    const zeros = completed.reduce((sum, report) => sum + (report.zeroAccounts || 0), 0);
-    return { reports: completed.length, bestRank, totalPoints, zeros };
-  }, [data]);
+    const reports = battleRows
+      .map((battle) => {
+        const battleKey = normalizeBattleKey(battle.battle_id);
+        let rows = byBattle.get(battleKey) ?? [];
+        const clanData = clanDataByBattle.get(battleKey);
 
-  return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <AnimatedBackground />
-      <Navbar />
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:py-10">
-        {/* Header */}
-        <div className="wr-rise mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--primary)]">MCWV Accountability</p>
-            <h1 className="mt-2 bg-gradient-to-r from-white via-white to-[var(--foreground)]/40 bg-clip-text text-4xl font-black text-transparent sm:text-6xl">
-              War Reports
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--foreground)]/60">
-              After-action report cards for every completed war — MVPs, grades, alt tracking, warnings, and CSV exports.
-            </p>
-          </div>
-          <div className="relative w-full lg:w-80">
-            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[var(--foreground)]/35">🔎</span>
-            <input
-              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-3 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-[var(--primary)]/50 focus:bg-white/[0.07]"
-              placeholder="Search reports..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Season strip */}
-        <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <OverviewStat icon="📋" label="Completed Reports" value={formatNumber(summary.reports)} delay={0.05} />
-          <OverviewStat icon="🏆" label="Best Placement" value={summary.bestRank ? `#${summary.bestRank}` : "—"} delay={0.1} />
-          <OverviewStat icon="⚡" label="Tracked Points" value={formatCompact(summary.totalPoints)} delay={0.15} />
-          <OverviewStat icon="⛔" label="Total Zeros" value={formatNumber(summary.zeros)} delay={0.2} />
-        </div>
-
-        {loading ? (
-          <div className="space-y-4 animate-pulse">
-            <div className="h-80 rounded-[2rem] bg-white/5" />
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="h-56 rounded-3xl bg-white/5" />
-              <div className="h-56 rounded-3xl bg-white/5" />
-            </div>
-          </div>
-        ) : data?.error ? (
-          <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-6 text-red-100">{data.error}</div>
-        ) : !data?.reports.length ? (
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
-            <h2 className="text-2xl font-bold text-white">No completed war reports yet.</h2>
-            <p className="mt-2 text-sm text-zinc-400">Reports will appear after completed wars have stored player snapshots.</p>
-          </div>
-        ) : (
-          <div className="space-y-7">
-            {data.featured && (
-              <div className="wr-rise">
-                <ReportCard report={data.featured} featured />
-              </div>
-            )}
-
-            <section>
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Past Reports</h2>
-                  <p className="mt-1 text-xs text-zinc-500">Open a report for grades, flags, warnings, and exports.</p>
-                </div>
-                <span className="text-xs text-zinc-500">{olderReports.length} shown</span>
-              </div>
-              {olderReports.length ? (
-                <div className="grid gap-4 xl:grid-cols-2">
-                  {olderReports.map((report, index) => (
-                    <div key={report.battleId} style={{ animationDelay: `${Math.min(index * 0.05, 0.4)}s` }} className="wr-rise">
-                      <ReportCard report={report} />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center text-sm text-zinc-400">No reports match your search.</div>
-              )}
-            </section>
-          </div>
-        )}
-      </div>
-
-      <style jsx>{`
-        .wr-rise {
-          animation: wr-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+        if (clanData && clanData.memberIds.size > 0) {
+          const reportIds = [...clanData.memberIds];
+          const names = namesByBattle.get(battleKey) ?? new Map<string, string>();
+          const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
+          rows = reportIds.map((robloxId) => {
+            const existing = rowsById.get(robloxId);
+            return {
+              battle_key: battleKey,
+              battle_id: battle.battle_id,
+              roblox_id: robloxId,
+              username: existing?.username ?? names.get(robloxId) ?? robloxId,
+              points: clanData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+            };
+          });
         }
-        @keyframes wr-rise {
-          from {
-            opacity: 0;
-            transform: translateY(16px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .wr-bar {
-          animation: wr-bar 0.9s 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        @keyframes wr-bar {
-          from {
-            width: 0;
-          }
-        }
-        .wr-pulse {
-          animation: wr-pulse 1.6s ease-in-out infinite;
-        }
-        @keyframes wr-pulse {
-          0%,
-          100% {
-            opacity: 1;
-            box-shadow: 0 0 0 0 rgba(125, 211, 252, 0.55);
-          }
-          50% {
-            opacity: 0.6;
-            box-shadow: 0 0 0 4px rgba(125, 211, 252, 0);
-          }
-        }
-      `}</style>
-    </main>
-  );
+
+        const points = rows.map((row) => asNumber(row.points));
+        const positive = points.filter((value) => value > 0);
+        const top = [...rows]
+          .sort((a, b) => asNumber(b.points) - asNumber(a.points))
+          .slice(0, 3)
+          .map((row) => ({ robloxId: row.roblox_id, username: row.username ?? row.roblox_id, points: asNumber(row.points) }));
+
+        return {
+          battleId: battle.battle_id,
+          battleName: formatBattleTitle(battle.battle_name || battle.battle_id),
+          startTime: toIso(battle.start_time),
+          endTime: toIso(battle.end_time),
+          finalRank: battle.final_rank === null ? null : asNumber(battle.final_rank),
+          finalPoints: battle.is_active
+            ? points.reduce((sum, value) => sum + value, 0)
+            : asNumber(battle.final_points) || clanData?.battlePoints || points.reduce((sum, value) => sum + value, 0),
+          capturedAt: toIso(battle.captured_at),
+          isActive: Boolean(battle.is_active),
+          accounts: rows.length,
+          participants: positive.length,
+          zeroAccounts: rows.filter((row) => asNumber(row.points) <= 0).length,
+          averagePoints: points.length ? Math.round(points.reduce((sum, value) => sum + value, 0) / points.length) : 0,
+          medianPoints: Math.round(median(points)),
+          topMembers: top,
+        };
+      })
+      // Hide completed blank wars (for example Lunar before data collection started).
+      // Keep live previews even if they are still warming up.
+      .filter((report) => report.isActive || report.accounts > 0);
+
+    return NextResponse.json({
+      success: true,
+      featured: reports[0] ?? null,
+      reports,
+    });
+  } catch (err) {
+    console.error("[war-reports] list error:", err);
+    return NextResponse.json({ success: false, error: "Failed to load war reports" }, { status: 500 });
+  }
 }
