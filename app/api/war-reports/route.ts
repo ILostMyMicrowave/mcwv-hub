@@ -27,6 +27,9 @@ type PlayerSnapshotRow = {
   roblox_id: string;
   username: string | null;
   points: number | string | null;
+  /** true when the player was still present in the clan during that battle's
+   * final 24 hours (used to re-attach zero-point members for ended wars). */
+  in_final: boolean;
 };
 
 function toIso(value: Date | string | null | undefined) {
@@ -190,6 +193,7 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
   return {
     memberIds,
     contributionPoints,
+    currentMemberIds,
     battleFound: Boolean(battle),
     battlePoints: asNumber(battle?.Points ?? battle?.points),
     ownerId,
@@ -299,7 +303,8 @@ export async function GET() {
            battle_id,
            roblox_id,
            username,
-           points
+           points,
+           (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
          FROM (
            SELECT
              regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') AS battle_key,
@@ -307,7 +312,10 @@ export async function GET() {
              roblox_id::text AS roblox_id,
              username,
              points,
-             captured_at
+             captured_at,
+             MAX(captured_at) OVER (
+               PARTITION BY regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g')
+             ) AS last_ts
            FROM player_leaderboard_history
            WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
              AND points IS NOT NULL
@@ -344,7 +352,8 @@ export async function GET() {
           const reportIds = [...clanData.memberIds];
           const names = namesByBattle.get(battleKey) ?? new Map<string, string>();
           const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
-          rows = reportIds.map((robloxId) => {
+          const reportIdSet = new Set(reportIds.map((id) => String(id)));
+          const mappedRows = reportIds.map((robloxId) => {
             const existing = rowsById.get(robloxId);
             return {
               battle_key: battleKey,
@@ -352,8 +361,21 @@ export async function GET() {
               roblox_id: robloxId,
               username: existing?.username ?? names.get(robloxId) ?? robloxId,
               points: clanData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+              in_final: existing?.in_final ?? false,
             };
           });
+          // Ended wars: re-attach zero-point members from the war's final
+          // day — but ONLY if they are verifiably in the current in-game
+          // roster. People who passed through and have left do not count.
+          const verifiedExtras = battle.is_active
+            ? []
+            : rows.filter(
+                (row) =>
+                  !reportIdSet.has(String(row.roblox_id)) &&
+                  row.in_final &&
+                  clanData.currentMemberIds.has(String(row.roblox_id).trim())
+              );
+          rows = [...mappedRows, ...verifiedExtras];
         }
 
         const points = rows.map((row) => asNumber(row.points));
