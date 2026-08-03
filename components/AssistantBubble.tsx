@@ -172,8 +172,10 @@ export default function AssistantBubble() {
                   }
                 >
                   {renderRichText(message.text)}
-                  {message.source === "groq-70b" || message.source === "groq-8b" ? (
-                    <div className="mt-1 text-[10px] text-zinc-500">⚡ {message.source === "groq-70b" ? "Groq · Llama 70B" : "Groq · Llama 8B"}</div>
+                  {message.source?.startsWith("ai:") ? (
+                    <div className="mt-1 text-[10px] text-zinc-500">
+                      ⚡ AI · {message.source.slice(3).split("/").pop()}
+                    </div>
                   ) : null}
                 </div>
               </div>
