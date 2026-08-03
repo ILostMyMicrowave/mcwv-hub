@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
+import AssistantBubble from "@/components/AssistantBubble";
 
 const GRADES = ["A+", "A", "B", "C", "D", "F"] as const;
 
@@ -629,6 +630,7 @@ export default function WarReportDetailPage() {
           }
         }
       `}</style>
+      <AssistantBubble />
     </main>
   );
 }
