@@ -364,18 +364,19 @@ export async function GET() {
               in_final: existing?.in_final ?? false,
             };
           });
-          // Ended wars: re-attach zero-point members from the war's final
-          // day — but ONLY if they are verifiably in the current in-game
-          // roster. People who passed through and have left do not count.
-          const verifiedExtras = battle.is_active
+          // Ended wars: restore contributors who SCORED in the war but were
+          // kicked/left afterwards — Big Games rewrites the ledger when
+          // players leave, our snapshots still have their points. Zero-point
+          // players are never listed on historic wars.
+          const restoredScorers = battle.is_active
             ? []
             : rows.filter(
                 (row) =>
                   !reportIdSet.has(String(row.roblox_id)) &&
                   row.in_final &&
-                  clanData.currentMemberIds.has(String(row.roblox_id).trim())
+                  asNumber(row.points) > 0
               );
-          rows = [...mappedRows, ...verifiedExtras];
+          rows = [...mappedRows, ...restoredScorers];
         }
 
         const points = rows.map((row) => asNumber(row.points));
