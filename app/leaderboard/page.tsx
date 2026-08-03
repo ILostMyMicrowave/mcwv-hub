@@ -2,6 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import WarHistoryDropdown from "@/components/WarHistoryDropdown";
+import AssistantBubble from "@/components/AssistantBubble";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
@@ -2146,6 +2147,7 @@ export default function LeaderboardPage() {
           }
         `}</style>
       </main>
+      <AssistantBubble />
     </>
   );
 }
