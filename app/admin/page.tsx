@@ -148,6 +148,172 @@ type BroadcastPreview = {
   missingTicketRecipients: BroadcastRecipient[];
 };
 
+type BroadcastTab = "send" | "templates" | "schedules" | "history";
+
+type BroadcastTemplate = {
+  id: number;
+  name: string;
+  audience: string;
+  value: string;
+  delivery: string;
+  style: string;
+  message: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+};
+
+type BroadcastSchedule = {
+  id: number;
+  name: string;
+  kind: string;
+  audience: string;
+  value: string;
+  delivery: string;
+  style: string;
+  message: string;
+  topN: number | null;
+  hoursBeforeEnd: number | null;
+  runAt?: string | null;
+  enabled: boolean;
+  createdBy?: string | null;
+  lastFiredAt?: string | null;
+  lastFiredBattle?: string | null;
+};
+
+type BroadcastSend = {
+  id: number;
+  actor?: string | null;
+  source: string;
+  templateId?: number | null;
+  audience?: string | null;
+  value?: string | null;
+  delivery?: string | null;
+  style?: string | null;
+  message: string;
+  battleKey?: string | null;
+  matchedCount: number;
+  sentCount: number;
+  failedCount: number;
+  status: string;
+  sentAt?: string | null;
+  conversionCheckedAt?: string | null;
+  conversionZeroAtSend?: number | null;
+  conversionScorers?: number | null;
+  conversionPoints?: number | null;
+};
+
+type BroadcastSendRecipient = {
+  username?: string | null;
+  discordId?: string | null;
+  robloxId?: string | null;
+  pointsAtSend: number;
+  delivered: boolean;
+  error?: string | null;
+};
+
+type BroadcastHistoryStats = {
+  sends: number;
+  delivered: number;
+  conversions: number;
+  pointsGained: number;
+  pending: number;
+};
+
+const BROADCAST_TABS: { id: BroadcastTab; label: string; icon: string }[] = [
+  { id: "send", label: "Send", icon: "✉️" },
+  { id: "templates", label: "Templates", icon: "📄" },
+  { id: "schedules", label: "Schedules", icon: "⏰" },
+  { id: "history", label: "History", icon: "📜" },
+];
+
+const BROADCAST_AUDIENCE_LABELS: Record<string, string> = {
+  everyone: "Everyone",
+  below_points: "Below X pts",
+  above_points: "Above X pts",
+  zero_points: "Zero points",
+  bottom_n: "Bottom N",
+  top_n: "Top N",
+  members: "Members",
+  officers: "Officers",
+  discord_role: "Discord role",
+  custom_user: "Custom users",
+};
+
+const BROADCAST_SCHEDULE_AUDIENCE_OPTIONS: { id: string; label: string }[] = [
+  { id: "everyone", label: "Everyone" },
+  { id: "below_points", label: "Below X points" },
+  { id: "above_points", label: "Above X points" },
+  { id: "zero_points", label: "Exactly 0 points" },
+  { id: "bottom_n", label: "Bottom N players" },
+  { id: "top_n", label: "Top N players" },
+  { id: "members", label: "Members" },
+  { id: "officers", label: "Officers" },
+];
+
+const BROADCAST_SCHEDULE_KINDS: { id: string; label: string; icon: string; blurb: string }[] = [
+  { id: "one_time", label: "One-time", icon: "📅", blurb: "Fires once at a date & time you pick, then disables itself." },
+  { id: "war_midpoint", label: "Mid-war", icon: "⚔️", blurb: "Fires once per war, just after the halfway point." },
+  { id: "war_final_hours", label: "Final hours", icon: "⚠️", blurb: "Fires once per war, X hours before it ends." },
+  { id: "war_end_congrats", label: "Congrats", icon: "🏆", blurb: "DMs the top N scorers of each war when it ends." },
+];
+
+function broadcastAudienceLabel(audience?: string | null, value?: string | null) {
+  const label = BROADCAST_AUDIENCE_LABELS[String(audience ?? "everyone")] ?? String(audience ?? "everyone");
+  if (value && ["below_points", "above_points", "bottom_n", "top_n"].includes(String(audience))) {
+    return `${label} (${value})`;
+  }
+  return label;
+}
+
+function broadcastSourceMeta(source?: string | null) {
+  switch (String(source ?? "")) {
+    case "hub":
+      return { icon: "🌐", label: "Hub", chip: "border-sky-500/30 bg-sky-500/10 text-sky-200" };
+    case "scheduler":
+      return { icon: "⏰", label: "Auto", chip: "border-amber-500/30 bg-amber-500/10 text-amber-200" };
+    case "auto_congrats":
+      return { icon: "🏆", label: "Congrats", chip: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" };
+    default:
+      return { icon: "💬", label: "Discord", chip: "border-violet-500/30 bg-violet-500/10 text-violet-200" };
+  }
+}
+
+function broadcastScheduleKindMeta(kind?: string | null) {
+  return BROADCAST_SCHEDULE_KINDS.find((item) => item.id === kind) ?? BROADCAST_SCHEDULE_KINDS[0];
+}
+
+function broadcastScheduleSummary(schedule: BroadcastSchedule) {
+  const audience = broadcastAudienceLabel(schedule.audience, schedule.value);
+  const delivery = schedule.delivery === "ticket" ? "Ticket" : "DM";
+  switch (schedule.kind) {
+    case "war_end_congrats":
+      return `Top ${schedule.topN ?? 10} scorers · ${delivery} · ${schedule.style}`;
+    case "war_final_hours":
+      return `${schedule.hoursBeforeEnd ?? 24}h before war end · ${audience} · ${delivery} · ${schedule.style}`;
+    case "war_midpoint":
+      return `At war midpoint · ${audience} · ${delivery} · ${schedule.style}`;
+    case "one_time": {
+      const when = schedule.runAt ? formatTime(schedule.runAt) : "not set";
+      return `Once at ${when} · ${audience} · ${delivery} · ${schedule.style}`;
+    }
+    default:
+      return `${audience} · ${delivery} · ${schedule.style}`;
+  }
+}
+
+function isoToLocalInput(iso?: string | null) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function broadcastTableMissingFrom(data: UnknownRecord) {
+  return data?.missingTables === true;
+}
+
 type ActivityMember = {
   robloxId: string;
   username: string;
@@ -192,9 +358,20 @@ type ActivityData = {
 
 function renderBroadcastPreviewMessage(template: string, recipient?: BroadcastRecipient) {
   return template
+    .replaceAll("{ping}", `@${String(recipient?.username ?? "ExampleUser")}`)
     .replaceAll("{username}", String(recipient?.username ?? "ExampleUser"))
     .replaceAll("{points}", String(recipient?.points ?? 0))
-    .replaceAll("{rank}", String(recipient?.rank ?? "—"));
+    .replaceAll("{pph}", String(recipient?.pph ?? 0))
+    .replaceAll("{change5m}", String(recipient?.change5m ?? 0))
+    .replaceAll("{rank}", String(recipient?.rank ?? "—"))
+    .replaceAll("{clan_rank}", "12")
+    .replaceAll("{war_time_left}", "2d 4h")
+    .replaceAll("{next_player}", "NextPlayerUp")
+    .replaceAll("{next_rank_gap}", "1,250")
+    .replaceAll("{roblox_id}", String(recipient?.roblox_id ?? "123456"))
+    .replaceAll("{discord_id}", String(recipient?.discord_id ?? "123456789012345678"))
+    .replaceAll("{role}", String(recipient?.role ?? "member"))
+    .replaceAll("{ticket}", "#ticket-123");
 }
 
 type TicketRow = {
@@ -2506,6 +2683,15 @@ function BroadcastSection({
   const [allowedUserIds, setAllowedUserIds] = useState("");
   const [allowedStatus, setAllowedStatus] = useState("");
   const [allowedLoading, setAllowedLoading] = useState(false);
+  const [tab, setTab] = useState<BroadcastTab>("send");
+  const [templates, setTemplates] = useState<BroadcastTemplate[]>([]);
+  const [schedules, setSchedules] = useState<BroadcastSchedule[]>([]);
+  const [tablesMissing, setTablesMissing] = useState(false);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [templatePickerId, setTemplatePickerId] = useState("");
+  const [templateSaveOpen, setTemplateSaveOpen] = useState(false);
+  const [templateSaveName, setTemplateSaveName] = useState("");
+  const [templateSaving, setTemplateSaving] = useState(false);
 
   const needsValue = ["below_points", "above_points", "bottom_n", "top_n", "custom_user"].includes(audience);
   const needsRole = audience === "discord_role";
@@ -2592,6 +2778,117 @@ function BroadcastSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
 
+  async function loadBroadcastMeta() {
+    setMetaLoading(true);
+    let missing = false;
+    try {
+      const [templatesRes, schedulesRes] = await Promise.all([
+        fetch("/api/admin/broadcast/templates", { cache: "no-store" }),
+        fetch("/api/admin/broadcast/schedules", { cache: "no-store" }),
+      ]);
+      const templatesData = (await templatesRes.json().catch(() => ({}))) as UnknownRecord;
+      const schedulesData = (await schedulesRes.json().catch(() => ({}))) as UnknownRecord;
+
+      if (broadcastTableMissingFrom(templatesData) || broadcastTableMissingFrom(schedulesData)) {
+        missing = true;
+      } else {
+        if (templatesRes.ok) setTemplates(asArray<BroadcastTemplate>(templatesData.templates));
+        if (schedulesRes.ok) setSchedules(asArray<BroadcastSchedule>(schedulesData.schedules));
+      }
+    } catch {
+      // Tables may not exist yet — the Send tab keeps working regardless.
+    } finally {
+      setTablesMissing(missing);
+      setMetaLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadBroadcastMeta();
+  }, []);
+
+  function applyToComposer(source: {
+    audience?: string | null;
+    value?: string | null;
+    delivery?: string | null;
+    style?: string | null;
+    message?: string | null;
+  }) {
+    const allowedAudiences = new Set([
+      "everyone",
+      "below_points",
+      "above_points",
+      "zero_points",
+      "bottom_n",
+      "top_n",
+      "members",
+      "officers",
+      "discord_role",
+      "custom_user",
+    ]);
+    if (source.audience && allowedAudiences.has(source.audience)) setAudience(source.audience);
+    if (source.delivery === "dm" || source.delivery === "ticket") setDelivery(source.delivery);
+    if (source.style === "plain" || source.style === "embed") setStyle(source.style);
+    setValue(source.value ?? "");
+    setMessage(source.message ?? "");
+    setPreview(null);
+    setTemplateSaveOpen(false);
+    setTab("send");
+  }
+
+  function handleTemplatePicker(templateId: string) {
+    setTemplatePickerId(templateId);
+    if (!templateId) return;
+    const template = templates.find((item) => String(item.id) === templateId);
+    if (template) applyToComposer(template);
+  }
+
+  async function saveComposerAsTemplate() {
+    const name = templateSaveName.trim();
+    if (!name) {
+      onToast("Give the template a name.", "error");
+      return;
+    }
+    if (!message.trim()) {
+      onToast("Message is required.", "error");
+      return;
+    }
+
+    setTemplateSaving(true);
+    try {
+      const res = await fetch("/api/admin/broadcast/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, audience, delivery, style, value, message }),
+      });
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save template"));
+      onToast(`Template "${name}" saved`, "success");
+      setTemplateSaveName("");
+      setTemplateSaveOpen(false);
+      void loadBroadcastMeta();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to save template", "error");
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  const missingTablesNotice = (
+    <Panel title="Bot Restart Needed" right={<span className="text-xs text-zinc-500">🤖</span>}>
+      <div className="space-y-3">
+        <p className="text-sm text-zinc-400">
+          The bot creates the new broadcast tables when it boots. Upload the latest{" "}
+          <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">main.py</code> on Render, restart the
+          bot, then retry.
+        </p>
+        <button className="admin-button" type="button" disabled={metaLoading} onClick={() => void loadBroadcastMeta()}>
+          {metaLoading ? "Checking..." : "↻ Retry"}
+        </button>
+      </div>
+    </Panel>
+  );
+
   async function loadPreview() {
     if (!message.trim()) {
       setStatus("Message is required.");
@@ -2661,9 +2958,8 @@ function BroadcastSection({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_0.85fr]">
+    <div className="space-y-6">
       {isOwner && (
-        <div className="xl:col-span-2">
           <Panel title="Broadcast Command Access" right={<span className="text-xs text-zinc-500">Owner only</span>}>
             <div className="space-y-3">
               <p className="text-sm text-zinc-400">
@@ -2685,10 +2981,55 @@ function BroadcastSection({
               {allowedStatus && <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-200">{allowedStatus}</div>}
             </div>
           </Panel>
-        </div>
       )}
+
+      <div className="flex flex-wrap gap-2">
+        {BROADCAST_TABS.map((item) => {
+          const active = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition hover:brightness-125"
+              style={{
+                background: active
+                  ? "linear-gradient(90deg, color-mix(in srgb, var(--primary) 22%, transparent), rgba(255,255,255,0.06))"
+                  : "rgba(255,255,255,0.04)",
+                border: `1px solid ${active ? "color-mix(in srgb, var(--primary) 45%, var(--border))" : "var(--border)"}`,
+                boxShadow: active ? "0 0 16px var(--glow)" : "none",
+                color: active ? "var(--accent)" : "var(--foreground)",
+              }}
+            >
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "send" && (
+      <div className="grid gap-6 xl:grid-cols-[1fr_0.85fr]">
       <Panel title="Create Broadcast">
         <div className="space-y-4">
+          {templates.length > 0 && (
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Load a Template</span>
+              <select
+                className="admin-input"
+                value={templatePickerId}
+                onChange={(event) => handleTemplatePicker(event.target.value)}
+              >
+                <option value="">Start from a template...</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={String(template.id)}>{template.name}</option>
+                ))}
+              </select>
+              <span className="admin-label text-xs">
+                Manage templates in the 📄 Templates tab. Discord-role templates still need a role picked below.
+              </span>
+            </label>
+          )}
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="block space-y-2">
               <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Audience</span>
@@ -2750,7 +3091,7 @@ function BroadcastSection({
               onChange={(event) => { setMessage(event.target.value); setPreview(null); }}
               placeholder="Clan war starts soon, {ping}. Please prepare, {username}."
             />
-            <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{roblox_id}"}, {"{discord_id}"}, {"{role}"}, {"{ticket}"}</span>
+            <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}, {"{roblox_id}"}, {"{discord_id}"}, {"{role}"}, {"{ticket}"}</span>
           </label>
 
           {status && (
@@ -2759,7 +3100,42 @@ function BroadcastSection({
             </div>
           )}
 
+          {templateSaveOpen && (
+            <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <LabeledInput
+                  label="Template Name"
+                  value={templateSaveName}
+                  onChange={setTemplateSaveName}
+                  placeholder="e.g. Final 24h warning"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="admin-button"
+                  type="button"
+                  disabled={templateSaving}
+                  onClick={() => void saveComposerAsTemplate()}
+                >
+                  {templateSaving ? "Saving..." : "💾 Save Template"}
+                </button>
+                <button className="admin-button" type="button" onClick={() => setTemplateSaveOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap justify-end gap-2">
+            <button
+              className="admin-button"
+              type="button"
+              disabled={loading || !message.trim()}
+              onClick={() => setTemplateSaveOpen((open) => !open)}
+              title="Save this exact setup as a reusable template"
+            >
+              Save as Template
+            </button>
             <button className="admin-button" type="button" disabled={loading} onClick={() => void loadPreview()}>
               Preview
             </button>
@@ -2821,6 +3197,838 @@ function BroadcastSection({
           </div>
         ) : (
           <p className="text-sm text-zinc-500">Build a broadcast and click Preview to see recipient counts before sending.</p>
+        )}
+      </Panel>
+      </div>
+      )}
+
+      {tab === "templates" &&
+        (tablesMissing ? (
+          missingTablesNotice
+        ) : (
+          <BroadcastTemplatesPanel
+            templates={templates}
+            loading={metaLoading}
+            onRefresh={() => void loadBroadcastMeta()}
+            onToast={onToast}
+            onLoad={applyToComposer}
+          />
+        ))}
+
+      {tab === "schedules" &&
+        (tablesMissing ? (
+          missingTablesNotice
+        ) : (
+          <BroadcastSchedulesPanel
+            schedules={schedules}
+            loading={metaLoading}
+            onRefresh={() => void loadBroadcastMeta()}
+            onToast={onToast}
+          />
+        ))}
+
+      {tab === "history" && <BroadcastHistoryPanel onToast={onToast} onReuse={applyToComposer} />}
+    </div>
+  );
+}
+
+function BroadcastTemplatesPanel({
+  templates,
+  loading,
+  onRefresh,
+  onToast,
+  onLoad,
+}: {
+  templates: BroadcastTemplate[];
+  loading: boolean;
+  onRefresh: () => void;
+  onToast: (message: string, tone: "success" | "error" | "info") => void;
+  onLoad: (template: BroadcastTemplate) => void;
+}) {
+  const [editing, setEditing] = useState<BroadcastTemplate | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [audience, setAudience] = useState("everyone");
+  const [value, setValue] = useState("");
+  const [delivery, setDelivery] = useState("dm");
+  const [style, setStyle] = useState("plain");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const openEditor = creating || editing !== null;
+  const needsValue = ["below_points", "above_points", "bottom_n", "top_n", "custom_user"].includes(audience);
+
+  function startCreate() {
+    setEditing(null);
+    setCreating(true);
+    setName("");
+    setAudience("everyone");
+    setValue("");
+    setDelivery("dm");
+    setStyle("plain");
+    setMessage("");
+  }
+
+  function startEdit(template: BroadcastTemplate) {
+    setCreating(false);
+    setEditing(template);
+    setName(template.name);
+    setAudience(template.audience);
+    setValue(template.value);
+    setDelivery(template.delivery);
+    setStyle(template.style);
+    setMessage(template.message);
+  }
+
+  function closeEditor() {
+    setEditing(null);
+    setCreating(false);
+  }
+
+  async function saveTemplate() {
+    if (!name.trim()) return onToast("Template name is required.", "error");
+    if (!message.trim()) return onToast("Message is required.", "error");
+    if (needsValue && !value.trim()) return onToast("This audience needs a value.", "error");
+
+    setSaving(true);
+    try {
+      const res = await fetch(
+        editing ? `/api/admin/broadcast/templates/${editing.id}` : "/api/admin/broadcast/templates",
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, audience, value, delivery, style, message }),
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save template"));
+      onToast(editing ? "Template updated" : "Template created", "success");
+      closeEditor();
+      onRefresh();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to save template", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteTemplate(template: BroadcastTemplate) {
+    if (!confirmAction(`Delete template "${template.name}"? This cannot be undone.`)) return;
+    setDeletingId(template.id);
+    try {
+      const res = await fetch(`/api/admin/broadcast/templates/${template.id}`, { method: "DELETE" });
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to delete template"));
+      onToast("Template deleted", "info");
+      onRefresh();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to delete template", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Panel
+        title="Broadcast Templates"
+        right={
+          <div className="flex gap-2">
+            <button className="admin-button" type="button" disabled={loading} onClick={onRefresh}>
+              ↻
+            </button>
+            <button className="admin-button" type="button" onClick={startCreate}>
+              + New Template
+            </button>
+          </div>
+        }
+      >
+        {openEditor ? (
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <LabeledInput label="Template Name" value={name} onChange={setName} placeholder="e.g. Final 24h warning" />
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Audience</span>
+                <select className="admin-input" value={audience} onChange={(event) => setAudience(event.target.value)}>
+                  {Object.entries(BROADCAST_AUDIENCE_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Delivery</span>
+                <select className="admin-input" value={delivery} onChange={(event) => setDelivery(event.target.value)}>
+                  <option value="dm">DM</option>
+                  <option value="ticket">Ticket</option>
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Style</span>
+                <select className="admin-input" value={style} onChange={(event) => setStyle(event.target.value)}>
+                  <option value="plain">Plain text</option>
+                  <option value="embed">Embed</option>
+                </select>
+              </label>
+            </div>
+            {needsValue && (
+              <LabeledInput
+                label={audience === "custom_user" ? "Discord IDs / mentions" : "Filter Value"}
+                value={value}
+                onChange={setValue}
+                placeholder={audience === "custom_user" ? "Paste Discord IDs or mentions" : "Example: 15 or 1000"}
+              />
+            )}
+            {audience === "discord_role" && (
+              <p className="text-xs text-zinc-500">
+                Heads up: the role itself is picked at send time — this template just remembers the audience type.
+              </p>
+            )}
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Message</span>
+              <textarea
+                className="admin-input min-h-32 resize-y"
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder="War ends in {war_time_left}, {username} — you're on {points} points!"
+              />
+              <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}</span>
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className="admin-button" type="button" onClick={closeEditor}>Cancel</button>
+              <button className="admin-button" type="button" disabled={saving} onClick={() => void saveTemplate()}>
+                {saving ? "Saving..." : editing ? "Save Changes" : "Create Template"}
+              </button>
+            </div>
+          </div>
+        ) : templates.length ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {templates.map((template) => (
+              <div
+                key={template.id}
+                className="card-hover space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-white">{template.name}</div>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-300">
+                        {broadcastAudienceLabel(template.audience, template.value)}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-300">
+                        {template.delivery === "ticket" ? "Ticket" : "DM"}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-300">
+                        {template.style}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p
+                  className="text-sm text-zinc-400"
+                  style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                >
+                  {template.message}
+                </p>
+                <div className="text-xs text-zinc-500">
+                  {template.updatedBy ? `Last edited by ${template.updatedBy}` : "Saved template"}
+                  {template.updatedAt ? ` · ${formatTime(template.updatedAt)}` : ""}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button className="admin-button" type="button" onClick={() => onLoad(template)}>
+                    ✉️ Use
+                  </button>
+                  <button className="admin-button" type="button" onClick={() => startEdit(template)}>
+                    Edit
+                  </button>
+                  <button
+                    className="admin-button"
+                    type="button"
+                    disabled={deletingId === template.id}
+                    onClick={() => void deleteTemplate(template)}
+                  >
+                    {deletingId === template.id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-500">
+              No templates yet. Save your go-to war messages here — or hit &quot;Save as Template&quot; in the Send tab.
+            </p>
+            <button className="admin-button" type="button" onClick={startCreate}>+ New Template</button>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function BroadcastSchedulesPanel({
+  schedules,
+  loading,
+  onRefresh,
+  onToast,
+}: {
+  schedules: BroadcastSchedule[];
+  loading: boolean;
+  onRefresh: () => void;
+  onToast: (message: string, tone: "success" | "error" | "info") => void;
+}) {
+  const [editing, setEditing] = useState<BroadcastSchedule | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("one_time");
+  const [audience, setAudience] = useState("everyone");
+  const [value, setValue] = useState("");
+  const [delivery, setDelivery] = useState("dm");
+  const [style, setStyle] = useState("plain");
+  const [message, setMessage] = useState("");
+  const [topN, setTopN] = useState("10");
+  const [hours, setHours] = useState("24");
+  const [runAtLocal, setRunAtLocal] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const openEditor = creating || editing !== null;
+  const needsValue = ["below_points", "above_points", "bottom_n", "top_n"].includes(audience);
+  const kindMeta = broadcastScheduleKindMeta(kind);
+
+  function startCreate() {
+    setEditing(null);
+    setCreating(true);
+    setName("");
+    setKind("one_time");
+    setAudience("everyone");
+    setValue("");
+    setDelivery("dm");
+    setStyle("embed");
+    setMessage("");
+    setTopN("10");
+    setHours("24");
+    setRunAtLocal("");
+    setEnabled(true);
+  }
+
+  function startEdit(schedule: BroadcastSchedule) {
+    setCreating(false);
+    setEditing(schedule);
+    setName(schedule.name);
+    setKind(schedule.kind);
+    setAudience(schedule.audience);
+    setValue(schedule.value);
+    setDelivery(schedule.delivery);
+    setStyle(schedule.style);
+    setMessage(schedule.message);
+    setTopN(String(schedule.topN ?? 10));
+    setHours(String(schedule.hoursBeforeEnd ?? 24));
+    setRunAtLocal(isoToLocalInput(schedule.runAt));
+    setEnabled(schedule.enabled);
+  }
+
+  function closeEditor() {
+    setEditing(null);
+    setCreating(false);
+  }
+
+  async function saveSchedule() {
+    if (!name.trim()) return onToast("Schedule name is required.", "error");
+    if (!message.trim()) return onToast("Message is required.", "error");
+    if (needsValue && !value.trim()) return onToast("This audience needs a value.", "error");
+    if (kind === "one_time" && !runAtLocal) return onToast("Pick a date & time.", "error");
+
+    setSaving(true);
+    try {
+      const body: UnknownRecord = {
+        name,
+        kind,
+        audience,
+        value,
+        delivery,
+        style,
+        message,
+        topN: kind === "war_end_congrats" ? Number(topN) : null,
+        hoursBeforeEnd: kind === "war_final_hours" ? Number(hours) : null,
+        runAt: kind === "one_time" && runAtLocal ? new Date(runAtLocal).toISOString() : null,
+        enabled,
+      };
+      const res = await fetch(
+        editing ? `/api/admin/broadcast/schedules/${editing.id}` : "/api/admin/broadcast/schedules",
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save schedule"));
+      onToast(editing ? "Schedule updated" : "Schedule created", "success");
+      closeEditor();
+      onRefresh();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to save schedule", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function patchSchedule(schedule: BroadcastSchedule, body: UnknownRecord, errorLabel: string) {
+    setBusyId(schedule.id);
+    try {
+      const res = await fetch(`/api/admin/broadcast/schedules/${schedule.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? errorLabel));
+      onRefresh();
+      return true;
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : errorLabel, "error");
+      return false;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleSchedule(schedule: BroadcastSchedule) {
+    if (!schedule.enabled) {
+      const confirmed = confirmTypedAction(
+        `Enable "${schedule.name}"? It will DM/message members automatically when it fires.`,
+        "ENABLE"
+      );
+      if (!confirmed) return;
+    }
+    const ok = await patchSchedule(
+      schedule,
+      { enabled: !schedule.enabled },
+      `Failed to ${schedule.enabled ? "disable" : "enable"} schedule`
+    );
+    if (ok) onToast(schedule.enabled ? "Schedule disabled" : "Schedule enabled ✅", schedule.enabled ? "info" : "success");
+  }
+
+  async function deleteSchedule(schedule: BroadcastSchedule) {
+    if (!confirmTypedAction(`Delete schedule "${schedule.name}"? This stops the automation for good.`, "DELETE")) return;
+    setBusyId(schedule.id);
+    try {
+      const res = await fetch(`/api/admin/broadcast/schedules/${schedule.id}`, { method: "DELETE" });
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to delete schedule"));
+      onToast("Schedule deleted", "info");
+      onRefresh();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to delete schedule", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Panel
+        title="Broadcast Schedules"
+        right={
+          <div className="flex gap-2">
+            <button className="admin-button" type="button" disabled={loading} onClick={onRefresh}>
+              ↻
+            </button>
+            <button className="admin-button" type="button" onClick={startCreate}>
+              + New Schedule
+            </button>
+          </div>
+        }
+      >
+        {openEditor ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">When does it fire?</span>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {BROADCAST_SCHEDULE_KINDS.map((item) => {
+                  const active = kind === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setKind(item.id)}
+                      className="rounded-xl border px-3 py-3 text-left transition hover:brightness-125"
+                      style={{
+                        borderColor: active ? "color-mix(in srgb, var(--primary) 45%, var(--border))" : "var(--border)",
+                        background: active ? "color-mix(in srgb, var(--primary) 15%, transparent)" : "rgba(255,255,255,0.03)",
+                      }}
+                    >
+                      <div className="text-sm font-semibold text-white">{item.icon} {item.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{item.blurb}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <LabeledInput label="Schedule Name" value={name} onChange={setName} placeholder={`e.g. ${kindMeta.icon} ${kindMeta.label} nudge`} />
+              {kind === "one_time" && (
+                <label className="block space-y-2">
+                  <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Fire At (your time)</span>
+                  <input
+                    type="datetime-local"
+                    className="admin-input"
+                    value={runAtLocal}
+                    onChange={(event) => setRunAtLocal(event.target.value)}
+                  />
+                </label>
+              )}
+              {kind === "war_end_congrats" && (
+                <LabeledInput label="Top N scorers to DM" value={topN} onChange={setTopN} placeholder="10" />
+              )}
+              {kind === "war_final_hours" && (
+                <LabeledInput label="Hours before war end" value={hours} onChange={setHours} placeholder="24" />
+              )}
+              {kind !== "war_end_congrats" && (
+                <label className="block space-y-2">
+                  <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Audience</span>
+                  <select className="admin-input" value={audience} onChange={(event) => setAudience(event.target.value)}>
+                    {BROADCAST_SCHEDULE_AUDIENCE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Delivery</span>
+                <select className="admin-input" value={delivery} onChange={(event) => setDelivery(event.target.value)}>
+                  <option value="dm">DM</option>
+                  <option value="ticket">Ticket</option>
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Style</span>
+                <select className="admin-input" value={style} onChange={(event) => setStyle(event.target.value)}>
+                  <option value="plain">Plain text</option>
+                  <option value="embed">Embed</option>
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">State</span>
+                <select className="admin-input" value={enabled ? "on" : "off"} onChange={(event) => setEnabled(event.target.value === "on")}>
+                  <option value="on">Enabled — fires automatically</option>
+                  <option value="off">Disabled — draft only</option>
+                </select>
+              </label>
+            </div>
+
+            {needsValue && (
+              <LabeledInput label="Filter Value" value={value} onChange={setValue} placeholder="Example: 15 or 1000" />
+            )}
+            {editing?.kind === "one_time" && editing.lastFiredAt && (
+              <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                This one-time broadcast already fired and won&apos;t fire again — create a new schedule instead.
+              </p>
+            )}
+            <label className="block space-y-2">
+              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Message</span>
+              <textarea
+                className="admin-input min-h-32 resize-y"
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder="⚠️ {username}, war ends in {war_time_left} and you're on {points} points!"
+              />
+              <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}</span>
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className="admin-button" type="button" onClick={closeEditor}>Cancel</button>
+              <button className="admin-button" type="button" disabled={saving} onClick={() => void saveSchedule()}>
+                {saving ? "Saving..." : editing ? "Save Changes" : "Create Schedule"}
+              </button>
+            </div>
+          </div>
+        ) : schedules.length ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {schedules.map((schedule) => {
+              const meta = broadcastScheduleKindMeta(schedule.kind);
+              const firedOnce = schedule.kind === "one_time" && Boolean(schedule.lastFiredAt);
+              return (
+                <div
+                  key={schedule.id}
+                  className="card-hover space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4"
+                  style={{ opacity: schedule.enabled ? 1 : 0.65 }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-white">{schedule.name}</div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-300">
+                          {meta.icon} {meta.label}
+                        </span>
+                        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] ${statusTone(schedule.enabled ? "enabled" : "disabled")}`}>
+                          {schedule.enabled ? "● Enabled" : "○ Disabled"}
+                        </span>
+                        {firedOnce && (
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-400">
+                            ✓ Fired
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-zinc-400">{broadcastScheduleSummary(schedule)}</div>
+                  <p
+                    className="text-sm text-zinc-400"
+                    style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                  >
+                    {schedule.message}
+                  </p>
+                  <div className="text-xs text-zinc-500">
+                    {schedule.lastFiredAt
+                      ? `Last fired ${formatTime(schedule.lastFiredAt)}${schedule.lastFiredBattle ? ` · ${schedule.lastFiredBattle}` : ""}`
+                      : "Never fired yet"}
+                    {schedule.createdBy ? ` · by ${schedule.createdBy}` : ""}
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      className="admin-button"
+                      type="button"
+                      disabled={busyId === schedule.id || firedOnce}
+                      title={firedOnce ? "One-time schedules can't re-fire" : undefined}
+                      onClick={() => void toggleSchedule(schedule)}
+                    >
+                      {schedule.enabled ? "Disable" : "Enable"}
+                    </button>
+                    <button className="admin-button" type="button" onClick={() => startEdit(schedule)}>
+                      Edit
+                    </button>
+                    <button
+                      className="admin-button"
+                      type="button"
+                      disabled={busyId === schedule.id}
+                      onClick={() => void deleteSchedule(schedule)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-500">No schedules yet — automate war nudges and congrats messages here.</p>
+            <button className="admin-button" type="button" onClick={startCreate}>+ New Schedule</button>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function BroadcastHistoryPanel({
+  onToast,
+  onReuse,
+}: {
+  onToast: (message: string, tone: "success" | "error" | "info") => void;
+  onReuse: (send: BroadcastSend) => void;
+}) {
+  const [sends, setSends] = useState<BroadcastSend[]>([]);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState<BroadcastHistoryStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [recipients, setRecipients] = useState<Record<number, BroadcastSendRecipient[]>>({});
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
+
+  async function loadHistory(reset: boolean) {
+    if (reset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+    try {
+      const offset = reset ? 0 : sends.length;
+      const res = await fetch(`/api/admin/broadcast/history?limit=25&offset=${offset}&stats=1`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (broadcastTableMissingFrom(data)) {
+        setMissing(true);
+        return;
+      }
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to load history"));
+      const batch = asArray<BroadcastSend>(data.sends);
+      setSends((current) => (reset ? batch : [...current, ...batch]));
+      setTotal(Number(data.total ?? 0));
+      if (data.stats) setStats(data.stats as BroadcastHistoryStats);
+      setMissing(false);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to load history", "error");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function toggleDetails(send: BroadcastSend) {
+    if (expandedId === send.id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(send.id);
+    if (recipients[send.id]) return;
+
+    setRecipientsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/broadcast/history/${send.id}`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as UnknownRecord;
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to load recipients"));
+      setRecipients((current) => ({ ...current, [send.id]: asArray<BroadcastSendRecipient>(data.recipients) }));
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Failed to load recipients", "error");
+    } finally {
+      setRecipientsLoading(false);
+    }
+  }
+
+  if (missing) {
+    return (
+      <Panel title="Bot Restart Needed" right={<span className="text-xs text-zinc-500">🤖</span>}>
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-400">
+            Broadcast logging turns on when the bot boots with the latest{" "}
+            <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">main.py</code>. Restart it on Render, then retry.
+          </p>
+          <button className="admin-button" type="button" disabled={loading} onClick={() => void loadHistory(true)}>
+            {loading ? "Checking..." : "↻ Retry"}
+          </button>
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {stats && (
+        <div className="grid gap-4 grid-cols-2 xl:grid-cols-5">
+          <MiniStat label="Sends · 30d" value={stats.sends} />
+          <MiniStat label="Messages Delivered" value={stats.delivered} />
+          <MiniStat label="Zeros Converted" value={stats.conversions} />
+          <MiniStat label="Points Gained" value={stats.pointsGained} />
+          <MiniStat label="Pending Checks" value={stats.pending} />
+        </div>
+      )}
+
+      <Panel
+        title="Send History"
+        right={
+          <button className="admin-button" type="button" disabled={loading} onClick={() => void loadHistory(true)}>
+            ↻
+          </button>
+        }
+      >
+        {loading ? (
+          <p className="text-sm text-zinc-500">Loading broadcast history...</p>
+        ) : sends.length ? (
+          <div className="space-y-3">
+            {sends.map((send) => {
+              const source = broadcastSourceMeta(send.source);
+              const recipientRows = recipients[send.id];
+              const expanded = expandedId === send.id;
+              return (
+                <div key={send.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] ${source.chip}`}>
+                          {source.icon} {source.label}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-300">
+                          {broadcastAudienceLabel(send.audience, send.value)}
+                        </span>
+                        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] ${statusTone(send.status === "done" ? "done ok" : send.status)}`}>
+                          {send.status}
+                        </span>
+                      </div>
+                      <p
+                        className="text-sm text-zinc-300"
+                        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                      >
+                        {send.message}
+                      </p>
+                      <div className="text-xs text-zinc-500">
+                        {send.actor ?? "Unknown sender"} · {formatTime(send.sentAt)} · {send.matchedCount} matched ·{" "}
+                        <span className="text-emerald-300">{send.sentCount} sent</span>
+                        {send.failedCount > 0 && <span className="text-red-300"> · {send.failedCount} failed</span>}
+                      </div>
+                      <div className="text-xs">
+                        {send.conversionCheckedAt ? (
+                          (send.conversionZeroAtSend ?? 0) > 0 ? (
+                            <span className="text-emerald-200">
+                              🔥 {send.conversionScorers ?? 0}/{send.conversionZeroAtSend} zeros started scoring · +
+                              {toDisplayValue(send.conversionPoints ?? 0)} pts gained
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600">Conversion: no zero-pointers in this send</span>
+                          )
+                        ) : (
+                          <span className="text-zinc-500">⏳ Conversion check runs ~24h after send</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button className="admin-button" type="button" onClick={() => void toggleDetails(send)}>
+                        {expanded ? "Hide" : "Details"}
+                      </button>
+                      <button className="admin-button" type="button" onClick={() => onReuse(send)}>
+                        ♻️ Reuse
+                      </button>
+                    </div>
+                  </div>
+                  {expanded && (
+                    <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
+                      {recipientsLoading && !recipientRows ? (
+                        <p className="text-sm text-zinc-500">Loading recipients...</p>
+                      ) : recipientRows?.length ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {recipientRows.map((recipient, index) => (
+                            <div
+                              key={safeId("broadcast-recipient", recipient.discordId ?? recipient.username, index)}
+                              className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-white">{recipient.username ?? "Unknown"}</div>
+                                <div className="text-xs text-zinc-500">{toDisplayValue(recipient.pointsAtSend)} pts at send</div>
+                                {recipient.error && <div className="truncate text-xs text-red-300">{recipient.error}</div>}
+                              </div>
+                              <span className="shrink-0 text-base">{recipient.delivered ? "✅" : "❌"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-zinc-500">No recipient rows stored for this send.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {sends.length < total && (
+              <div className="flex justify-center pt-2">
+                <button className="admin-button" type="button" disabled={loadingMore} onClick={() => void loadHistory(false)}>
+                  {loadingMore ? "Loading..." : `Load more (${sends.length}/${total})`}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-500">
+            Nothing sent yet — every broadcast from Discord, the Hub, and automations lands here with delivery + conversion stats.
+          </p>
         )}
       </Panel>
     </div>
