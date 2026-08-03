@@ -627,21 +627,18 @@ type HistoryExtraRow = {
   points: number | string | null;
 };
 
-/**
- * Historical wars are the PointContributions ledger (people who actually
- * competed) PLUS zero-point members — but ONLY ones we can verify against
- * the current in-game roster. That keeps genuine clan members who never
- * scored (and never linked a hub account), while dropping people who were
- * passing through and have since left: "not in the clan" means they are not
- * part of the war's story.
+/** Big Games rewrites a battle's PointContributions when players leave the
+ * clan afterwards — kicked/departed contributors vanish from the ledger.
+ * Restore them from our own hourly snapshots: anyone seen with points > 0
+ * during the war's final 24 hours was part of that war's leaderboard.
+ * Zero-point players are never restored — history wars are scorers only.
  */
-async function appendRosterVerifiedZeroMembers(
+async function appendMissingScoredMembers(
   entries: LeaderboardEntry[],
-  battleKeys: string[],
-  rosterIds: Set<string>
+  battleKeys: string[]
 ): Promise<LeaderboardEntry[]> {
   const keys = [...new Set(battleKeys.map(normalizeKey).filter(Boolean))];
-  if (!keys.length || !rosterIds.size) return entries;
+  if (!keys.length) return entries;
 
   try {
     const tableCheck = await pool.query<{ exists: boolean }>(
@@ -671,8 +668,7 @@ async function appendRosterVerifiedZeroMembers(
     );
 
     const missingRows = historyRes.rows.filter(
-      (row) =>
-        !knownIds.has(String(row.roblox_id)) && rosterIds.has(String(row.roblox_id).trim())
+      (row) => !knownIds.has(String(row.roblox_id)) && Number(row.points ?? 0) > 0
     );
     if (!missingRows.length) return entries;
 
@@ -908,20 +904,20 @@ async function buildHistoricalFromClanApi(battleId: string, fallbackTitle = "His
       };
     });
 
-    // Historical wars = the PointContributions ledger (people who actually
-    // competed) + zero-point members who are verifiably in the clan today.
+    // Historical wars = everyone who had POINTS in that war: the
+    // PointContributions ledger (members still in the clan) + contributors
+    // Big Games dropped because they were kicked/left after the war
+    // (restored from our snapshots). No zero-point players. This yields the
+    // war's true final leaderboard — e.g. 75 for Gummy, not 68.
+    entries = await appendMissingScoredMembers(entries, [
+      match?.key ?? "",
+      battle?.BattleID ?? "",
+      battle?.configName ?? "",
+      battle?.Title ?? "",
+      battleId,
+    ]);
+
     const currentRosterIds = extractCurrentRosterIds(clan);
-    entries = await appendRosterVerifiedZeroMembers(
-      entries,
-      [
-        match?.key ?? "",
-        battle?.BattleID ?? "",
-        battle?.configName ?? "",
-        battle?.Title ?? "",
-        battleId,
-      ],
-      currentRosterIds
-    );
 
     // Mark anyone who competed but is no longer in the clan today, so the
     // UI can show a "left clan" marker.
