@@ -7,11 +7,18 @@ import { buildAskerContext, getSharedWarContext, packForPrompt } from "@/lib/war
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY ?? ""
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+// Provider-agnostic: any OpenAI-compatible chat-completions endpoint.
+// Defaults to Groq (free tier); set ASSISTANT_AI_* to use GitHub Models,
+// OpenRouter, Cerebras, etc. without touching this file.
+const AI_API_KEY = process.env.ASSISTANT_AI_KEY ?? process.env.GROQ_API_KEY ?? ""
+const AI_BASE_URL = (
+  process.env.ASSISTANT_AI_BASE_URL ?? "https://api.groq.com/openai/v1/chat/completions"
+).trim()
+const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "llama-3.3-70b-versatile,llama-3.1-8b-instant")
+  .split(",")
+  .map((model) => model.trim())
+  .filter(Boolean)
 const DAILY_AI_LIMIT = Math.max(0, Number(process.env.ASSISTANT_DAILY_AI_LIMIT ?? "10") || 10)
-
-const MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"] as const
 
 const SYSTEM_PROMPT = `You are the MCWV War Assistant, the in-house war-room bot of the Pet Simulator 99 clan MCWV.
 Answer using ONLY the JSON context below — it contains live clan war data (rank, points, gaps, rewards, members) plus the asker's own stats.
@@ -71,13 +78,13 @@ function stripLinks(text: string) {
   return text.replace(/https?:\/\/\S+|www\.\S+/gi, "[link removed]").trim()
 }
 
-async function askGroq(model: string, question: string, context: unknown): Promise<string | null> {
+async function askModel(model: string, question: string, context: unknown): Promise<string | null> {
   try {
-    const res = await fetch(GROQ_URL, {
+    const res = await fetch(AI_BASE_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${GROQ_API_KEY}`,
+        Authorization: `Bearer ${AI_API_KEY}`,
       },
       body: JSON.stringify({
         model,
@@ -92,7 +99,7 @@ async function askGroq(model: string, question: string, context: unknown): Promi
     })
 
     if (!res.ok) {
-      console.warn(`[assistant] groq ${model} HTTP ${res.status}`)
+      console.warn(`[assistant] ${model} HTTP ${res.status}`)
       return null
     }
 
@@ -131,25 +138,25 @@ export async function POST(req: Request) {
         reply: engine.text,
         chips: engine.chips,
         source: "instant",
-        aiRemaining: greeting || !GROQ_API_KEY ? null : Math.max(0, DAILY_AI_LIMIT - (await getDailyAiUsed(auth.user.id))),
+        aiRemaining: greeting || !AI_API_KEY ? null : Math.max(0, DAILY_AI_LIMIT - (await getDailyAiUsed(auth.user.id))),
       })
     }
 
-    // 2) Free-text the engine didn't recognise → Groq (if configured + under cap).
-    if (GROQ_API_KEY && DAILY_AI_LIMIT > 0) {
+    // 2) Free-text the engine didn't recognise → AI provider (if configured + under cap).
+    if (AI_API_KEY && DAILY_AI_LIMIT > 0) {
       await ensureUsageTable()
       const used = await getDailyAiUsed(auth.user.id)
 
       if (used < DAILY_AI_LIMIT) {
         const context = packForPrompt(shared, asker, officer)
-        for (const model of MODELS) {
-          const answer = await askGroq(model, message, context)
+        for (const model of AI_MODELS) {
+          const answer = await askModel(model, message, context)
           if (answer) {
             await bumpDailyAiUsed(auth.user.id)
             return NextResponse.json({
               reply: stripLinks(answer).slice(0, 1000),
               chips: ["How are we doing?", "What do we win?", "Who's carrying?"],
-              source: model === MODELS[0] ? "groq-70b" : "groq-8b",
+              source: `ai:${model}`,
               aiRemaining: Math.max(0, DAILY_AI_LIMIT - used - 1),
             })
           }
@@ -166,7 +173,7 @@ export async function POST(req: Request) {
     }
 
     // 3) Always land on something useful.
-    const fallback = fallbackAnswer(shared, asker, GROQ_API_KEY ? "AI is resting" : "AI key not set")
+    const fallback = fallbackAnswer(shared, asker, AI_API_KEY ? "AI is resting" : "AI key not set")
     return NextResponse.json({
       reply: fallback.text,
       chips: fallback.chips,
