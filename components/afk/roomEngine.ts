@@ -13,6 +13,13 @@
 // floor pool, wall wash, rim lighting on furniture + resident, beam-boosted
 // dust, hills silhouette + far house lights, golden/silver cloud linings,
 // low-sun bloom + fan rays, occasional shooting stars.
+//
+// v5 "LIVELY": power moments (lamp clicks off at bedtime, monitor CRT
+// collapse/warm-up, twin-bell alarm, curtains that open with the morning walk
+// and close at wind-down — slitted beams overnight), routines (weekday desk
+// work sessions with scrolling code, cat feeding + pet stops, weekend plant
+// watering), set pieces (wall fish tank, shelf boombox, sweeping second hand),
+// and critters (moths at the lamp, summer fireflies, rainbow after storms).
 // ---------------------------------------------------------------------------
 
 export type RGB = [number, number, number]
@@ -218,7 +225,10 @@ export type SceneState = {
 const hoursUntil = (from: number, to: number) => ((to - from + 24) % 24 + 24) % 24
 
 export function sceneStateAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): SceneState {
-  const hour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600
+  const hour =
+    now.getHours() +
+    now.getMinutes() / 60 +
+    (now.getSeconds() + now.getMilliseconds() / 1000) / 3600
   const day = now.getDay()
   const weekend = day === 0 || day === 6
   const wake = weekend ? 9 : 6.5
@@ -725,6 +735,24 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth:
     const topN = inn.y + inn.h - 5 + Math.round(waveN)
     if (topN < inn.y + inn.h) t.fill(inn.x + i, topN, 1, inn.y + inn.h - topN, hillNear)
   }
+  // rainbow arcs over the hills in the slot after a storm passes
+  if (life.rainbowA > 0.02) {
+    const rcx = inn.x + inn.w - 8
+    const rcy = inn.y + inn.h - 4
+    const bands: [number, RGB][] = [
+      [30, [255, 148, 148]],
+      [28, [255, 214, 140]],
+      [26, [168, 214, 255]],
+    ]
+    for (const [r, c] of bands) {
+      for (let dy = 0; dy < r; dy++) {
+        const half = Math.floor(Math.sqrt(r * r - dy * dy))
+        const a = life.rainbowA * 0.16 * (1 - dy / r)
+        if (a > 0.02) t.add(rcx - half, rcy - dy, half, 1, c, a)
+      }
+    }
+  }
+
   // far house lights after dark — someone else's window glows out there
   if (starVis > 0.35) {
     for (let i = 0; i < 3; i++) {
@@ -853,6 +881,20 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth:
     }
   }
 
+  // summer fireflies drifting over the night garden
+  if (life.fireflyA > 0.02) {
+    for (let i = 0; i < 7; i++) {
+      const fx = inn.x + 2 + Math.floor(hash(i * 29 + 7) * (inn.w - 6) + Math.sin(tMs * 0.00021 + i * 1.7) * 4)
+      const fy = inn.y + inn.h - 10 + Math.round(Math.sin(tMs * 0.00034 + i * 2.3) * 3 + hash(i * 13) * 3)
+      const pulse = Math.pow(Math.max(0, Math.sin(tMs * 0.0011 + i * 2.1)), 6)
+      const a = life.fireflyA * pulse
+      if (a > 0.1) {
+        t.add(fx, fy, 1, 1, [206, 255, 148], Math.min(1, a))
+        if (a > 0.45) t.add(fx, fy - 1, 1, 1, [206, 255, 148], a * 0.4)
+      }
+    }
+  }
+
   // butterfly bumbles about on warm clear afternoons
   if (wth.kind === "clear" && s.hour >= 11 && s.hour <= 17 && tMs % 97000 < 6500) {
     const bt = (tMs % 97000) / 6500
@@ -910,6 +952,31 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth:
   // mullions
   t.fill(W.x + Math.floor(W.w / 2) - 1, W.y, 3, W.h, [96, 66, 40])
   t.fill(W.x, W.y + Math.floor(W.h / 2) - 1, W.w, 3, [96, 66, 40])
+
+  // curtains drawn for the night: panels slide inward, leaving a slim slit
+  // of moonlit glass — beams outside shrink to match (see renderRoom)
+  const cover = Math.round((1 - life.curtainP) * (W.w / 2 - 4))
+  if (cover > 0) {
+    const curtainC: RGB = [100, 64, 150]
+    for (const side of [0, 1]) {
+      const x0 = side === 0 ? W.x + 5 : W.x + W.w - 5 - cover
+      for (let cx = 0; cx < cover; cx++) {
+        const x = x0 + cx
+        // scalloped inner edge + gentle fabric length variation
+        const inner = side === 0 ? cx >= cover - 3 : cx < 3
+        const drape = 1 - Math.abs(cover / 2 - cx) / Math.max(1, cover / 2) // 0 edge .. 1 mid
+        const len = W.h - 4 - (inner ? 2 : Math.round(drape * 2))
+        const sway = Math.round(Math.sin(tMs * 0.0011 + side * 2.1) * wth.wind * 1.2)
+        for (let i = 0; i < len; i++) {
+          const tone = (cx + i) % 3 === 0 ? scale(curtainC, 1.18) : (cx + i) % 3 === 1 ? curtainC : scale(curtainC, 0.78)
+          t.fill(x + sway, W.y + 3 + i, 1, 1, tone)
+        }
+        // golden hem at the fabric foot
+        t.fill(x + sway, W.y + 3 + len, 1, 1, scale(curtainC, 0.6))
+      }
+    }
+  }
+
   // sill
   bevel(t, W.x - 3, W.y + W.h, W.w + 6, 4, [96, 64, 38])
   // snow settles on the outside sill
@@ -1047,6 +1114,13 @@ function drawWallClock(t: PixelTarget, g: RoomGeo, now: Date) {
   t.fill(cx - 1 + mdx * 2, cy - 1 + mdy * 2, 1, 1, [60, 58, 54])
   t.fill(cx - 1 + mdx * 3, cy - 1 + mdy * 3, 1, 1, [60, 58, 54])
   t.fill(cx - 1 + hdx, cy - 1 + hdy, 1, 1, [40, 38, 36])
+  // sweeping red second hand — the quiet tick-tock of the room
+  const sec = now.getSeconds()
+  const sa = (sec / 60) * TAU - Math.PI / 2
+  const [sdx, sdy] = [Math.round(Math.cos(sa) * 3), Math.round(Math.sin(sa) * 3)]
+  const [sdx2, sdy2] = [Math.round(Math.cos(sa) * 1.5), Math.round(Math.sin(sa) * 1.5)]
+  t.fill(cx - 1 + sdx2, cy - 1 + sdy2, 1, 1, [200, 84, 74])
+  t.fill(cx - 1 + sdx, cy - 1 + sdy, 1, 1, [200, 84, 74])
   t.fill(cx - 1, cy - 1, 1, 1, [150, 60, 60])
 }
 
@@ -1129,21 +1203,35 @@ function drawDesk(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, life: 
   t.fill(mx + 9, my + 20, 3, 4, [58, 60, 70])
   t.fill(mx + 4, my + 24, 13, 2, [58, 60, 70])
   bevel(t, mx, my, 23, 20, [34, 36, 48])
-  const awakeScreen = !s.sleeping
-  if (awakeScreen) {
+  const power = life.screenPower
+  if (life.crtLine === null && power > 0) {
     t.fill(mx + 2, my + 2, 19, 15, [30, 44, 68])
     // title bar with 2 buttons — retro OS vibes
     t.fill(mx + 2, my + 2, 19, 3, [58, 74, 110])
     t.fill(mx + 3, my + 3, 1, 1, [240, 120, 110])
     t.fill(mx + 5, my + 3, 1, 1, [240, 200, 110])
-    const lines: [number, number, number, RGB][] = [
-      [6, 0, 12, [110, 220, 160]],
-      [9, 2, 8, [150, 120, 230]],
-      [12, 1, 14, [110, 170, 240]],
-    ]
-    for (const [ly, off, len, c] of lines) {
-      const wobble = Math.floor(tMs / 900 + ly) % 3 === 0 ? 1 : 0
-      t.fill(mx + 3 + off, my + ly, len - wobble * 2, 1, c)
+    if (life.working) {
+      // deep-work mode: columns of scrolling glyph-code cascading downward
+      for (let col = 0; col < 3; col++) {
+        const cxc = mx + 3 + col * 6
+        for (let row = 0; row < 8; row++) {
+          const cell = (row * 7 + col * 13 + Math.floor(tMs / 180)) % 11
+          if (cell < 6) {
+            const c: RGB = col === 0 ? [110, 220, 160] : col === 1 ? [150, 120, 230] : [110, 170, 240]
+            t.fill(cxc + (cell % 3), my + 6 + row, 2 + (cell % 2), 1, c)
+          }
+        }
+      }
+    } else {
+      const lines: [number, number, number, RGB][] = [
+        [6, 0, 12, [110, 220, 160]],
+        [9, 2, 8, [150, 120, 230]],
+        [12, 1, 14, [110, 170, 240]],
+      ]
+      for (const [ly, off, len, c] of lines) {
+        const wobble = Math.floor(tMs / 900 + ly) % 3 === 0 ? 1 : 0
+        t.fill(mx + 3 + off, my + ly, len - wobble * 2, 1, c)
+      }
     }
     // taskbar
     t.fill(mx + 2, my + 15, 19, 2, [46, 56, 84])
@@ -1157,17 +1245,27 @@ function drawDesk(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, life: 
     }
   } else {
     t.fill(mx + 2, my + 2, 19, 15, [18, 20, 28])
+    // CRT power moment: warm-up bloom line / collapse-to-line
+    if (life.crtLine !== null) {
+      const p = Math.abs(life.crtLine)
+      const bandH = Math.max(1, Math.round(15 * (life.crtLine > 0 ? p : 1 - p)))
+      const by = my + 9 - Math.floor(bandH / 2)
+      t.add(mx + 2, by, 19, bandH, [170, 205, 255], 0.55)
+      t.add(mx + 5, by + Math.floor(bandH / 2), 13, 1, [220, 236, 255], 0.5)
+    }
     // standby LED — the monitor sleeps too
-    const ledPulse = 0.5 + 0.5 * Math.sin(tMs * 0.0012)
-    t.blend(mx + 19, my + 17, 1, 1, [255, 120, 80], 0.4 + 0.5 * ledPulse)
+    if (power === 0) {
+      const ledPulse = 0.5 + 0.5 * Math.sin(tMs * 0.0012)
+      t.blend(mx + 19, my + 17, 1, 1, [255, 120, 80], 0.4 + 0.5 * ledPulse)
+    }
   }
   // keyboard with key checker + mouse
   t.fill(mx - 2, surf - 2, 18, 2, [44, 46, 58])
   for (let k = 0; k < 8; k++) t.fill(mx - 1 + k * 2, surf - 1, 1, 1, [64, 66, 80])
   t.fill(mx + 17, surf - 2, 3, 2, [44, 46, 58])
 
-  // the mug — waiting with steam while the resident's at the desk (and not off with it)
-  if (!s.sleeping && !s.standing && !life.snack.active) {
+  // the mug — waiting with steam while the resident's at the desk (and not off with it / sipping)
+  if (!s.sleeping && !s.standing && !life.snack.active && !(life.working && tMs % 45000 < 1400)) {
     t.fill(x + 5, surf - 4, 3, 4, [226, 230, 240])
     t.fill(x + 8, surf - 3, 1, 2, [200, 206, 220])
     t.fill(x + 5, surf - 3, 3, 1, [150, 110, 220]) // violet band
@@ -1182,14 +1280,15 @@ function drawDesk(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, life: 
   }
 }
 
-function drawLamp(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
+function drawLamp(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, level = 1) {
   const x = g.lampX
   const floor = g.floorY
   contactShadow(t, x - 5, floor, 12, 0.3)
   const shadeY = floor - 48
+  const lit = level > 0.02
   // layered SOLID light, drawn behind the fixture so it clearly comes from the lamp
-  if (s.lampOn) {
-    const pulse = 0.96 + 0.04 * Math.sin(tMs * 0.0035)
+  if (lit) {
+    const pulse = (0.96 + 0.04 * Math.sin(tMs * 0.0035)) * level
     const warm: RGB = [255, 205, 110]
     const warmHi: RGB = [255, 228, 158]
     // halo blooming behind the shade
@@ -1213,11 +1312,21 @@ function drawLamp(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
     if (Math.abs(g.dresserX + 44 - x) < 26)
       t.add(g.dresserX + 43, floor - 26, 1, 24, warm, 0.22 * pulse)
     if (Math.abs(g.deskX - x) < 26) t.add(g.deskX - 1, floor - 24, 1, 6, warm, 0.16 * pulse)
+    // moths orbit the shade on dark evenings — little lissajous loops
+    if (s.mood.ambient > 0.2 && level > 0.6) {
+      for (let i = 0; i < 3; i++) {
+        const mx = x + Math.round(Math.cos(tMs * (0.0021 + i * 0.0004) + i * 2.1) * (5 + i * 2))
+        const my = shadeY + 7 + Math.round(Math.sin(tMs * (0.0017 + i * 0.0005) + i * 1.3) * 4)
+        const flutter = Math.floor(tMs / 90 + i) % 2 === 0
+        t.fill(mx, my, 1, 1, [222, 212, 182])
+        if (flutter) t.fill(mx + 1, my - 1, 1, 1, [196, 186, 158])
+      }
+    }
   }
   // pole + base
-  t.fill(x - 1, floor - 38, 2, 36, s.lampOn ? [168, 152, 172] : [128, 116, 138])
+  t.fill(x - 1, floor - 38, 2, 36, lit ? [168, 152, 172] : [128, 116, 138])
   ellipse(t, x, floor - 1, 6, 2, "fill", [94, 84, 108])
-  if (s.lampOn) {
+  if (lit) {
     t.fill(x - 7, shadeY, 14, 3, [240, 200, 124])
     t.fill(x - 6, shadeY + 3, 12, 3, [238, 196, 118])
     t.fill(x - 5, shadeY + 6, 10, 4, [232, 188, 110])
@@ -1372,6 +1481,25 @@ function drawCat(t: PixelTarget, g: RoomGeo, life: CatFrame, tMs: number) {
     return
   }
 
+  if (pose === "eat") {
+    // head down in the bowl, tail high and happy
+    contactShadow(t, x, gy, 13, 0.22)
+    t.fill(x, gy - 5, 11, 5, CAT_BODY)
+    t.fill(x + 1, gy - 6, 9, 1, CAT_BODY)
+    t.fill(x + 3, gy - 5, 1, 1, CAT_STRIPE)
+    t.fill(x + 7, gy - 4, 1, 1, CAT_STRIPE)
+    // head bobs rhythmically into the bowl
+    const dip = Math.floor(tMs / 300) % 2
+    const hx = facing > 0 ? x + 10 : x - 2
+    t.fill(hx, gy - 3 + dip, 3, 3, CAT_BODY)
+    t.fill(hx + (facing > 0 ? 0 : 2), gy - 4 + dip, 1, 1, CAT_STRIPE) // ear
+    // tail hoisted, tip swaying
+    const txx = facing > 0 ? x - 1 : x + 11
+    const sway = Math.round(Math.sin(tMs * 0.004) * 1)
+    t.fill(txx + sway, gy - 9, 1, 6, CAT_STRIPE)
+    return
+  }
+
   // sit / sill / desk — upright supervisor pose
   const y = gy - 9
   if (pose !== "sill") contactShadow(t, x, gy, 10, 0.25)
@@ -1405,7 +1533,7 @@ function drawCat(t: PixelTarget, g: RoomGeo, life: CatFrame, tMs: number) {
   }
 }
 
-function drawPlant(t: PixelTarget, g: RoomGeo, tMs: number, wind: number) {
+function drawPlant(t: PixelTarget, g: RoomGeo, tMs: number, wind: number, boost = 0) {
   const x = 3
   const floor = g.floorY
   contactShadow(t, x - 1, floor, 15, 0.3)
@@ -1414,13 +1542,20 @@ function drawPlant(t: PixelTarget, g: RoomGeo, tMs: number, wind: number) {
   t.fill(x - 1, floor - 12, 14, 3, scale([156, 90, 58], 1.18) as RGB)
   // leaves — they shiver a little when the wind rattles the window
   const wob = Math.round(Math.sin(tMs * (0.0012 + wind * 0.002)) * wind * 1.4)
-  const g1: RGB = [92, 182, 98]
-  const g2: RGB = [122, 206, 116]
+  const perkUp = 1 + boost * 0.25 // freshly watered: visibly happier greens
+  const g1: RGB = scale([92, 182, 98], perkUp)
+  const g2: RGB = scale([122, 206, 116], perkUp)
   t.fill(x + 2, floor - 18, 3, 6, g1)
   t.fill(x + 5 + wob, floor - 22, 3, 10, g2)
   t.fill(x + 8, floor - 18, 2, 6, g1)
   t.fill(x, floor - 16, 2, 4, g2)
   t.fill(x + 6 + wob, floor - 20, 1, 1, scale(g2, 1.2) as RGB)
+  // post-watering sparkle
+  if (boost > 0.25) {
+    const tw = Math.pow(Math.sin(tMs * 0.004), 2)
+    t.add(x + 5 + wob, floor - 23, 1, 1, [220, 255, 220], boost * 0.5 * tw)
+    t.add(x + 3, floor - 17, 1, 1, [220, 255, 220], boost * 0.4 * (1 - tw))
+  }
 }
 
 /**
@@ -1478,7 +1613,7 @@ function drawRimLights(t: PixelTarget, g: RoomGeo, s: SceneState, wl: WindowLigh
 // room's little lives run on their own schedule whether anyone watches or
 // not — open the page a day later and the cat has simply moved on with life.
 
-export type CatPose = "loaf" | "sit" | "curl" | "sill" | "desk" | "walk"
+export type CatPose = "loaf" | "sit" | "curl" | "sill" | "desk" | "walk" | "eat"
 
 export type CatFrame = {
   x: number
@@ -1488,6 +1623,8 @@ export type CatFrame = {
   facing: 1 | -1
   /** ears up, tracking a bird outside */
   perk: boolean
+  /** v5: content rumbles — eating or being petted */
+  purr?: boolean
 }
 
 export type SnackFrame = {
@@ -1502,13 +1639,17 @@ export type SnackFrame = {
   carryMug: boolean
 }
 
+/** what the resident hauls around while walking errands */
+export type CarryProp = "mug" | "can" | "bag"
+
 /** where the resident's body is and what it's doing — the full journey model */
 export type ResidentFrame =
   | { mode: "sleep" }
   | { mode: "getup"; stage: 0 | 1 | 2; p: number }
   | { mode: "getin"; stage: 0 | 1 | 2; p: number }
   | { mode: "stand"; justWoke: boolean; yawning: boolean; x: number }
-  | { mode: "walk"; x: number; facing: 1 | -1 }
+  | { mode: "walk"; x: number; facing: 1 | -1; carry?: CarryProp }
+  | { mode: "chore"; kind: "pour" | "water" | "pet"; x: number; p: number; facing: 1 | -1 }
   | { mode: "sit" }
 
 export type LifeState = {
@@ -1519,6 +1660,24 @@ export type LifeState = {
   bird: number | null
   /** resident checking their phone right now */
   phone: boolean
+  /** v5: desk work session running — typing arms + scrolling code on the monitor */
+  working: boolean
+  /** v5: twin-bell alarm is ringing (wake + 0..1.1s) */
+  alarmRing: boolean
+  /** v5: actual lamp output 0..1 — dusk fade-in, click-off while climbing into bed */
+  lampLevel: number
+  /** v5: monitor power envelope 0..1 (CRT warm-up / collapse) */
+  screenPower: number
+  /** v5: bright CRT line mid-collapse (negative) / mid-warm-up (positive), else null */
+  crtLine: number | null
+  /** v5: curtains 0 = closed for the night, 1 = fully open */
+  curtainP: number
+  /** v5: plants freshly watered — sparkle + brighter greens for a while */
+  plantBoost: number
+  /** v5: faint rainbow outside (alpha 0..1) in the slot after rain/storm */
+  rainbowA: number
+  /** v5: summer-evening fireflies outside the window (0..1 presence) */
+  fireflyA: number
 }
 
 /** small birds cross the sky on decent-weather days — ~5s flyby every ~47s */
@@ -1649,18 +1808,78 @@ function snackPlan(g: RoomGeo, s: SceneState, daySeed: number): SnackFrame {
 
 const WALK_SPEED = 14 // px per second, matches the snack run
 
-function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs): ResidentFrame {
+/** v5: the day's little errands, all deterministic from the date */
+export type Chores = {
+  /** cat-feeding runs: walk from the desk, pour, walk back */
+  feeds: { start: number; outT: number; standX: number }[]
+  /** weekend plant watering route, else null */
+  water: { start: number; leg1: number; leg2: number; leg3: number; spot1: number; spot2: number } | null
+  /** weekday desk-work sessions [startSec, endSec] */
+  work: [number, number][]
+  /** pet interlude chances for the morning / evening commute */
+  petMorning: boolean
+  petEvening: boolean
+}
+
+const wrapDay = (v: number) => ((v % 86400) + 86400) % 86400
+
+function choresAt(g: RoomGeo, s: SceneState, prefs: AfkPrefs, daySeed: number): Chores {
+  const wake = s.weekend ? 9 : 6.5
+  const bowlX = g.dresserX + 30
+  const standX = bowlX + 8
+  const outT = Math.abs(g.sitX - standX) / WALK_SPEED
+  const jf = Math.floor(hash(daySeed * 7.31 + 0.11) * 600)
+  const jf2 = Math.floor(hash(daySeed * 7.31 + 0.22) * 900)
+  const feeds = [
+    { start: (s.weekend ? 9.6 * 3600 + Math.floor(hash(daySeed * 7.31 + 0.15) * 300) : 8 * 3600 + jf), outT, standX },
+    { start: 18.5 * 3600 + jf2, outT, standX },
+  ]
+
+  const water = s.weekend
+    ? {
+        start: 10.25 * 3600 + Math.floor(hash(daySeed * 9.17 + 0.33) * 900),
+        leg1: Math.abs(g.sitX - 17) / WALK_SPEED,
+        leg2: Math.abs(g.winX + 34 - 17) / WALK_SPEED,
+        leg3: Math.abs(g.sitX - (g.winX + 34)) / WALK_SPEED,
+        spot1: 17,
+        spot2: g.winX + 34,
+      }
+    : null
+
+  const work: [number, number][] = s.weekend
+    ? []
+    : [
+        [(wake + 3.5) * 3600 + Math.floor(hash(daySeed * 5.13 + 0.44) * 1500), 0],
+        [(14 + 11 / 60) * 3600 + Math.floor(hash(daySeed * 5.13 + 0.55) * 1500), 0],
+      ]
+  work[0] = [work[0]?.[0] ?? 0, (work[0]?.[0] ?? 0) + 5400]
+  work[1] = [work[1]?.[0] ?? 0, (work[1]?.[0] ?? 0) + 6300]
+
+  return {
+    feeds,
+    water,
+    work: s.weekend ? [] : work,
+    petMorning: hash(daySeed * 17.31 + 3.1) < 0.35,
+    petEvening: hash(daySeed * 17.31 + 4.2) < 0.35,
+  }
+}
+
+/** is the cat lounging on the foreground rug plane where a walker can stop & pet it? */
+function pettableCat(cat: CatFrame, floorY: number): boolean {
+  return (cat.pose === "loaf" || cat.pose === "curl") && cat.gy > floorY + 8
+}
+
+function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs, cat: CatFrame, chores: Chores): ResidentFrame {
   const wake = s.weekend ? 9 : 6.5
   const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
   const wakeSec = wake * 3600
   const daySec = s.hour * 3600
   const sitX = g.sitX
   const riseX = g.bedX + 30 // bed-side spot where they wake up & climb in
-  const wrap = (v: number) => ((v % 86400) + 86400) % 86400
 
   if (s.sleeping) {
     // climbing into bed right at bedtime: flap -> sit -> lie down (+ settle)
-    const relIn = wrap(daySec - bedH * 3600)
+    const relIn = wrapDay(daySec - bedH * 3600)
     if (relIn < 1.4) return { mode: "getin", stage: 0, p: relIn / 1.4 }
     if (relIn < 2.8) return { mode: "getin", stage: 1, p: (relIn - 1.4) / 1.4 }
     if (relIn < 4.6) return { mode: "getin", stage: 2, p: (relIn - 2.8) / 1.8 }
@@ -1674,31 +1893,177 @@ function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs): ResidentFrame
     if (rel < 1.8) return { mode: "getup", stage: 0, p: rel / 1.8 }
     if (rel < 3.0) return { mode: "getup", stage: 1, p: (rel - 1.8) / 1.2 }
     if (rel < 4.0) return { mode: "getup", stage: 2, p: (rel - 3.0) / 1.0 }
-    // zombie minute at the bedside (stretch, yawn), then shuffle to the desk
-    if (rel < 24) return { mode: "stand", justWoke: true, yawning: false, x: riseX }
+    // zombie moment at the bedside — shorter on mornings with a cat to pet —
+    // then shuffle to the desk (arrival time is the same either way)
+    const petNow = chores.petMorning && pettableCat(cat, g.floorY) && cat.x > riseX + 4 && cat.x < sitX - 4
+    const standS = petNow ? 18 : 24
+    if (rel < standS) return { mode: "stand", justWoke: true, yawning: false, x: riseX }
+    const leg1 = petNow ? (cat.x - riseX) / WALK_SPEED : 0
+    if (petNow && rel < standS + leg1) {
+      const p = (rel - standS) / leg1
+      return { mode: "walk", x: Math.round(riseX + (cat.x - riseX) * p), facing: 1 }
+    }
+    if (petNow && rel < standS + leg1 + 3) {
+      return { mode: "chore", kind: "pet", x: cat.x, p: (rel - standS - leg1) / 3, facing: 1 }
+    }
     const out = Math.abs(sitX - riseX) / WALK_SPEED
-    if (rel < 24 + out) {
-      const p = (rel - 24) / out
-      return { mode: "walk", x: Math.round(riseX + (sitX - riseX) * p), facing: sitX >= riseX ? 1 : -1 }
+    if (rel < standS + (petNow ? 3 : 0) + out) {
+      const walked = petNow ? sitX - (sitX - cat.x) : riseX
+      const p = (rel - standS - (petNow ? 3 : 0) - leg1) / ((sitX - walked) / WALK_SPEED)
+      return { mode: "walk", x: Math.round(walked + (sitX - walked) * p), facing: 1 }
     }
     return { mode: "sit" }
   }
 
-  // winding down: rise from the chair, walk over, yawn at the bedside
-  const preStart = wrap(bedH * 3600 - 1080)
-  const preRel = wrap(daySec - preStart)
+  // winding down: rise from the chair, maybe pet the cat en route, yawn at the bedside
+  const preStart = wrapDay(bedH * 3600 - 1080)
+  const preRel = wrapDay(daySec - preStart)
   if (preRel >= 0 && preRel < 1080 && !justWoke) {
     const dist = Math.abs(riseX - sitX)
     const back = dist / WALK_SPEED
     if (preRel < 0.9) return { mode: "stand", justWoke: false, yawning: false, x: sitX }
-    if (preRel < 0.9 + back) {
-      const p = (preRel - 0.9) / back
-      return { mode: "walk", x: Math.round(sitX + (riseX - sitX) * p), facing: riseX >= sitX ? 1 : -1 }
+    const petNow = chores.petEvening && pettableCat(cat, g.floorY) && cat.x > riseX + 4 && cat.x < sitX - 4
+    const leg1 = petNow ? (sitX - cat.x) / WALK_SPEED : 0
+    if (petNow && preRel < 0.9 + leg1) {
+      const p = (preRel - 0.9) / leg1
+      return { mode: "walk", x: Math.round(sitX - (sitX - cat.x) * p), facing: -1 }
+    }
+    if (petNow && preRel < 0.9 + leg1 + 3) {
+      return { mode: "chore", kind: "pet", x: cat.x, p: (preRel - 0.9 - leg1) / 3, facing: -1 }
+    }
+    const rest = petNow ? (cat.x - riseX) / WALK_SPEED : back
+    if (preRel < 0.9 + (petNow ? 3 : 0) + back) {
+      const from = petNow ? cat.x : sitX
+      const p = (preRel - 0.9 - (petNow ? 3 : 0) - leg1) / rest
+      return { mode: "walk", x: Math.round(from - (from - riseX) * p), facing: -1 }
     }
     return { mode: "stand", justWoke: false, yawning: true, x: riseX }
   }
 
+  // --- errands: cat feeding (twice a day) ---------------------------------
+  for (const f of chores.feeds) {
+    const rel = daySec - f.start
+    if (rel < 0 || rel > f.outT * 2 + 3.2) continue
+    if (rel < f.outT) {
+      const p = rel / f.outT
+      return { mode: "walk", x: Math.round(sitX + (f.standX - sitX) * p), facing: f.standX >= sitX ? 1 : -1, carry: "bag" }
+    }
+    if (rel < f.outT + 3.2) {
+      return { mode: "chore", kind: "pour", x: f.standX, p: (rel - f.outT) / 3.2, facing: -1 }
+    }
+    const p = (rel - f.outT - 3.2) / f.outT
+    return { mode: "walk", x: Math.round(f.standX + (sitX - f.standX) * p), facing: sitX >= f.standX ? 1 : -1 }
+  }
+
+  // --- errands: weekend plant watering ------------------------------------
+  if (chores.water) {
+    const w = chores.water
+    const rel = daySec - w.start
+    const total = w.leg1 + 1.8 + w.leg2 + 1.8 + w.leg3
+    if (rel >= 0 && rel <= total) {
+      if (rel < w.leg1) {
+        const p = rel / w.leg1
+        return { mode: "walk", x: Math.round(sitX + (w.spot1 - sitX) * p), facing: w.spot1 >= sitX ? 1 : -1, carry: "can" }
+      }
+      if (rel < w.leg1 + 1.8) return { mode: "chore", kind: "water", x: w.spot1, p: (rel - w.leg1) / 1.8, facing: -1 }
+      if (rel < w.leg1 + 1.8 + w.leg2) {
+        const p = (rel - w.leg1 - 1.8) / w.leg2
+        return { mode: "walk", x: Math.round(w.spot1 + (w.spot2 - w.spot1) * p), facing: w.spot2 >= w.spot1 ? 1 : -1, carry: "can" }
+      }
+      if (rel < w.leg1 + 3.6 + w.leg2) return { mode: "chore", kind: "water", x: w.spot2, p: (rel - w.leg1 - 1.8 - w.leg2) / 1.8, facing: -1 }
+      const p = (rel - w.leg1 - 3.6 - w.leg2) / w.leg3
+      return { mode: "walk", x: Math.round(w.spot2 + (sitX - w.spot2) * p), facing: sitX >= w.spot2 ? 1 : -1, carry: "can" }
+    }
+  }
+
   return { mode: "sit" }
+}
+
+// --- v5: power moments -------------------------------------------------------
+
+/** how much the lamp actually glows: dusk fade-in, click-off mid-climb-in */
+function lampLevelAt(s: SceneState, prefs: AfkPrefs): number {
+  const env = clamp01((s.mood.ambient - 0.14) / 0.06)
+  let gate = 1
+  if (s.sleeping) {
+    const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+    const relIn = wrapDay(s.hour * 3600 - bedH * 3600)
+    // click as the quilt slides: on through flap & perch, fade out, off all night
+    gate = relIn < 2.8 ? 1 : relIn < 3.4 ? 1 - (relIn - 2.8) / 0.6 : 0
+  }
+  return clamp01(env * gate)
+}
+
+/** monitor power envelope + CRT line animation cue */
+function screenPowerAt(
+  s: SceneState,
+  prefs: AfkPrefs
+): { power: number; crtLine: number | null } {
+  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  if (s.sleeping) {
+    const relIn = wrapDay(s.hour * 3600 - bedH * 3600)
+    if (relIn < 2.8) return { power: 1, crtLine: null }
+    if (relIn < 3.3) return { power: 0, crtLine: -((relIn - 2.8) / 0.5) } // collapse
+    return { power: 0, crtLine: null }
+  }
+  const wake = s.weekend ? 9 : 6.5
+  const rel = s.hour * 3600 - wake * 3600
+  if (s.phase === "wake" && rel >= 0 && rel < 0.5) return { power: rel / 0.5, crtLine: rel / 0.5 } // warm-up
+  return { power: 1, crtLine: null }
+}
+
+/** curtains: closed overnight, slide open as the morning walk passes the
+ *  window, slide shut as the wind-down walk passes it again */
+function curtainPAt(g: RoomGeo, s: SceneState, prefs: AfkPrefs, chores: Chores, cat: CatFrame): number {
+  const wake = s.weekend ? 9 : 6.5
+  const wakeSec = wake * 3600
+  const daySec = s.hour * 3600
+  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  const riseX = g.bedX + 30
+  const sitX = g.sitX
+
+  // same pet-stop timing as residentPlan so the curtains match the walk
+  const petM = chores.petMorning && pettableCat(cat, g.floorY) && cat.x > riseX + 4 && cat.x < sitX - 4
+  const petE = chores.petEvening && pettableCat(cat, g.floorY) && cat.x > riseX + 4 && cat.x < sitX - 4
+  const standS = petM ? 18 : 24
+  const tOpen = wakeSec + standS + Math.max(0, (g.winX + g.winW - 6 - riseX) / WALK_SPEED)
+  const preStart = wrapDay(bedH * 3600 - 1080)
+  const tClose =
+    preStart + 0.9 + (petE ? 3 : 0) + Math.max(0, (sitX - (g.winX + g.winW + 2)) / WALK_SPEED)
+
+  if (s.sleeping) return 0
+  // opening glide right as the morning walk passes the window
+  if (daySec >= tOpen && daySec < tOpen + 1.6) return clamp01((daySec - tOpen) / 1.6)
+  // open all day between the two walk-by triggers (handles wrapped bedtimes)
+  const inDay = tClose > tOpen ? daySec >= tOpen && daySec < tClose : daySec >= tOpen || daySec < tClose
+  if (!inDay) return 0
+  // closing glide as the wind-down walk passes — fully shut exactly at tClose
+  const relClose = tClose - daySec
+  if (relClose <= 1.6 && relClose > 0) return clamp01(relClose / 1.6)
+  return 1
+}
+
+/** plants sparkle & glow for ~an hour after the weekend watering */
+function plantBoostAt(s: SceneState, g: RoomGeo, chores: Chores): number {
+  if (!chores.water) return 0
+  const firstWatered = chores.water.start + chores.water.leg1 + 0.4
+  const rel = s.hour * 3600 - firstWatered
+  if (rel < 0 || rel > 3600) return 0
+  return clamp01(1 - rel / 3600)
+}
+
+/** faint rainbow in the slot right after rain/storm gives way to fair sky */
+export function rainbowAt(now: Date, weather: WeatherState, ambient: number): number {
+  const fair =
+    weather.kind === "clear" || (weather.kind === "cloud" && weather.intensity < 0.5)
+  if (!fair) return 0
+  const h = now.getHours() + now.getMinutes() / 60
+  if (h < 7.5 || h > 18) return 0
+  const prev = weatherAt(new Date(now.getTime() - 75 * 60000))
+  if (prev.kind !== "rain" && prev.kind !== "storm") return 0
+  const slotPos = ((now.getHours() * 60 + now.getMinutes()) % 75) / 75
+  const fade = 1 - slotPos * 0.8 // dissolves across the slot
+  return clamp01(0.85 * fade * clamp01((0.35 - ambient) * 3))
 }
 
 // --- everything at once -------------------------------------------------------
@@ -1715,11 +2080,93 @@ export function lifeState(
 ): LifeState {
   const daySeed = daySeedOf(now)
   const bird = birdPAt(tMs, s, w)
-  const resident = residentPlan(g, s, prefs)
+  const chores = choresAt(g, s, prefs, daySeed)
+  const daySec = s.hour * 3600
+
+  // cat first, then the resident (pet stops need to know where the cat is)
+  let cat = catPlan(g, s, wl, bf, w, daySeed, tMs, bird)
+  // supper time overrides everything — trot to the bowl and chow down
+  for (const f of chores.feeds) {
+    const eatStart = f.start + f.outT + 0.6
+    const rel = daySec - eatStart
+    if (rel >= 0 && rel < 100) {
+      const bowlX = g.dresserX + 30
+      if (rel < 1.3) {
+        const p = rel / 1.3
+        const hop = Math.round(Math.sin(Math.PI * p) * 3)
+        cat = {
+          x: Math.round(cat.x + (bowlX - 6 - cat.x) * p),
+          gy: Math.round(cat.gy + (g.floorY - cat.gy) * p) - hop,
+          pose: "walk",
+          facing: bowlX - 6 >= cat.x ? 1 : -1,
+          perk: false,
+        }
+      } else {
+        cat = { x: bowlX - 6, gy: g.floorY, pose: "eat", facing: 1, perk: false, purr: true }
+      }
+    }
+  }
+
+  const resident = residentPlan(g, s, prefs, cat, chores)
+  if (resident.mode === "chore" && resident.kind === "pet") cat = { ...cat, purr: true }
+
   const snack = snackPlan(g, s, daySeed)
   const phone =
     !s.sleeping && !s.standing && !snack.active && s.mood.ambient > 0.14 && tMs % 300000 < 3400
-  return { cat: catPlan(g, s, wl, bf, w, daySeed, tMs, bird), snack, resident, bird, phone }
+
+  const working =
+    !s.weekend && s.phase === "day" && chores.work.some(([a, b]) => daySec >= a && daySec < b)
+  const wake = s.weekend ? 9 : 6.5
+  const alarmRing = s.phase === "wake" && daySec - wake * 3600 >= 0 && daySec - wake * 3600 < 1.1
+  const lampLevel = lampLevelAt(s, prefs)
+  const { power: screenPower, crtLine } = screenPowerAt(s, prefs)
+  const curtainP = curtainPAt(g, s, prefs, chores, cat)
+  const plantBoost = plantBoostAt(s, g, chores)
+  const rainbowA = rainbowAt(now, w, s.mood.ambient)
+  const month = now.getMonth()
+  const fireflyA =
+    month >= 5 && month <= 8 && s.hour >= 20.5 && s.hour <= 23 &&
+    (w.kind === "clear" || (w.kind === "cloud" && w.intensity < 0.5))
+      ? clamp01((s.mood.ambient - 0.14) / 0.12)
+      : 0
+
+  return {
+    cat, snack, resident, bird, phone,
+    working, alarmRing, lampLevel, screenPower, crtLine, curtainP, plantBoost, rainbowA, fireflyA,
+  }
+}
+
+/** one-call convenience for clients: the full life frame for a given moment */
+export function lifeStateAt(
+  now: Date,
+  prefs: AfkPrefs = DEFAULT_PREFS,
+  tMs: number = Date.now(),
+  size: RoomSize = { w: BASE_W, h: 160 },
+  weather: WeatherState = CLEAR_WEATHER
+): LifeState {
+  const g = layoutOf(size.w, size.h)
+  const s = sceneStateAt(now, prefs)
+  const wl = dimWindowLightForWeather(windowLightOf(s), weather)
+  const bf = beamField(g, wl)
+  return lifeState(g, s, wl, bf, weather, now, tMs, prefs)
+}
+
+/** where the camera should look: the resident (or the microwave run in progress) */
+export function focusXAt(life: LifeState, g: RoomGeo): number {
+  if (life.snack.active) return life.snack.x + 5
+  const r = life.resident
+  switch (r.mode) {
+    case "sleep":
+    case "getup":
+    case "getin":
+      return g.bedX + 45
+    case "stand":
+    case "walk":
+    case "chore":
+      return r.x + 5
+    case "sit":
+      return g.sitX + 5
+  }
 }
 
 // ------------------------------ avatar -------------------------------------
@@ -1766,7 +2213,7 @@ function drawAvatarSitting(t: PixelTarget, g: RoomGeo, s: SceneState, av: Avatar
   const blink = tMs % 3400 < 130
   const typePhase = Math.floor(tMs / 380) % 2 === 0
   // lo-fi head-bob during the dark cozy hours, phone-check overrides typing
-  const bob = !life.phone && s.mood.ambient > 0.14 ? (Math.floor(tMs / 550) % 2) : 0
+  const bob = !life.phone && !life.working && s.mood.ambient > 0.14 ? (Math.floor(tMs / 550) % 2) : 0
 
   contactShadow(t, x - 5, floor, 22, 0.3)
 
@@ -1802,6 +2249,15 @@ function drawAvatarSitting(t: PixelTarget, g: RoomGeo, s: SceneState, av: Avatar
     t.fill(x + 15, floor - 26, 3, 4, [22, 24, 34])
     t.fill(x + 16, floor - 25, 1, 2, [150, 190, 255])
     t.add(x + 4, floor - 40, 6, 5, [140, 175, 255], 0.14)
+  } else if (life.working && tMs % 45000 < 1400) {
+    // coffee break mid-session: right arm lifts the mug for a sip
+    t.fill(x + 10, floor - 28, 6, 3, av.hoodie)
+    t.fill(x + 12, floor - 31, 3, 4, av.hoodie)
+    t.fill(x + 12, floor - 33, 3, 2, av.skin)
+    t.fill(x + 11, floor - 37, 3, 4, [226, 230, 240])
+    t.fill(x + 11, floor - 36, 3, 1, [150, 110, 220])
+    const sa = 0.3 * Math.sin(tMs * 0.004)
+    if (sa > 0.08) t.blend(x + 12, floor - 39, 1, 1, [240, 244, 255], sa)
   } else {
     const armY = floor - 28 + (typePhase ? 0 : 1)
     t.fill(x + 10, armY, 8, 3, av.hoodie)
@@ -1812,14 +2268,14 @@ function drawAvatarSitting(t: PixelTarget, g: RoomGeo, s: SceneState, av: Avatar
 
   // monitor glow catching the face edge, chest and floor at their feet
   const screenFlick = 0.24 + 0.05 * Math.sin(tMs * 0.003 + 1.7)
-  if (s.mood.ambient > 0.12) {
+  if (s.mood.ambient > 0.12 && life.screenPower > 0.5) {
     t.add(x + 8, floor - 39 + bob, 1, 3, [150, 190, 255], screenFlick * 0.5)
     t.add(x + 9, floor - 30, 1, 7, [150, 190, 255], screenFlick * 0.35)
     t.add(x + 2, floor + 1, 12, 2, [140, 170, 240], screenFlick * 0.28)
   }
 }
 
-/** snack-run & journey sprite: walking with a little bounce, mug in hand when carrying */
+/** snack-run & journey sprite: walking with a little bounce, prop in hand when carrying */
 function drawAvatarWalking(
   t: PixelTarget,
   g: RoomGeo,
@@ -1827,7 +2283,7 @@ function drawAvatarWalking(
   tMs: number,
   x: number,
   facing: 1 | -1,
-  carryMug: boolean
+  carry: CarryProp | false
 ) {
   const floor = g.floorY
   const f = facing
@@ -1852,9 +2308,9 @@ function drawAvatarWalking(
   // back arm swings
   t.fill(fx(-1), floor - 31 + step, 2, 11, av.hoodie)
 
-  // front arm: bent, carrying the mug when carrying
+  // front arm: bent, carrying the goods when carrying
   t.fill(fx(8), floor - 31 - step, 2, 8, av.hoodie)
-  if (carryMug) {
+  if (carry === "mug") {
     t.fill(fx(8), floor - 24, f > 0 ? 5 : 5, 2, av.hoodie)
     const mugX = f > 0 ? x + 13 : x - 6
     t.fill(mugX, floor - 27, 3, 4, [226, 230, 240])
@@ -1862,6 +2318,20 @@ function drawAvatarWalking(
     // steam while carrying (hot choc secured)
     const a = 0.3 * Math.sin(tMs * 0.004)
     if (a > 0.08) t.blend(mugX + 1, floor - 29, 1, 1, [240, 244, 255], a)
+  } else if (carry === "can") {
+    // little teal watering can swinging at their side
+    const canX = f > 0 ? x + 11 : x - 4
+    const canY = floor - 21 + step
+    t.fill(canX, canY, 4, 3, [62, 138, 142])
+    t.fill(canX, canY, 4, 1, [84, 168, 172])
+    t.fill(canX + (f > 0 ? 3 : -2), canY, 2, 1, [84, 168, 172]) // spout
+    t.fill(canX + (f > 0 ? -1 : 4), canY - 1, 1, 2, [62, 138, 142]) // handle
+  } else if (carry === "bag") {
+    // crinkly kibble sack hugged in the front arm
+    const bagX = f > 0 ? x + 11 : x - 4
+    t.fill(bagX, floor - 28, 4, 6, [156, 106, 54])
+    t.fill(bagX, floor - 28, 4, 1, [186, 134, 74])
+    t.fill(bagX + 1, floor - 25, 2, 2, [232, 206, 150]) // label
   }
 
   drawHead(t, av, x, floor - 43 + bob, blink, false)
@@ -2050,6 +2520,249 @@ function drawAvatarGetIn(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number
   t.fill(x + 26, top - 3, coverW, 1, QUILT_HL)
 }
 
+// ------------------------------ v5 set pieces ------------------------------
+
+/** the cat's bowl, floor-front of the dresser — kibble appears at mealtimes */
+function drawBowl(t: PixelTarget, g: RoomGeo, life: LifeState) {
+  const bx = g.dresserX + 30
+  const gy = g.floorY
+  contactShadow(t, bx - 1, gy, 9, 0.22)
+  // how full: pour progress while filling, slowly empties while the cat eats
+  let fillN = 0
+  const res = life.resident
+  if (res.mode === "chore" && res.kind === "pour") fillN = Math.min(4, 1 + Math.floor(res.p * 4))
+  else if (life.cat.pose === "eat") fillN = 4
+  // red bowl, dark inner
+  t.fill(bx + 1, gy - 3, 5, 1, [196, 74, 74])
+  t.fill(bx, gy - 2, 7, 2, [176, 62, 62])
+  if (fillN > 0) {
+    for (let i = 0; i < fillN; i++) {
+      t.fill(bx + 1 + (i % 3), gy - 2 - (i > 2 ? 1 : 0), 1, 1, [214, 160, 96])
+    }
+  } else {
+    t.fill(bx + 1, gy - 2, 5, 1, [96, 40, 44])
+  }
+}
+
+/** a tiny friend on the windowsill, drinking the sun */
+function drawSillPlant(t: PixelTarget, g: RoomGeo, boost: number, tMs: number) {
+  const x = g.winX + g.winW - 13
+  const y = g.winY + g.winH // sits on the sill top
+  contactShadow(t, x, y + 4, 7, 0.2)
+  bevel(t, x, y - 1, 5, 5, [172, 96, 60])
+  const perkUp = 1 + boost * 0.25
+  const leaf: RGB = scale([100, 190, 104], perkUp)
+  t.fill(x + 1, y - 4, 1, 3, leaf)
+  t.fill(x + 3, y - 5, 1, 4, scale([124, 210, 120], perkUp))
+  t.fill(x + 2, y - 3, 1, 2, leaf)
+  if (boost > 0.25) {
+    const tw = Math.pow(Math.sin(tMs * 0.004 + 1.1), 2)
+    t.add(x + 3, y - 6, 1, 1, [220, 255, 220], boost * 0.5 * tw)
+  }
+}
+
+/** little shelf boombox — the source of the evening lo-fi head-bob */
+function drawBoombox(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
+  const x = g.shelfX + 29
+  const y = g.shelfY // sits on the shelf board
+  const lofi = s.mood.ambient > 0.14
+  bevel(t, x, y - 6, 7, 6, [48, 44, 66])
+  // speakers with beating cones
+  const beat = lofi ? (Math.floor(tMs / 550) % 2) : 0
+  t.fill(x, y - 5, 2, 3, [30, 28, 44])
+  t.fill(x + 5, y - 5, 2, 3, [30, 28, 44])
+  t.fill(x, y - 4 + (beat ? 0 : 0), 1, 1, lofi ? [120, 104, 190] : [70, 66, 96])
+  t.fill(x + 6, y - 4, 1, 1, lofi ? [120, 104, 190] : [70, 66, 96])
+  // EQ window — bars bounce along with the head-bob
+  t.fill(x + 2, y - 5, 3, 3, [22, 24, 36])
+  for (let i = 0; i < 3; i++) {
+    const hgt = lofi ? 1 + Math.floor(Math.abs(Math.sin(tMs * 0.004 + i * 1.6)) * 2) : 1
+    t.fill(x + 2 + i, y - 2 - (hgt - 1), 1, hgt, [118, 226, 164])
+  }
+  // antenna
+  t.fill(x + 5, y - 9, 1, 3, [120, 118, 140])
+  // a note floats off now and then while the evening session is on
+  if (lofi) {
+    const age = (tMs % 9000) / 1400
+    if (age < 1) {
+      const a = 0.55 * Math.sin(Math.PI * age)
+      const nx = x + 3 + Math.floor(age * 3)
+      const ny = y - 10 - Math.floor(age * 4)
+      t.blend(nx, ny, 1, 2, [210, 190, 255], a)
+      t.blend(nx + 1, ny + 1, 1, 1, [210, 190, 255], a)
+    }
+  }
+}
+
+/** wall-mounted aquarium on its own little bracket — the room's night light */
+function drawFishTank(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
+  const tx = g.shelfX + 52 // same mid-zone anchor as the shelf
+  const ty = g.shelfY - 2
+  // bracket board + supports
+  bevel(t, tx - 1, ty + 11, 20, 2, [104, 70, 42])
+  t.fill(tx + 1, ty + 13, 2, 3, scale([104, 70, 42], 0.7) as RGB)
+  t.fill(tx + 16, ty + 13, 2, 3, scale([104, 70, 42], 0.7) as RGB)
+
+  const night = s.mood.ambient > 0.18
+  if (night) glow(t, tx + 9, ty + 5, 14, 9, [110, 190, 255], 0.15)
+
+  // hood with a tiny light bar
+  t.fill(tx - 1, ty - 1, 20, 2, [40, 44, 58])
+  if (night) t.add(tx + 1, ty + 1, 16, 1, [130, 205, 255], 0.5)
+  // glass + water bands
+  bevel(t, tx, ty + 1, 18, 10, [58, 78, 96])
+  t.fill(tx + 1, ty + 2, 16, 8, mix([30, 74, 96], [16, 44, 64], 0))
+  t.fill(tx + 1, ty + 6, 16, 4, [16, 44, 64])
+  if (night) t.blend(tx + 1, ty + 2, 16, 8, [40, 90, 140], 0.35)
+  // water surface shimmer
+  const shim = 0.5 + 0.5 * Math.sin(tMs * 0.002)
+  t.blend(tx + 1, ty + 2, 16, 1, [150, 210, 235], 0.25 + 0.2 * shim)
+  // gravel
+  for (let i = 0; i < 8; i++) t.fill(tx + 1 + i * 2, ty + 9, 1, 1, [150 + (i % 3) * 20, 126, 96] as RGB)
+  // plant inside, swaying
+  const sway = Math.round(Math.sin(tMs * 0.0011) * 1)
+  t.fill(tx + 13 + sway, ty + 6, 1, 3, [64, 150, 96])
+  t.fill(tx + 14 + sway, ty + 5, 1, 2, [84, 176, 110])
+  // airstone bubbles wobbling up
+  for (let i = 0; i < 3; i++) {
+    const rise = (tMs * (0.0016 + i * 0.0004) + i * 3.1) % 7
+    const bx = tx + 2 + Math.round(Math.sin(tMs * 0.003 + i * 2.2) * 1)
+    const by = ty + 9 - Math.floor(rise)
+    if (by > ty + 2) t.blend(bx, by, 1, 1, [190, 225, 245], 0.5)
+  }
+  // two fish on lazy loops
+  const swim = (periodMs: number, off: number) => {
+    const ph = ((tMs + off) % periodMs) / periodMs
+    return { p: ph < 0.5 ? ph * 2 : (1 - ph) * 2, fwd: ph < 0.5 }
+  }
+  const f1 = swim(11000, 0)
+  const f1x = tx + 3 + Math.round(f1.p * 10)
+  const f1y = ty + 4 + Math.round(Math.sin(tMs * 0.0011) * 1)
+  t.fill(f1x, f1y, 3, 1, [240, 164, 84])
+  t.fill(f1x + (f1.fwd ? -1 : 3), f1y - 1, 1, 2, [224, 140, 66]) // tail
+  t.fill(f1x + (f1.fwd ? 2 : 0), f1y, 1, 1, [40, 32, 28]) // eye
+  const f2 = swim(7000, 3200)
+  const f2x = tx + 2 + Math.round(f2.p * 12)
+  const f2y = ty + 7 + Math.round(Math.sin(tMs * 0.0014 + 2) * 1)
+  t.fill(f2x, f2y, 2, 1, [110, 170, 230])
+  t.fill(f2x + (f2.fwd ? -1 : 2), f2y, 1, 1, [88, 142, 200]) // tail
+  // glass glare
+  t.blend(tx + 2, ty + 2, 1, 8, [235, 245, 255], 0.1)
+}
+
+/** twin-bell alarm clock perched on the headboard — rings at wake, tapped off */
+function drawAlarmClock(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, ringing: boolean) {
+  const x = g.bedX - 1
+  const top = g.floorY - 20
+  const y = top - 25
+  const jig = ringing ? (Math.floor(tMs / 70) % 2 === 0 ? 1 : -1) : 0
+  // bells + hammer
+  t.fill(x - 1 + jig, y - 2, 2, 2, [206, 208, 216])
+  t.fill(x + 4 - jig, y - 2, 2, 2, [206, 208, 216])
+  if (ringing) {
+    t.add(x - 2 + jig, y - 3, 1, 1, [255, 120, 110], 0.7)
+    t.add(x + 6 - jig, y - 3, 1, 1, [255, 120, 110], 0.7)
+  }
+  // body + face
+  bevel(t, x, y, 5, 4, [202, 88, 80])
+  const faceFlash = ringing && Math.floor(tMs / 140) % 2 === 0
+  t.fill(x + 1, y + 1, 3, 2, faceFlash ? [255, 150, 140] : [240, 238, 226])
+  // tiny hands ~alarm time
+  t.fill(x + 2, y + 1, 1, 1, [60, 58, 54])
+  // feet
+  t.fill(x, y + 4, 1, 1, scale([202, 88, 80], 0.7) as RGB)
+  t.fill(x + 4, y + 4, 1, 1, scale([202, 88, 80], 0.7) as RGB)
+}
+
+/** errand poses: pouring kibble, watering plants, petting the cat */
+function drawAvatarChore(
+  t: PixelTarget,
+  g: RoomGeo,
+  av: AvatarSpec,
+  tMs: number,
+  frame: { kind: "pour" | "water" | "pet"; x: number; p: number; facing: 1 | -1 }
+) {
+  const floor = g.floorY
+  const { kind, x, p, facing } = frame
+  const blink = tMs % 3400 < 130
+
+  if (kind === "pet") {
+    // crouch down to cat level and reach out the scritch-hand
+    contactShadow(t, x - 2, floor, 15, 0.28)
+    // folded legs
+    t.fill(x, floor - 9, 9, 7, scale(av.hoodie, 0.55))
+    t.fill(x, floor - 2, 5, 2, [40, 36, 48])
+    // torso low
+    t.fill(x, floor - 22, 9, 13, av.hoodie)
+    t.fill(x, floor - 22, 9, 2, scale(av.hoodie, 1.18))
+    t.fill(x + (facing > 0 ? 8 : 0), floor - 22, 1, 13, scale(av.hoodie, 0.75))
+    // scritch arm reaching down-forward, wiggling a little
+    const wig = Math.floor(tMs / 140) % 2
+    const ax = facing > 0 ? x + 8 : x - 3
+    t.fill(ax, floor - 16, 2, 6, av.hoodie)
+    t.fill(ax + (facing > 0 ? 1 : -1), floor - 11 + wig, 2, 2, av.skin)
+    drawHead(t, av, x, floor - 31, blink, false)
+    // hearts rising from the cat
+    for (let i = 0; i < 3; i++) {
+      const age = (((tMs + i * 800) % 2400) / 2400)
+      const hx = (facing > 0 ? x + 12 : x - 8) + Math.round(Math.sin(age * TAU + i) * 2)
+      const hy = floor - 16 - Math.floor(age * 13)
+      const a = 0.8 * Math.sin(Math.PI * Math.min(1, age * 1.15))
+      if (a > 0.08) {
+        const hc: RGB = [240, 130, 160]
+        t.blend(hx, hy, 1, 1, hc, a)
+        t.blend(hx + 2, hy, 1, 1, hc, a)
+        t.blend(hx, hy + 1, 3, 1, hc, a)
+        t.blend(hx + 1, hy + 2, 1, 1, hc, a)
+      }
+    }
+    return
+  }
+
+  // pour / water share the standing silhouette with a working front arm
+  contactShadow(t, x - 2, floor, 14, 0.3)
+  t.fill(x + 1, floor - 16, 3, 14, scale(av.hoodie, 0.55))
+  t.fill(x + 5, floor - 16, 3, 14, scale(av.hoodie, 0.5))
+  t.fill(x, floor - 2, 4, 2, [40, 36, 48])
+  t.fill(x + 5, floor - 2, 4, 2, [40, 36, 48])
+  t.fill(x, floor - 34, 9, 19, av.hoodie)
+  t.fill(x, floor - 34, 9, 2, scale(av.hoodie, 1.18))
+  t.fill(x + (facing > 0 ? 8 : 0), floor - 34, 1, 19, scale(av.hoodie, 0.75))
+  // back arm rests
+  t.fill(facing > 0 ? x - 1 : x + 8, floor - 31, 2, 11, av.hoodie)
+
+  const f = facing
+  if (kind === "pour") {
+    // kibble sack tipped over the bowl; pellets rattling out
+    const bagX = f > 0 ? x + 10 : x - 4
+    t.fill(f > 0 ? x + 8 : x - 1, floor - 29, 3, 3, av.hoodie)
+    t.fill(bagX, floor - 28, 4, 6, [156, 106, 54])
+    t.fill(bagX + (f > 0 ? 3 : 0), floor - 28, 1, 1, [232, 206, 150])
+    const bowlX = g.dresserX + 30
+    for (let i = 0; i < 3; i++) {
+      const drop = ((tMs + i * 170) % 500) / 500
+      const dx = bowlX + 2 + (i % 2)
+      const dy = floor - 22 + Math.floor(drop * 19)
+      t.fill(dx, dy, 1, 1, [214, 160, 96])
+    }
+  } else {
+    // watering can raised, spout tipped down, drips falling
+    const canX = f > 0 ? x + 10 : x - 5
+    t.fill(f > 0 ? x + 8 : x - 1, floor - 30, 3, 3, av.hoodie)
+    t.fill(canX, floor - 33, 4, 3, [62, 138, 142])
+    t.fill(canX, floor - 33, 4, 1, [84, 168, 172])
+    const spX = canX + (f > 0 ? 4 : -2)
+    t.fill(spX, floor - 32, 2, 1, [84, 168, 172])
+    for (let i = 0; i < 2; i++) {
+      const drop = ((tMs + i * 260) % 720) / 720
+      const dxp = spX + (f > 0 ? 1 : 0) + Math.round(drop * 2) * f
+      const dyp = floor - 31 + Math.floor(drop * drop * 26)
+      if (drop < 0.8) t.blend(dxp, dyp, 1, 1, [170, 214, 240], 0.75 * (1 - drop * 0.4))
+    }
+  }
+  drawHead(t, av, x, floor - 43, blink, false)
+}
+
 // ------------------------------ atmosphere ---------------------------------
 
 function drawDust(t: PixelTarget, g: RoomGeo, wl: WindowLight, bf: BeamField, tMs: number) {
@@ -2098,39 +2811,50 @@ export function renderRoom(
 ) {
   const g = layoutOf(size.w, size.h)
   const s = sceneStateAt(now, prefs)
-  const wl = dimWindowLightForWeather(windowLightOf(s), weather)
-  const bf = beamField(g, wl)
-  const life = lifeState(g, s, wl, bf, weather, now, tMs, prefs)
+  const wlSky = windowLightOf(s)
+  const wl0 = dimWindowLightForWeather(wlSky, weather)
+  const bf0 = beamField(g, wl0)
+  const life = lifeState(g, s, wl0, bf0, weather, now, tMs, prefs)
   const flash = lightningAt(tMs, weather)
   const dayNum = Math.floor(now.getTime() / 86400000)
+  // drawn light obeys the curtains (the sky itself stays full-strength)
+  const cFactor = 0.25 + 0.75 * life.curtainP
+  const wl: WindowLight = { ...wl0, peak: wl0.peak * cFactor, side: wl0.side * cFactor }
+  const bf = beamField(g, wl)
 
   drawWalls(t, g)
   drawFloor(t, g)
 
-  drawWindow(t, g, s, tMs, weather, windowLightOf(s) /* full-strength for sky lining */, life)
+  drawWindow(t, g, s, tMs, weather, wlSky /* full-strength for sky lining */, life)
   drawWallWash(t, g, s, wl)
   drawGodRays(t, g, wl, bf)
   drawPoster(t, g, tMs)
   drawWallClock(t, g, now)
   drawShelf(t, g, dayNum)
+  drawBoombox(t, g, s, tMs)
+  drawFishTank(t, g, s, tMs)
   drawFairyLights(t, g, s, tMs, weather.wind)
 
   drawRug(t, g)
   drawDresserAndMicrowave(t, g, s, tMs, life.snack)
-  drawPlant(t, g, tMs, weather.wind)
+  drawBowl(t, g, life)
+  drawPlant(t, g, tMs, weather.wind, life.plantBoost)
+  drawSillPlant(t, g, life.plantBoost, tMs)
   drawBed(t, g)
-  drawLamp(t, g, s, tMs)
+  drawAlarmClock(t, g, s, tMs, life.alarmRing)
+  drawLamp(t, g, s, tMs, life.lampLevel)
   drawDesk(t, g, s, tMs, life)
 
-  // the resident — full journey: sleeps, gets up, walks, snacks, climbs in
+  // the resident — full journey: sleeps, gets up, walks, runs errands, climbs in
   const res = life.resident
   if (res.mode === "sleep") drawAvatarSleeping(t, g, avatar, tMs)
   else if (res.mode === "getup") drawAvatarGetUp(t, g, avatar, tMs, res.stage)
   else if (res.mode === "getin") drawAvatarGetIn(t, g, avatar, tMs, res.stage, res.p)
   else if (res.mode === "stand") drawAvatarStanding(t, g, avatar, tMs, res.justWoke, res.yawning, res.x)
-  else if (res.mode === "walk") drawAvatarWalking(t, g, avatar, tMs, res.x, res.facing, false)
+  else if (res.mode === "walk") drawAvatarWalking(t, g, avatar, tMs, res.x, res.facing, res.carry ?? false)
+  else if (res.mode === "chore") drawAvatarChore(t, g, avatar, tMs, res)
   else if (life.snack.active)
-    drawAvatarWalking(t, g, avatar, tMs, life.snack.x, life.snack.facing, life.snack.carryMug)
+    drawAvatarWalking(t, g, avatar, tMs, life.snack.x, life.snack.facing, life.snack.carryMug ? "mug" : false)
   else drawAvatarSitting(t, g, s, avatar, tMs, life)
 
   drawCat(t, g, life.cat, tMs)
