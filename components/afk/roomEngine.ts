@@ -1092,36 +1092,49 @@ function drawShelf(t: PixelTarget, g: RoomGeo, dayNum: number) {
   t.fill(x + 40, y + 3, 2, 3, scale([104, 70, 42], 0.7) as RGB)
 }
 
-/** tiny wall clock above the desk — shows REAL local time, 8-direction hands */
+/** the wall clock above the desk — REAL local time, true-angle hands,
+ *  brass bezel, twelve ticks, sweeping second hand, glass sheen */
 function drawWallClock(t: PixelTarget, g: RoomGeo, now: Date) {
-  const cx = g.clockX, cy = g.clockY
-  ellipse(t, cx, cy, 6, 6, "fill", [90, 62, 40])
-  ellipse(t, cx, cy, 5, 5, "fill", [236, 232, 220])
-  // ticks
-  t.fill(cx - 1, cy - 4, 1, 1, [70, 66, 60])
-  t.fill(cx + 3, cy - 1, 1, 1, [70, 66, 60])
-  t.fill(cx - 1, cy + 3, 1, 1, [70, 66, 60])
-  t.fill(cx - 4, cy - 1, 1, 1, [70, 66, 60])
+  const cx = g.clockX
+  const cy = g.clockY
 
-  const DIRS8: [number, number][] = [
-    [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1],
-  ]
+  // wooden case with a lit crown edge
+  ellipse(t, cx, cy, 7, 7, "fill", [86, 58, 38])
+  t.fill(cx - 3, cy - 6, 7, 1, [116, 78, 48])
+  t.fill(cx - 4, cy - 5, 3, 1, [116, 78, 48])
+  // brass bezel + cream face, softly shaded lower-right
+  ellipse(t, cx, cy, 6, 6, "fill", [168, 138, 92])
+  ellipse(t, cx, cy, 5, 5, "fill", [241, 237, 225])
+  ellipse(t, cx + 1, cy + 1, 4, 4, "blend", [198, 192, 174], 0.3)
+
+  // twelve ticks; cardinals reach deeper into the face
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * TAU - Math.PI / 2
+    const bold = i % 3 === 0
+    const px = cx + Math.round(Math.cos(a) * 4)
+    const py = cy + Math.round(Math.sin(a) * 4)
+    t.fill(px, py, 1, 1, bold ? [72, 68, 62] : [128, 124, 114])
+    if (bold) t.fill(cx + Math.round(Math.cos(a) * 3), cy + Math.round(Math.sin(a) * 3), 1, 1, [72, 68, 62])
+  }
+
+  // true-angle hands anchored at the hub
   const minutes = now.getMinutes() + now.getSeconds() / 60
   const hours = (now.getHours() % 12) + minutes / 60
-  const [mdx, mdy] = DIRS8[Math.round((minutes / 60) * 8) % 8]
-  const [hdx, hdy] = DIRS8[Math.round((hours / 12) * 8) % 8]
-  t.fill(cx - 1 + mdx, cy - 1 + mdy, 1, 1, [60, 58, 54])
-  t.fill(cx - 1 + mdx * 2, cy - 1 + mdy * 2, 1, 1, [60, 58, 54])
-  t.fill(cx - 1 + mdx * 3, cy - 1 + mdy * 3, 1, 1, [60, 58, 54])
-  t.fill(cx - 1 + hdx, cy - 1 + hdy, 1, 1, [40, 38, 36])
-  // sweeping red second hand — the quiet tick-tock of the room
-  const sec = now.getSeconds()
-  const sa = (sec / 60) * TAU - Math.PI / 2
-  const [sdx, sdy] = [Math.round(Math.cos(sa) * 3), Math.round(Math.sin(sa) * 3)]
-  const [sdx2, sdy2] = [Math.round(Math.cos(sa) * 1.5), Math.round(Math.sin(sa) * 1.5)]
-  t.fill(cx - 1 + sdx2, cy - 1 + sdy2, 1, 1, [200, 84, 74])
-  t.fill(cx - 1 + sdx, cy - 1 + sdy, 1, 1, [200, 84, 74])
-  t.fill(cx - 1, cy - 1, 1, 1, [150, 60, 60])
+  const hand = (a: number, len: number, c: RGB) => {
+    for (let k = 1; k <= len; k++) {
+      t.fill(cx + Math.round(Math.cos(a) * k), cy + Math.round(Math.sin(a) * k), 1, 1, c)
+    }
+  }
+  hand((hours / 12) * TAU - Math.PI / 2, 2, [40, 38, 36]) // hour — short & dark
+  hand((minutes / 60) * TAU - Math.PI / 2, 4, [58, 56, 52]) // minute — long
+  // sweeping red second hand with a counterweight tail
+  const sa = ((now.getSeconds() + now.getMilliseconds() / 1000) / 60) * TAU - Math.PI / 2
+  hand(sa, 4, [212, 82, 70])
+  t.fill(cx - Math.round(Math.cos(sa) * 2), cy - Math.round(Math.sin(sa) * 2), 1, 1, [168, 62, 54])
+  // brass hub + whisper of glass
+  t.fill(cx, cy, 1, 1, [124, 96, 54])
+  t.blend(cx - 2, cy - 4, 2, 1, [255, 255, 255], 0.14)
+  t.blend(cx - 3, cy - 3, 1, 1, [255, 255, 255], 0.1)
 }
 
 // ------------------------------ furniture ----------------------------------
@@ -2395,22 +2408,55 @@ function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: num
   const x = g.bedX
   const top = g.floorY - 20
 
-  // head on pillow
-  const hx = x + 11
-  const hy = top
-  t.fill(hx, hy, 8, 6, av.skin)
-  const hair = av.hairStyle === "beanie" ? av.hoodie : av.hair
-  t.fill(hx, hy - 1, 8, 2, hair)
-  if (av.hairStyle === "long") t.fill(hx + 7, hy, 1, 5, hair)
-  // closed eye
-  t.fill(hx + 4, hy + 3, 3, 1, [70, 55, 60])
+  // breathing as a slow eased wave, plus the occasional deep sigh
+  const phase = (tMs % 4600) / 4600
+  const ease = (v: number) => v * v * (3 - 2 * v)
+  const breath =
+    phase < 0.4 ? ease(phase / 0.4) : phase < 0.55 ? 1 : 1 - ease((phase - 0.55) / 0.45)
+  const sighAge = tMs % 47000
+  const sigh = sighAge < 1500 ? Math.sin((sighAge / 1500) * Math.PI) : 0
+  const bumpY = top - 2 - Math.round(breath) - (sigh > 0.6 ? 1 : 0)
 
-  // breathing patchwork bump over the body
-  const breathe = Math.sin(tMs * 0.0012 * TAU) > -0.1 ? 1 : 0
-  const bumpY = top - 2 - breathe
+  // head nested into the pillow: crease it, sink a pixel on the big sighs
+  const hx = x + 11
+  const hy = top + (sigh > 0.5 ? 1 : 0)
+  t.fill(hx - 1, hy + 1, 1, 3, scale([244, 240, 230], 0.86) as RGB) // pillow crease
+  t.fill(hx + 8, hy + 1, 1, 2, scale([244, 240, 230], 0.9) as RGB)
+  t.fill(hx, hy, 8, 6, av.skin)
+  t.fill(hx, hy + 6, 8, 1, scale(av.skin, 0.88)) // jaw tucked at the covers
+  const hair = av.hairStyle === "beanie" ? av.hoodie : av.hair
+  t.fill(hx, hy - 1, 8, 2, hair) // hairline
+  t.fill(hx - 1, hy, 1, 2, hair) // tufts splayed onto the pillow
+  t.fill(hx + 8, hy, 1, 2, hair)
+  if (av.hairStyle === "long") {
+    t.fill(hx + 8, hy + 2, 1, 3, hair)
+    t.fill(hx - 1, hy + 2, 1, 2, hair)
+  } else if (av.hairStyle === "spiky") {
+    t.fill(hx + 1, hy - 2, 1, 1, hair)
+    t.fill(hx + 5, hy - 2, 1, 1, hair)
+  }
+  // peacefully closed eyes + a soft cheek shade
+  t.fill(hx + 2, hy + 3, 2, 1, [70, 55, 60])
+  t.fill(hx + 5, hy + 3, 2, 1, [70, 55, 60])
+  t.fill(hx + 2, hy + 4, 1, 1, [122, 94, 96]) // lash hint
+  t.fill(hx + 6, hy + 4, 1, 1, scale(av.skin, 0.84) as RGB)
+  // the snot bubble — it swells and shrinks with every breath
+  const bub = breath > 0.45 ? 2 : 1
+  t.blend(hx + 4, hy + 6 - bub, bub, bub, [214, 226, 255], 0.26 + 0.12 * breath)
+  if (bub > 1) t.blend(hx + 4, hy + 4, 1, 1, [246, 250, 255], 0.5)
+
+  // quilt over the body, the breath traveling down it as a roaming highlight
+  const breathe = Math.round(breath)
   quilt(t, x + 26, bumpY, 54, 20 + (top - 1 - bumpY))
-  // fold shadow near head
   t.fill(x + 26, bumpY + 2, 3, 17, scale(QUILT_A, 0.7))
+  const waveX = x + 30 + Math.round(breath * 14)
+  t.blend(waveX, bumpY + 1, 5, 1, QUILT_HL, 0.5)
+  t.blend(waveX + 1, bumpY + 2, 3, 1, QUILT_HL, 0.28)
+
+  // one arm flopped over the covers, riding the breathing chest
+  const armY = bumpY + 3 - breathe
+  t.fill(x + 28, armY + 1, 4, 2, scale(av.hoodie, 0.92))
+  t.fill(x + 31, armY + 2, 2, 2, av.skin) // the hand
 
   // Z's drifting up from the head
   for (let i = 0; i < 3; i++) {
