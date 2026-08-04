@@ -40,6 +40,7 @@ export async function POST(req: Request) {
         chips: engine.chips,
         source: "instant",
         topic: engine.topic ?? null,
+        card: engine.card ?? null,
       })
     }
 
