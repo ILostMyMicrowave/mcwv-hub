@@ -6,8 +6,6 @@ import {
   HAIR_PRESETS,
   HAIR_STYLES,
   HOODIE_PRESETS,
-  ROOM_H,
-  ROOM_W,
   SKIN_PRESETS,
   renderRoom,
   type AfkPrefs,
@@ -15,6 +13,7 @@ import {
   type HairStyle,
   type PixelTarget,
   type RGB,
+  type RoomSize,
 } from "@/components/afk/roomEngine";
 
 // ---------------------------------------------------------------------------
@@ -127,12 +126,22 @@ type HudState = {
 
 const INITIAL_HUD: HudState = { rank: null, points: null, war: null, battleActive: false, stale: false };
 
+/** pick a logical-pixel size so the room stays chunky on every screen */
+function computeSize(vw: number, vh: number): RoomSize {
+  const ps = Math.max(2, Math.min(6, Math.round(Math.min(vw / 240, vh / 170)) || 3));
+  return { w: Math.max(120, Math.round(vw / ps)), h: Math.max(140, Math.round(vh / ps)) };
+}
+
 // ---------------------------------------------------------------------------
 // component
 // ---------------------------------------------------------------------------
 
 export default function AfkRoom() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [size, setSize] = useState<RoomSize>({ w: 240, h: 160 });
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+
   const [prefs, setPrefs] = useState<StoredPrefs>(DEFAULT_STORED);
   const [loaded, setLoaded] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -153,6 +162,24 @@ export default function AfkRoom() {
       /* private mode — fine */
     }
   }, [prefs, loaded]);
+
+  // track viewport → logical room size (debounced)
+  useEffect(() => {
+    let timer = 0;
+    const apply = () => setSize(computeSize(window.innerWidth, window.innerHeight));
+    const onResize = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(apply, 120);
+    };
+    apply();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
 
   const avatar: AvatarSpec = useMemo(
     () => ({
@@ -181,7 +208,7 @@ export default function AfkRoom() {
 
     const draw = (tMs: number) => {
       ctx.imageSmoothingEnabled = false;
-      renderRoom(target, new Date(), avatar, enginePrefs, tMs);
+      renderRoom(target, new Date(), avatar, enginePrefs, tMs, sizeRef.current);
     };
 
     if (reduced) {
@@ -198,7 +225,7 @@ export default function AfkRoom() {
     };
     raf = window.requestAnimationFrame(loop);
     return () => window.cancelAnimationFrame(raf);
-  }, [avatar, enginePrefs]);
+  }, [avatar, enginePrefs, size]);
 
   // war HUD polling — every 60s, keeps last numbers on a hiccup
   useEffect(() => {
@@ -232,7 +259,7 @@ export default function AfkRoom() {
   const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("en-GB"));
 
   return (
-    <main className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-[#0b0a16] p-4">
+    <main className="fixed inset-0 overflow-hidden bg-[#060512]">
       <style>{`
         @font-face {
           font-family: 'PS2P';
@@ -246,128 +273,138 @@ export default function AfkRoom() {
         }
       `}</style>
 
-      <div className="relative" style={{ width: "min(92vw, 460px)" }}>
-        {/* the room */}
-        <div className="overflow-hidden rounded-2xl border border-violet-900/60 shadow-[0_0_60px_-14px_rgba(139,92,246,0.5)]">
-          <canvas
-            ref={canvasRef}
-            width={ROOM_W}
-            height={ROOM_H}
-            className="block h-auto w-full"
-            style={{ imageRendering: "pixelated" }}
-            role="img"
-            aria-label="A cozy pixel bedroom that follows your local time of day"
-          />
+      {/* the room — full bleed */}
+      <canvas
+        ref={canvasRef}
+        width={size.w}
+        height={size.h}
+        className="block h-full w-full"
+        style={{ imageRendering: "pixelated" }}
+        role="img"
+        aria-label="A cozy pixel bedroom that follows your local time of day"
+      />
+
+      {/* war HUD */}
+      <div
+        className={`afk-pixel pointer-events-none absolute rounded-lg bg-black/25 px-3 py-2 text-right backdrop-blur-[2px] transition-opacity duration-700 ${
+          hud.stale ? "opacity-50" : "opacity-100"
+        }`}
+        style={{
+          top: "max(0.75rem, env(safe-area-inset-top))",
+          right: "max(0.75rem, env(safe-area-inset-right))",
+        }}
+      >
+        <div className="text-[11px] leading-relaxed text-violet-100 sm:text-xs">
+          MCWV {hud.rank !== null ? `#${hud.rank}` : "#—"}
         </div>
-
-        {/* war HUD */}
-        <div
-          className={`afk-pixel pointer-events-none absolute right-3 top-3 text-right transition-opacity duration-700 ${
-            hud.stale ? "opacity-50" : "opacity-100"
-          }`}
-        >
-          <div className="text-[11px] leading-relaxed text-violet-100 sm:text-xs">
-            MCWV {hud.rank !== null ? `#${hud.rank}` : "#—"}
-          </div>
-          <div className="mt-1 text-[11px] leading-relaxed text-violet-300 sm:text-xs">
-            YOU {fmt(hud.points)}
-          </div>
-          {!hud.battleActive && hud.war === "last" && (
-            <div className="mt-1 text-[7px] tracking-widest text-violet-400/80">LAST WAR</div>
-          )}
-          {hud.battleActive && (
-            <div className="mt-1 text-[7px] tracking-widest text-emerald-300/90">LIVE ⚔</div>
-          )}
+        <div className="mt-1 text-[11px] leading-relaxed text-violet-300 sm:text-xs">
+          YOU {fmt(hud.points)}
         </div>
-
-        {/* settings gear */}
-        <button
-          type="button"
-          onClick={() => setPanelOpen((v) => !v)}
-          aria-label="Room settings"
-          className="absolute bottom-3 right-3 rounded-full border border-violet-800/70 bg-[#17142a]/85 px-2 py-1 text-xs text-violet-200 opacity-60 transition hover:opacity-100"
-        >
-          ⚙️
-        </button>
-
-        {panelOpen && (
-          <div className="absolute bottom-12 right-3 w-56 rounded-xl border border-violet-800/70 bg-[#17142a]/95 p-3 text-xs text-violet-100 shadow-xl backdrop-blur">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-semibold">Room settings</span>
-              <button
-                type="button"
-                onClick={() => setPanelOpen(false)}
-                className="text-violet-400 hover:text-violet-200"
-                aria-label="Close settings"
-              >
-                ✕
-              </button>
-            </div>
-
-            <label className="mb-3 block">
-              <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
-                Bedtime
-              </span>
-              <select
-                value={prefs.bedtime}
-                onChange={(e) => setPrefs((p) => ({ ...p, bedtime: Number(e.target.value) }))}
-                className="w-full rounded-md border border-violet-800 bg-[#0f0d1e] px-2 py-1 text-violet-100"
-              >
-                <option value={21}>9:00 PM</option>
-                <option value={22}>10:00 PM</option>
-                <option value={23}>11:00 PM</option>
-                <option value={0}>Midnight</option>
-                <option value={1}>1:00 AM</option>
-              </select>
-            </label>
-
-            <SwatchRow
-              label="Skin"
-              colors={SKIN_PRESETS.map((p) => p.value)}
-              selected={prefs.skin}
-              onSelect={(i) => setPrefs((p) => ({ ...p, skin: i }))}
-            />
-            <SwatchRow
-              label="Hair"
-              colors={HAIR_PRESETS.map((p) => p.value)}
-              selected={prefs.hairColor}
-              onSelect={(i) => setPrefs((p) => ({ ...p, hairColor: i }))}
-            />
-            <SwatchRow
-              label="Hoodie"
-              colors={HOODIE_PRESETS.map((p) => p.value)}
-              selected={prefs.hoodie}
-              onSelect={(i) => setPrefs((p) => ({ ...p, hoodie: i }))}
-            />
-
-            <div className="mt-1">
-              <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
-                Hair style
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {HAIR_STYLES.map((s) => (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => setPrefs((p) => ({ ...p, hairStyle: s.value }))}
-                    className={`rounded-md border px-2 py-0.5 text-[10px] ${
-                      prefs.hairStyle === s.value
-                        ? "border-violet-400 bg-violet-500/20 text-violet-100"
-                        : "border-violet-800/60 text-violet-300 hover:border-violet-600"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+        {!hud.battleActive && hud.war === "last" && (
+          <div className="mt-1 text-[7px] tracking-widest text-violet-400/80">LAST WAR</div>
+        )}
+        {hud.battleActive && (
+          <div className="mt-1 text-[7px] tracking-widest text-emerald-300/90">LIVE ⚔</div>
         )}
       </div>
 
-      <p className="text-center text-[11px] text-violet-400/70">
-        your room follows your clock · war stats refresh every 60s
-      </p>
+      {/* settings gear */}
+      <button
+        type="button"
+        onClick={() => setPanelOpen((v) => !v)}
+        aria-label="Room settings"
+        className="absolute rounded-full border border-violet-800/70 bg-[#17142a]/85 px-2 py-1 text-xs text-violet-200 opacity-60 transition hover:opacity-100"
+        style={{
+          bottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          right: "max(0.75rem, env(safe-area-inset-right))",
+        }}
+      >
+        ⚙️
+      </button>
+
+      {panelOpen && (
+        <div
+          className="absolute w-56 rounded-xl border border-violet-800/70 bg-[#17142a]/95 p-3 text-xs text-violet-100 shadow-xl backdrop-blur"
+          style={{
+            bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 2.5rem)",
+            right: "max(0.75rem, env(safe-area-inset-right))",
+          }}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="font-semibold">Room settings</span>
+            <button
+              type="button"
+              onClick={() => setPanelOpen(false)}
+              className="text-violet-400 hover:text-violet-200"
+              aria-label="Close settings"
+            >
+              ✕
+            </button>
+          </div>
+
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
+              Bedtime
+            </span>
+            <select
+              value={prefs.bedtime}
+              onChange={(e) => setPrefs((p) => ({ ...p, bedtime: Number(e.target.value) }))}
+              className="w-full rounded-md border border-violet-800 bg-[#0f0d1e] px-2 py-1 text-violet-100"
+            >
+              <option value={21}>9:00 PM</option>
+              <option value={22}>10:00 PM</option>
+              <option value={23}>11:00 PM</option>
+              <option value={0}>Midnight</option>
+              <option value={1}>1:00 AM</option>
+            </select>
+          </label>
+
+          <SwatchRow
+            label="Skin"
+            colors={SKIN_PRESETS.map((p) => p.value)}
+            selected={prefs.skin}
+            onSelect={(i) => setPrefs((p) => ({ ...p, skin: i }))}
+          />
+          <SwatchRow
+            label="Hair"
+            colors={HAIR_PRESETS.map((p) => p.value)}
+            selected={prefs.hairColor}
+            onSelect={(i) => setPrefs((p) => ({ ...p, hairColor: i }))}
+          />
+          <SwatchRow
+            label="Hoodie"
+            colors={HOODIE_PRESETS.map((p) => p.value)}
+            selected={prefs.hoodie}
+            onSelect={(i) => setPrefs((p) => ({ ...p, hoodie: i }))}
+          />
+
+          <div className="mt-1">
+            <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
+              Hair style
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {HAIR_STYLES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setPrefs((p) => ({ ...p, hairStyle: s.value }))}
+                  className={`rounded-md border px-2 py-0.5 text-[10px] ${
+                    prefs.hairStyle === s.value
+                      ? "border-violet-400 bg-violet-500/20 text-violet-100"
+                      : "border-violet-800/60 text-violet-300 hover:border-violet-600"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="mt-3 text-[9px] leading-relaxed text-violet-500/80">
+            follows your clock · war stats refresh every 60s
+          </p>
+        </div>
+      )}
     </main>
   );
 }
