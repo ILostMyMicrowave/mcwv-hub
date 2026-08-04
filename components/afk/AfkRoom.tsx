@@ -12,6 +12,7 @@ import {
   layoutOf,
   lifeStateAt,
   lightningAt,
+  nextEventAt,
   renderRoom,
   sceneStateAt,
   weatherAt,
@@ -184,6 +185,18 @@ const KIND_EMOJI: Record<WeatherState["kind"], string> = {
   storm: "⛈️",
   fog: "🌫️",
 };
+
+/** fallback ticker line when life has nothing scheduled within the horizon */
+function weatherLine(w: WeatherState): string {
+  switch (w.kind) {
+    case "clear": return "CLEAR SKY"
+    case "cloud": return w.intensity >= 0.6 ? "HEAVY CLOUD" : "DRIFTING CLOUDS"
+    case "rain": return "RAIN ON THE GLASS"
+    case "snow": return "SNOW FALLING"
+    case "storm": return "STORM OVERHEAD"
+    case "fog": return "FOG ROLLING IN"
+  }
+}
 
 // ---------------------------------------------------------------------------
 // ambience — WebAudio-synthesized rain / wind / crickets / thunder + the
@@ -525,6 +538,10 @@ export default function AfkRoom() {
   const [soundOn, setSoundOn] = useState(false);
   const ambRef = useRef<Ambience | null>(null);
 
+  // top-left status ticker: clock + life's next moment (or the sky's mood)
+  const [ticker, setTicker] = useState<{ clock: string; line: string }>({ clock: "--:--", line: "" });
+  const tickerPrev = useRef("");
+
   // pan camera state (mutated directly — no react churn at 12fps)
   const cam = useRef({ x: -1, lastDrag: -1e12 });
   const sfxPrev = useRef({
@@ -730,6 +747,22 @@ export default function AfkRoom() {
       const life = lifeStateAt(now, enginePrefs, tMs, v.size, weather);
       const g = layoutOf(v.size.w, v.size.h);
 
+      // --- status ticker (only re-renders when a displayed string changes) ---
+      {
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        const clock = `${hh}:${mm}`;
+        const ev = nextEventAt(now, enginePrefs);
+        const line = ev
+          ? `${ev.emoji} ${ev.kind === "now" ? "NOW: " : ""}${ev.label}${ev.kind === "in" ? ` IN ${ev.mins} MIN` : ""}`
+          : `${KIND_EMOJI[weather.kind]} ${weatherLine(weather)}`;
+        const key = `${clock}|${line}`;
+        if (key !== tickerPrev.current) {
+          tickerPrev.current = key;
+          setTicker({ clock, line });
+        }
+      }
+
       // --- camera: soft-follow the resident unless the user drove recently ---
       if (v.mode === "pan" && panInnerRef.current) {
         const maxX = Math.max(0, v.cssW - v.vw);
@@ -892,6 +925,20 @@ export default function AfkRoom() {
           ⟷ drag to explore
         </div>
       )}
+
+      {/* status ticker — clock + life's next moment, same pixel style as the war HUD */}
+      <div
+        className="afk-pixel pointer-events-none absolute rounded-lg bg-black/25 px-3 py-2 backdrop-blur-[2px]"
+        style={{
+          top: "max(0.75rem, env(safe-area-inset-top))",
+          left: "max(0.75rem, env(safe-area-inset-left))",
+        }}
+        role="status"
+        aria-label="Room status"
+      >
+        <div className="text-[11px] leading-relaxed text-violet-100 sm:text-xs">{ticker.clock}</div>
+        <div className="mt-1 text-[9px] leading-relaxed text-violet-300 sm:text-[10px]">{ticker.line}</div>
+      </div>
 
       {/* war HUD */}
       <div
@@ -1074,4 +1121,3 @@ function SwatchRow({
     </div>
   );
 }
-
