@@ -121,8 +121,9 @@ export default function AssistantBubble() {
         type="button"
         aria-label="Open MCWV war assistant"
         onClick={() => setOpen((value) => !value)}
-        className="fixed bottom-5 right-5 z-[75] grid h-14 w-14 place-items-center rounded-full border text-2xl transition hover:scale-105 active:scale-95"
+        className="fixed right-5 z-40 grid h-14 w-14 place-items-center rounded-full border text-2xl transition hover:scale-105 active:scale-95"
         style={{
+          bottom: "max(1.25rem, env(safe-area-inset-bottom))",
           background: "linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 55%, #7c3aed))",
           borderColor: "color-mix(in srgb, var(--primary) 60%, white)",
           boxShadow: "0 8px 30px var(--glow), 0 2px 8px rgba(0,0,0,0.45)",
@@ -133,8 +134,9 @@ export default function AssistantBubble() {
 
       {open && (
         <div
-          className="assistant-pop-in fixed bottom-[88px] right-5 z-[75] flex h-[min(70vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border backdrop-blur-xl"
+          className="assistant-pop-in fixed right-5 z-40 flex h-[min(64dvh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border backdrop-blur-xl"
           style={{
+            bottom: "calc(max(1.25rem, env(safe-area-inset-bottom)) + 4.5rem)",
             background: "color-mix(in srgb, #09090b 82%, var(--primary))",
             borderColor: "color-mix(in srgb, var(--primary) 35%, var(--border, rgba(255,255,255,0.12)))",
             boxShadow: "0 20px 60px rgba(0,0,0,0.55), 0 0 24px var(--glow)",
