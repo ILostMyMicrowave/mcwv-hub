@@ -4,8 +4,9 @@ import { usePathname } from "next/navigation";
 
 import AssistantBubble from "@/components/AssistantBubble";
 
-// Bubble hides where it could cover dense data UI, auth forms, or the cutscene.
-const HIDDEN_PREFIXES = ["/admin", "/login", "/signup", "/cutscene"];
+// Bubble hides where it could cover dense data UI, auth forms, the cutscene,
+// or the AFK room (calm zone — no chat bubbles over the pixels).
+const HIDDEN_PREFIXES = ["/admin", "/login", "/signup", "/cutscene", "/afk"];
 
 export default function GlobalAssistant() {
   const pathname = usePathname() ?? "";
