@@ -11,18 +11,25 @@ export const dynamic = "force-dynamic"
 // Defaults to Groq (free tier); set ASSISTANT_AI_* to use GitHub Models,
 // OpenRouter, Cerebras, etc. without touching this file.
 const AI_API_KEY = process.env.ASSISTANT_AI_KEY ?? process.env.GROQ_API_KEY ?? ""
-// Provider auto-detect: Cerebras keys start "csk-", Groq keys "gsk_". ASSISTANT_AI_BASE_URL overrides.
+// Provider auto-detect: Cerebras keys start "csk-", OpenRouter "sk-or", Groq "gsk_". ASSISTANT_AI_BASE_URL overrides.
+const IS_OPENROUTER = AI_API_KEY.startsWith("sk-or")
 const DETECTED_BASE_URL = AI_API_KEY.startsWith("csk-")
   ? "https://api.cerebras.ai/v1/chat/completions"
-  : "https://api.groq.com/openai/v1/chat/completions"
+  : IS_OPENROUTER
+    ? "https://openrouter.ai/api/v1/chat/completions"
+    : "https://api.groq.com/openai/v1/chat/completions"
 // Accept either ".../v1" or ".../v1/chat/completions" and normalize to the full path.
 function normalizeChatUrl(url: string): string {
   const trimmed = url.trim().replace(/\/+$/, "")
   return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`
 }
 const AI_BASE_URL = normalizeChatUrl(process.env.ASSISTANT_AI_BASE_URL ?? DETECTED_BASE_URL)
-// Default cascade = free-tier models confirmed live + available on Cerebras (gpt-oss-120b excluded: billing-gated, returns HTTP 402).
-const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "zai-glm-4.7,qwen-3-32b,llama3.1-8b")
+// Default cascade per detected provider (override with ASSISTANT_AI_MODELS).
+// Cerebras free tier / OpenRouter :free pool (free models rotate — the doctor page shows what your key can use).
+const DEFAULT_MODELS = IS_OPENROUTER
+  ? "meta-llama/llama-3.3-70b-instruct:free,qwen/qwen3-next-80b-a3b-instruct:free,google/gemma-4-31b-it:free,openai/gpt-oss-20b:free"
+  : "zai-glm-4.7,qwen-3-32b,llama3.1-8b"
+const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? DEFAULT_MODELS)
   .split(",")
   .map((model) => model.trim().toLowerCase())
   .filter(Boolean)
@@ -177,7 +184,7 @@ export async function POST(req: Request) {
           }
         }
       } else {
-        const engine2 = fallbackAnswer(shared, asker, "daily AI chat limit reached")
+        const engine2 = fallbackAnswer(shared, asker)
         return NextResponse.json({
           reply: engine2.text,
           chips: engine2.chips,
@@ -188,7 +195,7 @@ export async function POST(req: Request) {
     }
 
     // 3) Always land on something useful.
-    const fallback = fallbackAnswer(shared, asker, AI_API_KEY ? "AI is resting" : "AI key not set")
+    const fallback = fallbackAnswer(shared, asker)
     return NextResponse.json({
       reply: fallback.text,
       chips: fallback.chips,
