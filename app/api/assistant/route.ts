@@ -21,8 +21,8 @@ function normalizeChatUrl(url: string): string {
   return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`
 }
 const AI_BASE_URL = normalizeChatUrl(process.env.ASSISTANT_AI_BASE_URL ?? DETECTED_BASE_URL)
-// Default cascade = models confirmed live on Cerebras' free tier (override with ASSISTANT_AI_MODELS).
-const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "gpt-oss-120b,zai-glm-4.7,qwen-3-32b,llama3.1-8b")
+// Default cascade = free-tier models confirmed live + available on Cerebras (gpt-oss-120b excluded: billing-gated, returns HTTP 402).
+const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "zai-glm-4.7,qwen-3-32b,llama3.1-8b")
   .split(",")
   .map((model) => model.trim().toLowerCase())
   .filter(Boolean)
