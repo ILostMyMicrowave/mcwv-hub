@@ -141,24 +141,6 @@ export type WeatherState = {
 
 export const CLEAR_WEATHER: WeatherState = { kind: "clear", intensity: 0, wind: 0.15 }
 
-/** map an Open-Meteo WMO weather code (+ wind km/h) onto the room's sky */
-export function weatherFromWmo(code: number, windKmh: number): WeatherState {
-  const wind = clamp01(0.1 + windKmh / 45)
-  if (code === 0 || code === 1) return { kind: "clear", intensity: 0, wind }
-  if (code === 2) return { kind: "cloud", intensity: 0.45, wind }
-  if (code === 3) return { kind: "cloud", intensity: 0.85, wind }
-  if (code === 45 || code === 48) return { kind: "fog", intensity: code === 48 ? 0.85 : 0.7, wind }
-  if (code >= 51 && code <= 57) return { kind: "rain", intensity: 0.35, wind }
-  if (code === 61 || code === 63 || code === 80) return { kind: "rain", intensity: 0.55, wind }
-  if (code === 65 || code === 81 || code === 82) return { kind: "rain", intensity: 0.85, wind }
-  if (code === 66 || code === 67) return { kind: "rain", intensity: 0.7, wind }
-  if (code === 71 || code === 73 || code === 77 || code === 85) return { kind: "snow", intensity: 0.5, wind }
-  if (code === 75 || code === 86) return { kind: "snow", intensity: 0.85, wind }
-  if (code === 95) return { kind: "storm", intensity: 0.6, wind: clamp01(0.45 + windKmh / 50) }
-  if (code === 96 || code === 99) return { kind: "storm", intensity: 0.9, wind: clamp01(0.6 + windKmh / 50) }
-  return { kind: "clear", intensity: 0, wind }
-}
-
 /** overcast skies steal the sun's drama — scale the beam light down */
 function dimWindowLightForWeather(wl: WindowLight, w: WeatherState): WindowLight {
   if (!wl.active || w.kind === "clear") return wl
@@ -176,6 +158,45 @@ export function lightningAt(tMs: number, w: WeatherState): number {
   const tri = (x: number, half: number) => Math.max(0, 1 - Math.abs(x) / half)
   const f = tri(c - 120, 120) + 0.85 * tri(c - 420, 220)
   return clamp01(f) * (0.55 + 0.45 * w.intensity)
+}
+
+const daySeedOf = (now: Date) =>
+  hash((now.getFullYear() * 372 + (now.getMonth() + 1) * 31 + now.getDate()) * 0.773)
+
+/**
+ * The room's own weather system — random but deterministic per ~75-minute
+ * sky-slot: the sky drifts through the day all by itself, identical for
+ * anyone looking at the same moment. No network, no location, pure clockwork.
+ */
+export function weatherAt(now: Date): WeatherState {
+  const daySeed = daySeedOf(now)
+  const SLOT_MIN = 75
+  const slot = Math.floor((now.getHours() * 60 + now.getMinutes()) / SLOT_MIN)
+  const climate = hash(daySeed * 55.7) // 0 = unsettled day, 1 = golden day
+  const roll = hash(daySeed * 91.7 + slot * 13.13)
+  const windRoll = hash(slot * 7.77 + daySeed * 3.31)
+  const wind = clamp01(0.12 + windRoll * 0.68)
+  const month = now.getMonth() // 0-based; snow only Nov..Mar
+  const snowSeason = month <= 2 || month >= 10
+
+  const clearChance = 0.3 + climate * 0.38
+  if (roll < clearChance) return { kind: "clear", intensity: 0, wind }
+  const r = (roll - clearChance) / (1 - clearChance)
+  const v = hash(slot * 5.51 + daySeed * 8.9)
+  if (r < 0.3) return { kind: "cloud", intensity: 0.32 + v * 0.25, wind }
+  if (r < 0.52) return { kind: "cloud", intensity: 0.62 + v * 0.3, wind }
+  if (r < 0.7) return { kind: "rain", intensity: 0.3 + v * 0.4, wind }
+  if (r < 0.78) {
+    return climate < 0.55 && v > 0.35
+      ? { kind: "storm", intensity: 0.55 + v * 0.35, wind: clamp01(0.5 + windRoll * 0.5) }
+      : { kind: "rain", intensity: 0.65 + v * 0.3, wind }
+  }
+  if (r < 0.9) {
+    return snowSeason
+      ? { kind: "snow", intensity: 0.4 + v * 0.45, wind }
+      : { kind: "rain", intensity: 0.5 + v * 0.35, wind }
+  }
+  return { kind: "fog", intensity: 0.55 + v * 0.35, wind: clamp01(windRoll * 0.4) }
 }
 
 export type DayPhase = "sleep" | "wake" | "day" | "evening" | "tobed"
@@ -1461,9 +1482,6 @@ export type LifeState = {
   /** resident checking their phone right now */
   phone: boolean
 }
-
-const daySeedOf = (now: Date) =>
-  hash((now.getFullYear() * 372 + (now.getMonth() + 1) * 31 + now.getDate()) * 0.773)
 
 /** small birds cross the sky on decent-weather days — ~5s flyby every ~47s */
 function birdPAt(tMs: number, s: SceneState, w: WeatherState): number | null {
