@@ -473,6 +473,138 @@ function raceCard(shared: SharedWarContext, target: number): AssistantCardData |
   }
 }
 
+// --- history brain helpers --------------------------------------------------
+
+type WarBookEntry = { title: string; clanPoints: number; scorers: number; live: boolean }
+
+function warBook(shared: SharedWarContext): WarBookEntry[] {
+  const book: WarBookEntry[] = []
+  if (shared.active && shared.battleId) {
+    const title = shared.battleId.replace(/battle\s*\d*/gi, "").trim() || shared.battleId
+    book.push({ title, clanPoints: shared.clanPoints ?? 0, scorers: shared.contributors ?? 0, live: true })
+  }
+  for (const entry of shared.history) {
+    book.push({ title: entry.title, clanPoints: entry.clanPoints, scorers: entry.scorers, live: false })
+  }
+  return book
+}
+
+function warBarsCard(book: WarBookEntry[], title: string): AssistantCardData | undefined {
+  if (!book.length) return undefined
+  return {
+    type: "bars" as const,
+    title,
+    rows: book.slice(0, 6).map((entry) => ({
+      label: `${entry.title}${entry.live ? " 🔴" : ""}`,
+      value: entry.clanPoints,
+      sub: `${entry.scorers} scorers${entry.live ? " · live" : ""}`,
+      highlight: entry.live,
+    })),
+  }
+}
+
+function recordsAnswer(shared: SharedWarContext): EngineResult {
+  const book = warBook(shared)
+  if (!book.length) return ok("No war history on record yet — fight one and I'll start the record book 📖", DEFAULT_CHIPS)
+  const bestHaul = [...book].sort((a, b) => b.clanPoints - a.clanPoints)[0]
+  const mostScorers = [...book].sort((a, b) => b.scorers - a.scorers)[0]
+  const recordCarry = shared.history.reduce<{ username: string; points: number; title: string } | null>(
+    (best, entry) =>
+      entry.topUsername && entry.topPoints !== null && (!best || entry.topPoints > best.points)
+        ? { username: entry.topUsername, points: entry.topPoints, title: entry.title }
+        : best,
+    null
+  )
+  const bits = [
+    `**All-time record book** 📖`,
+    ``,
+    `💥 Best haul: **${bestHaul.title}** — **${fmt(bestHaul.clanPoints)} pts**${bestHaul.live ? " 🔴 and still counting" : ""}`,
+    `👥 Most scorers: **${mostScorers.title}** — **${mostScorers.scorers} people** on the board`,
+  ]
+  if (recordCarry) {
+    bits.push(`🥇 Biggest single-war carry: **${recordCarry.username}** — **${fmt(recordCarry.points)} pts** in ${recordCarry.title}`)
+  }
+  return withCard(ok(bits.join("\n"), ["Compare wars", "My best war", "War history"]), warBarsCard(book, "Clan points per war"))
+}
+
+function compareAnswer(shared: SharedWarContext): EngineResult {
+  const book = warBook(shared)
+  if (book.length < 2) {
+    return ok("I need at least two wars on the books to compare — go make history first ⚔️", ["War history", "How are we doing?"])
+  }
+  const [a, b] = book
+  const ptsDelta = a.clanPoints - b.clanPoints
+  const scorerDelta = a.scorers - b.scorers
+  const ptsPct = b.clanPoints > 0 ? Math.round((ptsDelta / b.clanPoints) * 100) : null
+  const verdict =
+    ptsDelta > 0
+      ? `${a.live ? "We're already past last war's FINAL total" : "That war beat the one before"}${ptsPct !== null ? ` — **+${ptsPct}%**` : ""} 🔥`
+      : ptsDelta < 0
+        ? `${a.live ? "Still" : "It finished"} **${fmt(Math.abs(ptsDelta))} pts** behind the previous mark${a.live ? " — chase it down before the clock dies 😤" : ""}`
+        : "Dead level with the previous war — spooky 👻"
+  const lines = [
+    `⚖️ **${a.title}${a.live ? " 🔴 so far" : ""}** vs **${b.title}**`,
+    ``,
+    `Points: **${fmt(a.clanPoints)}** vs ${fmt(b.clanPoints)} (${ptsDelta >= 0 ? "+" : "−"}${fmt(Math.abs(ptsDelta))})`,
+    `Scorers: **${a.scorers}** vs ${b.scorers} (${scorerDelta >= 0 ? "+" : "−"}${Math.abs(scorerDelta)})`,
+    ``,
+    verdict,
+  ]
+  return withCard(ok(lines.join("\n"), ["Record book", "How are we doing?", "War history"]), warBarsCard([a, b], "War vs war"))
+}
+
+function myHistoryAnswer(shared: SharedWarContext, asker: AskerContext): EngineResult {
+  const rows: { title: string; points: number; live: boolean }[] = []
+  if (shared.active && asker.inRoster && asker.points !== null) {
+    const title = (shared.battleId ?? "This war").replace(/battle\s*\d*/gi, "").trim() || "This war"
+    rows.push({ title, points: asker.points, live: true })
+  }
+  for (const war of asker.wars) rows.push({ title: war.title, points: war.points, live: false })
+  if (!rows.length) {
+    return ok(
+      `No finished wars on your record yet, ${asker.username} — fight one and I'll chart your arc 📈`,
+      DEFAULT_CHIPS
+    )
+  }
+  const best = [...rows].sort((a, b) => b.points - a.points)[0]
+  const trend = rows.length >= 2 ? rows[0].points - rows[1].points : null
+  const bits = [
+    `Your personal war arc, ${asker.username} 📈`,
+    ``,
+    ...rows.slice(0, 5).map((row) => `• **${row.title}**${row.live ? " 🔴 so far" : ""} — **${fmt(row.points)} pts**`),
+  ]
+  bits.push(
+    ``,
+    `🏆 Personal best: **${best.title}** with **${fmt(best.points)} pts**${best.live ? " — and you're still writing it!" : ""}`
+  )
+  if (trend !== null) {
+    bits.push(
+      trend >= 0
+        ? `📈 Trend: **+${fmt(trend)} pts** up on last war — levelling up!`
+        : `📉 Trend: ${fmt(Math.abs(trend))} pts below last war — revenge arc loading...`
+    )
+  }
+  return withCard(ok(bits.join("\n"), ["Record book", "My stats", "Compare wars"]), {
+    type: "bars" as const,
+    title: "Your points per war",
+    rows: rows.slice(0, 6).map((row) => ({ label: `${row.title}${row.live ? " 🔴" : ""}`, value: row.points, highlight: row.live })),
+  })
+}
+
+function historyListAnswer(shared: SharedWarContext): EngineResult {
+  if (!shared.history.length) {
+    return ok("The history book is blank so far — wars we fight get written in automatically 📖", DEFAULT_CHIPS)
+  }
+  const lines = shared.history.slice(0, 5).map(
+    (entry, index) =>
+      `${index + 1}. **${entry.title}** — **${fmt(entry.clanPoints)} pts** · ${entry.scorers} scorers${entry.topUsername ? ` · 🥇 ${entry.topUsername}` : ""}`
+  )
+  return withCard(
+    ok(`The MCWV history book, newest first:\n\n${lines.join("\n")}`, ["Record book", "Compare wars", "My best war"]),
+    warBarsCard(warBook(shared), "Clan points per war")
+  )
+}
+
 function playerAnswer(shared: SharedWarContext, member: MemberLine): string {
   const scored = shared.members.filter((row) => row.points > 0)
   const index = scored.findIndex((row) => row.robloxId === member.robloxId)
@@ -549,7 +681,7 @@ function matchOne(
 
   if (/help|what can (i|you)|how do you work|what do you know|commands/.test(msg)) {
     return ok(
-      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Top scorers" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?" / "When's the next war?"\n• "How did we do last war?" — history book 📖\n• "Tips to score more" — grind smarter\n• "Who's on zero?" (officers get names)\n\nYou can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos are totally fine 🧠`,
+      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Top scorers" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?" / "When's the next war?"\n• "Record book" / "Compare wars" / "My best war" — history brain 📚\n• "How did we do last war?" / "War history"\n• "Tips to score more" — grind smarter\n• "Who's on zero?" (officers get names)\n\nYou can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos are totally fine 🧠`,
       ["How are we doing?", "Who's surging?", "When does the war end?"]
     )
   }
@@ -621,6 +753,26 @@ function matchOne(
     )
   }
 
+  // Record book / all-time bests
+  if (/best war ever|our best war|all.?time (best|record)|record (book|war|points|haul)|most points (we|the clan)|biggest (war|haul)|hall of fame|records\b/.test(msg)) {
+    return recordsAnswer(shared)
+  }
+
+  // War vs war comparison
+  if (/compare|compared|vs last|versus|better than last|worse than last|are we (doing )?(better|worse)/.test(msg)) {
+    return compareAnswer(shared)
+  }
+
+  // Personal war arc
+  if (/my (best|record|history|improvement|wars|arc|journey|progress|pb)|am i improving|getting better|personal best/.test(msg)) {
+    return myHistoryAnswer(shared, asker)
+  }
+
+  // Full war history list
+  if (/war history|past wars|previous wars|list (the )?wars|history book|our history|wars so far/.test(msg)) {
+    return historyListAnswer(shared)
+  }
+
   // Last war recap / our record
   if (/last (war|battle)|previous (war|battle)|how did we (do|finish)|our (record|best) (finish|war)|best (finish|war)|war recap|recap (of )?(the )?(last |previous )?(war|battle)/.test(msg)) {
     if (shared.active) {
@@ -635,8 +787,17 @@ function matchOne(
       shared.clanPoints !== null ? `**${fmt(shared.clanPoints)} pts**` : "a pile of pts",
       ".",
       shared.clanRank !== null ? ` That run has us sitting **#${shared.clanRank}** on the clan leaderboard.` : "",
-      "\n\nHistory book says: beat it next war 😤",
     ]
+    if (shared.history.length >= 2) {
+      const [last, prev] = shared.history
+      const delta = last.clanPoints - prev.clanPoints
+      if (delta !== 0) {
+        bits.push(
+          ` ${delta > 0 ? "📈" : "📉"} That's ${delta > 0 ? "**+" : "**−"}${fmt(Math.abs(delta))} pts** vs ${prev.title}.`
+        )
+      }
+    }
+    bits.push(`\n\nHistory book says: beat it next war 😤 Ask me "compare wars" anytime 📖`)
     return ok(bits.join(""), ["When's the next war?", "What do we win?", "Top scorers"])
   }
 
