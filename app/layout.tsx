@@ -5,6 +5,7 @@ import UserSync from "@/components/UserSync";
 import OnboardingTour from "@/components/OnboardingTour";
 import WarReturnRecap from "@/components/WarReturnRecap";
 import BootIntroGate from "@/components/BootIntroGate";
+import GlobalAssistant from "@/components/GlobalAssistant";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -65,6 +66,7 @@ export default function RootLayout({
         <BootIntroGate />
         <UserSync />
         {children}
+        <GlobalAssistant />
         <OnboardingTour />
         <WarReturnRecap />
       </body>
