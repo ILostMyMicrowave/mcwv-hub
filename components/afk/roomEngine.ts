@@ -1148,7 +1148,13 @@ function drawDesk(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, life: 
     // taskbar
     t.fill(mx + 2, my + 15, 19, 2, [46, 56, 84])
     t.fill(mx + 3, my + 15, 1, 1, [110, 220, 160])
-    if (s.mood.ambient > 0.12) ditherGlow(t, mx + 11, my + 10, 16, 11, [150, 190, 255], 0.32)
+    // screen glow: solid layered halo + cool spill across the desk surface
+    if (s.mood.ambient > 0.12) {
+      const flick = 0.92 + 0.08 * Math.sin(tMs * 0.003 + 1.7)
+      glow(t, mx + 11, my + 9, 13, 9, [150, 190, 255], 0.3 * flick)
+      t.add(mx - 4, surf - 1, 26, 1, [130, 165, 235], 0.16 * flick)
+      t.add(mx, surf + 1, 18, 1, [130, 165, 235], 0.1 * flick)
+    }
   } else {
     t.fill(mx + 2, my + 2, 19, 15, [18, 20, 28])
     // standby LED — the monitor sleeps too
@@ -1176,15 +1182,37 @@ function drawDesk(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, life: 
   }
 }
 
-function drawLamp(t: PixelTarget, g: RoomGeo, s: SceneState) {
+function drawLamp(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
   const x = g.lampX
   const floor = g.floorY
   contactShadow(t, x - 5, floor, 12, 0.3)
   const shadeY = floor - 48
-  // glow BEHIND the fixture, so the light clearly comes from the lamp
+  // layered SOLID light, drawn behind the fixture so it clearly comes from the lamp
   if (s.lampOn) {
-    ditherGlow(t, x, shadeY + 12, 24, 16, [255, 205, 110], 0.34)
-    ditherGlow(t, x, shadeY + 10, 11, 8, [255, 220, 140], 0.42)
+    const pulse = 0.96 + 0.04 * Math.sin(tMs * 0.0035)
+    const warm: RGB = [255, 205, 110]
+    const warmHi: RGB = [255, 228, 158]
+    // halo blooming behind the shade
+    glow(t, x, shadeY + 8, 15, 9, warmHi, 0.24 * pulse)
+    // the shade's own bright core
+    glow(t, x, shadeY + 11, 7, 5, warmHi, 0.4 * pulse)
+    // light cone falling to the floor — solid gradient bands, no speckle
+    const coneTop = shadeY + 12
+    const coneH = floor - coneTop
+    if (coneH > 0) {
+      for (let i = 0; i < coneH; i++) {
+        const f = i / coneH
+        const half = Math.round(6 + f * 16)
+        const a = (0.15 * (1 - f) + 0.045) * pulse
+        t.add(x - half, coneTop + i, half * 2, 1, warm, a)
+      }
+    }
+    // floor pool
+    glow(t, x, floor + 2, 20, 3, warm, 0.28 * pulse)
+    // warm rim on the furniture nearest the lamp
+    if (Math.abs(g.dresserX + 44 - x) < 26)
+      t.add(g.dresserX + 43, floor - 26, 1, 24, warm, 0.22 * pulse)
+    if (Math.abs(g.deskX - x) < 26) t.add(g.deskX - 1, floor - 24, 1, 6, warm, 0.16 * pulse)
   }
   // pole + base
   t.fill(x - 1, floor - 38, 2, 36, s.lampOn ? [168, 152, 172] : [128, 116, 138])
@@ -1474,9 +1502,19 @@ export type SnackFrame = {
   carryMug: boolean
 }
 
+/** where the resident's body is and what it's doing — the full journey model */
+export type ResidentFrame =
+  | { mode: "sleep" }
+  | { mode: "getup"; stage: 0 | 1 | 2; p: number }
+  | { mode: "getin"; stage: 0 | 1 | 2; p: number }
+  | { mode: "stand"; justWoke: boolean; yawning: boolean; x: number }
+  | { mode: "walk"; x: number; facing: 1 | -1 }
+  | { mode: "sit" }
+
 export type LifeState = {
   cat: CatFrame
   snack: SnackFrame
+  resident: ResidentFrame
   /** bird flyby progress 0..1, or null */
   bird: number | null
   /** resident checking their phone right now */
@@ -1607,6 +1645,62 @@ function snackPlan(g: RoomGeo, s: SceneState, daySeed: number): SnackFrame {
   return { ...off, active: true, phase: "back", x: Math.round(microX + (seatX - microX) * p), facing: 1, carryMug: true }
 }
 
+// --- resident journeys: wake -> get up -> shuffle -> desk -> ... -> bed ------
+
+const WALK_SPEED = 14 // px per second, matches the snack run
+
+function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs): ResidentFrame {
+  const wake = s.weekend ? 9 : 6.5
+  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  const wakeSec = wake * 3600
+  const daySec = s.hour * 3600
+  const sitX = g.sitX
+  const riseX = g.bedX + 30 // bed-side spot where they wake up & climb in
+  const wrap = (v: number) => ((v % 86400) + 86400) % 86400
+
+  if (s.sleeping) {
+    // climbing into bed right at bedtime: flap -> sit -> lie down (+ settle)
+    const relIn = wrap(daySec - bedH * 3600)
+    if (relIn < 1.4) return { mode: "getin", stage: 0, p: relIn / 1.4 }
+    if (relIn < 2.8) return { mode: "getin", stage: 1, p: (relIn - 1.4) / 1.4 }
+    if (relIn < 4.6) return { mode: "getin", stage: 2, p: (relIn - 2.8) / 1.8 }
+    return { mode: "sleep" }
+  }
+
+  const justWoke = daySec >= wakeSec && daySec < wakeSec + 900
+  if (justWoke) {
+    const rel = daySec - wakeSec
+    // get out of bed: sit up -> legs over the edge -> rise
+    if (rel < 1.8) return { mode: "getup", stage: 0, p: rel / 1.8 }
+    if (rel < 3.0) return { mode: "getup", stage: 1, p: (rel - 1.8) / 1.2 }
+    if (rel < 4.0) return { mode: "getup", stage: 2, p: (rel - 3.0) / 1.0 }
+    // zombie minute at the bedside (stretch, yawn), then shuffle to the desk
+    if (rel < 24) return { mode: "stand", justWoke: true, yawning: false, x: riseX }
+    const out = Math.abs(sitX - riseX) / WALK_SPEED
+    if (rel < 24 + out) {
+      const p = (rel - 24) / out
+      return { mode: "walk", x: Math.round(riseX + (sitX - riseX) * p), facing: sitX >= riseX ? 1 : -1 }
+    }
+    return { mode: "sit" }
+  }
+
+  // winding down: rise from the chair, walk over, yawn at the bedside
+  const preStart = wrap(bedH * 3600 - 1080)
+  const preRel = wrap(daySec - preStart)
+  if (preRel >= 0 && preRel < 1080 && !justWoke) {
+    const dist = Math.abs(riseX - sitX)
+    const back = dist / WALK_SPEED
+    if (preRel < 0.9) return { mode: "stand", justWoke: false, yawning: false, x: sitX }
+    if (preRel < 0.9 + back) {
+      const p = (preRel - 0.9) / back
+      return { mode: "walk", x: Math.round(sitX + (riseX - sitX) * p), facing: riseX >= sitX ? 1 : -1 }
+    }
+    return { mode: "stand", justWoke: false, yawning: true, x: riseX }
+  }
+
+  return { mode: "sit" }
+}
+
 // --- everything at once -------------------------------------------------------
 
 export function lifeState(
@@ -1616,14 +1710,16 @@ export function lifeState(
   bf: BeamField,
   w: WeatherState,
   now: Date,
-  tMs: number
+  tMs: number,
+  prefs: AfkPrefs = DEFAULT_PREFS
 ): LifeState {
   const daySeed = daySeedOf(now)
   const bird = birdPAt(tMs, s, w)
+  const resident = residentPlan(g, s, prefs)
   const snack = snackPlan(g, s, daySeed)
   const phone =
     !s.sleeping && !s.standing && !snack.active && s.mood.ambient > 0.14 && tMs % 300000 < 3400
-  return { cat: catPlan(g, s, wl, bf, w, daySeed, tMs, bird), snack, bird, phone }
+  return { cat: catPlan(g, s, wl, bf, w, daySeed, tMs, bird), snack, resident, bird, phone }
 }
 
 // ------------------------------ avatar -------------------------------------
@@ -1713,13 +1809,28 @@ function drawAvatarSitting(t: PixelTarget, g: RoomGeo, s: SceneState, av: Avatar
   }
 
   drawHead(t, av, x + 1, floor - 41 + bob, blink, false)
+
+  // monitor glow catching the face edge, chest and floor at their feet
+  const screenFlick = 0.24 + 0.05 * Math.sin(tMs * 0.003 + 1.7)
+  if (s.mood.ambient > 0.12) {
+    t.add(x + 8, floor - 39 + bob, 1, 3, [150, 190, 255], screenFlick * 0.5)
+    t.add(x + 9, floor - 30, 1, 7, [150, 190, 255], screenFlick * 0.35)
+    t.add(x + 2, floor + 1, 12, 2, [140, 170, 240], screenFlick * 0.28)
+  }
 }
 
-/** snack-run sprite: walking with a little bounce, mug in hand when carrying */
-function drawAvatarWalking(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number, life: SnackFrame) {
-  const x = life.x
+/** snack-run & journey sprite: walking with a little bounce, mug in hand when carrying */
+function drawAvatarWalking(
+  t: PixelTarget,
+  g: RoomGeo,
+  av: AvatarSpec,
+  tMs: number,
+  x: number,
+  facing: 1 | -1,
+  carryMug: boolean
+) {
   const floor = g.floorY
-  const f = life.facing
+  const f = facing
   const step = Math.floor(tMs / 170) % 2 === 0 ? 1 : 0
   const blink = tMs % 3400 < 130
   const bob = step
@@ -1743,7 +1854,7 @@ function drawAvatarWalking(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: numb
 
   // front arm: bent, carrying the mug when carrying
   t.fill(fx(8), floor - 31 - step, 2, 8, av.hoodie)
-  if (life.carryMug) {
+  if (carryMug) {
     t.fill(fx(8), floor - 24, f > 0 ? 5 : 5, 2, av.hoodie)
     const mugX = f > 0 ? x + 13 : x - 6
     t.fill(mugX, floor - 27, 3, 4, [226, 230, 240])
@@ -1756,8 +1867,16 @@ function drawAvatarWalking(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: numb
   drawHead(t, av, x, floor - 43 + bob, blink, false)
 }
 
-function drawAvatarStanding(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number, justWoke: boolean, yawning: boolean) {
-  const x = g.standX
+function drawAvatarStanding(
+  t: PixelTarget,
+  g: RoomGeo,
+  av: AvatarSpec,
+  tMs: number,
+  justWoke: boolean,
+  yawning: boolean,
+  xOverride?: number
+) {
+  const x = xOverride ?? g.standX
   const floor = g.floorY
   const blink = tMs % 3400 < 130
 
@@ -1833,6 +1952,104 @@ function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: num
   }
 }
 
+/** seated on the mattress front edge, feet toward the floor — shared by both sequences */
+function drawAvatarSeatedEdge(t: PixelTarget, g: RoomGeo, av: AvatarSpec, x: number, tMs: number, yawn: boolean) {
+  const floor = g.floorY
+  const top = floor - 20
+  const blink = tMs % 3400 < 130
+
+  contactShadow(t, x - 2, floor, 16, 0.28)
+
+  // torso
+  t.fill(x, top - 13, 9, 16, av.hoodie)
+  t.fill(x, top - 13, 9, 2, scale(av.hoodie, 1.18))
+  t.fill(x + 8, top - 13, 1, 16, scale(av.hoodie, 0.75))
+  // thigh forward + shin hanging + shoe
+  t.fill(x + 4, top + 2, 7, 3, scale(av.hoodie, 0.6))
+  t.fill(x + 9, top + 3, 3, floor - top - 5, scale(av.hoodie, 0.55))
+  t.fill(x + 9, floor - 2, 4, 2, [40, 36, 48])
+  // sleepy arm onto the mattress
+  t.fill(x - 1, top - 11, 2, 9, av.hoodie)
+  t.fill(x - 1, top - 1, 2, 2, av.skin)
+  if (yawn) {
+    t.fill(x + 8, top - 12, 2, 3, av.hoodie)
+    t.fill(x + 8, top - 14, 2, 2, av.skin)
+  }
+
+  drawHead(t, av, x, top - 21, yawn ? false : blink, yawn)
+}
+
+/** lifted quilt corner at the foot of the bed + the dark opening beneath */
+function drawQuiltFlap(t: PixelTarget, g: RoomGeo, tMs: number) {
+  const top = g.floorY - 20
+  const x = g.bedX
+  const wobble = Math.floor(tMs / 400) % 2 === 0 ? 0 : 1
+  t.fill(x + 66, top + 2, 20, 13, [26, 20, 38]) // opening under the covers
+  t.fill(x + 62, top + wobble, 6, 2, QUILT_HL)
+  t.fill(x + 64, top + 2 + wobble, 4, 2, QUILT_A)
+  t.fill(x + 66, top + 4 + wobble, 2, 2, QUILT_B)
+}
+
+/** morning: sit up in bed -> swing legs over the edge -> rise */
+function drawAvatarGetUp(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number, stage: 0 | 1 | 2) {
+  const x = g.bedX
+  const floor = g.floorY
+  const top = floor - 20
+
+  if (stage === 0) {
+    // up against the headboard, quilt still over the legs, eyes barely open
+    const blink = tMs % 2600 < 620
+    t.fill(x + 9, top - 15, 9, 17, av.hoodie)
+    t.fill(x + 9, top - 15, 9, 2, scale(av.hoodie, 1.18))
+    t.fill(x + 17, top - 15, 1, 17, scale(av.hoodie, 0.75))
+    // arms flopped onto the covers
+    t.fill(x + 16, top - 6, 8, 3, av.hoodie)
+    t.fill(x + 22, top - 5, 3, 2, av.skin)
+    drawHead(t, av, x + 10, top - 23, blink, false)
+    return
+  }
+  if (stage === 1) {
+    // quilt kicked toward the foot of the bed
+    t.fill(x + 26, top - 1, 22, 18, [218, 208, 188]) // exposed sheet
+    quilt(t, x + 48, top - 3, 42, 20) // bunched at the foot
+    drawAvatarSeatedEdge(t, g, av, x + 28, tMs, false)
+    return
+  }
+  drawAvatarStanding(t, g, av, tMs, true, false, g.bedX + 30)
+}
+
+/** night: fold the covers back -> perch -> lie down as the quilt settles over */
+function drawAvatarGetIn(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number, stage: 0 | 1 | 2, p: number) {
+  const x = g.bedX
+  const top = g.floorY - 20
+
+  if (stage === 0) {
+    drawQuiltFlap(t, g, tMs)
+    drawAvatarStanding(t, g, av, tMs, false, false, g.bedX + 30)
+    return
+  }
+  if (stage === 1) {
+    drawQuiltFlap(t, g, tMs)
+    drawAvatarSeatedEdge(t, g, av, x + 28, tMs, true)
+    return
+  }
+  // lying over the sheet while the quilt slides across
+  const hx = x + 11
+  t.fill(hx, top, 8, 6, av.skin)
+  const hair = av.hairStyle === "beanie" ? av.hoodie : av.hair
+  t.fill(hx, top - 1, 8, 2, hair)
+  if (av.hairStyle === "long") t.fill(hx + 7, top, 1, 5, hair)
+  t.fill(hx + 4, top + 3, 3, 1, [70, 55, 60]) // closed eye
+  // body stretched over the sheet
+  t.fill(x + 19, top - 2, 18, 7, av.hoodie)
+  t.fill(x + 37, top, 30, 5, scale(av.hoodie, 0.55))
+  t.fill(x + 67, top, 5, 4, [40, 36, 48]) // feet past the covers
+  // the quilt slides from the pillow end across them
+  const coverW = Math.round(18 + (64 - 18) * Math.min(1, p))
+  quilt(t, x + 26, top - 2, coverW, 19)
+  t.fill(x + 26, top - 3, coverW, 1, QUILT_HL)
+}
+
 // ------------------------------ atmosphere ---------------------------------
 
 function drawDust(t: PixelTarget, g: RoomGeo, wl: WindowLight, bf: BeamField, tMs: number) {
@@ -1883,7 +2100,7 @@ export function renderRoom(
   const s = sceneStateAt(now, prefs)
   const wl = dimWindowLightForWeather(windowLightOf(s), weather)
   const bf = beamField(g, wl)
-  const life = lifeState(g, s, wl, bf, weather, now, tMs)
+  const life = lifeState(g, s, wl, bf, weather, now, tMs, prefs)
   const flash = lightningAt(tMs, weather)
   const dayNum = Math.floor(now.getTime() / 86400000)
 
@@ -1902,13 +2119,18 @@ export function renderRoom(
   drawDresserAndMicrowave(t, g, s, tMs, life.snack)
   drawPlant(t, g, tMs, weather.wind)
   drawBed(t, g)
-  drawLamp(t, g, s)
+  drawLamp(t, g, s, tMs)
   drawDesk(t, g, s, tMs, life)
 
-  // the resident
-  if (s.sleeping) drawAvatarSleeping(t, g, avatar, tMs)
-  else if (s.standing) drawAvatarStanding(t, g, avatar, tMs, s.justWoke, s.yawning)
-  else if (life.snack.active) drawAvatarWalking(t, g, avatar, tMs, life.snack)
+  // the resident — full journey: sleeps, gets up, walks, snacks, climbs in
+  const res = life.resident
+  if (res.mode === "sleep") drawAvatarSleeping(t, g, avatar, tMs)
+  else if (res.mode === "getup") drawAvatarGetUp(t, g, avatar, tMs, res.stage)
+  else if (res.mode === "getin") drawAvatarGetIn(t, g, avatar, tMs, res.stage, res.p)
+  else if (res.mode === "stand") drawAvatarStanding(t, g, avatar, tMs, res.justWoke, res.yawning, res.x)
+  else if (res.mode === "walk") drawAvatarWalking(t, g, avatar, tMs, res.x, res.facing, false)
+  else if (life.snack.active)
+    drawAvatarWalking(t, g, avatar, tMs, life.snack.x, life.snack.facing, life.snack.carryMug)
   else drawAvatarSitting(t, g, s, avatar, tMs, life)
 
   drawCat(t, g, life.cat, tMs)
