@@ -4,6 +4,11 @@ const SESSION_COOKIE_NAME = "mcwv_session"
 
 const AUTH_PAGES = new Set(["/login", "/signup"])
 
+// Machine-to-hub endpoints that authenticate with their own secret
+// (e.g. the Discord bot's war collector loop) instead of a session
+// cookie. The route itself still enforces WAR_COLLECT_SECRET when set.
+const MACHINE_API_PATHS = new Set(["/api/war-collector"])
+
 function isAuthPage(pathname: string) {
   return AUTH_PAGES.has(pathname)
 }
@@ -29,7 +34,11 @@ function loginRedirect(request: NextRequest) {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  if (isAuthPage(pathname) || isAuthApi(pathname)) {
+  if (
+    isAuthPage(pathname) ||
+    isAuthApi(pathname) ||
+    MACHINE_API_PATHS.has(pathname)
+  ) {
     return NextResponse.next()
   }
 
