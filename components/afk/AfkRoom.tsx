@@ -8,6 +8,9 @@ import {
   HAIR_STYLES,
   HOODIE_PRESETS,
   SKIN_PRESETS,
+  focusXAt,
+  layoutOf,
+  lifeStateAt,
   lightningAt,
   renderRoom,
   sceneStateAt,
@@ -131,10 +134,41 @@ type HudState = {
 
 const INITIAL_HUD: HudState = { rank: null, points: null, war: null, battleActive: false, stale: false };
 
-/** pick a logical-pixel size so the room stays chunky on every screen */
-function computeSize(vw: number, vh: number): RoomSize {
-  const ps = Math.max(2, Math.min(6, Math.round(Math.min(vw / 240, vh / 170)) || 3));
-  return { w: Math.max(120, Math.round(vw / ps)), h: Math.max(140, Math.round(vh / ps)) };
+// ---------------------------------------------------------------------------
+// viewport → room pipeline
+// Wide screens: the room FITS the screen (classic behavior).
+// Narrow/portrait: the room stays its chunky classic 240-wide self at tall
+// pixels and overflows sideways — you drag across it (or let the camera
+// softly follow the resident). Two very different but deliberate framings.
+// ---------------------------------------------------------------------------
+
+type ViewMode = "fit" | "pan";
+
+type ViewState = {
+  size: RoomSize; // logical room pixels drawn into the canvas
+  mode: ViewMode;
+  ps: number; // css px per logical px
+  cssW: number;
+  cssH: number;
+  ty: number; // vertical letterbox centering
+  vw: number;
+  vh: number;
+};
+
+function computeView(vw: number, vh: number): ViewState {
+  if (vw / vh >= 1.15) {
+    // FIT: pick a chunky logical-pixel size so the room fills the screen
+    const ps = Math.max(2, Math.min(6, Math.round(Math.min(vw / 240, vh / 170)) || 3));
+    const size = { w: Math.max(120, Math.round(vw / ps)), h: Math.max(140, Math.round(vh / ps)) };
+    return { size, mode: "fit", ps, cssW: vw, cssH: vh, ty: 0, vw, vh };
+  }
+  // PAN: classic 240-wide room, pixels sized by screen height, overflow x
+  const size = { w: 240, h: 170 };
+  const ps = Math.max(2, Math.min(5, Math.round(vh / 170)));
+  const cssW = 240 * ps;
+  const cssH = 170 * ps;
+  const ty = Math.max(0, Math.round((vh - cssH) / 2));
+  return { size, mode: "pan", ps, cssW, cssH, ty, vw, vh };
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +186,9 @@ const KIND_EMOJI: Record<WeatherState["kind"], string> = {
 };
 
 // ---------------------------------------------------------------------------
-// ambience — WebAudio-synthesized rain / wind / crickets / thunder (no files)
+// ambience — WebAudio-synthesized rain / wind / crickets / thunder + the
+// room's little domestic one-shots: lamp click, CRT blip, alarm, key clacks,
+// purring, kibble pour, water drips, microwave ding. No audio files at all.
 // ---------------------------------------------------------------------------
 
 class Ambience {
@@ -164,6 +200,7 @@ class Ambience {
   private noiseBuf: AudioBuffer | null = null;
   private lastChirp = 0;
   private lastThunder = 0;
+  private lastClack = 0;
 
   private ensure() {
     if (this.ctx) return;
@@ -239,6 +276,166 @@ class Ambience {
     if (on) void this.ctx?.resume().catch(() => {});
   }
 
+  /** tiny synth one-shot helper — silent until sound has ever been enabled */
+  private shot(build: (ctx: AudioContext, out: GainNode, t0: number) => void) {
+    if (!this.ctx || !this.master) return;
+    try {
+      build(this.ctx, this.master, this.ctx.currentTime);
+    } catch {
+      /* fine */
+    }
+  }
+
+  /** lamp switch */
+  click() {
+    this.shot((ctx, out, t0) => {
+      const o = ctx.createOscillator();
+      o.type = "square";
+      o.frequency.setValueAtTime(1500, t0);
+      o.frequency.exponentialRampToValueAtTime(280, t0 + 0.03);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.07, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.045);
+      o.connect(g); g.connect(out);
+      o.start(t0); o.stop(t0 + 0.05);
+    });
+  }
+
+  /** CRT power-pop */
+  crtBlip() {
+    this.shot((ctx, out, t0) => {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(2400, t0);
+      o.frequency.exponentialRampToValueAtTime(160, t0 + 0.09);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.05, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
+      o.connect(g); g.connect(out);
+      o.start(t0); o.stop(t0 + 0.11);
+    });
+  }
+
+  /** soft twin-bell alarm: three round beeps */
+  beepAlarm() {
+    this.shot((ctx, out, t0) => {
+      for (let i = 0; i < 3; i++) {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = 1760;
+        const g = ctx.createGain();
+        const b = t0 + i * 0.16;
+        g.gain.setValueAtTime(0, b);
+        g.gain.linearRampToValueAtTime(0.06, b + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, b + 0.09);
+        o.connect(g); g.connect(out);
+        o.start(b); o.stop(b + 0.1);
+      }
+    });
+  }
+
+  /** microwave done! */
+  ding() {
+    this.shot((ctx, out, t0) => {
+      for (const [f, dl] of [[988, 0] as const, [1319, 0.11] as const]) {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = f;
+        const g = ctx.createGain();
+        const b = t0 + dl;
+        g.gain.setValueAtTime(0, b);
+        g.gain.linearRampToValueAtTime(0.07, b + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, b + 0.5);
+        o.connect(g); g.connect(out);
+        o.start(b); o.stop(b + 0.52);
+      }
+    });
+  }
+
+  /** soft keyboard tick while the resident types */
+  clack() {
+    if (!this.ctx) return;
+    const now = performance.now();
+    if (now - this.lastClack < 150) return;
+    this.lastClack = now;
+    this.shot((ctx, out, t0) => {
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = 2200 + Math.random() * 900;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.022, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.018);
+      o.connect(g); g.connect(out);
+      o.start(t0); o.stop(t0 + 0.02);
+    });
+  }
+
+  /** ~2.4s of contented cat rumble */
+  purr() {
+    this.shot((ctx, out, t0) => {
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = 52;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 23;
+      const lfoG = ctx.createGain();
+      lfoG.gain.value = 0.02;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.035, t0 + 0.25);
+      g.gain.setValueAtTime(0.035, t0 + 1.9);
+      g.gain.linearRampToValueAtTime(0.0001, t0 + 2.4);
+      lfo.connect(lfoG); lfoG.connect(g.gain);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 220;
+      o.connect(lp); lp.connect(g); g.connect(out);
+      o.start(t0); o.stop(t0 + 2.45);
+      lfo.start(t0); lfo.stop(t0 + 2.45);
+    });
+  }
+
+  /** kibble rattling into the bowl */
+  pour() {
+    if (!this.ctx || !this.master || !this.noiseBuf) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      src.playbackRate.value = 1.6;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 2700;
+      bp.Q.value = 0.7;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.06, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+      src.connect(bp); bp.connect(g); g.connect(this.master);
+      src.start(); src.stop(t0 + 0.36);
+    } catch {
+      /* fine */
+    }
+  }
+
+  /** two little water drops */
+  drip() {
+    this.shot((ctx, out, t0) => {
+      for (let i = 0; i < 2; i++) {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        const b = t0 + i * 0.19;
+        o.frequency.setValueAtTime(940 - i * 140, b);
+        o.frequency.exponentialRampToValueAtTime(620 - i * 90, b + 0.07);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.045, b);
+        g.gain.exponentialRampToValueAtTime(0.0001, b + 0.08);
+        o.connect(g); g.connect(out);
+        o.start(b); o.stop(b + 0.09);
+      }
+    });
+  }
+
   update(scene: { rain: number; wind: number; crickets: boolean }, nowMs: number, flash: number) {
     const ctx = this.ctx;
     if (!ctx || !this.master || !this.rainGain || !this.windGain || !this.noiseBuf) return;
@@ -300,20 +497,47 @@ const SOUND_KEY = "mcwv-afk-sound";
 
 export default function AfkRoom() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [size, setSize] = useState<RoomSize>({ w: 240, h: 160 });
-  const sizeRef = useRef(size);
-  sizeRef.current = size;
+  const panOuterRef = useRef<HTMLDivElement | null>(null); // hit-target & viewport
+  const panInnerRef = useRef<HTMLDivElement | null>(null); // the wide room we translate
+
+  const [view, setView] = useState<ViewState>(() => ({
+    size: { w: 240, h: 160 },
+    mode: "fit",
+    ps: 3,
+    cssW: 240 * 3,
+    cssH: 160 * 3,
+    ty: 0,
+    vw: 240,
+    vh: 160,
+  }));
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const [prefs, setPrefs] = useState<StoredPrefs>(DEFAULT_STORED);
   const [loaded, setLoaded] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
+  const [hasPanned, setHasPanned] = useState(false);
 
   // alive: the room's random sky (displayed state eases toward the engine's pick) + ambience
   const skyRef = useRef<WeatherState>(CLEAR_WEATHER);
   const [skyKind, setSkyKind] = useState<WeatherState["kind"]>("clear");
   const [soundOn, setSoundOn] = useState(false);
   const ambRef = useRef<Ambience | null>(null);
+
+  // pan camera state (mutated directly — no react churn at 12fps)
+  const cam = useRef({ x: -1, lastDrag: -1e12 });
+  const sfxPrev = useRef({
+    lamp: 1,
+    screen: 1,
+    micro: false,
+    alarm: false,
+    eat: false,
+    pet: false,
+    pour: false,
+    water: false,
+    typing: 0,
+  });
 
   // ambience: restore saved choice, suspend when the tab hides
   useEffect(() => {
@@ -360,6 +584,11 @@ export default function AfkRoom() {
   useEffect(() => {
     setPrefs(loadPrefs());
     setLoaded(true);
+    try {
+      setHasPanned(window.localStorage.getItem("mcwv-afk-panned") === "1");
+    } catch {
+      /* fine */
+    }
   }, []);
 
   // persist
@@ -372,10 +601,17 @@ export default function AfkRoom() {
     }
   }, [prefs, loaded]);
 
-  // track viewport → logical room size (debounced)
+  // track viewport → room pipeline (debounced)
   useEffect(() => {
     let timer = 0;
-    const apply = () => setSize(computeSize(window.innerWidth, window.innerHeight));
+    const apply = () => {
+      const v = computeView(window.innerWidth, window.innerHeight);
+      setView(v);
+      // keep the camera inside the new overflow bounds
+      const c = cam.current;
+      const maxX = Math.max(0, v.cssW - v.vw);
+      c.x = c.x < 0 ? maxX / 2 : Math.min(Math.max(0, c.x), maxX);
+    };
     const onResize = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(apply, 120);
@@ -389,6 +625,56 @@ export default function AfkRoom() {
       window.removeEventListener("orientationchange", onResize);
     };
   }, []);
+
+  // drag the room sideways (pan mode) — pointer events cover touch + mouse
+  useEffect(() => {
+    if (view.mode !== "pan") return;
+    const el = panOuterRef.current;
+    if (!el) return;
+    let dragging = false;
+    let startClient = 0;
+    let startX = 0;
+    let moved = 0;
+    const maxX = () => Math.max(0, viewRef.current.cssW - viewRef.current.vw);
+
+    const down = (ev: PointerEvent) => {
+      dragging = true;
+      moved = 0;
+      startClient = ev.clientX;
+      startX = cam.current.x < 0 ? maxX() / 2 : cam.current.x;
+      el.setPointerCapture(ev.pointerId);
+    };
+    const move = (ev: PointerEvent) => {
+      if (!dragging) return;
+      const dx = ev.clientX - startClient;
+      moved = Math.max(moved, Math.abs(dx));
+      if (moved > 6) {
+        cam.current.lastDrag = performance.now();
+        if (!hasPanned) {
+          setHasPanned(true);
+          try {
+            window.localStorage.setItem("mcwv-afk-panned", "1");
+          } catch {
+            /* fine */
+          }
+        }
+      }
+      cam.current.x = Math.min(maxX(), Math.max(0, startX - dx));
+    };
+    const up = () => {
+      dragging = false;
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    return () => {
+      el.removeEventListener("pointerdown", down);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+  }, [view.mode, hasPanned]);
 
   const avatar: AvatarSpec = useMemo(
     () => ({
@@ -437,7 +723,57 @@ export default function AfkRoom() {
         };
       }
       const weather = skyRef.current;
-      renderRoom(target, now, avatar, enginePrefs, tMs, sizeRef.current, weather);
+      renderRoom(target, now, avatar, enginePrefs, tMs, viewRef.current.size, weather);
+
+      // everything alive this frame — powers the camera and the little sounds
+      const v = viewRef.current;
+      const life = lifeStateAt(now, enginePrefs, tMs, v.size, weather);
+      const g = layoutOf(v.size.w, v.size.h);
+
+      // --- camera: soft-follow the resident unless the user drove recently ---
+      if (v.mode === "pan" && panInnerRef.current) {
+        const maxX = Math.max(0, v.cssW - v.vw);
+        const c = cam.current;
+        if (c.x < 0) c.x = maxX / 2;
+        if (!reduced && performance.now() - c.lastDrag > 6000) {
+          const focusCss = focusXAt(life, g) * v.ps;
+          const targetX = Math.min(maxX, Math.max(0, focusCss - v.vw * 0.5));
+          c.x += (targetX - c.x) * 0.075;
+        }
+        c.x = Math.min(maxX, Math.max(0, c.x));
+        panInnerRef.current.style.transform = `translate3d(${-Math.round(c.x)}px, ${v.ty}px, 0)`;
+      }
+
+      // --- domestic one-shots on rising/falling edges (silent when off) ---
+      const sp = sfxPrev.current;
+      if (life.lampLevel < 0.5 && sp.lamp >= 0.5) ambRef.current?.click();
+      sp.lamp = life.lampLevel;
+      if (life.screenPower < 0.5 && sp.screen >= 0.5) ambRef.current?.crtBlip();
+      sp.screen = life.screenPower;
+      if (life.alarmRing && !sp.alarm) ambRef.current?.beepAlarm();
+      sp.alarm = life.alarmRing;
+      const micro = life.snack.microOn;
+      if (!micro && sp.micro) ambRef.current?.ding();
+      sp.micro = micro;
+      const eat = life.cat.pose === "eat";
+      if (eat && !sp.eat) ambRef.current?.purr();
+      sp.eat = eat;
+      const res = life.resident;
+      const pet = res.mode === "chore" && res.kind === "pet";
+      if (pet && !sp.pet) ambRef.current?.purr();
+      sp.pet = pet;
+      const pour = res.mode === "chore" && res.kind === "pour";
+      if (pour && !sp.pour) ambRef.current?.pour();
+      sp.pour = pour;
+      const water = res.mode === "chore" && res.kind === "water";
+      if (water && !sp.water) ambRef.current?.drip();
+      sp.water = water;
+      if (life.working) {
+        const typing = Math.floor(tMs / 380) % 2;
+        if (typing !== sp.typing) ambRef.current?.clack();
+        sp.typing = typing;
+      }
+
       // keep the ambience breathing with the scene
       const scene = sceneStateAt(now, enginePrefs);
       ambRef.current?.update(
@@ -472,7 +808,7 @@ export default function AfkRoom() {
     };
     raf = window.requestAnimationFrame(loop);
     return () => window.cancelAnimationFrame(raf);
-  }, [avatar, enginePrefs, size]);
+  }, [avatar, enginePrefs, view.size.w, view.size.h, view.mode]);
 
   // war HUD polling — every 60s, keeps last numbers on a hiccup
   useEffect(() => {
@@ -520,16 +856,42 @@ export default function AfkRoom() {
         }
       `}</style>
 
-      {/* the room — full bleed */}
-      <canvas
-        ref={canvasRef}
-        width={size.w}
-        height={size.h}
-        className="block h-full w-full"
-        style={{ imageRendering: "pixelated" }}
-        role="img"
-        aria-label="A cozy pixel bedroom that follows your local time of day"
-      />
+      {/* the room — full bleed; on narrow screens it's a wide world you drag across */}
+      <div
+        ref={panOuterRef}
+        className="absolute inset-0"
+        style={view.mode === "pan" ? { touchAction: "none" } : undefined}
+      >
+        <div
+          ref={panInnerRef}
+          className="absolute left-0 top-0"
+          style={
+            view.mode === "pan"
+              ? { width: view.cssW, height: view.cssH, willChange: "transform" }
+              : { inset: 0 }
+          }
+        >
+          <canvas
+            ref={canvasRef}
+            width={view.size.w}
+            height={view.size.h}
+            className="block h-full w-full"
+            style={{ imageRendering: "pixelated" }}
+            role="img"
+            aria-label="A cozy pixel bedroom that follows your local time of day"
+          />
+        </div>
+      </div>
+
+      {/* swipe hint — first visit on a narrow screen only */}
+      {view.mode === "pan" && !hasPanned && (
+        <div
+          className="afk-pixel pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full bg-black/35 px-3 py-2 text-[9px] tracking-widest text-violet-200 backdrop-blur-[2px]"
+          style={{ bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3rem)" }}
+        >
+          ⟷ drag to explore
+        </div>
+      )}
 
       {/* war HUD */}
       <div
@@ -670,6 +1032,9 @@ export default function AfkRoom() {
             {" · "}
             {soundOn ? "🔊 ambience on" : "🔇 ambience off"}
           </p>
+          <p className="mt-1 text-[9px] leading-relaxed text-violet-500/80">
+            {view.mode === "pan" ? "⟷ drag the room · camera follows its day" : "the room lives its day with you"}
+          </p>
         </div>
       )}
     </main>
@@ -709,3 +1074,4 @@ function SwatchRow({
     </div>
   );
 }
+
