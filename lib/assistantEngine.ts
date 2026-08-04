@@ -2,28 +2,38 @@ import type { AskerContext, MemberLine, SharedWarContext, StandingRow } from "@/
 
 // ---------------------------------------------------------------------------
 // Assistant rule engine — answers the known questions instantly, for free.
-// If no intent matches, handled=false and the caller escalates to Groq.
+// Feel-quality layer: bare-word shortcuts, number words, multi-part questions,
+// topic follow-ups ("and top 20?"), single-char typo repair, did-you-mean names.
+// If nothing matches, handled=false and the caller shows the playbook summary.
 // ---------------------------------------------------------------------------
 
 export type EngineResult = {
   handled: boolean
   text: string
   chips: string[]
+  topic?: string
 }
 
 const DEFAULT_CHIPS = ["How are we doing?", "What do we win?", "Who's carrying?"]
 
+const ok = (text: string, chips: string[], topic?: string): EngineResult => ({
+  handled: true,
+  text,
+  chips,
+  ...(topic ? { topic } : {}),
+})
+
+const notHandled: EngineResult = { handled: false, text: "", chips: [] }
+
 const fmt = (value: number | null | undefined) =>
-  value === null || value === undefined || !Number.isFinite(value)
-    ? "—"
-    : new Intl.NumberFormat("en-GB").format(Math.round(value))
+  value === null || value === undefined ? "?" : Math.round(value).toLocaleString("en-GB")
 
 function fmtDuration(ms: number | null) {
-  if (ms === null || ms < 0) return "—"
-  const total = Math.floor(ms / 1000)
-  const d = Math.floor(total / 86400)
-  const h = Math.floor((total % 86400) / 3600)
-  const m = Math.floor((total % 3600) / 60)
+  if (ms === null || ms <= 0) return "?"
+  const total = Math.round(ms / 60000)
+  const d = Math.floor(total / 1440)
+  const h = Math.floor((total % 1440) / 60)
+  const m = total % 60
   if (d > 0) return `${d}d ${h}h`
   if (h > 0) return `${h}h ${m}m`
   return `${m}m`
@@ -52,6 +62,178 @@ function memberLookup(shared: SharedWarContext, name: string): MemberLine | null
     null
   )
 }
+
+// --- did-you-mean: bounded Levenshtein over the roster ----------------------
+
+function levenshteinUpTo(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1
+  if (max <= 0) return a === b ? 0 : 1
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let rowMin = i
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+      cur.push(v)
+      if (v < rowMin) rowMin = v
+    }
+    if (rowMin > max) return max + 1
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+function closestMember(shared: SharedWarContext, name: string): MemberLine | null {
+  const lower = name.toLowerCase()
+  const maxDist = Math.max(1, Math.min(3, Math.floor(name.length / 3)))
+  let best: MemberLine | null = null
+  let bestDist = maxDist + 1
+  for (const row of shared.members) {
+    const d = levenshteinUpTo(lower, row.username.toLowerCase(), Math.min(maxDist, bestDist - 1))
+    if (d < bestDist) {
+      best = row
+      bestDist = d
+    }
+  }
+  return best && bestDist <= maxDist ? best : null
+}
+
+// --- message prep: bare shortcuts, number words, typo repair -----------------
+
+const BARE_WORDS: Record<string, string> = {
+  rank: "our rank",
+  place: "our rank",
+  position: "our rank",
+  points: "clan points",
+  stats: "my stats",
+  status: "status",
+  rewards: "what do we win",
+  prize: "what do we win",
+  prizes: "what do we win",
+  loot: "what do we win",
+  recap: "recap",
+  summary: "recap",
+  news: "status",
+  countdown: "time left",
+  timer: "time left",
+  leaderboard: "top scorers",
+  scoreboard: "top scorers",
+  zeros: "who's on zero",
+  projection: "projection",
+  forecast: "projection",
+  top: "can we make top 10",
+  mvp: "who's carrying",
+  tips: "tips",
+  members: "how many members",
+  roster: "how many members",
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+  sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+  hundred: 100,
+}
+
+// Words that must be right for the rules to hear you — repair target list (4+ letters).
+const CORE_WORDS = [
+  "battle", "points", "point", "rank", "ranked", "place", "rewards", "reward",
+  "prizes", "winning", "losing", "status", "recap", "summary", "stats", "score",
+  "scores", "scorers", "carrying", "start", "starts", "next", "last", "members",
+  "member", "roster", "leaderboard", "tips", "projection", "projected", "predict",
+  "forecast", "above", "below", "zero", "countdown", "time", "left", "help",
+  "clan", "gaps", "pace", "movers", "surging", "hour", "daily", "grind",
+  "doing", "going",
+]
+
+function editDistOne(a: string, b: string): boolean {
+  const diff = a.length - b.length
+  if (diff === 0) {
+    let mismatches = 0
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        // adjacent-letter swap counts as one typo
+        if (
+          mismatches === 0 &&
+          i + 1 < a.length &&
+          a[i] === b[i + 1] &&
+          a[i + 1] === b[i] &&
+          a.slice(i + 2) === b.slice(i + 2)
+        ) {
+          return true
+        }
+        mismatches++
+        if (mismatches > 1) return false
+      }
+    }
+    return mismatches === 1
+  }
+  if (Math.abs(diff) !== 1) return false
+  const shorter = diff < 0 ? a : b
+  const longer = diff < 0 ? b : a
+  let i = 0
+  let j = 0
+  let skipped = false
+  while (i < shorter.length && j < longer.length) {
+    if (shorter[i] === longer[j]) {
+      i++
+      j++
+      continue
+    }
+    if (skipped) return false
+    skipped = true
+    j++
+  }
+  return true
+}
+
+function repairTypos(msg: string): string {
+  // tiny words (<=3 chars) only repair toward this safe list; longer words use CORE_WORDS
+  const SHORT_CORE = ["how", "are", "does", "can", "will", "when", "win", "war", "is", "do", "we"]
+  return msg
+    .split(/(\s+)/)
+    .map((token) => {
+      if (/[^a-z]/.test(token) || token.length < 2) return token
+      if (token.length <= 3) {
+        if (SHORT_CORE.includes(token)) return token
+        return SHORT_CORE.find((word) => editDistOne(token, word)) ?? token
+      }
+      if (CORE_WORDS.includes(token)) return token
+      return CORE_WORDS.find((word) => editDistOne(token, word)) ?? token
+    })
+    .join("")
+}
+
+function stripTail(msg: string) {
+  return msg.replace(/[?!.\s…]+$/, "").trim()
+}
+
+function prepare(raw: string): string {
+  let msg = stripTail(raw.toLowerCase().trim())
+  // "top twenty five" → "top 25", "top ten" → "top 10" (scoped to "top" so names stay intact)
+  msg = msg.replace(
+    /\btop[ -]?(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[ -](one|two|three|four|five|six|seven|eight|nine)\b/,
+    (_, tens: string, ones: string) => `top ${NUMBER_WORDS[tens] + NUMBER_WORDS[ones]}`
+  )
+  msg = msg.replace(
+    /\btop[ -]?(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b/,
+    (_, word: string) => `top ${NUMBER_WORDS[word]}`
+  )
+  if (BARE_WORDS[msg]) msg = BARE_WORDS[msg]
+  return msg
+}
+
+const STOP_WORDS = new Set([
+  "we", "the", "our", "clan", "i", "me", "us", "war", "battle", "mcwv",
+  "and", "what", "about", "how", "who", "are", "is", "do", "does", "did",
+  ...Object.keys(BARE_WORDS),
+])
+
+// ---------------------------------------------------------------------------
+// Shared answer builders
+// ---------------------------------------------------------------------------
 
 function noWarLine(shared: SharedWarContext) {
   if (shared.active) return ""
@@ -167,7 +349,7 @@ function rewardsAnswer(shared: SharedWarContext): string {
     return "I can't see our placement yet, so I can't say which tier we're in. Ask me once the war's underway."
   }
   const current = rewardsAtRank(shared, rank)
-  let out = `At **#${rank}**${shared.projectedRankIfPaceHolds && !shared.active ? "" : ""} we'd take home: **${current.join(" + ") || "nothing 😅"}** 💎`
+  let out = `At **#${rank}** we'd take home: **${current.join(" + ") || "nothing 😅"}** 💎`
   const better = nextTierUp(shared, rank)
   if (better) {
     const boundaryRow = standingAt(shared, better.worst)
@@ -250,17 +432,35 @@ function myStatsAnswer(shared: SharedWarContext, asker: AskerContext): string {
   return out
 }
 
+// Player lookup shared by name intents + follow-ups, with did-you-mean.
+function playerResponse(shared: SharedWarContext, name: string, chips: string[]): EngineResult {
+  const member = memberLookup(shared, name)
+  if (member) return ok(playerAnswer(shared, member), chips, `player:${member.username}`)
+  const suggestion = closestMember(shared, name)
+  if (suggestion) {
+    return ok(
+      `Can't find anyone called **"${name}"** — did you mean **${suggestion.username}**? 👀\n\n${playerAnswer(shared, suggestion)}`,
+      chips,
+      `player:${suggestion.username}`
+    )
+  }
+  return ok(
+    `Can't find anyone called **"${name}"** in this war's data — check the spelling, or they haven't scored yet 👻`,
+    chips
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The matcher — one message part in, one answer out (or handled=false).
 // ---------------------------------------------------------------------------
 
-export function answerWithEngine(
-  rawMessage: string,
+function matchOne(
+  msg: string,
   shared: SharedWarContext,
   asker: AskerContext,
-  officer: boolean
+  officer: boolean,
+  topic?: string
 ): EngineResult {
-  const msg = rawMessage.trim().toLowerCase()
-  const ok = (text: string, chips: string[]): EngineResult => ({ handled: true, text, chips })
-
   // Greeting (also used for the panel's opening message)
   if (msg === "__hello__" || /^(hi|hey|hello|yo|hiya|sup|wag1|morning|afternoon|evening)\b/.test(msg)) {
     const warBit = shared.active
@@ -272,17 +472,35 @@ export function answerWithEngine(
     )
   }
 
-  if (/help|what can (i|you)|how do you work|what do you know/.test(msg)) {
+  if (/help|what can (i|you)|how do you work|what do you know|commands/.test(msg)) {
     return ok(
-      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Top scorers" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?" / "When's the next war?"\n• "How did we do last war?" — history book 📖\n• "Tips to score more" — grind smarter\n• "Who's on zero?" (officers get names)\n\nWord questions around the war and I'll nail them — weird phrasing gets the playbook summary instead 📋`,
+      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Top scorers" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?" / "When's the next war?"\n• "How did we do last war?" — history book 📖\n• "Tips to score more" — grind smarter\n• "Who's on zero?" (officers get names)\n\nYou can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos are totally fine 🧠`,
       ["How are we doing?", "Who's surging?", "When does the war end?"]
     )
   }
 
   // "can we make top X" — before generic status so it doesn't get swallowed
   const topMatch = msg.match(/top ?(\d{1,3})/)
-  if (topMatch && /(can|will|could|make|get|reach|hit|still)/.test(msg)) {
-    return ok(chaseAnswer(shared, Number(topMatch[1])), ["What's the projection?", "Who's above us?", "What do we win?"])
+  if (
+    topMatch &&
+    (/(can|will|could|make|get|reach|hit|still|doable|possible|realistic|chance)/.test(msg) ||
+      /^top ?\d{1,3}$/.test(msg) ||
+      msg.startsWith("and ") ||
+      (topic ? topic.startsWith("chase:") : false))
+  ) {
+    return ok(
+      chaseAnswer(shared, Number(topMatch[1])),
+      ["What's the projection?", "Who's above us?", "What do we win?"],
+      `chase:${Number(topMatch[1])}`
+    )
+  }
+
+  // Follow-up: bare name after a player/carrying/movers conversation ("and sarah?")
+  if (topic && /^(player:|carrying|movers|topscorers|zeros)/.test(topic)) {
+    const followUp = msg.match(/^(?:and |what about |how about |and what about )?([a-z0-9_.]{3,20})$/)
+    if (followUp && !STOP_WORDS.has(followUp[1])) {
+      return playerResponse(shared, followUp[1], ["Who's carrying?", "My stats", "How are we doing?"])
+    }
   }
 
   // When's the next war / when does a battle start?
@@ -317,7 +535,8 @@ export function answerWithEngine(
     })
     return ok(
       `Top grinders on the board:\n\n${lines.join("\n")}\n\nThe full table lives on the leaderboard page 🏆`,
-      ["Who's carrying?", "My stats", "How are we doing?"]
+      ["Who's carrying?", "My stats", "How are we doing?"],
+      "topscorers"
     )
   }
 
@@ -352,39 +571,36 @@ export function answerWithEngine(
   }
 
   if (/(what|which|any).*(reward|prize)|what (do|will|would|did) we (win|get|earn)|win if|loot/.test(msg)) {
-    return ok(rewardsAnswer(shared), ["Can we make top 10?", "What's the projection?", "How are we doing?"])
+    return ok(rewardsAnswer(shared), ["Can we make top 10?", "What's the projection?", "How are we doing?"], "rewards")
   }
 
   if (/who.*(carrying|carry|mvp|best player)|top scorer|highest point/.test(msg)) {
-    return ok(carryingAnswer(shared), ["Who's surging?", "My stats", "How are we doing?"])
+    return ok(carryingAnswer(shared), ["Who's surging?", "My stats", "How are we doing?"], "carrying")
   }
 
   if (/surging|mover|climb|ris(e|ing)|most improved|gained most/.test(msg)) {
-    return ok(moversAnswer(shared), ["Who's carrying?", "My stats", "How are we doing?"])
+    return ok(moversAnswer(shared), ["Who's carrying?", "My stats", "How are we doing?"], "movers")
   }
 
   if (/zero|slacking|deadweight|not scoring|freeload|inactive|asleep/.test(msg)) {
-    return ok(zerosAnswer(shared, officer), ["Who's carrying?", "How are we doing?"])
+    return ok(zerosAnswer(shared, officer), ["Who's carrying?", "How are we doing?"], "zeros")
   }
 
   if (/(my|me) (points|rank|stats|score)|how am i doing|how many points (do i|i have)/.test(msg)) {
-    return ok(myStatsAnswer(shared, asker), ["Who's above me?" , "How are we doing?", "Who's carrying?"])
+    return ok(myStatsAnswer(shared, asker), ["Who's above us?", "How are we doing?", "Who's carrying?"], "status")
   }
 
-  // Player lookup: "how is X doing", "stats for X", "X points"
+  // Player lookup: "how is X doing", "stats for X", "X points", "check X"
   const whoMatch =
     msg.match(/how(?:'s| is| are) ([a-z0-9_.]{3,20})(?: doing)?/) ??
     msg.match(/stats for ([a-z0-9_.]{3,20})/) ??
+    msg.match(/how many points (?:does|did|has) ([a-z0-9_.]{3,20})/) ??
+    msg.match(/^(?:check|lookup|find) ([a-z0-9_.]{3,20})$/) ??
     msg.match(/([a-z0-9_.]{3,20}) (?:points|rank|score)\b/)
   if (whoMatch) {
     const name = whoMatch[1]
-    if (!["we", "the", "our", "clan", "i", "me", "war", "battle"].includes(name)) {
-      const member = memberLookup(shared, name)
-      if (member) return ok(playerAnswer(shared, member), ["Who's carrying?", "My stats", "How are we doing?"])
-      return ok(
-        `Can't find anyone called "${name}" in this war's data — check the spelling, or they haven't scored yet 👻`,
-        ["Who's carrying?", "My stats"]
-      )
+    if (!STOP_WORDS.has(name)) {
+      return playerResponse(shared, name, ["Who's carrying?", "My stats", "How are we doing?"])
     }
   }
 
@@ -399,7 +615,7 @@ export function answerWithEngine(
   }
 
   if (/predict|project|forecast|where will we (finish|end)|final (rank|place|points|score)|end up/.test(msg)) {
-    return ok(projectionAnswer(shared), ["What do we win?", "Can we make top 10?", "How are we doing?"])
+    return ok(projectionAnswer(shared), ["What do we win?", "Can we make top 10?", "How are we doing?"], "projection")
   }
 
   if (/when does (the )?(war|battle|it) end|time (left|remaining)|how long (left|until)|ends when|countdown/.test(msg)) {
@@ -410,13 +626,14 @@ export function answerWithEngine(
     )
   }
 
-  if (/(our|current|clan|'s) (rank|place|position)|where are we|what place/.test(msg)) {
+  if (/(our|current|clan|'s) (rank|place|position)|where are we|what place|what('s| is)( our| the)? (clan )?rank/.test(msg)) {
     if (shared.clanRank === null) return ok("No live placement on record yet — once the war starts I'll track our rank hourly 📡", DEFAULT_CHIPS)
     const idx = usIndex(shared)
     const above = idx > 0 ? shared.standings[idx - 1] : null
     return ok(
       `We're **#${shared.clanRank}**${shared.clanPoints !== null ? ` on **${fmt(shared.clanPoints)}** pts` : ""}${above ? ` — ${fmt(above.points - (shared.clanPoints ?? 0))} pts behind ${above.name} (#${above.rank})` : ""}.`,
-      ["Can we make top 10?", "How are we doing?", "Who's above us?"]
+      ["Can we make top 10?", "How are we doing?", "Who's above us?"],
+      "rank"
     )
   }
 
@@ -429,7 +646,7 @@ export function answerWithEngine(
   }
 
   if (/how (are|r) (we|u) doing|status|update|report|recap|summary|news|winning|losing|how('s| is) (the war|it going|it)/.test(msg)) {
-    return ok(statusAnswer(shared), ["Can we make top 10?", "What do we win?", "Who's carrying?"])
+    return ok(statusAnswer(shared), ["Can we make top 10?", "What do we win?", "Who's carrying?"], "status")
   }
 
   if (/who('s| is) above us|who.*above us|chase|behind us|gap/.test(msg)) {
@@ -448,7 +665,60 @@ export function answerWithEngine(
     return ok(`Anytime 💜 Now go get some points — ${shared.active ? `${fmtDuration(shared.timeLeftMs)} on the clock` : "war's coming"} 😤`, DEFAULT_CHIPS)
   }
 
-  return { handled: false, text: "", chips: [] }
+  return notHandled
+}
+
+// ---------------------------------------------------------------------------
+// Entry point — prep → multi-part → single → typo-repair retry.
+// ---------------------------------------------------------------------------
+
+export function answerWithEngine(
+  rawMessage: string,
+  shared: SharedWarContext,
+  asker: AskerContext,
+  officer: boolean,
+  topic?: string
+): EngineResult {
+  const base = prepare(rawMessage)
+
+  // Multi-part: "rank + my stats", "how are we doing and can we make top 10?"
+  const parts = base
+    .split(/\s*(?:, and | and then |; | & | \+ | and )\s*/)
+    .map((part) => stripTail(part.trim()))
+    .filter((part) => part.length >= 3)
+  const uniqueParts = [...new Set(parts)]
+  if (uniqueParts.length > 1) {
+    const answers = uniqueParts.slice(0, 3).map((part) => matchOne(prepare(part), shared, asker, officer, topic))
+    const hits = answers.filter((answer) => answer.handled)
+    if (hits.length >= 2) {
+      const chips: string[] = []
+      for (const hit of hits) {
+        for (const chip of hit.chips) {
+          if (!chips.includes(chip)) chips.push(chip)
+        }
+      }
+      const lastTopic = [...hits].reverse().find((hit) => hit.topic)?.topic
+      return ok(
+        hits.map((hit) => hit.text).join("\n\n— — —\n\n"),
+        chips.slice(0, 4),
+        lastTopic
+      )
+    }
+  }
+
+  const single = matchOne(base, shared, asker, officer, topic)
+  if (single.handled) return single
+
+  // Typo pass: only reached when nothing matched, so corrections can't hijack a valid question.
+  const repaired = repairTypos(base)
+  if (repaired !== base) {
+    const retry = matchOne(repaired, shared, asker, officer, topic)
+    if (retry.handled) {
+      return { ...retry, text: `*(read that as “${repaired}”)*\n\n${retry.text}` }
+    }
+  }
+
+  return notHandled
 }
 
 // ---------------------------------------------------------------------------
