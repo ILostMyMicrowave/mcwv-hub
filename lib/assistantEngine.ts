@@ -274,7 +274,7 @@ export function answerWithEngine(
 
   if (/help|what can (i|you)|how do you work|what do you know/.test(msg)) {
     return ok(
-      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?"\n• "Who's on zero?" (officers get names)\n\nAnything worded weirdly, I pass to my AI brain ⚡`,
+      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Top scorers" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?" / "When's the next war?"\n• "How did we do last war?" — history book 📖\n• "Tips to score more" — grind smarter\n• "Who's on zero?" (officers get names)\n\nWord questions around the war and I'll nail them — weird phrasing gets the playbook summary instead 📋`,
       ["How are we doing?", "Who's surging?", "When does the war end?"]
     )
   }
@@ -283,6 +283,72 @@ export function answerWithEngine(
   const topMatch = msg.match(/top ?(\d{1,3})/)
   if (topMatch && /(can|will|could|make|get|reach|hit|still)/.test(msg)) {
     return ok(chaseAnswer(shared, Number(topMatch[1])), ["What's the projection?", "Who's above us?", "What do we win?"])
+  }
+
+  // When's the next war / when does a battle start?
+  if (/next (war|battle|clan battle)|another war|new (war|battle)|when.*(war|battle).*(start|begin|drop|come)/.test(msg)) {
+    if (shared.active) {
+      return ok(
+        `This war's still live — ⏳ **${fmtDuration(shared.timeLeftMs)}** left. The next battle usually drops with the next in-game event, basically right after this one. Finish strong first 😤`,
+        ["When does the war end?", "How are we doing?", "Can we make top 10?"]
+      )
+    }
+    return ok(
+      `${noWarLine(shared)}${shared.battleId ? `Last one was **${shared.battleId}**. ` : ""}Big Games fires the starting gun with the next in-game event, and I'll know the second it goes live 📯\n\nPrep now: dream team ready, best enchants on, clear your schedule for day one — early points snowball.`,
+      ["How did we do last war?", "What do we win?", "How are we doing?"]
+    )
+  }
+
+  // Tips / how to help the clan score
+  if (/how (can|do) i (help|score|contribute|grind|get points)|tips|advice|score (more|faster|quickly)|grind (faster|more|harder)|how do (clan )?wars? work|what should i (do|grind|focus)/.test(msg)) {
+    return ok(
+      `Every clan battle scores on its **own gimmick** — the in-game Clan Battle page shows exactly what counts this time 🎯 Universal cheat codes:\n\n• **Highest zone you melt fast** — speed beats ego\n• **Best team + enchants on**, always\n• **Day-one points snowball** — start early\n• **Final 24h is when ranks flip** — that's push time 😤\n\n${shared.active ? `Clock check: **${fmtDuration(shared.timeLeftMs)}** left — go go go ⚔️` : "Between wars right now, so stock the prep: potions, upgrades, dream team."}`,
+      ["How are we doing?", "My stats", "Top scorers"]
+    )
+  }
+
+  // Top scorers table
+  if (/top ?(3|5|10|scorers|players|members|grinders)|clan leaderboard|score ?board|best (members|players|scorers|grinders)/.test(msg)) {
+    if (shared.topScorers.length === 0) return ok("No scorers on the board yet 🐣", DEFAULT_CHIPS)
+    const lines = shared.topScorers.slice(0, 5).map((row, index) => {
+      const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`
+      const gain = row.gain24h !== null && row.gain24h > 0 ? ` *(+${fmt(row.gain24h)} last 24h)*` : ""
+      return `${medal} **${row.username}** — ${fmt(row.points)} pts${gain}`
+    })
+    return ok(
+      `Top grinders on the board:\n\n${lines.join("\n")}\n\nThe full table lives on the leaderboard page 🏆`,
+      ["Who's carrying?", "My stats", "How are we doing?"]
+    )
+  }
+
+  // Last war recap / our record
+  if (/last (war|battle)|previous (war|battle)|how did we (do|finish)|our (record|best) (finish|war)|best (finish|war)|war recap|recap (of )?(the )?(last |previous )?(war|battle)/.test(msg)) {
+    if (shared.active) {
+      return ok(
+        `We're mid-**${shared.battleId ?? "battle"}** — recap when the dust settles! Right now: **${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"}** with ⏳ **${fmtDuration(shared.timeLeftMs)}** left 📖`,
+        ["How are we doing?", "When's the next war?", "Who's carrying?"]
+      )
+    }
+    const bits = [
+      `Last battle: **${shared.battleId ?? "unknown"}** — `,
+      shared.contributors ? `**${shared.contributors} scorers** piled up ` : "",
+      shared.clanPoints !== null ? `**${fmt(shared.clanPoints)} pts**` : "a pile of pts",
+      ".",
+      shared.clanRank !== null ? ` That run has us sitting **#${shared.clanRank}** on the clan leaderboard.` : "",
+      "\n\nHistory book says: beat it next war 😤",
+    ]
+    return ok(bits.join(""), ["When's the next war?", "What do we win?", "Top scorers"])
+  }
+
+  // Roster / member count
+  if (/how many (members|players|people|scorers)|clan size|roster( size)?|member count/.test(msg)) {
+    let out = shared.memberCount !== null ? `The clan has **${shared.memberCount}** members.` : ""
+    if (shared.contributors) {
+      out += `${out ? " " : ""}**${shared.contributors}** ${shared.active ? "have scored so far this war" : "scored in the last battle"}.`
+    }
+    if (!out) return ok("Can't see the roster count right now 😴", DEFAULT_CHIPS)
+    if (shared.active && shared.zeroCount > 0) out += ` (${shared.zeroCount} still on zero 👀)`
+    return ok(out, ["Who's carrying?", "Top scorers", "How are we doing?"])
   }
 
   if (/(what|which|any).*(reward|prize)|what (do|will|would|did) we (win|get|earn)|win if|loot/.test(msg)) {
@@ -362,7 +428,7 @@ export function answerWithEngine(
     )
   }
 
-  if (/how (are|r) (we|u) doing|status|update|report|how('s| is) (the war|it going|it)/.test(msg)) {
+  if (/how (are|r) (we|u) doing|status|update|report|recap|summary|news|winning|losing|how('s| is) (the war|it going|it)/.test(msg)) {
     return ok(statusAnswer(shared), ["Can we make top 10?", "What do we win?", "Who's carrying?"])
   }
 
@@ -386,13 +452,13 @@ export function answerWithEngine(
 }
 
 // ---------------------------------------------------------------------------
-// Fallback when no AI is available (or quota spent) — still useful.
+// Fallback when nothing matched — always useful, never leaks internals.
 // ---------------------------------------------------------------------------
 
-export function fallbackAnswer(shared: SharedWarContext, asker: AskerContext, reason: string): EngineResult {
+export function fallbackAnswer(shared: SharedWarContext, asker: AskerContext): EngineResult {
   return {
     handled: true,
-    text: `Hmm, that one's outside my playbook${reason ? ` (${reason})` : ""} — but here's the current state:\n\n${statusAnswer(shared)}\n\nOr try one of these 👇`,
+    text: `Hmm, that one's outside my playbook — but here's the current state:\n\n${statusAnswer(shared)}\n\nOr try one of these 👇`,
     chips: ["How are we doing?", "Can we make top 10?", "What do we win?", "Who's carrying?"],
   }
 }
