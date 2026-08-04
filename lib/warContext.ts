@@ -23,6 +23,7 @@ export type MemberLine = {
   points: number
   rank: number | null
   gain24h: number | null
+  capturedAt: number | null /* internal: scorer-window math, never shown */
 }
 
 export type AskerContext = {
@@ -190,12 +191,14 @@ async function memberLines(battleKey: string): Promise<MemberLine[]> {
       if (!robloxId) continue
       const points = asNumber(row.points) ?? 0
       const before = prior.get(robloxId) ?? null
+      const captured = row.captured_at ? new Date(String(row.captured_at)).getTime() : NaN
       lines.push({
         robloxId,
         username: String(row.username ?? robloxId),
         points,
         rank: asNumber(row.rank),
         gain24h: before === null ? null : points - before,
+        capturedAt: Number.isFinite(captured) ? captured : null,
       })
     }
     lines.sort((a, b) => b.points - a.points)
@@ -294,7 +297,16 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     .sort((a, b) => (b.gain24h ?? 0) - (a.gain24h ?? 0))
     .slice(0, 10)
   const zeroRows = memberRows.filter((row) => row.points <= 0)
-  const historyScorers = memberRows.filter((row) => row.points > 0).length
+  // Hub-parity semantics: count scorers (points > 0) seen in the final 24h of
+  // our data for this battle. All-time history over-counts players kicked
+  // mid-war whose contributions the game later erased.
+  const maxCaptured = memberRows.reduce((max, row) => Math.max(max, row.capturedAt ?? 0), 0)
+  const historyScorers = maxCaptured
+    ? memberRows.filter(
+        (row) =>
+          row.points > 0 && row.capturedAt !== null && maxCaptured - row.capturedAt <= 24 * 3600 * 1000
+      ).length
+    : memberRows.filter((row) => row.points > 0).length
   const contributors = Math.max(contributions ?? 0, historyScorers) || null
 
   const context: SharedWarContext = {
