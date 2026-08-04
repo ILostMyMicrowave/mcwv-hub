@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/authUser"
 import { answerWithEngine, fallbackAnswer } from "@/lib/assistantEngine"
-import { buildAskerContext, getSharedWarContext } from "@/lib/warContext"
+import { buildAskerContext, getSharedWarContext, loadAskerWars } from "@/lib/warContext"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -29,8 +29,11 @@ export async function POST(req: Request) {
   const officer = auth.user.role === "officer" || auth.user.role === "owner"
 
   try {
-    const shared = await getSharedWarContext()
-    const asker = buildAskerContext(auth.user, shared)
+    const [shared, askerWars] = await Promise.all([
+      getSharedWarContext(),
+      loadAskerWars(auth.user.robloxId),
+    ])
+    const asker = buildAskerContext(auth.user, shared, askerWars)
 
     // 1) Instant, free, always-correct answers.
     const engine = answerWithEngine(message, shared, asker, officer, topic)
