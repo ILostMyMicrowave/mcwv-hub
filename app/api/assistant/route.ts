@@ -11,9 +11,16 @@ export const dynamic = "force-dynamic"
 // Defaults to Groq (free tier); set ASSISTANT_AI_* to use GitHub Models,
 // OpenRouter, Cerebras, etc. without touching this file.
 const AI_API_KEY = process.env.ASSISTANT_AI_KEY ?? process.env.GROQ_API_KEY ?? ""
-const AI_BASE_URL = (
-  process.env.ASSISTANT_AI_BASE_URL ?? "https://api.groq.com/openai/v1/chat/completions"
-).trim()
+// Provider auto-detect: Cerebras keys start "csk-", Groq keys "gsk_". ASSISTANT_AI_BASE_URL overrides.
+const DETECTED_BASE_URL = AI_API_KEY.startsWith("csk-")
+  ? "https://api.cerebras.ai/v1/chat/completions"
+  : "https://api.groq.com/openai/v1/chat/completions"
+// Accept either ".../v1" or ".../v1/chat/completions" and normalize to the full path.
+function normalizeChatUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "")
+  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`
+}
+const AI_BASE_URL = normalizeChatUrl(process.env.ASSISTANT_AI_BASE_URL ?? DETECTED_BASE_URL)
 // Default cascade = models confirmed live on Cerebras' free tier (override with ASSISTANT_AI_MODELS).
 const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "gpt-oss-120b,zai-glm-4.7,qwen-3-32b,llama3.1-8b")
   .split(",")
@@ -79,28 +86,35 @@ function stripLinks(text: string) {
   return text.replace(/https?:\/\/\S+|www\.\S+/gi, "[link removed]").trim()
 }
 
+async function postChat(payload: Record<string, unknown>): Promise<Response> {
+  return fetch(AI_BASE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AI_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(12_000),
+  })
+}
+
 async function askModel(model: string, question: string, context: unknown): Promise<string | null> {
   try {
-    const res = await fetch(AI_BASE_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        max_tokens: 280,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `CONTEXT:\n${JSON.stringify(context)}\n\nQUESTION: ${question}` },
-        ],
-      }),
-      signal: AbortSignal.timeout(12_000),
-    })
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: `CONTEXT:\n${JSON.stringify(context)}\n\nQUESTION: ${question}` },
+    ]
+    let res = await postChat({ model, temperature: 0.4, max_tokens: 280, messages })
+
+    if (!res.ok && res.status === 400) {
+      // Picky model rejected optional params — retry with the bare minimum.
+      console.warn(`[assistant] ${model} HTTP 400, retrying minimal payload`)
+      res = await postChat({ model, messages })
+    }
 
     if (!res.ok) {
-      console.warn(`[assistant] ${model} HTTP ${res.status}`)
+      const body = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 240)
+      console.warn(`[assistant] ${model} HTTP ${res.status} via ${AI_BASE_URL} :: ${body}`)
       return null
     }
 
