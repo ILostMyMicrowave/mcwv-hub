@@ -2182,6 +2182,114 @@ export function focusXAt(life: LifeState, g: RoomGeo): number {
   }
 }
 
+// ------------------------------ status ticker ------------------------------
+//
+// The top-left "what's up" line: an ACTIVE little moment wins, otherwise the
+// next scheduled thing within 75 minutes, otherwise null (client shows the
+// weather instead). Pure & deterministic, like everything else here.
+
+export type AfkEvent = {
+  emoji: string
+  /** short shouty label, e.g. "FEEDING THE CAT", "LIGHTS OUT" */
+  label: string
+  /** "now" = happening right now, "in" = coming up within the horizon */
+  kind: "now" | "in"
+  /** whole minutes until it starts (kind "in" only) */
+  mins?: number
+}
+
+const HORIZON_SEC = 75 * 60 // one full sky-slot of foresight
+
+export function nextEventAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): AfkEvent | null {
+  const s = sceneStateAt(now, prefs)
+  const g = layoutOf(BASE_W, 160)
+  const daySeed = daySeedOf(now)
+  const chores = choresAt(g, s, prefs, daySeed)
+  const daySec = s.hour * 3600
+  const wake = s.weekend ? 9 : 6.5
+  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+
+  // ---- active little moments (priority order) ----
+  for (const f of chores.feeds) {
+    const eatEnd = f.start + f.outT + 0.6 + 100
+    if (daySec >= f.start && daySec < eatEnd)
+      return { emoji: "🐈", label: "FEEDING THE CAT", kind: "now" }
+  }
+  {
+    // microwave snack run window (mirrors snackPlan's timing)
+    const eveningStart = 20 * 3600 + Math.floor(daySeed * 95) * 60
+    const weekendStart = 15 * 3600 + Math.floor(hash(daySeed * 13.7) * 55) * 60
+    const startSec = daySec >= eveningStart ? eveningStart : s.weekend ? weekendStart : eveningStart
+    const seatX = g.sitX + 4
+    const microX = g.dresserX + 20
+    const walkMs = Math.max(2500, Math.round(((seatX - microX) / 14) * 1000))
+    const totalSec = (walkMs * 2 + 900 + 6200) / 1000
+    if (daySec >= startSec && daySec < startSec + totalSec && !s.sleeping && !s.standing)
+      return { emoji: "🍿", label: "SNACK RUN", kind: "now" }
+  }
+  if (chores.water) {
+    const w = chores.water
+    const total = w.leg1 + 1.8 + w.leg2 + 1.8 + w.leg3
+    if (daySec >= w.start && daySec < w.start + total)
+      return { emoji: "🪴", label: "WATERING PLANTS", kind: "now" }
+  }
+
+  // ---- next scheduled thing inside the horizon ----
+  // urgent journey beats (lights out / wind-down / wake-up) outrank ambient
+  // sky moments; casual errands wait their turn behind the scenery
+  const fwd = (t: number) => (t - daySec + 86400) % 86400
+  type Cand = { at: number; emoji: string; label: string; h: number }
+  const urgent: Cand[] = []
+  const casual: Cand[] = []
+
+  if (!s.sleeping) {
+    // bedtime beats get a tight 45-min leash so they don't hog the evening line
+    urgent.push({ at: bedH * 3600, h: 45 * 60, emoji: "🛏️", label: "LIGHTS OUT" })
+    urgent.push({ at: bedH * 3600 - 1080, h: 45 * 60, emoji: "🌙", label: "WIND-DOWN" })
+    for (const f of chores.feeds) casual.push({ at: f.start, h: HORIZON_SEC, emoji: "🐈", label: "CAT FEEDING" })
+    for (const [a] of chores.work) casual.push({ at: a, h: HORIZON_SEC, emoji: "💻", label: "DESK WORK" })
+    if (chores.water) casual.push({ at: chores.water.start, h: HORIZON_SEC, emoji: "🪴", label: "PLANT WATERING" })
+    {
+      const eveningStart = 20 * 3600 + Math.floor(daySeed * 95) * 60
+      const weekendStart = 15 * 3600 + Math.floor(hash(daySeed * 13.7) * 55) * 60
+      const startSec = daySec >= eveningStart ? eveningStart : s.weekend ? weekendStart : eveningStart
+      casual.push({ at: startSec, h: HORIZON_SEC, emoji: "🍿", label: "SNACK RUN" })
+    }
+  } else {
+    urgent.push({ at: wake * 3600, h: HORIZON_SEC, emoji: "⏰", label: "WAKE-UP" })
+  }
+
+  const soonest = (list: Cand[]) => {
+    let best: Cand | null = null
+    for (const c of list) {
+      const d = fwd(c.at)
+      if (d > 0 && d <= c.h && (!best || d < fwd(best.at))) best = c
+    }
+    return best
+  }
+
+  const nextUrgent = soonest(urgent)
+  if (nextUrgent)
+    return { emoji: nextUrgent.emoji, label: nextUrgent.label, kind: "in", mins: Math.max(1, Math.ceil(fwd(nextUrgent.at) / 60)) }
+
+  // ---- ambient sky moments, when no journey is imminent ----
+  if (rainbowAt(now, weatherAt(now), s.mood.ambient) > 0.25)
+    return { emoji: "🌈", label: "RAINBOW", kind: "now" }
+  {
+    const month = now.getMonth()
+    if (
+      month >= 5 && month <= 8 && s.hour >= 20.5 && s.hour <= 23 &&
+      (weatherAt(now).kind === "clear" || (weatherAt(now).kind === "cloud" && weatherAt(now).intensity < 0.5))
+    )
+      return { emoji: "✨", label: "FIREFLIES", kind: "now" }
+  }
+
+  const nextCasual = soonest(casual)
+  if (nextCasual)
+    return { emoji: nextCasual.emoji, label: nextCasual.label, kind: "in", mins: Math.max(1, Math.ceil(fwd(nextCasual.at) / 60)) }
+  return null
+}
+
 // ------------------------------ avatar -------------------------------------
 
 function drawHead(t: PixelTarget, av: AvatarSpec, x: number, y: number, blink: boolean, yawning: boolean) {
