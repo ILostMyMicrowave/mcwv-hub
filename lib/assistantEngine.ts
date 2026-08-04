@@ -7,11 +7,21 @@ import type { AskerContext, MemberLine, SharedWarContext, StandingRow } from "@/
 // If nothing matches, handled=false and the caller shows the playbook summary.
 // ---------------------------------------------------------------------------
 
+export type AssistantCardData =
+  | {
+      type: "bars"
+      title: string
+      rows: { label: string; value: number; sub?: string; medal?: string; highlight?: boolean }[]
+    }
+  | { type: "progress"; title: string; current: number; target: number; sub?: string }
+  | { type: "tiers"; title: string; currentRank: number; rows: { best: number; worst: number; label: string }[]; sub?: string }
+
 export type EngineResult = {
   handled: boolean
   text: string
   chips: string[]
   topic?: string
+  card?: AssistantCardData
 }
 
 const DEFAULT_CHIPS = ["How are we doing?", "What do we win?", "Who's carrying?"]
@@ -22,6 +32,9 @@ const ok = (text: string, chips: string[], topic?: string): EngineResult => ({
   chips,
   ...(topic ? { topic } : {}),
 })
+
+const withCard = (result: EngineResult, card?: AssistantCardData): EngineResult =>
+  card ? { ...result, card } : result
 
 const notHandled: EngineResult = { handled: false, text: "", chips: [] }
 
@@ -398,6 +411,68 @@ function zerosAnswer(shared: SharedWarContext, officer: boolean): string {
   return `Officer eyes only 🤫 Currently on **0 pts**: ${shared.zeroNames.join(", ")}${shared.zeroCount > shared.zeroNames.length ? ` and ${shared.zeroCount - shared.zeroNames.length} more` : ""}.\n\nGentle nudge via /broadcast? That's literally what the zero-pointer audience is for 🎯`
 }
 
+// --- card builders: data-drawn visuals attached to answers -----------------
+
+const MEDALS = ["🥇", "🥈", "🥉"]
+
+function scorerBarsCard(shared: SharedWarContext, title: string): AssistantCardData | undefined {
+  const rows = shared.topScorers.slice(0, 5).map((row, index) => ({
+    label: row.username,
+    value: row.points,
+    medal: MEDALS[index] ?? `#${index + 1}`,
+    ...(row.gain24h !== null && row.gain24h > 0 ? { sub: `+${fmt(row.gain24h)} last 24h` } : {}),
+  }))
+  return rows.length ? { type: "bars" as const, title, rows } : undefined
+}
+
+function standingsCard(shared: SharedWarContext): AssistantCardData | undefined {
+  const idx = usIndex(shared)
+  if (!shared.active || shared.clanRank === null || idx < 0) return undefined
+  const picks = [shared.standings[idx - 1], shared.standings[idx], shared.standings[idx + 1]].filter(
+    (row): row is StandingRow => Boolean(row)
+  )
+  if (picks.length < 2) return undefined
+  return {
+    type: "bars" as const,
+    title: "Standings around us",
+    rows: picks.map((row) => ({
+      label: `#${row.rank} ${row.name}`,
+      value: row.points,
+      highlight: row.name.toUpperCase() === "MCWV",
+    })),
+  }
+}
+
+function tiersCard(shared: SharedWarContext): AssistantCardData | undefined {
+  const rank = shared.projectedRankIfPaceHolds ?? shared.clanRank
+  if (!shared.rewards.length || rank === null) return undefined
+  const better = nextTierUp(shared, rank)
+  const boundaryRow = better ? standingAt(shared, better.worst) : null
+  const gap = boundaryRow && shared.clanPoints !== null ? boundaryRow.points - shared.clanPoints : null
+  return {
+    type: "tiers" as const,
+    title: "Reward tiers",
+    currentRank: rank,
+    rows: shared.rewards.slice(0, 6).map((tier) => ({ best: tier.best, worst: tier.worst, label: tier.label })),
+    ...(gap !== null && gap > 0 ? { sub: `${fmt(gap)} pts to the next tier 👀` } : {}),
+  }
+}
+
+function raceCard(shared: SharedWarContext, target: number): AssistantCardData | undefined {
+  if (!shared.active || shared.clanRank === null || shared.clanPoints === null) return undefined
+  if (shared.clanRank <= target) return undefined
+  const targetRow = standingAt(shared, target)
+  if (!targetRow) return undefined
+  const gap = targetRow.points - shared.clanPoints
+  return {
+    type: "progress" as const,
+    title: `Race to top ${target}`,
+    current: shared.clanPoints,
+    target: targetRow.points,
+    sub: `${fmt(gap)} pts behind${shared.hourlyRate ? ` · pace ~${fmt(shared.hourlyRate)}/h` : ""}`,
+  }
+}
+
 function playerAnswer(shared: SharedWarContext, member: MemberLine): string {
   const scored = shared.members.filter((row) => row.points > 0)
   const index = scored.findIndex((row) => row.robloxId === member.robloxId)
@@ -488,10 +563,13 @@ function matchOne(
       msg.startsWith("and ") ||
       (topic ? topic.startsWith("chase:") : false))
   ) {
-    return ok(
-      chaseAnswer(shared, Number(topMatch[1])),
-      ["What's the projection?", "Who's above us?", "What do we win?"],
-      `chase:${Number(topMatch[1])}`
+    return withCard(
+      ok(
+        chaseAnswer(shared, Number(topMatch[1])),
+        ["What's the projection?", "Who's above us?", "What do we win?"],
+        `chase:${Number(topMatch[1])}`
+      ),
+      raceCard(shared, Number(topMatch[1]))
     )
   }
 
@@ -533,10 +611,13 @@ function matchOne(
       const gain = row.gain24h !== null && row.gain24h > 0 ? ` *(+${fmt(row.gain24h)} last 24h)*` : ""
       return `${medal} **${row.username}** — ${fmt(row.points)} pts${gain}`
     })
-    return ok(
-      `Top grinders on the board:\n\n${lines.join("\n")}\n\nThe full table lives on the leaderboard page 🏆`,
-      ["Who's carrying?", "My stats", "How are we doing?"],
-      "topscorers"
+    return withCard(
+      ok(
+        `Top grinders on the board:\n\n${lines.join("\n")}\n\nThe full table lives on the leaderboard page 🏆`,
+        ["Who's carrying?", "My stats", "How are we doing?"],
+        "topscorers"
+      ),
+      scorerBarsCard(shared, "Top scorers")
     )
   }
 
@@ -571,11 +652,17 @@ function matchOne(
   }
 
   if (/(what|which|any).*(reward|prize)|what (do|will|would|did) we (win|get|earn)|win if|loot/.test(msg)) {
-    return ok(rewardsAnswer(shared), ["Can we make top 10?", "What's the projection?", "How are we doing?"], "rewards")
+    return withCard(
+      ok(rewardsAnswer(shared), ["Can we make top 10?", "What's the projection?", "How are we doing?"], "rewards"),
+      tiersCard(shared)
+    )
   }
 
   if (/who.*(carrying|carry|mvp|best player)|top scorer|highest point/.test(msg)) {
-    return ok(carryingAnswer(shared), ["Who's surging?", "My stats", "How are we doing?"], "carrying")
+    return withCard(
+      ok(carryingAnswer(shared), ["Who's surging?", "My stats", "How are we doing?"], "carrying"),
+      scorerBarsCard(shared, "Top scorers")
+    )
   }
 
   if (/surging|mover|climb|ris(e|ing)|most improved|gained most/.test(msg)) {
@@ -646,7 +733,10 @@ function matchOne(
   }
 
   if (/how (are|r) (we|u) doing|status|update|report|recap|summary|news|winning|losing|how('s| is) (the war|it going|it)/.test(msg)) {
-    return ok(statusAnswer(shared), ["Can we make top 10?", "What do we win?", "Who's carrying?"], "status")
+    return withCard(
+      ok(statusAnswer(shared), ["Can we make top 10?", "What do we win?", "Who's carrying?"], "status"),
+      standingsCard(shared)
+    )
   }
 
   if (/who('s| is) above us|who.*above us|chase|behind us|gap/.test(msg)) {
@@ -698,10 +788,13 @@ export function answerWithEngine(
         }
       }
       const lastTopic = [...hits].reverse().find((hit) => hit.topic)?.topic
-      return ok(
-        hits.map((hit) => hit.text).join("\n\n— — —\n\n"),
-        chips.slice(0, 4),
-        lastTopic
+      return withCard(
+        ok(
+          hits.map((hit) => hit.text).join("\n\n— — —\n\n"),
+          chips.slice(0, 4),
+          lastTopic
+        ),
+        hits.find((hit) => hit.card)?.card
       )
     }
   }
