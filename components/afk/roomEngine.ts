@@ -8,6 +8,11 @@
 // v2: full-screen parametric layout (3-zone anchoring), beveled furniture,
 // patchwork quilt, curtains, wallpaper + wainscot, plank floor, Bayer dither,
 // contact shadows, fairy lights, wall clock with real local time.
+//
+// v3 "Window Cinema": time-angled god rays split by the mullions, traveling
+// floor pool, wall wash, rim lighting on furniture + resident, beam-boosted
+// dust, hills silhouette + far house lights, golden/silver cloud linings,
+// low-sun bloom + fan rays, occasional shooting stars.
 // ---------------------------------------------------------------------------
 
 export type RGB = [number, number, number]
@@ -311,6 +316,75 @@ function contactShadow(t: PixelTarget, x: number, y: number, w: number, strength
   t.blend(x, y, w, 2, [14, 10, 18], strength)
 }
 
+// ------------------------- window cinema: shared light math ----------------
+
+/** the period-of-day light personality used by rays / wash / rims / dust */
+export type WindowLight = {
+  day: boolean
+  /** sun (or moon) altitude 0..1 */
+  alt: number
+  /** warm side-light strength 0..1 (high at dawn/dusk) */
+  side: number
+  /** beam color */
+  color: RGB
+  /** base beam density 0..1 */
+  peak: number
+  /** beam slope: dx per dy (low noon → near vertical, dawn/dusk → long rake) */
+  slope: number
+  active: boolean
+}
+
+export function windowLightOf(s: SceneState): WindowLight {
+  const m = s.mood
+  const day = s.hour >= 5.8 && s.hour <= 18.6
+  if (day) {
+    const dayF = (s.hour - 5.8) / 12.8
+    const alt = Math.sin(Math.PI * dayF)
+    const warm = Math.pow(1 - alt, 1.3)
+    const color = mix([255, 244, 214], [255, 170, 88], warm)
+    const peak = 0.05 + 0.13 * warm
+    return { day, alt, side: Math.pow(1 - alt, 1.5), color, peak, slope: 0.25 + (1 - alt) * 1.7, active: true }
+  }
+  const nt = s.hour > 12 ? (s.hour - 18.6) / 11.2 : (s.hour + 24 - 18.6) / 11.2
+  if (nt < 0 || nt > 1 || m.stars < 0.3) {
+    return { day, alt: 0, side: 0, color: [150, 172, 255], peak: 0, slope: 0.8, active: false }
+  }
+  const malt = Math.sin(Math.PI * nt)
+  const peak = (0.06 + 0.1 * (1 - malt)) * m.stars
+  return {
+    day,
+    alt: malt,
+    side: Math.pow(1 - malt, 1.5) * 0.7 * m.stars,
+    color: [150, 172, 255],
+    peak,
+    slope: 0.25 + (1 - malt) * 1.4,
+    active: true,
+  }
+}
+
+type BeamField = {
+  x0: number
+  y0: number
+  y1: number
+  slope: number
+  w: number
+  active: boolean
+}
+
+/** geometry of the beams, shared by the rays and the in-beam dust booster */
+function beamField(g: RoomGeo, wl: WindowLight): BeamField {
+  const y0 = g.winY + g.winH - 12
+  const y1 = g.floorY + Math.min(26, g.h - g.floorY - 6)
+  return {
+    x0: g.winX + 5,
+    y0,
+    y1,
+    slope: wl.slope,
+    w: g.winW - 10,
+    active: wl.active && wl.peak > 0.04,
+  }
+}
+
 // ------------------------------ layout -------------------------------------
 
 /**
@@ -520,6 +594,7 @@ function sunMoonPos(hour: number, g: RoomGeo, inn: { x: number; y: number; w: nu
 
 function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
   const m = s.mood
+  const wl = windowLightOf(s)
   const W = { x: g.winX, y: g.winY, w: g.winW, h: g.winH }
   const inn = { x: W.x + 4, y: W.y + 4, w: W.w - 8, h: W.h - 8 }
 
@@ -555,6 +630,28 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
     t.fill(inn.x, inn.y + i, inn.w, 2, c)
   }
 
+  // -------- the world outside: distant rolling hills, two layers --------
+  const hillFar: RGB = mix(mix(m.skyHorizon, m.skyTop, 0.5), [34, 36, 64], 0.4)
+  const hillNear: RGB = mix(mix(m.skyHorizon, m.skyTop, 0.5), [16, 18, 38], 0.62)
+  for (let i = 0; i < inn.w; i++) {
+    const waveF = Math.sin((i + 7) * 0.22) * 2 + Math.sin(i * 0.06) * 2
+    const topF = inn.y + inn.h - 9 + Math.round(waveF)
+    if (topF < inn.y + inn.h) t.fill(inn.x + i, topF, 1, inn.y + inn.h - topF, hillFar)
+    const waveN = Math.sin((i + 23) * 0.3) * 2.4
+    const topN = inn.y + inn.h - 5 + Math.round(waveN)
+    if (topN < inn.y + inn.h) t.fill(inn.x + i, topN, 1, inn.y + inn.h - topN, hillNear)
+  }
+  // far house lights after dark — someone else's window glows out there
+  if (m.stars > 0.35) {
+    for (let i = 0; i < 3; i++) {
+      const hx = inn.x + 4 + Math.floor(hash(i * 17 + 5) * (inn.w - 8))
+      const relI = hx - inn.x
+      const hy = inn.y + inn.h - 8 + Math.round(Math.sin((relI + 7) * 0.22) * 2 + Math.sin(relI * 0.06) * 2)
+      const a = m.stars * (0.4 + 0.4 * Math.pow(Math.sin(tMs * 0.0009 + i * 2.4), 2))
+      t.add(hx, hy, 1, 1, [255, 200, 110], Math.min(1, a))
+    }
+  }
+
   // stars
   if (m.stars > 0.02) {
     for (let i = 0; i < 18; i++) {
@@ -572,12 +669,39 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
     }
   }
 
+  // shooting star — one streaks by every ~53s on clear nights
+  if (m.stars > 0.5) {
+    const cycle = tMs % 53000
+    if (cycle < 900) {
+      const p = cycle / 900
+      const lane = Math.floor(tMs / 53000)
+      const sx = inn.x + Math.floor(hash(lane * 3.3) * inn.w * 0.55) + Math.floor(p * 18)
+      const sy = inn.y + 1 + Math.floor(hash(lane * 7.7) * 10) + Math.floor(p * 9)
+      const fade = Math.sin(Math.PI * p)
+      t.add(sx, sy, 1, 1, [255, 255, 255], 0.85 * fade)
+      t.add(sx - 1, sy - 1, 1, 1, [220, 228, 255], 0.5 * fade)
+      t.add(sx - 2, sy - 1, 1, 1, [190, 200, 255], 0.3 * fade)
+      t.add(sx - 3, sy - 2, 1, 1, [190, 200, 255], 0.18 * fade)
+    }
+  }
+
   // sun / moon
   const body = sunMoonPos(s.hour, g, inn)
   if (body) {
     if (body.sun) {
-      ditherGlow(t, body.x, body.y, 8, 8, [255, 214, 130], 0.5)
-      ellipse(t, body.x, body.y, 3, 3, "fill", [255, 226, 150])
+      const hot = Math.pow(1 - wl.alt, 1.2)
+      // low sun: giant warm bloom + fan rays; high sun: small fierce disc
+      ditherGlow(t, body.x, body.y, 8 + Math.round(hot * 7), 8 + Math.round(hot * 6), [255, 214, 130], 0.4 + 0.3 * hot)
+      if (hot > 0.5) {
+        for (const an of [0.12 * Math.PI, 0.28 * Math.PI, 0.45 * Math.PI]) {
+          for (let k = 4; k < 24; k += 2) {
+            const px = body.x + Math.round(k * Math.cos(an))
+            const py = body.y + Math.round(k * Math.sin(an))
+            t.add(px, py, 1, 1, [255, 200, 120], 0.12 * (1 - k / 24) * hot)
+          }
+        }
+      }
+      ellipse(t, body.x, body.y, 3, 3, "fill", mix([255, 226, 150], [255, 196, 120], hot))
       ellipse(t, body.x, body.y, 2, 2, "fill", [255, 242, 190])
     } else {
       if (m.stars > 0.1) ditherGlow(t, body.x, body.y, 7, 7, [190, 205, 255], 0.4 * m.stars)
@@ -587,17 +711,27 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
     }
   }
 
-  // clouds (day-ish only)
-  const cloudA = clamp01((0.5 - m.ambient) * 2.4)
+  // clouds — golden linings near the sun, silver near the moon, out day & night
+  const cloudA = clamp01((0.62 - m.ambient) * 2.4)
   if (cloudA > 0.05) {
+    const dayness = clamp01((0.45 - m.ambient) * 3)
+    const cloudBase: RGB = mix([96, 104, 152], [245, 248, 255], dayness)
+    const lining: RGB = wl.day ? mix([255, 190, 120], [255, 236, 190], wl.alt) : [214, 224, 255]
     for (let i = 0; i < 2; i++) {
       const drift = (tMs * (0.0011 + i * 0.0005)) % (inn.w + 22)
       const cx = inn.x - 12 + ((hash(i * 13 + 4) * 30 + drift) | 0)
       const cy = inn.y + 4 + Math.floor(hash(i * 5 + 8) * (inn.h - 18))
-      const c: RGB = [245, 248, 255]
-      t.blend(cx, cy, 10, 2, c, 0.4 * cloudA)
-      t.blend(cx + 2, cy - 1, 6, 1, c, 0.4 * cloudA)
-      t.blend(cx + 1, cy + 2, 8, 1, c, 0.3 * cloudA)
+      t.blend(cx, cy, 10, 2, cloudBase, 0.4 * cloudA)
+      t.blend(cx + 2, cy - 1, 6, 1, cloudBase, 0.4 * cloudA)
+      t.blend(cx + 1, cy + 2, 8, 1, cloudBase, 0.3 * cloudA)
+      if (body) {
+        const nearBody = Math.abs(cx + 5 - body.x) < 13 && Math.abs(cy - body.y) < 9
+        const strong = wl.day ? 1 - wl.alt : m.stars
+        if (nearBody && strong > 0.25) {
+          t.blend(cx + 2, cy - 1, 6, 1, lining, 0.5 * cloudA * Math.min(1, strong))
+          t.blend(cx + 4, cy, 4, 1, lining, 0.35 * cloudA * Math.min(1, strong))
+        }
+      }
     }
   }
 
@@ -616,26 +750,49 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
   bevel(t, W.x - 3, W.y + W.h, W.w + 6, 4, [96, 64, 38])
 }
 
-/** warm sun / cool moon beam falling from the window onto the floor — dithered */
-function drawWindowShaft(t: PixelTarget, g: RoomGeo, s: SceneState) {
-  const m = s.mood
-  const day = s.hour >= 6 && s.hour <= 18
-  if (day && m.ambient > 0.2) return
-  const warm: RGB = [255, 232, 180]
-  const cool: RGB = [150, 170, 255]
-  const c = day ? warm : cool
-  const base = day ? 0.2 : 0.18 * m.stars
-  if (base < 0.05) return
-  let y = g.winY + g.winH + 5
-  let x = g.winX - 2
-  let w = 62
-  const maxY = g.floorY + 4
-  for (let i = 0; i < 5 && y < maxY; i++) {
-    dither(t, "add", x, y, w, 4, c, base * (1 - i / 5))
-    y += 6
-    x -= 2
-    w += 7
+/**
+ * GOD RAYS — volumetric beams pouring from the window, split by the mullion
+ * bars, angled by sun/moon position: near-vertical at noon, long amber rakes
+ * across the room at golden hour, cool blue moon-shafts at night.
+ */
+function drawGodRays(t: PixelTarget, g: RoomGeo, s: SceneState) {
+  const wl = windowLightOf(s)
+  const bf = beamField(g, wl)
+  if (!bf.active) return
+
+  const c = wl.color
+  const span = bf.y1 - bf.y0
+  const midX = g.winX + Math.floor(g.winW / 2)
+  // two slits, split around the vertical mullion bar
+  const slits: [number, number][] = [
+    [bf.x0 + 1, midX - 3],
+    [midX + 3, bf.x0 + bf.w],
+  ]
+  for (const [sx0, sx1] of slits) {
+    const bw = sx1 - sx0
+    if (bw <= 0) continue
+    for (let dy = 0; dy < span; dy += 2) {
+      const widen = dy * 0.05
+      const bx = sx0 + dy * bf.slope - widen
+      const fade = Math.pow(1 - dy / span, 1.25)
+      const dens = wl.peak * fade
+      if (dens > 0.03) dither(t, "add", Math.round(bx), bf.y0 + dy, Math.round(bw + widen * 2), 2, c, dens)
+    }
   }
+  // moving light pool where the beams land
+  const poolX = bf.x0 + span * bf.slope + Math.round(bf.w / 2)
+  ditherGlow(t, poolX, bf.y1 - 2, 22, 4, c, wl.peak * 0.4)
+}
+
+/** warm/cool atmosphere radiating on the wall around the window */
+function drawWallWash(t: PixelTarget, g: RoomGeo, s: SceneState) {
+  const wl = windowLightOf(s)
+  if (!wl.active) return
+  const cx = g.winX + Math.floor(g.winW / 2)
+  const cy = g.winY + Math.floor(g.winH / 2)
+  const strength = Math.min(0.055, wl.day ? 0.02 + 0.04 * wl.side : 0.04 * s.mood.stars)
+  if (strength < 0.03) return
+  ditherGlow(t, cx, cy, Math.round(g.winW * 0.85), Math.round(g.winH * 0.74), wl.color, strength)
 }
 
 // ------------------------------ wall decor ---------------------------------
@@ -948,6 +1105,56 @@ function drawPlant(t: PixelTarget, g: RoomGeo) {
   t.fill(x + 6, floor - 20, 1, 1, scale(g2, 1.2) as RGB)
 }
 
+/**
+ * RIM LIGHTS — window-side edge light catching furniture & the resident.
+ * The hand-lit pixel art trick: amber at dawn/dusk, pale blue in moonlight.
+ */
+function drawRimLights(t: PixelTarget, g: RoomGeo, s: SceneState) {
+  const wl = windowLightOf(s)
+  const k = wl.side * (1 - s.mood.ambient * 0.8)
+  if (!wl.active || k < 0.14) return
+  const c = wl.color
+  const a = Math.min(0.6, k * 0.75)
+  const floor = g.floorY
+  const bedTop = floor - 20
+  const dresserTop = floor - 26
+  const deskSurf = floor - 24
+
+  // bed: headboard left edge + top, quilt top edge, pillow edge
+  t.add(g.bedX - 2, bedTop - 18, 1, 36, c, a)
+  t.add(g.bedX - 2, bedTop - 18, 6, 1, c, a * 0.8)
+  t.add(g.bedX + 26, bedTop - 2, 40, 1, c, a * 0.5)
+  t.add(g.bedX + 8, bedTop - 2, 1, 8, c, a * 0.4)
+  // dresser + microwave tops
+  t.add(g.dresserX, dresserTop, 1, 24, c, a * 0.7)
+  t.add(g.dresserX + 4, dresserTop - 13, 1, 13, c, a * 0.7)
+  t.add(g.dresserX + 4, dresserTop - 13, 20, 1, c, a * 0.45)
+  // plant leaf tips
+  t.add(3 + 5, floor - 22, 1, 2, c, a * 0.8)
+  t.add(3 + 2, floor - 18, 1, 2, c, a * 0.7)
+  // shelf + poster edges nearest the window
+  t.add(g.shelfX, g.shelfY, 1, 4, c, a * 0.5)
+  t.add(g.posterX - 2, g.posterY - 2, 1, 42, c, a * 0.5)
+  // desk left edge + monitor top-left
+  t.add(g.deskX, deskSurf, 1, 4, c, a * 0.6)
+  t.add(g.deskX + g.deskW - 30, deskSurf - 26, 1, 20, c, a * 0.5)
+  t.add(g.deskX + g.deskW - 30, deskSurf - 26, 10, 1, c, a * 0.4)
+  // lamp rim when it's not the light source itself
+  if (!s.lampOn) t.add(g.lampX - 7, floor - 48, 2, 10, c, a * 0.5)
+
+  // the resident catches it too (backlit shoulder / hair edge)
+  if (s.sleeping) {
+    t.add(g.bedX + 11, bedTop - 1, 8, 1, c, a * 0.4)
+  } else if (s.standing) {
+    t.add(g.standX, floor - 44, 1, 6, c, a * 0.6)
+    t.add(g.standX, floor - 45, 5, 1, c, a * 0.5)
+  } else {
+    t.add(g.sitX + 1, floor - 42, 1, 6, c, a * 0.6)
+    t.add(g.sitX + 1, floor - 43, 4, 1, c, a * 0.5)
+    t.add(g.sitX, floor - 32, 1, 8, c, a * 0.5)
+  }
+}
+
 // ------------------------------ avatar -------------------------------------
 
 function drawHead(t: PixelTarget, av: AvatarSpec, x: number, y: number, blink: boolean, yawning: boolean) {
@@ -1107,14 +1314,21 @@ function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: num
 
 function drawDust(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
   const vis = 0.16 + (0.4 - Math.min(0.4, s.mood.ambient)) * 0.5
+  const wl = windowLightOf(s)
+  const bf = beamField(g, wl)
   for (let i = 0; i < 14; i++) {
     const bx = hash(i * 11 + 3) * g.w
     const by = 30 + hash(i * 17 + 6) * Math.max(60, g.floorY - 40)
     const x = Math.round(bx + Math.sin(tMs * 0.00021 + i * 2.1) * 14)
     const y = Math.round(by + Math.sin(tMs * 0.00013 + i * 1.3) * 8)
     if (x < 0 || x >= g.w || y < 0 || y >= g.h) continue
-    const a = vis * (0.25 + 0.75 * Math.pow(Math.sin(tMs * 0.0009 + i * 1.9), 2))
-    if (a > 0.04) t.add(x, y, 1, 1, [255, 246, 220], Math.min(0.5, a))
+    let a = vis * (0.25 + 0.75 * Math.pow(Math.sin(tMs * 0.0009 + i * 1.9), 2))
+    // motes caught in a god ray sparkle brighter
+    if (bf.active && y >= bf.y0 && y <= bf.y1) {
+      const beamCX = bf.x0 + (y - bf.y0) * bf.slope + bf.w / 2
+      if (Math.abs(x - beamCX) < bf.w / 2 + 4) a = Math.min(0.6, a + wl.peak * 0.85)
+    }
+    if (a > 0.04) t.add(x, y, 1, 1, [255, 246, 220], Math.min(0.6, a))
   }
 }
 
@@ -1147,8 +1361,9 @@ export function renderRoom(
   drawWalls(t, g)
   drawFloor(t, g)
 
-  drawWindowShaft(t, g, s)
   drawWindow(t, g, s, tMs)
+  drawWallWash(t, g, s)
+  drawGodRays(t, g, s)
   drawPoster(t, g, tMs)
   drawWallClock(t, g, now)
   drawShelf(t, g)
@@ -1167,6 +1382,7 @@ export function renderRoom(
   else drawAvatarSitting(t, g, avatar, tMs)
 
   drawCat(t, g, tMs)
+  drawRimLights(t, g, s)
   drawDust(t, g, s, tMs)
 
   // final lighting pass
