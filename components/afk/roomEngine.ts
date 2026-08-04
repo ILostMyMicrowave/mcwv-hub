@@ -691,7 +691,7 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
     if (body.sun) {
       const hot = Math.pow(1 - wl.alt, 1.2)
       // low sun: giant warm bloom + fan rays; high sun: small fierce disc
-      ditherGlow(t, body.x, body.y, 8 + Math.round(hot * 7), 8 + Math.round(hot * 6), [255, 214, 130], 0.4 + 0.3 * hot)
+      glow(t, body.x, body.y, 8 + Math.round(hot * 7), 8 + Math.round(hot * 6), [255, 214, 130], (0.4 + 0.3 * hot) * 0.7)
       if (hot > 0.5) {
         for (const an of [0.12 * Math.PI, 0.28 * Math.PI, 0.45 * Math.PI]) {
           for (let k = 4; k < 24; k += 2) {
@@ -704,7 +704,7 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
       ellipse(t, body.x, body.y, 3, 3, "fill", mix([255, 226, 150], [255, 196, 120], hot))
       ellipse(t, body.x, body.y, 2, 2, "fill", [255, 242, 190])
     } else {
-      if (m.stars > 0.1) ditherGlow(t, body.x, body.y, 7, 7, [190, 205, 255], 0.4 * m.stars)
+      if (m.stars > 0.1) glow(t, body.x, body.y, 7, 7, [190, 205, 255], 0.32 * m.stars)
       ellipse(t, body.x, body.y, 3, 3, "fill", [232, 234, 220])
       t.fill(body.x - 1, body.y - 1, 1, 1, [198, 200, 186])
       t.fill(body.x + 1, body.y + 1, 1, 1, [206, 208, 194])
@@ -762,6 +762,9 @@ function drawGodRays(t: PixelTarget, g: RoomGeo, s: SceneState) {
 
   const c = wl.color
   const span = bf.y1 - bf.y0
+  // solid sheets read much softer than the old full-alpha speckle did —
+  // moonlight needs a lift to stay visible, warm sun sheets are fine as-is
+  const boost = wl.day ? 1 : 2.6
   const midX = g.winX + Math.floor(g.winW / 2)
   // two slits, split around the vertical mullion bar
   const slits: [number, number][] = [
@@ -771,17 +774,26 @@ function drawGodRays(t: PixelTarget, g: RoomGeo, s: SceneState) {
   for (const [sx0, sx1] of slits) {
     const bw = sx1 - sx0
     if (bw <= 0) continue
-    for (let dy = 0; dy < span; dy += 2) {
+    // SOLID scanline quad per beam: a soft outer sheet + a brighter inner spine.
+    // Crisp edges (no dither) — sparse Bayer dots read as static, not light.
+    for (let dy = 0; dy < span; dy++) {
       const widen = dy * 0.05
-      const bx = sx0 + dy * bf.slope - widen
-      const fade = Math.pow(1 - dy / span, 1.25)
-      const dens = wl.peak * fade
-      if (dens > 0.03) dither(t, "add", Math.round(bx), bf.y0 + dy, Math.round(bw + widen * 2), 2, c, dens)
+      const y = bf.y0 + dy
+      const fade = 0.7 + 0.3 * (1 - dy / span) // brighter near the glass
+      const bx0 = sx0 + dy * bf.slope - widen
+      const bx1 = sx1 + dy * bf.slope + widen
+      const wRow = Math.max(1, Math.round(bx1 - bx0))
+      const aSheet = wl.peak * 0.5 * fade * boost
+      if (aSheet > 0.012) t.add(Math.round(bx0), y, wRow, 1, c, aSheet)
+      const inset = Math.round(wRow * 0.3)
+      const aSpine = wl.peak * 0.4 * fade * boost
+      if (aSpine > 0.014 && wRow - inset * 2 > 0)
+        t.add(Math.round(bx0) + inset, y, wRow - inset * 2, 1, c, aSpine)
     }
   }
-  // moving light pool where the beams land
-  const poolX = bf.x0 + span * bf.slope + Math.round(bf.w / 2)
-  ditherGlow(t, poolX, bf.y1 - 2, 22, 4, c, wl.peak * 0.4)
+  // moving light pool where the beams land — solid layered glow, no speckle
+  const poolX = bf.x0 + Math.round(span * bf.slope + bf.w / 2)
+  glow(t, poolX, bf.y1 - 2, 20, 4, c, wl.peak * 0.55 * boost)
 }
 
 /** warm/cool atmosphere radiating on the wall around the window */
@@ -792,7 +804,8 @@ function drawWallWash(t: PixelTarget, g: RoomGeo, s: SceneState) {
   const cy = g.winY + Math.floor(g.winH / 2)
   const strength = Math.min(0.055, wl.day ? 0.02 + 0.04 * wl.side : 0.04 * s.mood.stars)
   if (strength < 0.03) return
-  ditherGlow(t, cx, cy, Math.round(g.winW * 0.85), Math.round(g.winH * 0.74), wl.color, strength)
+  // solid layered halo hugging the window (ditherGlow speckled the whole wall)
+  glow(t, cx, cy, Math.round(g.winW * 0.8), Math.round(g.winH * 0.7), wl.color, strength * 0.85)
 }
 
 // ------------------------------ wall decor ---------------------------------
@@ -1313,22 +1326,22 @@ function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: num
 // ------------------------------ atmosphere ---------------------------------
 
 function drawDust(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
-  const vis = 0.16 + (0.4 - Math.min(0.4, s.mood.ambient)) * 0.5
   const wl = windowLightOf(s)
   const bf = beamField(g, wl)
-  for (let i = 0; i < 14; i++) {
-    const bx = hash(i * 11 + 3) * g.w
-    const by = 30 + hash(i * 17 + 6) * Math.max(60, g.floorY - 40)
-    const x = Math.round(bx + Math.sin(tMs * 0.00021 + i * 2.1) * 14)
-    const y = Math.round(by + Math.sin(tMs * 0.00013 + i * 1.3) * 8)
+  // dust is only VISIBLE when caught in a beam — free-roaming motes just
+  // read as noise sprinked across the dark wall, so none of those anymore
+  if (!bf.active) return
+  for (let i = 0; i < 12; i++) {
+    const fy = hash(i * 11 + 3)
+    const fx = hash(i * 17 + 6)
+    const y = Math.round(bf.y0 + 4 + fy * (bf.y1 - bf.y0 - 6) + Math.sin(tMs * 0.00013 + i * 1.3) * 3)
+    const beamCX = bf.x0 + (y - bf.y0) * bf.slope + bf.w / 2
+    const half = bf.w / 2 - 2
+    const x = Math.round(beamCX + (fx * 2 - 1) * half + Math.sin(tMs * 0.00021 + i * 2.1) * 4)
     if (x < 0 || x >= g.w || y < 0 || y >= g.h) continue
-    let a = vis * (0.25 + 0.75 * Math.pow(Math.sin(tMs * 0.0009 + i * 1.9), 2))
-    // motes caught in a god ray sparkle brighter
-    if (bf.active && y >= bf.y0 && y <= bf.y1) {
-      const beamCX = bf.x0 + (y - bf.y0) * bf.slope + bf.w / 2
-      if (Math.abs(x - beamCX) < bf.w / 2 + 4) a = Math.min(0.6, a + wl.peak * 0.85)
-    }
-    if (a > 0.04) t.add(x, y, 1, 1, [255, 246, 220], Math.min(0.6, a))
+    const tw = 0.25 + 0.75 * Math.pow(Math.sin(tMs * 0.0009 + i * 1.9), 2)
+    const a = Math.min(0.45, wl.peak * (0.5 + 0.8 * tw))
+    if (a > 0.03) t.add(x, y, 1, 1, [255, 246, 220], a)
   }
 }
 
