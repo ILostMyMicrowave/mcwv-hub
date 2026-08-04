@@ -473,6 +473,55 @@ function raceCard(shared: SharedWarContext, target: number): AssistantCardData |
   }
 }
 
+// Person race card: the runner above, the person, the runner behind — bars.
+function personRaceCard(
+  shared: SharedWarContext,
+  targetRobloxId: string,
+  self: boolean
+): AssistantCardData | undefined {
+  const scored = shared.members.filter((row) => row.points > 0)
+  const index = scored.findIndex((row) => row.robloxId === targetRobloxId)
+  if (index < 0) return undefined
+  const picks = [scored[index - 1], scored[index], scored[index + 1]].filter(
+    (row): row is MemberLine => Boolean(row)
+  )
+  if (picks.length < 2) return undefined
+  return {
+    type: "bars" as const,
+    title: self ? "Your race" : `${scored[index].username}'s race`,
+    rows: picks.map((row) => ({
+      label: self && row.robloxId === targetRobloxId ? `${row.username} (you)` : row.username,
+      value: row.points,
+      ...(row.gain24h !== null && row.gain24h > 0 ? { sub: `+${fmt(row.gain24h)} last 24h` } : {}),
+      highlight: row.robloxId === targetRobloxId,
+    })),
+  }
+}
+
+function momentumCard(shared: SharedWarContext): AssistantCardData | undefined {
+  if (!shared.active || !shared.movers.length) return undefined
+  return {
+    type: "bars" as const,
+    title: "Biggest movers · last 24h",
+    rows: shared.movers.slice(0, 5).map((row) => ({
+      label: row.username,
+      value: row.gain24h ?? 0,
+      sub: `now on ${fmt(row.points)} pts`,
+    })),
+  }
+}
+
+function projectionCard(shared: SharedWarContext): AssistantCardData | undefined {
+  if (!shared.active || shared.projectedFinalPoints === null || shared.clanPoints === null) return undefined
+  return {
+    type: "progress" as const,
+    title: "Pace vs projection",
+    current: shared.clanPoints,
+    target: shared.projectedFinalPoints,
+    sub: `${fmt(shared.projectedFinalPoints - shared.clanPoints)} pts to go${shared.projectedRankIfPaceHolds !== null ? ` · on pace for ≈ #${shared.projectedRankIfPaceHolds}` : ""}`,
+  }
+}
+
 // --- history brain helpers --------------------------------------------------
 
 type WarBookEntry = { title: string; clanPoints: number; scorers: number; live: boolean }
@@ -642,13 +691,21 @@ function myStatsAnswer(shared: SharedWarContext, asker: AskerContext): string {
 // Player lookup shared by name intents + follow-ups, with did-you-mean.
 function playerResponse(shared: SharedWarContext, name: string, chips: string[]): EngineResult {
   const member = memberLookup(shared, name)
-  if (member) return ok(playerAnswer(shared, member), chips, `player:${member.username}`)
+  if (member) {
+    return withCard(
+      ok(playerAnswer(shared, member), chips, `player:${member.username}`),
+      personRaceCard(shared, member.robloxId, false)
+    )
+  }
   const suggestion = closestMember(shared, name)
   if (suggestion) {
-    return ok(
-      `Can't find anyone called **"${name}"** — did you mean **${suggestion.username}**? 👀\n\n${playerAnswer(shared, suggestion)}`,
-      chips,
-      `player:${suggestion.username}`
+    return withCard(
+      ok(
+        `Can't find anyone called **"${name}"** — did you mean **${suggestion.username}**? 👀\n\n${playerAnswer(shared, suggestion)}`,
+        chips,
+        `player:${suggestion.username}`
+      ),
+      personRaceCard(shared, suggestion.robloxId, false)
     )
   }
   return ok(
@@ -827,7 +884,10 @@ function matchOne(
   }
 
   if (/surging|mover|climb|ris(e|ing)|most improved|gained most/.test(msg)) {
-    return ok(moversAnswer(shared), ["Who's carrying?", "My stats", "How are we doing?"], "movers")
+    return withCard(
+      ok(moversAnswer(shared), ["Who's carrying?", "My stats", "How are we doing?"], "movers"),
+      momentumCard(shared)
+    )
   }
 
   if (/zero|slacking|deadweight|not scoring|freeload|inactive|asleep/.test(msg)) {
@@ -835,7 +895,15 @@ function matchOne(
   }
 
   if (/(my|me) (points|rank|stats|score)|how am i doing|how many points (do i|i have)/.test(msg)) {
-    return ok(myStatsAnswer(shared, asker), ["Who's above us?", "How are we doing?", "Who's carrying?"], "status")
+    const selfRow = shared.members.find(
+      (row) =>
+        (asker.robloxId !== null && row.robloxId === String(asker.robloxId)) ||
+        row.username.toLowerCase() === asker.username.toLowerCase()
+    )
+    return withCard(
+      ok(myStatsAnswer(shared, asker), ["Who's above us?", "How are we doing?", "Who's carrying?"], "status"),
+      selfRow ? personRaceCard(shared, selfRow.robloxId, true) : undefined
+    )
   }
 
   // Player lookup: "how is X doing", "stats for X", "X points", "check X"
@@ -863,7 +931,10 @@ function matchOne(
   }
 
   if (/predict|project|forecast|where will we (finish|end)|final (rank|place|points|score)|end up/.test(msg)) {
-    return ok(projectionAnswer(shared), ["What do we win?", "Can we make top 10?", "How are we doing?"], "projection")
+    return withCard(
+      ok(projectionAnswer(shared), ["What do we win?", "Can we make top 10?", "How are we doing?"], "projection"),
+      projectionCard(shared)
+    )
   }
 
   if (/when does (the )?(war|battle|it) end|time (left|remaining)|how long (left|until)|ends when|countdown/.test(msg)) {
