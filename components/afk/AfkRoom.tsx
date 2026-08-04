@@ -11,7 +11,7 @@ import {
   lightningAt,
   renderRoom,
   sceneStateAt,
-  weatherFromWmo,
+  weatherAt,
   type AfkPrefs,
   type AvatarSpec,
   type HairStyle,
@@ -138,36 +138,9 @@ function computeSize(vw: number, vh: number): RoomSize {
 }
 
 // ---------------------------------------------------------------------------
-// live sky — geolocation → Open-Meteo (no key), cached, silent fallback
+// the room's own sky — random clockwork weather from the engine; the client
+// just eases between skies so changes drift in gently. NO network, NO location.
 // ---------------------------------------------------------------------------
-
-const SKY_KEY = "mcwv-afk-sky";
-const SKY_DENY_KEY = "mcwv-afk-sky-deny";
-const SKY_TTL_MS = 45 * 60 * 1000;
-
-type SkyStatus = "loading" | "live" | "cached" | "fallback";
-
-async function fetchWeatherAt(lat: number, lon: number): Promise<WeatherState> {
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=weather_code,wind_speed_10m`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`sky http ${res.status}`);
-  const j = (await res.json()) as { current?: { weather_code?: number; wind_speed_10m?: number } };
-  const code = Number(j.current?.weather_code);
-  const wind = Number(j.current?.wind_speed_10m);
-  return weatherFromWmo(Number.isFinite(code) ? code : 0, Number.isFinite(wind) ? wind : 5);
-}
-
-function loadCachedSky(): WeatherState | null {
-  try {
-    const raw = window.localStorage.getItem(SKY_KEY);
-    if (!raw) return null;
-    const c = JSON.parse(raw) as { ts?: number; weather?: WeatherState };
-    if (!c.ts || !c.weather || Date.now() - c.ts > SKY_TTL_MS) return null;
-    return c.weather;
-  } catch {
-    return null;
-  }
-}
 
 const KIND_EMOJI: Record<WeatherState["kind"], string> = {
   clear: "☀️",
@@ -336,74 +309,11 @@ export default function AfkRoom() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
 
-  // alive: live sky + ambience
-  const weatherRef = useRef<WeatherState>(CLEAR_WEATHER);
-  const [sky, setSky] = useState<SkyStatus>("loading");
+  // alive: the room's random sky (displayed state eases toward the engine's pick) + ambience
+  const skyRef = useRef<WeatherState>(CLEAR_WEATHER);
+  const [skyKind, setSkyKind] = useState<WeatherState["kind"]>("clear");
   const [soundOn, setSoundOn] = useState(false);
   const ambRef = useRef<Ambience | null>(null);
-
-  // live sky: cached → refreshed via geolocation + Open-Meteo (silent clear fallback)
-  useEffect(() => {
-    let cancelled = false;
-    const applyCached = () => {
-      const cached = loadCachedSky();
-      if (!cached) return false;
-      weatherRef.current = cached;
-      setSky("cached");
-      return true;
-    };
-    const live = () => {
-      if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-        if (!applyCached()) setSky("fallback");
-        return;
-      }
-      let denied = false;
-      try {
-        denied = window.localStorage.getItem(SKY_DENY_KEY) === "1";
-      } catch {
-        /* private mode */
-      }
-      if (denied) {
-        if (!applyCached()) setSky("fallback");
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          try {
-            const w = await fetchWeatherAt(pos.coords.latitude, pos.coords.longitude);
-            if (cancelled) return;
-            weatherRef.current = w;
-            try {
-              window.localStorage.setItem(SKY_KEY, JSON.stringify({ ts: Date.now(), weather: w }));
-            } catch {
-              /* fine */
-            }
-            setSky("live");
-          } catch {
-            if (!cancelled && !applyCached()) setSky("fallback");
-          }
-        },
-        () => {
-          try {
-            window.localStorage.setItem(SKY_DENY_KEY, "1");
-          } catch {
-            /* fine */
-          }
-          if (!cancelled && !applyCached()) setSky("fallback");
-        },
-        { timeout: 9000, maximumAge: 600000 }
-      );
-    };
-    const tick = () => {
-      if (!applyCached()) live();
-    };
-    tick();
-    const timer = window.setInterval(tick, 30 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
 
   // ambience: restore saved choice, suspend when the tab hides
   useEffect(() => {
@@ -508,7 +418,25 @@ export default function AfkRoom() {
     const draw = (tMs: number) => {
       ctx.imageSmoothingEnabled = false;
       const now = new Date();
-      const weather = weatherRef.current;
+      // ease the displayed sky toward the engine's slot pick —
+      // fading the old one out fully before the new kind drifts in
+      const skyTarget = weatherAt(now);
+      const cur = skyRef.current;
+      if (cur.kind !== skyTarget.kind) {
+        if (cur.intensity > 0.03) {
+          skyRef.current = { ...cur, intensity: Math.max(0, cur.intensity - 0.02) };
+        } else {
+          skyRef.current = { kind: skyTarget.kind, intensity: 0, wind: cur.wind };
+          setSkyKind(skyTarget.kind);
+        }
+      } else {
+        skyRef.current = {
+          kind: cur.kind,
+          intensity: cur.intensity + (skyTarget.intensity - cur.intensity) * 0.05,
+          wind: cur.wind + (skyTarget.wind - cur.wind) * 0.05,
+        };
+      }
+      const weather = skyRef.current;
       renderRoom(target, now, avatar, enginePrefs, tMs, sizeRef.current, weather);
       // keep the ambience breathing with the scene
       const scene = sceneStateAt(now, enginePrefs);
@@ -738,10 +666,7 @@ export default function AfkRoom() {
             follows your clock · war stats refresh every 60s
           </p>
           <p className="mt-1 text-[9px] leading-relaxed text-violet-500/80">
-            {sky === "live" && <>{KIND_EMOJI[weatherRef.current.kind]} matching your sky right now</>}
-            {sky === "cached" && <>{KIND_EMOJI[weatherRef.current.kind]} your sky (cached)</>}
-            {sky === "loading" && <>⛅ checking your sky…</>}
-            {sky === "fallback" && <>☀️ clear skies (location off)</>}
+            {KIND_EMOJI[skyKind]} sky drifts on its own · no location used
             {" · "}
             {soundOn ? "🔊 ambience on" : "🔇 ambience off"}
           </p>
