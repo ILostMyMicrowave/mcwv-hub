@@ -1,13 +1,14 @@
 // ---------------------------------------------------------------------------
-// MCWV AFK Room — pure pixel-room engine.
+// MCWV AFK Room — pure pixel-room engine, Stardew-grade retro edition.
 //
 // NO DOM, NO Next imports: the same file drives the browser canvas (via a
 // CanvasTarget adapter) and a software rasterizer used for offline snapshot
 // tests/art QA. Everything the room knows: schedule, moods, lighting, avatar.
+//
+// v2: full-screen parametric layout (3-zone anchoring), beveled furniture,
+// patchwork quilt, curtains, wallpaper + wainscot, plank floor, Bayer dither,
+// contact shadows, fairy lights, wall clock with real local time.
 // ---------------------------------------------------------------------------
-
-export const ROOM_W = 240
-export const ROOM_H = 160
 
 export type RGB = [number, number, number]
 
@@ -26,6 +27,8 @@ export interface PixelTarget {
   unclip(): void
 }
 
+export type RoomSize = { w: number; h: number }
+
 // ------------------------------ color helpers ------------------------------
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
@@ -37,10 +40,14 @@ export function mix(a: RGB, b: RGB, t: number): RGB {
 }
 
 function scale(c: RGB, f: number): RGB {
-  return [clamp01((c[0] * f) / 255) * 255, clamp01((c[1] * f) / 255) * 255, clamp01((c[2] * f) / 255) * 255]
+  return [
+    Math.min(255, Math.max(0, c[0] * f)),
+    Math.min(255, Math.max(0, c[1] * f)),
+    Math.min(255, Math.max(0, c[2] * f)),
+  ]
 }
 
-/** deterministic 0..1 hash — stable star/dust/mote placement across frames */
+/** deterministic 0..1 hash — stable star/dust/plank placement across frames */
 function hash(n: number): number {
   const s = Math.sin(n * 127.1 + 311.7) * 43758.5453
   return s - Math.floor(s)
@@ -84,8 +91,6 @@ const MOOD_STOPS: MoodStop[] = [
 
 export function moodAt(hour: number): MoodFrame {
   const h = ((hour % 24) + 24) % 24
-  let a = MOOD_STOPS[MOOD_STOPS.length - 1]
-  let b = MOOD_STOPS[0]
   for (let i = 0; i < MOOD_STOPS.length; i++) {
     const cur = MOOD_STOPS[i]
     const nxt = MOOD_STOPS[(i + 1) % MOOD_STOPS.length]
@@ -93,21 +98,18 @@ export function moodAt(hour: number): MoodFrame {
     const inSeg =
       i === MOOD_STOPS.length - 1 ? h >= cur.hour || h < nxt.hour : h >= cur.hour && h < nxt.hour
     if (inSeg && span > 0) {
-      a = cur
-      b = nxt
-      const offset = ((h - cur.hour + 24) % 24) / span
-      const t = clamp01(offset)
+      const t = clamp01(((h - cur.hour + 24) % 24) / span)
       return {
-        skyTop: mix(a.skyTop, b.skyTop, t),
-        skyHorizon: mix(a.skyHorizon, b.skyHorizon, t),
-        ambient: lerp(a.ambient, b.ambient, t),
-        tint: mix(a.tint, b.tint, t),
-        tintAmt: lerp(a.tintAmt, b.tintAmt, t),
-        stars: lerp(a.stars, b.stars, t),
+        skyTop: mix(cur.skyTop, nxt.skyTop, t),
+        skyHorizon: mix(cur.skyHorizon, nxt.skyHorizon, t),
+        ambient: lerp(cur.ambient, nxt.ambient, t),
+        tint: mix(cur.tint, nxt.tint, t),
+        tintAmt: lerp(cur.tintAmt, nxt.tintAmt, t),
+        stars: lerp(cur.stars, nxt.stars, t),
       }
     }
   }
-  return { ...a }
+  return { ...MOOD_STOPS[0] }
 }
 
 // ------------------------------ schedule brain -----------------------------
@@ -125,7 +127,7 @@ export type SceneState = {
   hour: number
   weekend: boolean
   sleeping: boolean
-  /** brief stand-by-bad moment after waking / before bed */
+  /** brief stand-by-bed moment after waking / before bed */
   standing: boolean
   justWoke: boolean
   yawning: boolean
@@ -186,7 +188,7 @@ export function sceneStateAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): SceneS
   }
 }
 
-// ------------------------------ avatar -------------------------------------
+// ------------------------------ avatar specs -------------------------------
 
 export type HairStyle = "short" | "spiky" | "beanie" | "long"
 
@@ -233,25 +235,7 @@ export const DEFAULT_AVATAR: AvatarSpec = {
   hoodie: HOODIE_PRESETS[0].value,
 }
 
-// ------------------------------ scene layout -------------------------------
-
-const WALL: RGB = [66, 64, 100]
-const FLOOR: RGB = [124, 86, 52]
-const FLOOR_DARK: RGB = [100, 68, 40]
-const BASEBOARD: RGB = [52, 50, 76]
-
-const WIN = { x: 14, y: 24, w: 52, h: 54 } // outer frame
-const WIN_IN = { x: 17, y: 27, w: 46, h: 48 } // sky opening
-
-const DESK = { x: 176, y: 88, w: 62 }
-const BED = { x: 16, y: 92, w: 92, h: 22 }
-
-// sitting avatar anchor (desk)
-const SIT = { x: 188, floor: 112 }
-// standing anchor (by bed)
-const STAND = { x: 100, floor: 112 }
-
-// ------------------------------ primitives ---------------------------------
+// ------------------------------ retro primitives ---------------------------
 
 type Mode = "fill" | "blend" | "add" | "mul"
 
@@ -273,58 +257,330 @@ function ellipse(t: PixelTarget, cx: number, cy: number, rx: number, ry: number,
   }
 }
 
+/** classic RPG bevel: light top/left edge, dark bottom/right edge */
+function bevel(t: PixelTarget, x: number, y: number, w: number, h: number, base: RGB) {
+  t.fill(x, y, w, h, base)
+  t.fill(x, y, w, 1, scale(base, 1.28))
+  t.fill(x, y, 1, h, scale(base, 1.14))
+  t.fill(x, y + h - 1, w, 1, scale(base, 0.62))
+  t.fill(x + w - 1, y, 1, h, scale(base, 0.72))
+}
+
+const BAYER4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+]
+
+/** ordered-dither rect: draws scattered pixels — retro translucent shimmer */
+function dither(t: PixelTarget, mode: Mode, x: number, y: number, w: number, h: number, c: RGB, density: number) {
+  const d = clamp01(density)
+  if (d <= 0) return
+  for (let yy = 0; yy < h; yy++) {
+    for (let xx = 0; xx < w; xx++) {
+      if (BAYER4[(y + yy) & 3][(x + xx) & 3] / 16 < d) {
+        stamp(t, mode, x + xx, y + yy, 1, 1, c, 1)
+      }
+    }
+  }
+}
+
 function glow(t: PixelTarget, cx: number, cy: number, rx: number, ry: number, c: RGB, a: number) {
   ellipse(t, cx, cy, rx, ry, "add", c, a * 0.45)
   ellipse(t, cx, cy, Math.floor(rx * 0.62), Math.floor(ry * 0.62), "add", c, a * 0.6)
   ellipse(t, cx, cy, Math.floor(rx * 0.3), Math.floor(ry * 0.3), "add", c, a)
 }
 
+/** dithered glow — radial-falloff retro halo (bounded pixel loop) */
+function ditherGlow(t: PixelTarget, cx: number, cy: number, rx: number, ry: number, c: RGB, density: number) {
+  for (let dy = -ry; dy <= ry; dy++) {
+    for (let dx = -rx; dx <= rx; dx++) {
+      const rn = Math.sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry))
+      if (rn > 1) continue
+      const local = density * Math.pow(1 - rn, 1.4)
+      if (BAYER4[(cy + dy) & 3][(cx + dx) & 3] / 16 < local) {
+        t.add(cx + dx, cy + dy, 1, 1, c, 1)
+      }
+    }
+  }
+}
+
+/** soft contact shadow that grounds objects in the world */
+function contactShadow(t: PixelTarget, x: number, y: number, w: number, strength = 0.3) {
+  t.blend(x, y, w, 2, [14, 10, 18], strength)
+}
+
+// ------------------------------ layout -------------------------------------
+
+/**
+ * 3-zone anchored layout: everything keeps its fixed pixel size; only
+ * positions move. Screens narrower than the 240px base compress X linearly;
+ * wider screens push mid/right zones apart. Wall decor hangs a fixed offset
+ * above the floor line, so tall screens just get more sky-wall up top.
+ */
+export type RoomGeo = {
+  w: number
+  h: number
+  floorY: number
+  winX: number
+  winY: number
+  winW: number
+  winH: number
+  posterX: number
+  posterY: number
+  shelfX: number
+  shelfY: number
+  clockX: number
+  clockY: number
+  bedX: number
+  dresserX: number
+  lampX: number
+  deskX: number
+  deskW: number
+  rugCX: number
+  rugCY: number
+  rugRX: number
+  rugRY: number
+  catX: number
+  catY: number
+  sitX: number
+  standX: number
+}
+
+const BASE_W = 240
+
+export function layoutOf(w: number, h: number): RoomGeo {
+  const floorY = Math.round(h * 0.7)
+  const dy = floorY - 112 // wall decor anchor shift vs 240x160 reference
+  const xs = (x: number) => Math.round((x * w) / BASE_W)
+  const solve = (baseX: number, zone: 0 | 1 | 2) => {
+    if (w >= BASE_W) {
+      const extra = w - BASE_W
+      return baseX + Math.round((extra * zone) / 2)
+    }
+    return xs(baseX)
+  }
+  const L = (x: number) => solve(x, 0)
+  const M = (x: number) => solve(x, 1)
+  const R = (x: number) => solve(x, 2)
+
+  const bedX = L(16)
+  const dresserX = M(116)
+  const deskX = R(176)
+  const deskW = 62
+  // lamp floats in the free gap between dresser and desk
+  const lampX = Math.max(M(164), Math.min(dresserX + 50, deskX - 14))
+
+  const rugCX = M(126)
+  const floorH = h - floorY
+  const rugCY = floorY + Math.round(floorH * 0.52)
+  const rugRX = Math.min(46, Math.max(34, Math.round(w * 0.16)))
+  const rugRY = Math.max(9, Math.round(floorH * 0.24))
+
+  return {
+    w,
+    h,
+    floorY,
+    winX: L(14),
+    winY: 24 + dy,
+    winW: 54,
+    winH: 56,
+    posterX: M(76),
+    posterY: 26 + dy,
+    shelfX: M(114),
+    shelfY: 40 + dy,
+    clockX: R(208),
+    clockY: 40 + dy,
+    bedX,
+    dresserX,
+    lampX,
+    deskX,
+    deskW,
+    rugCX,
+    rugCY,
+    rugRX,
+    rugRY,
+    catX: M(134),
+    catY: rugCY - 8,
+    sitX: deskX + 12,
+    standX: bedX + 84,
+  }
+}
+
+// ------------------------------ walls & floor ------------------------------
+
+const WALL_BASE: RGB = [74, 68, 112]
+const WALL_MOTIF: RGB = [88, 82, 128]
+const WAINSCOT: RGB = [116, 76, 46]
+const FLOOR_BASE: RGB = [150, 104, 62]
+
+function drawWalls(t: PixelTarget, g: RoomGeo) {
+  // wallpaper base
+  t.fill(0, 0, g.w, g.floorY, WALL_BASE)
+  // wallpaper motif: tiny diamond lattice + faint pinstripes
+  for (let y = 6; y < g.floorY - 16; y += 16) {
+    for (let x = 5 + ((y / 16) % 2) * 8; x < g.w; x += 16) {
+      t.fill(x, y, 1, 1, WALL_MOTIF)
+      t.fill(x - 1, y + 1, 3, 1, WALL_MOTIF)
+      t.fill(x, y + 2, 1, 1, WALL_MOTIF)
+    }
+  }
+  for (let x = 8; x < g.w; x += 24) {
+    t.blend(x, 0, 2, g.floorY, scale(WALL_BASE, 1.08), 0.5)
+  }
+
+  // wainscot band with top rail + grooves
+  const wY = g.floorY - 14
+  t.fill(0, wY, g.w, 14, WAINSCOT)
+  t.fill(0, wY, g.w, 2, scale(WAINSCOT, 1.3))
+  t.fill(0, wY + 2, g.w, 1, scale(WAINSCOT, 1.12))
+  for (let x = 6; x < g.w; x += 10) {
+    t.fill(x, wY + 3, 1, 11, scale(WAINSCOT, 0.78))
+    t.fill(x + 1, wY + 3, 1, 11, scale(WAINSCOT, 1.1))
+  }
+  t.fill(0, g.floorY - 1, g.w, 1, scale(WAINSCOT, 0.55))
+}
+
+function drawFloor(t: PixelTarget, g: RoomGeo) {
+  t.fill(0, g.floorY, g.w, g.h - g.floorY, FLOOR_BASE)
+  const rows = Math.ceil((g.h - g.floorY) / 9)
+  for (let r = 0; r < rows; r++) {
+    const y = g.floorY + r * 9
+    // plank face shading per row
+    const rowTone = 0.94 + hash(r * 7 + 1) * 0.12
+    t.fill(0, y, g.w, 9, scale(FLOOR_BASE, rowTone))
+    // top highlight + bottom gap line
+    t.fill(0, y, g.w, 1, scale(FLOOR_BASE, rowTone * 1.16))
+    t.fill(0, y + 8, g.w, 1, scale(FLOOR_BASE, 0.62))
+    // staggered joints + nails
+    let x = ((r % 2) * 14 + 20) % Math.max(30, g.w)
+    while (x < g.w) {
+      t.fill(x, y, 1, 9, scale(FLOOR_BASE, 0.7))
+      t.fill(x - 2, y + 2, 1, 1, scale(FLOOR_BASE, 0.55))
+      t.fill(x + 2, y + 6, 1, 1, scale(FLOOR_BASE, 0.55))
+      x += 30 + Math.floor(hash(x + r * 31) * 10)
+    }
+    // grain streaks
+    for (let s = 0; s < Math.floor(g.w / 26); s++) {
+      const gx = Math.floor(hash(r * 53 + s * 17) * (g.w - 12))
+      const gy = y + 2 + Math.floor(hash(s * 23 + r * 5) * 5)
+      t.fill(gx, gy, 6 + Math.floor(hash(s + r) * 8), 1, scale(FLOOR_BASE, rowTone * 0.88))
+    }
+  }
+}
+
+// ------------------------------ fairy lights -------------------------------
+
+function drawFairyLights(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
+  const topY = 5
+  const span = g.w - 16
+  const night = s.mood.ambient > 0.1
+  let prevX = 8
+  let prevY = topY
+  for (let i = 0; i <= Math.floor(span / 11); i++) {
+    const x = 8 + i * 11
+    const sag = Math.sin((Math.PI * x) / g.w)
+    const sway = Math.round(Math.sin(tMs * 0.0006 + i * 0.9) * 1)
+    const y = topY + Math.round(6 * sag * (((i % 2) + 1) / 2)) + sway
+    // wire
+    if (i > 0) {
+      const steps = Math.max(1, x - prevX)
+      for (let k = 1; k < steps; k++) {
+        const wx = prevX + k
+        const wy = prevY + Math.round(((y - prevY) * k) / steps)
+        t.fill(wx, wy, 1, 1, [30, 28, 42])
+      }
+    }
+    prevX = x
+    prevY = y
+    // bulb
+    const warm: RGB = [255, 208, 120]
+    const violet: RGB = [178, 130, 255]
+    const c = i % 2 === 0 ? violet : warm
+    t.fill(x, y, 1, 1, scale(c, night ? 1 : 0.75))
+    if (night) {
+      const tw = 0.35 + 0.3 * Math.pow(Math.sin(tMs * 0.0013 + i * 2.1), 2)
+      dither(t, "add", x - 2, y - 2, 5, 5, c, tw * 0.4)
+    }
+  }
+}
+
 // ------------------------------ sky & window -------------------------------
 
-function sunMoonPos(hour: number): { x: number; y: number; sun: boolean } | null {
+function sunMoonPos(hour: number, g: RoomGeo, inn: { x: number; y: number; w: number; h: number }) {
   if (hour >= 5.8 && hour <= 18.6) {
-    const t = (hour - 5.8) / 12.8
-    return { x: WIN_IN.x + 6 + t * (WIN_IN.w - 14), y: WIN_IN.y + 34 - Math.sin(Math.PI * t) * 28, sun: true }
+    const f = (hour - 5.8) / 12.8
+    return { x: inn.x + 6 + f * (inn.w - 14), y: inn.y + inn.h - 14 - Math.sin(Math.PI * f) * (inn.h - 22), sun: true }
   }
   const nt = hour > 12 ? (hour - 18.6) / 11.2 : (hour + 24 - 18.6) / 11.2
   if (nt < 0 || nt > 1) return null
-  return { x: WIN_IN.x + 6 + nt * (WIN_IN.w - 14), y: WIN_IN.y + 34 - Math.sin(Math.PI * nt) * 28, sun: false }
+  return { x: inn.x + 6 + nt * (inn.w - 14), y: inn.y + inn.h - 14 - Math.sin(Math.PI * nt) * (inn.h - 22), sun: false }
 }
 
-function drawWindow(t: PixelTarget, s: SceneState, tMs: number) {
+function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
   const m = s.mood
-  // outer frame + cross shadow
-  t.fill(WIN.x - 2, WIN.y - 2, WIN.w + 4, WIN.h + 4, [40, 34, 30])
-  t.fill(WIN.x, WIN.y, WIN.w, WIN.h, [94, 66, 40])
+  const W = { x: g.winX, y: g.winY, w: g.winW, h: g.winH }
+  const inn = { x: W.x + 4, y: W.y + 4, w: W.w - 8, h: W.h - 8 }
 
-  t.clip(WIN_IN.x, WIN_IN.y, WIN_IN.w, WIN_IN.h)
+  // curtain rod + curtains first (behind frame edges)
+  const rodY = W.y - 4
+  t.fill(W.x - 6, rodY, W.w + 12, 2, [92, 60, 60])
+  t.fill(W.x - 7, rodY - 1, 3, 3, [140, 96, 92])
+  t.fill(W.x + W.w + 4, rodY - 1, 3, 3, [140, 96, 92])
+  const curtain: RGB = [100, 64, 150]
+  for (const side of [0, 1]) {
+    const cx = side === 0 ? W.x - 3 : W.x + W.w - 5
+    for (let i = 0; i < W.h + 4; i++) {
+      const flare = Math.floor(i / 8)
+      const width = 8 - Math.floor(flare / 2)
+      const off = side === 0 ? 0 : 8 - width
+      const tone = i % 3 === 0 ? scale(curtain, 1.18) : i % 3 === 1 ? curtain : scale(curtain, 0.78)
+      t.fill(cx + off + flare * (side === 0 ? -1 : 1) * 0 + (side === 0 ? -Math.floor(flare / 3) : Math.floor(flare / 3)), W.y - 2 + i, width, 1, tone)
+    }
+    // tie-back gather
+    const ty = W.y + Math.floor(W.h * 0.55)
+    t.fill(cx + (side === 0 ? 1 : 4), ty, 3, 2, [210, 170, 90])
+  }
 
-  // sky gradient
-  for (let i = 0; i < WIN_IN.h; i++) {
-    const c = mix(m.skyTop, m.skyHorizon, i / (WIN_IN.h - 1))
-    t.fill(WIN_IN.x, WIN_IN.y + i, WIN_IN.w, 1, c)
+  // frame
+  bevel(t, W.x, W.y, W.w, W.h, [110, 76, 46])
+
+  t.clip(inn.x, inn.y, inn.w, inn.h)
+
+  // sky: retro banded gradient (2px bands)
+  for (let i = 0; i < inn.h; i += 2) {
+    const f = i / (inn.h - 1)
+    const c = mix(m.skyTop, m.skyHorizon, Math.round(f * 8) / 8)
+    t.fill(inn.x, inn.y + i, inn.w, 2, c)
   }
 
   // stars
   if (m.stars > 0.02) {
     for (let i = 0; i < 18; i++) {
-      const sx = WIN_IN.x + 2 + Math.floor(hash(i * 3 + 1) * (WIN_IN.w - 5))
-      const sy = WIN_IN.y + 1 + Math.floor(hash(i * 7 + 2) * (WIN_IN.h - 8))
+      const sx = inn.x + 1 + Math.floor(hash(i * 3 + 1) * (inn.w - 4))
+      const sy = inn.y + 1 + Math.floor(hash(i * 7 + 2) * (inn.h - 8))
       const tw = 0.45 + 0.55 * Math.pow(Math.sin(tMs * 0.0016 + hash(i + 90) * TAU), 2)
       const a = m.stars * tw
       if (a > 0.06) t.add(sx, sy, 1, 1, [235, 240, 255], Math.min(1, a))
+      if (i < 3 && a > 0.5) {
+        t.add(sx - 1, sy, 1, 1, [235, 240, 255], a * 0.6)
+        t.add(sx + 1, sy, 1, 1, [235, 240, 255], a * 0.6)
+        t.add(sx, sy - 1, 1, 1, [235, 240, 255], a * 0.6)
+        t.add(sx, sy + 1, 1, 1, [235, 240, 255], a * 0.6)
+      }
     }
   }
 
   // sun / moon
-  const body = sunMoonPos(s.hour)
+  const body = sunMoonPos(s.hour, g, inn)
   if (body) {
     if (body.sun) {
-      glow(t, body.x, body.y, 7, 7, [255, 214, 130], 0.5)
+      ditherGlow(t, body.x, body.y, 8, 8, [255, 214, 130], 0.5)
       ellipse(t, body.x, body.y, 3, 3, "fill", [255, 226, 150])
       ellipse(t, body.x, body.y, 2, 2, "fill", [255, 242, 190])
     } else {
-      if (m.stars > 0.1) glow(t, body.x, body.y, 6, 6, [190, 205, 255], 0.35 * m.stars)
+      if (m.stars > 0.1) ditherGlow(t, body.x, body.y, 7, 7, [190, 205, 255], 0.4 * m.stars)
       ellipse(t, body.x, body.y, 3, 3, "fill", [232, 234, 220])
       t.fill(body.x - 1, body.y - 1, 1, 1, [198, 200, 186])
       t.fill(body.x + 1, body.y + 1, 1, 1, [206, 208, 194])
@@ -335,9 +591,9 @@ function drawWindow(t: PixelTarget, s: SceneState, tMs: number) {
   const cloudA = clamp01((0.5 - m.ambient) * 2.4)
   if (cloudA > 0.05) {
     for (let i = 0; i < 2; i++) {
-      const drift = (tMs * (0.0011 + i * 0.0005)) % (WIN_IN.w + 22)
-      const cx = WIN_IN.x - 12 + ((hash(i * 13 + 4) * 30 + drift) | 0)
-      const cy = WIN_IN.y + 6 + Math.floor(hash(i * 5 + 8) * 20)
+      const drift = (tMs * (0.0011 + i * 0.0005)) % (inn.w + 22)
+      const cx = inn.x - 12 + ((hash(i * 13 + 4) * 30 + drift) | 0)
+      const cy = inn.y + 4 + Math.floor(hash(i * 5 + 8) * (inn.h - 18))
       const c: RGB = [245, 248, 255]
       t.blend(cx, cy, 10, 2, c, 0.4 * cloudA)
       t.blend(cx + 2, cy - 1, 6, 1, c, 0.4 * cloudA)
@@ -345,57 +601,65 @@ function drawWindow(t: PixelTarget, s: SceneState, tMs: number) {
     }
   }
 
+  // glass glare — diagonal sheen
+  for (let i = 0; i < inn.h; i++) {
+    const gx = inn.x + 2 + Math.floor(i / 2.5)
+    if (gx < inn.x + inn.w - 2) t.blend(gx, inn.y + i, 2, 1, [255, 255, 255], 0.07)
+  }
+
   t.unclip()
 
   // mullions
-  t.fill(WIN_IN.x + 22, WIN.y, 2, WIN.h, [86, 60, 36])
-  t.fill(WIN.x, WIN.y + 24, WIN.w, 2, [86, 60, 36])
-  // inner frame light edge
-  t.fill(WIN.x + 2, WIN.y + 2, WIN.w - 4, 1, [120, 86, 54])
+  t.fill(W.x + Math.floor(W.w / 2) - 1, W.y, 3, W.h, [96, 66, 40])
+  t.fill(W.x, W.y + Math.floor(W.h / 2) - 1, W.w, 3, [96, 66, 40])
   // sill
-  t.fill(WIN.x - 3, WIN.y + WIN.h, WIN.w + 6, 3, [84, 56, 34])
-  t.fill(WIN.x - 3, WIN.y + WIN.h, WIN.w + 6, 1, [112, 78, 48])
+  bevel(t, W.x - 3, W.y + W.h, W.w + 6, 4, [96, 64, 38])
 }
 
-/** warm sun / cool moon beam falling from the window onto the floor */
-function drawWindowShaft(t: PixelTarget, s: SceneState) {
+/** warm sun / cool moon beam falling from the window onto the floor — dithered */
+function drawWindowShaft(t: PixelTarget, g: RoomGeo, s: SceneState) {
   const m = s.mood
   const day = s.hour >= 6 && s.hour <= 18
   if (day && m.ambient > 0.2) return
   const warm: RGB = [255, 232, 180]
   const cool: RGB = [150, 170, 255]
   const c = day ? warm : cool
-  const base = day ? 0.055 : 0.06 * m.stars
-  if (base < 0.008) return
-  let y = WIN.y + WIN.h + 3
-  let x = WIN.x - 2
-  let w = 60
-  for (let i = 0; i < 7; i++) {
-    t.add(x, y, w, 4, c, base * (1 - i / 8))
-    y += 5
+  const base = day ? 0.2 : 0.18 * m.stars
+  if (base < 0.05) return
+  let y = g.winY + g.winH + 5
+  let x = g.winX - 2
+  let w = 62
+  const maxY = g.floorY + 4
+  for (let i = 0; i < 5 && y < maxY; i++) {
+    dither(t, "add", x, y, w, 4, c, base * (1 - i / 5))
+    y += 6
     x -= 2
-    w += 6
+    w += 7
   }
 }
 
-// ------------------------------ furniture ----------------------------------
+// ------------------------------ wall decor ---------------------------------
 
-function drawPoster(t: PixelTarget, tMs: number) {
-  const x = 76, y = 26, w = 30, h = 38
-  t.fill(x - 1, y - 1, w + 2, h + 2, [30, 28, 52])
+function drawPoster(t: PixelTarget, g: RoomGeo, tMs: number) {
+  const x = g.posterX, y = g.posterY, w = 30, h = 38
+  bevel(t, x - 2, y - 2, w + 4, h + 4, [52, 44, 84])
   t.fill(x, y, w, h, [40, 34, 78])
   // crescent
-  ellipse(t, x + 15, y + 14, 7, 7, "fill", [238, 226, 180])
-  ellipse(t, x + 18, y + 12, 6, 6, "fill", [40, 34, 78])
-  // poster stars twinkle gently
+  ellipse(t, x + 14, y + 13, 7, 7, "fill", [238, 226, 180])
+  ellipse(t, x + 17, y + 11, 6, 6, "fill", [40, 34, 78])
+  // twinkling poster stars
   for (let i = 0; i < 4; i++) {
     const a = 0.35 + 0.65 * Math.pow(Math.sin(tMs * 0.0012 + i * 1.7), 2)
     t.add(x + 5 + ((i * 7) % 20), y + 26 + ((i * 5) % 9), 1, 1, [220, 220, 255], a * 0.5)
   }
+  // pin corners
+  t.fill(x + 1, y + 1, 1, 1, [220, 200, 150])
+  t.fill(x + w - 2, y + 1, 1, 1, [220, 200, 150])
 }
 
-function drawShelf(t: PixelTarget) {
-  const y = 40
+function drawShelf(t: PixelTarget, g: RoomGeo) {
+  const y = g.shelfY
+  const x = g.shelfX
   const books: [number, number, RGB][] = [
     [3, 11, [96, 70, 168]],
     [3, 13, [70, 132, 128]],
@@ -404,143 +668,245 @@ function drawShelf(t: PixelTarget) {
     [4, 11, [204, 164, 72]],
     [3, 13, [122, 64, 112]],
   ]
-  let bx = 118
+  let bx = x + 4
   for (const [bw, bh, c] of books) {
-    t.fill(bx, y - bh, bw, bh, c)
-    t.fill(bx, y - bh, bw, 1, scale(c, 1.25))
+    bevel(t, bx, y - bh, bw, bh, c)
     bx += bw + 1
   }
   // little cactus
-  t.fill(152, y - 4, 5, 4, [168, 92, 58])
-  t.fill(153, y - 9, 3, 6, [92, 158, 80])
-  t.fill(151, y - 7, 2, 2, [92, 158, 80])
-  t.fill(156, y - 8, 2, 2, [82, 146, 72])
-  // board
-  t.fill(114, y, 46, 3, [88, 60, 38])
-  t.fill(114, y + 3, 46, 1, [60, 40, 26])
+  bevel(t, x + 38, y - 4, 5, 4, [168, 92, 58])
+  t.fill(x + 39, y - 9, 3, 6, [92, 158, 80])
+  t.fill(x + 37, y - 7, 2, 2, [92, 158, 80])
+  t.fill(x + 42, y - 8, 2, 2, [82, 146, 72])
+  // board + brackets
+  bevel(t, x, y, 46, 3, [104, 70, 42])
+  t.fill(x + 4, y + 3, 2, 3, scale([104, 70, 42], 0.7) as RGB)
+  t.fill(x + 40, y + 3, 2, 3, scale([104, 70, 42], 0.7) as RGB)
 }
 
-function drawDresserAndMicrowave(t: PixelTarget, s: SceneState, tMs: number) {
-  // dresser — warm wood
-  t.fill(116, 86, 42, 24, [126, 84, 50])
-  t.fill(116, 86, 42, 3, [148, 102, 62])
-  t.fill(136, 89, 1, 19, [94, 62, 38])
-  t.fill(116, 98, 42, 1, [96, 64, 38])
-  t.fill(125, 93, 4, 1, [216, 196, 156])
-  t.fill(146, 93, 4, 1, [216, 196, 156])
-  t.fill(125, 103, 4, 1, [216, 196, 156])
-  t.fill(146, 103, 4, 1, [216, 196, 156])
-  t.fill(118, 110, 3, 3, [74, 50, 32])
-  t.fill(153, 110, 3, 3, [74, 50, 32])
+/** tiny wall clock above the desk — shows REAL local time, 8-direction hands */
+function drawWallClock(t: PixelTarget, g: RoomGeo, now: Date) {
+  const cx = g.clockX, cy = g.clockY
+  ellipse(t, cx, cy, 6, 6, "fill", [90, 62, 40])
+  ellipse(t, cx, cy, 5, 5, "fill", [236, 232, 220])
+  // ticks
+  t.fill(cx - 1, cy - 4, 1, 1, [70, 66, 60])
+  t.fill(cx + 3, cy - 1, 1, 1, [70, 66, 60])
+  t.fill(cx - 1, cy + 3, 1, 1, [70, 66, 60])
+  t.fill(cx - 4, cy - 1, 1, 1, [70, 66, 60])
 
-  // microwave — cream MCWV appliance, the room's pride
+  const DIRS8: [number, number][] = [
+    [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1],
+  ]
+  const minutes = now.getMinutes() + now.getSeconds() / 60
+  const hours = (now.getHours() % 12) + minutes / 60
+  const [mdx, mdy] = DIRS8[Math.round((minutes / 60) * 8) % 8]
+  const [hdx, hdy] = DIRS8[Math.round((hours / 12) * 8) % 8]
+  t.fill(cx - 1 + mdx, cy - 1 + mdy, 1, 1, [60, 58, 54])
+  t.fill(cx - 1 + mdx * 2, cy - 1 + mdy * 2, 1, 1, [60, 58, 54])
+  t.fill(cx - 1 + mdx * 3, cy - 1 + mdy * 3, 1, 1, [60, 58, 54])
+  t.fill(cx - 1 + hdx, cy - 1 + hdy, 1, 1, [40, 38, 36])
+  t.fill(cx - 1, cy - 1, 1, 1, [150, 60, 60])
+}
+
+// ------------------------------ furniture ----------------------------------
+
+function drawDresserAndMicrowave(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
+  const x = g.dresserX
+  const top = g.floorY - 26
+
+  contactShadow(t, x + 1, g.floorY, 44, 0.35)
+
+  // dresser
+  bevel(t, x, top, 44, 24, [134, 88, 52])
+  t.fill(x, top, 44, 3, scale([134, 88, 52], 1.32) as RGB)
+  // drawer seams + handles
+  t.fill(x + 21, top + 3, 1, 19, scale([134, 88, 52], 0.68) as RGB)
+  t.fill(x, top + 12, 44, 1, scale([134, 88, 52], 0.68) as RGB)
+  for (const hx of [x + 9, x + 31]) {
+    t.fill(hx, top + 7, 5, 1, [216, 196, 156])
+    t.fill(hx, top + 17, 5, 1, [216, 196, 156])
+  }
+  // feet
+  t.fill(x + 2, top + 24, 3, 2, scale([134, 88, 52], 0.55) as RGB)
+  t.fill(x + 39, top + 24, 3, 2, scale([134, 88, 52], 0.55) as RGB)
+
+  // microwave — cream MCWV appliance with mesh door
+  const mx = x + 4
+  const my = top - 13
   const on = s.microOn
-  t.fill(121, 85, 30, 1, [94, 62, 38]) // contact shadow
-  t.fill(120, 73, 32, 13, [210, 208, 198])
-  t.fill(120, 73, 32, 1, [232, 230, 220])
-  t.fill(120, 84, 32, 2, [168, 166, 158])
+  contactShadow(t, mx, top - 1, 34, 0.25)
+  bevel(t, mx, my, 34, 13, [212, 210, 200])
+  t.fill(mx, my + 11, 34, 2, scale([212, 210, 200], 0.72) as RGB)
   // door
-  t.fill(123, 76, 20, 8, on ? [64, 44, 22] : [28, 30, 40])
-  t.fill(123, 76, 20, 1, [180, 178, 170])
+  t.fill(mx + 3, my + 3, 21, 8, [30, 32, 42])
+  t.fill(mx + 3, my + 3, 21, 1, [52, 54, 66])
+  // mesh dither over the door
+  dither(t, "blend", mx + 3, my + 3, 21, 8, [10, 12, 18], 0.3)
   if (on) {
     const pulse = 0.75 + 0.25 * Math.sin(tMs * 0.004)
-    t.blend(123, 76, 20, 8, [255, 170, 70], 0.4 * pulse)
-    ellipse(t, 133, 80, 4, 2, "blend", [255, 196, 110], 0.55)
-    glow(t, 133, 81, 16, 8, [255, 160, 60], 0.12 * pulse)
+    t.blend(mx + 3, my + 3, 21, 8, [255, 170, 70], 0.4 * pulse)
+    ellipse(t, mx + 13, my + 7, 4, 2, "blend", [255, 196, 110], 0.55)
+    ditherGlow(t, mx + 13, my + 8, 15, 7, [255, 160, 60], 0.3 * pulse)
+    // re-mesh so it keeps the screen texture through the glow
+    dither(t, "blend", mx + 3, my + 3, 21, 8, [10, 12, 18], 0.22)
   }
   // keypad + blinking colon clock
-  t.fill(145, 76, 6, 8, [44, 46, 56])
+  t.fill(mx + 26, my + 3, 5, 8, [44, 46, 56])
+  t.fill(mx + 26, my + 3, 5, 1, [58, 60, 72])
   const blink = Math.floor(tMs / 1000) % 2 === 0
-  t.fill(147, 78, 1, 1, [110, 255, 160])
-  if (blink) t.fill(147, 80, 1, 1, [110, 255, 160])
+  t.fill(mx + 28, my + 5, 1, 1, [110, 255, 160])
+  if (blink) t.fill(mx + 28, my + 8, 1, 1, [110, 255, 160])
 }
 
-function drawDesk(t: PixelTarget, s: SceneState, tMs: number) {
+function drawDesk(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
+  const x = g.deskX
+  const surf = g.floorY - 24
+
+  contactShadow(t, x + 1, g.floorY, g.deskW, 0.3)
+
+  // legs first (behind surface)
+  bevel(t, x + 2, surf + 4, 3, g.floorY - surf - 4, [118, 78, 46])
+  bevel(t, x + g.deskW - 5, surf + 4, 3, g.floorY - surf - 4, [118, 78, 46])
   // surface
-  t.fill(DESK.x, DESK.y, DESK.w, 4, [142, 98, 60])
-  t.fill(DESK.x, DESK.y, DESK.w, 1, [168, 120, 76])
-  // legs
-  t.fill(DESK.x + 2, DESK.y + 4, 3, 20, [104, 70, 44])
-  t.fill(DESK.x + DESK.w - 5, DESK.y + 4, 3, 20, [104, 70, 44])
+  bevel(t, x, surf, g.deskW, 4, [158, 108, 64])
 
   // monitor
-  const mx = 208, my = 62, mw = 23, mh = 20
-  t.fill(mx + 9, my + mh, 3, 4, [58, 60, 70])
-  t.fill(mx + 4, my + mh + 4, 13, 2, [58, 60, 70])
-  t.fill(mx, my, mw, mh, [24, 26, 36])
+  const mx = x + g.deskW - 30
+  const my = surf - 26
+  t.fill(mx + 9, my + 20, 3, 4, [58, 60, 70])
+  t.fill(mx + 4, my + 24, 13, 2, [58, 60, 70])
+  bevel(t, mx, my, 23, 20, [34, 36, 48])
   const awakeScreen = !s.sleeping
   if (awakeScreen) {
-    t.fill(mx + 2, my + 2, mw - 4, mh - 4, [30, 44, 68])
+    t.fill(mx + 2, my + 2, 19, 15, [30, 44, 68])
+    // title bar with 2 buttons — retro OS vibes
+    t.fill(mx + 2, my + 2, 19, 3, [58, 74, 110])
+    t.fill(mx + 3, my + 3, 1, 1, [240, 120, 110])
+    t.fill(mx + 5, my + 3, 1, 1, [240, 200, 110])
     const lines: [number, number, number, RGB][] = [
-      [4, 0, 12, [110, 220, 160]],
-      [7, 2, 8, [150, 120, 230]],
-      [10, 1, 14, [110, 170, 240]],
-      [13, 3, 7, [230, 190, 90]],
+      [6, 0, 12, [110, 220, 160]],
+      [9, 2, 8, [150, 120, 230]],
+      [12, 1, 14, [110, 170, 240]],
     ]
     for (const [ly, off, len, c] of lines) {
       const wobble = Math.floor(tMs / 900 + ly) % 3 === 0 ? 1 : 0
-      t.fill(mx + 3 + off, my + 3 + ly, len - wobble * 2, 1, c)
+      t.fill(mx + 3 + off, my + ly, len - wobble * 2, 1, c)
     }
-    if (s.mood.ambient > 0.12) glow(t, mx + 11, my + 10, 20, 14, [150, 190, 255], 0.1)
+    // taskbar
+    t.fill(mx + 2, my + 15, 19, 2, [46, 56, 84])
+    t.fill(mx + 3, my + 15, 1, 1, [110, 220, 160])
+    if (s.mood.ambient > 0.12) ditherGlow(t, mx + 11, my + 10, 16, 11, [150, 190, 255], 0.32)
   } else {
-    t.fill(mx + 2, my + 2, mw - 4, mh - 4, [18, 20, 28])
+    t.fill(mx + 2, my + 2, 19, 15, [18, 20, 28])
     // standby LED — the monitor sleeps too
     const ledPulse = 0.5 + 0.5 * Math.sin(tMs * 0.0012)
-    t.blend(mx + mw - 4, my + mh - 3, 1, 1, [255, 120, 80], 0.4 + 0.5 * ledPulse)
+    t.blend(mx + 19, my + 17, 1, 1, [255, 120, 80], 0.4 + 0.5 * ledPulse)
   }
-  // keyboard
-  t.fill(mx - 2, DESK.y - 2, 18, 2, [40, 42, 54])
+  // keyboard with key checker + mouse
+  t.fill(mx - 2, surf - 2, 18, 2, [44, 46, 58])
+  for (let k = 0; k < 8; k++) t.fill(mx - 1 + k * 2, surf - 1, 1, 1, [64, 66, 80])
+  t.fill(mx + 17, surf - 2, 3, 2, [44, 46, 58])
 }
 
-function drawLamp(t: PixelTarget, s: SceneState) {
-  const x = 164
-  t.fill(x - 1, 74, 2, 36, [124, 112, 134])
-  ellipse(t, x, 111, 6, 2, "fill", [90, 80, 104])
+function drawLamp(t: PixelTarget, g: RoomGeo, s: SceneState) {
+  const x = g.lampX
+  const floor = g.floorY
+  contactShadow(t, x - 5, floor, 12, 0.3)
+  const shadeY = floor - 48
+  // glow BEHIND the fixture, so the light clearly comes from the lamp
   if (s.lampOn) {
-    // shade glows
-    t.fill(x - 7, 64, 14, 2, [240, 200, 124])
-    t.fill(x - 6, 66, 12, 2, [238, 196, 118])
-    t.fill(x - 5, 68, 10, 4, [232, 188, 110])
-    glow(t, x, 74, 30, 22, [255, 205, 110], 0.16)
-    glow(t, x, 74, 14, 10, [255, 220, 140], 0.12)
+    ditherGlow(t, x, shadeY + 12, 24, 16, [255, 205, 110], 0.34)
+    ditherGlow(t, x, shadeY + 10, 11, 8, [255, 220, 140], 0.42)
+  }
+  // pole + base
+  t.fill(x - 1, floor - 38, 2, 36, s.lampOn ? [168, 152, 172] : [128, 116, 138])
+  ellipse(t, x, floor - 1, 6, 2, "fill", [94, 84, 108])
+  if (s.lampOn) {
+    t.fill(x - 7, shadeY, 14, 3, [240, 200, 124])
+    t.fill(x - 6, shadeY + 3, 12, 3, [238, 196, 118])
+    t.fill(x - 5, shadeY + 6, 10, 4, [232, 188, 110])
+    // bulb bulb peeking under the shade
+    t.fill(x - 1, shadeY + 10, 2, 2, [255, 240, 190])
+    // pleats
+    for (let p = -5; p <= 5; p += 3) t.fill(x + p, shadeY + 1, 1, 8, scale([238, 196, 118], 0.85) as RGB)
   } else {
-    t.fill(x - 7, 64, 14, 2, [150, 140, 160])
-    t.fill(x - 6, 66, 12, 2, [144, 134, 154])
-    t.fill(x - 5, 68, 10, 4, [138, 128, 148])
+    t.fill(x - 7, shadeY, 14, 3, [152, 142, 162])
+    t.fill(x - 6, shadeY + 3, 12, 3, [146, 136, 156])
+    t.fill(x - 5, shadeY + 6, 10, 4, [140, 130, 150])
+    for (let p = -5; p <= 5; p += 3) t.fill(x + p, shadeY + 1, 1, 8, scale([146, 136, 156], 0.82) as RGB)
   }
 }
 
-function drawBed(t: PixelTarget) {
-  // headboard
-  t.fill(BED.x - 2, 74, 6, 38, [78, 52, 32])
-  t.fill(BED.x - 2, 74, 6, 2, [98, 66, 40])
-  // mattress
-  t.fill(BED.x + 4, BED.y, BED.w - 4, 16, [218, 208, 188])
-  t.fill(BED.x + 4, BED.y + 16, BED.w - 4, 2, [186, 176, 156])
-  // pillow
-  t.fill(BED.x + 8, BED.y - 2, 15, 8, [244, 240, 230])
-  t.fill(BED.x + 8, BED.y - 2, 15, 1, [255, 252, 244])
-  // blanket
-  t.fill(BED.x + 26, BED.y - 1, BED.w - 30, 18, [108, 74, 158])
-  t.fill(BED.x + 26, BED.y - 1, BED.w - 30, 2, [128, 92, 182])
-  // bed skirt / shadow
-  t.fill(BED.x + 4, 110, BED.w - 4, 3, [56, 46, 40])
+const QUILT_A: RGB = [108, 74, 158]
+const QUILT_B: RGB = [90, 58, 138]
+const QUILT_HL: RGB = [132, 96, 186]
+
+function quilt(t: PixelTarget, x: number, y: number, w: number, h: number, bumpX0?: number, bumpY_?: number) {
+  // patchwork squares + stitch lines
+  const cell = 7
+  for (let yy = 0; yy < h; yy += cell) {
+    for (let xx = 0; xx < w; xx += cell) {
+      const alt = ((xx / cell) | 0) % 2 !== ((yy / cell) | 0) % 2
+      t.fill(x + xx, y + yy, Math.min(cell, w - xx), Math.min(cell, h - yy), alt ? QUILT_B : QUILT_A)
+    }
+  }
+  for (let xx = 0; xx <= w; xx += cell) t.fill(x + Math.min(xx, w - 1), y, 1, h, scale(QUILT_A, 0.72))
+  for (let yy = 0; yy <= h; yy += cell) t.fill(x, y + Math.min(yy, h - 1), w, 1, scale(QUILT_A, 0.72))
+  // top folded edge
+  t.fill(x, y, w, 2, QUILT_HL)
+}
+
+function drawBed(t: PixelTarget, g: RoomGeo) {
+  const x = g.bedX
+  const top = g.floorY - 20
+
+  contactShadow(t, x + 2, g.floorY, 96, 0.35)
+
+  // headboard with post knobs
+  bevel(t, x - 2, top - 18, 6, 38, [96, 62, 38])
+  t.fill(x - 3, top - 21, 3, 3, scale([96, 62, 38], 1.35) as RGB)
   // footboard
-  t.fill(BED.x + BED.w - 2, 84, 4, 28, [78, 52, 32])
-  t.fill(BED.x + BED.w - 2, 84, 4, 2, [98, 66, 40])
+  bevel(t, x + 90, top - 8, 5, 28, [96, 62, 38])
+  t.fill(x + 91, top - 11, 3, 3, scale([96, 62, 38], 1.35) as RGB)
+  // mattress
+  bevel(t, x + 4, top, 88, 16, [218, 208, 188])
+  // pillow
+  bevel(t, x + 8, top - 2, 15, 8, [244, 240, 230])
+  // quilt
+  quilt(t, x + 26, top - 1, 64, 18)
 }
 
-function drawRug(t: PixelTarget) {
-  ellipse(t, 126, 134, 42, 12, "fill", [76, 50, 112])
-  ellipse(t, 126, 134, 36, 9, "fill", [104, 76, 146])
-  ellipse(t, 126, 133, 27, 7, "fill", [130, 100, 172])
+function drawRug(t: PixelTarget, g: RoomGeo) {
+  const { rugCX: cx, rugCY: cy, rugRX: rx, rugRY: ry } = g
+  // fringe: tiny dots around the outer edge
+  for (let i = 0; i < 28; i++) {
+    const a = (i / 28) * TAU
+    ellipse(t, cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, 1, 1, "fill", [196, 178, 220])
+  }
+  ellipse(t, cx, cy, rx, ry, "fill", [74, 48, 110])
+  ellipse(t, cx, cy, rx - 4, ry - 3, "fill", [104, 74, 146])
+  // diamond ring motif
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * TAU
+    const mx = Math.round(cx + Math.cos(a) * (rx - 8))
+    const my = Math.round(cy + Math.sin(a) * (ry - 3))
+    t.fill(mx, my, 1, 1, [150, 116, 196])
+  }
+  ellipse(t, cx, cy - 1, Math.floor(rx * 0.55), Math.floor(ry * 0.55), "fill", [128, 98, 168])
+  // center diamond
+  for (let i = 0; i < 3; i++) {
+    t.fill(cx - 3 + i, cy - 1 - 1 + i, 7 - i * 2, 1, [188, 160, 224])
+    t.fill(cx - 3 + i, cy + 1 - 1 + i, 7 - i * 2, 1, [188, 160, 224])
+  }
 }
 
-function drawCat(t: PixelTarget, tMs: number) {
-  const x = 134, y = 126
+function drawCat(t: PixelTarget, g: RoomGeo, tMs: number) {
+  const x = g.catX, y = g.catY
   const body: RGB = [214, 176, 126] // ginger loaf
   const stripe: RGB = [176, 136, 88]
   const breathe = Math.sin(tMs * 0.0011) > -0.2 ? 1 : 0
+  contactShadow(t, x - 1, y + 7, 15, 0.25)
   // loaf
   t.fill(x, y + 2, 12, 5, body)
   t.fill(x + 1, y + 1, 10, 2, body)
@@ -565,53 +931,30 @@ function drawCat(t: PixelTarget, tMs: number) {
   }
 }
 
-function drawPlant(t: PixelTarget) {
+function drawPlant(t: PixelTarget, g: RoomGeo) {
+  const x = 3
+  const floor = g.floorY
+  contactShadow(t, x - 1, floor, 15, 0.3)
   // pot in the corner left of the bed
-  t.fill(3, 102, 11, 10, [156, 90, 58])
-  t.fill(2, 100, 13, 3, [176, 106, 70])
+  bevel(t, x, floor - 10, 12, 10, [156, 90, 58])
+  t.fill(x - 1, floor - 12, 14, 3, scale([156, 90, 58], 1.18) as RGB)
   // leaves
   const g1: RGB = [92, 182, 98]
   const g2: RGB = [122, 206, 116]
-  t.fill(5, 94, 3, 6, g1)
-  t.fill(8, 90, 3, 10, g2)
-  t.fill(11, 94, 2, 6, g1)
-  t.fill(3, 96, 2, 4, g2)
-}
-
-/** tiny wall clock above the desk — shows REAL local time, 8-direction hands */
-function drawWallClock(t: PixelTarget, now: Date) {
-  const cx = 208, cy = 40
-  ellipse(t, cx, cy, 6, 6, "fill", [30, 28, 44])
-  ellipse(t, cx, cy, 5, 5, "fill", [236, 232, 220])
-  // tick dots at 12/3/6/9
-  t.fill(cx - 1, cy - 4, 1, 1, [70, 66, 60])
-  t.fill(cx + 3, cy - 1, 1, 1, [70, 66, 60])
-  t.fill(cx - 1, cy + 3, 1, 1, [70, 66, 60])
-  t.fill(cx - 4, cy - 1, 1, 1, [70, 66, 60])
-
-  const DIRS8: [number, number][] = [
-    [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1],
-  ]
-  const minutes = now.getMinutes() + now.getSeconds() / 60
-  const hours = (now.getHours() % 12) + minutes / 60
-  const [hdx, hdy] = DIRS8[Math.round((hours / 12) * 8) % 8]
-  const [mdx, mdy] = DIRS8[Math.round((minutes / 60) * 8) % 8]
-  // hour hand (2px)
-  t.fill(cx - 1 + hdx, cy - 1 + hdy, 1, 1, [40, 38, 36])
-  // minute hand (3px)
-  t.fill(cx - 1 + mdx, cy - 1 + mdy, 1, 1, [60, 58, 54])
-  t.fill(cx - 1 + mdx * 2, cy - 1 + mdy * 2, 1, 1, [60, 58, 54])
-  t.fill(cx - 1 + mdx * 3, cy - 1 + mdy * 3, 1, 1, [60, 58, 54])
-  // hub
-  t.fill(cx - 1, cy - 1, 1, 1, [150, 60, 60])
+  t.fill(x + 2, floor - 18, 3, 6, g1)
+  t.fill(x + 5, floor - 22, 3, 10, g2)
+  t.fill(x + 8, floor - 18, 2, 6, g1)
+  t.fill(x, floor - 16, 2, 4, g2)
+  t.fill(x + 6, floor - 20, 1, 1, scale(g2, 1.2) as RGB)
 }
 
 // ------------------------------ avatar -------------------------------------
 
 function drawHead(t: PixelTarget, av: AvatarSpec, x: number, y: number, blink: boolean, yawning: boolean) {
   const hair = av.hairStyle === "beanie" ? av.hoodie : av.hair
-  // face
+  // face with soft outline
   t.fill(x, y, 8, 8, av.skin)
+  t.fill(x, y + 7, 8, 1, scale(av.skin, 0.88)) // chin shade
   // hair
   if (av.hairStyle === "spiky") {
     t.fill(x, y - 1, 8, 3, hair)
@@ -643,73 +986,82 @@ function drawHead(t: PixelTarget, av: AvatarSpec, x: number, y: number, blink: b
   }
 }
 
-function drawAvatarSitting(t: PixelTarget, av: AvatarSpec, tMs: number) {
-  const x = SIT.x
+function drawAvatarSitting(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number) {
+  const x = g.sitX
+  const floor = g.floorY
   const blink = tMs % 3400 < 130
   const typePhase = Math.floor(tMs / 380) % 2 === 0
 
+  contactShadow(t, x - 5, floor, 22, 0.3)
+
   // chair (behind avatar)
-  t.fill(x - 3, 78, 3, 26, [88, 62, 130])
-  t.fill(x - 3, 78, 9, 3, [100, 72, 146])
-  t.fill(x - 2, 104, 2, 8, [60, 50, 70])
-  ellipse(t, x, 111, 7, 2, "fill", [46, 40, 54])
+  bevel(t, x - 3, floor - 34, 3, 26, [96, 66, 138])
+  t.fill(x - 3, floor - 34, 9, 3, scale([96, 66, 138], 1.28) as RGB)
+  t.fill(x - 2, floor - 8, 2, 6, [60, 50, 70])
+  ellipse(t, x, floor - 1, 7, 2, "fill", [46, 40, 54])
 
   // legs + shoes tucked under the desk
-  t.fill(x + 1, 96, 3, 12, scale(av.hoodie, 0.55))
-  t.fill(x + 5, 96, 3, 12, scale(av.hoodie, 0.5))
-  t.fill(x + 1, 108, 4, 2, [40, 36, 48])
-  t.fill(x + 6, 108, 4, 2, [40, 36, 48])
-  // knee pointing forward at the desk
-  t.fill(x + 8, 96, 5, 7, scale(av.hoodie, 0.6))
-  t.fill(x + 11, 103, 3, 6, scale(av.hoodie, 0.55))
-  t.fill(x + 11, 109, 4, 2, [40, 36, 48])
+  t.fill(x + 1, floor - 16, 3, 12, scale(av.hoodie, 0.55))
+  t.fill(x + 5, floor - 16, 3, 12, scale(av.hoodie, 0.5))
+  t.fill(x + 1, floor - 4, 4, 2, [40, 36, 48])
+  t.fill(x + 6, floor - 4, 4, 2, [40, 36, 48])
+  // knee forward
+  t.fill(x + 8, floor - 16, 5, 7, scale(av.hoodie, 0.6))
+  t.fill(x + 11, floor - 9, 3, 6, scale(av.hoodie, 0.55))
+  t.fill(x + 11, floor - 3, 4, 2, [40, 36, 48])
 
-  // torso (hoodie) — seated height
-  t.fill(x, 80, 10, 16, av.hoodie)
-  t.fill(x, 80, 10, 2, scale(av.hoodie, 1.18))
+  // torso (hoodie) — seated height, beveled shoulders
+  t.fill(x, floor - 32, 10, 16, av.hoodie)
+  t.fill(x, floor - 32, 10, 2, scale(av.hoodie, 1.18))
+  t.fill(x, floor - 32, 1, 16, scale(av.hoodie, 1.1))
+  t.fill(x + 9, floor - 32, 1, 16, scale(av.hoodie, 0.75))
   // pocket
-  t.fill(x + 3, 88, 4, 3, scale(av.hoodie, 0.85))
+  t.fill(x + 3, floor - 24, 4, 3, scale(av.hoodie, 0.85))
 
   // arms reaching right to keyboard — two-frame typing
-  const armY = typePhase ? 84 : 85
+  const armY = floor - 28 + (typePhase ? 0 : 1)
   t.fill(x + 10, armY, 8, 3, av.hoodie)
   t.fill(x + 17, armY + 1, 3, 2, av.skin)
 
-  drawHead(t, av, x + 1, 71, blink, false)
+  drawHead(t, av, x + 1, floor - 41, blink, false)
 }
 
-function drawAvatarStanding(t: PixelTarget, av: AvatarSpec, tMs: number, justWoke: boolean, yawning: boolean) {
-  const x = STAND.x
+function drawAvatarStanding(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number, justWoke: boolean, yawning: boolean) {
+  const x = g.standX
+  const floor = g.floorY
   const blink = tMs % 3400 < 130
 
+  contactShadow(t, x - 2, floor, 14, 0.3)
+
   // legs
-  t.fill(x + 1, 96, 3, 14, scale(av.hoodie, 0.55))
-  t.fill(x + 5, 96, 3, 14, scale(av.hoodie, 0.5))
-  t.fill(x, 110, 4, 2, [40, 36, 48])
-  t.fill(x + 5, 110, 4, 2, [40, 36, 48])
+  t.fill(x + 1, floor - 16, 3, 14, scale(av.hoodie, 0.55))
+  t.fill(x + 5, floor - 16, 3, 14, scale(av.hoodie, 0.5))
+  t.fill(x, floor - 2, 4, 2, [40, 36, 48])
+  t.fill(x + 5, floor - 2, 4, 2, [40, 36, 48])
 
   // torso
-  t.fill(x, 78, 9, 19, av.hoodie)
-  t.fill(x, 78, 9, 2, scale(av.hoodie, 1.18))
+  t.fill(x, floor - 34, 9, 19, av.hoodie)
+  t.fill(x, floor - 34, 9, 2, scale(av.hoodie, 1.18))
+  t.fill(x + 8, floor - 34, 1, 19, scale(av.hoodie, 0.75))
 
   if (justWoke) {
     // stretch: both arms up
     const sway = Math.floor(tMs / 500) % 2 === 0 ? 1 : 0
-    t.fill(x - 2, 74 - sway, 2, 8, av.hoodie)
-    t.fill(x + 9, 74 - sway, 2, 8, av.hoodie)
-    t.fill(x - 2, 73 - sway, 2, 2, av.skin)
-    t.fill(x + 9, 73 - sway, 2, 2, av.skin)
+    t.fill(x - 2, floor - 38 - sway, 2, 8, av.hoodie)
+    t.fill(x + 9, floor - 38 - sway, 2, 8, av.hoodie)
+    t.fill(x - 2, floor - 39 - sway, 2, 2, av.skin)
+    t.fill(x + 9, floor - 39 - sway, 2, 2, av.skin)
   } else {
     // sleepy arms down / yawn arm
-    t.fill(x - 1, 80, 2, 12, av.hoodie)
-    t.fill(x + 8, 80, 2, 12, av.hoodie)
+    t.fill(x - 1, floor - 32, 2, 12, av.hoodie)
+    t.fill(x + 8, floor - 32, 2, 12, av.hoodie)
     if (yawning) {
-      t.fill(x + 8, 78, 2, 3, av.hoodie)
-      t.fill(x + 8, 76, 2, 2, av.skin)
+      t.fill(x + 8, floor - 34, 2, 3, av.hoodie)
+      t.fill(x + 8, floor - 36, 2, 2, av.skin)
     }
   }
 
-  drawHead(t, av, x, 69, yawning ? false : blink, yawning)
+  drawHead(t, av, x, floor - 43, yawning ? false : blink, yawning)
 }
 
 function drawZ(t: PixelTarget, x: number, y: number, a: number) {
@@ -720,30 +1072,32 @@ function drawZ(t: PixelTarget, x: number, y: number, a: number) {
   t.blend(x, y + 3, 3, 1, c, a)
 }
 
-function drawAvatarSleeping(t: PixelTarget, av: AvatarSpec, tMs: number) {
-  // head on pillow
-  const x = BED.x + 11
-  const y = BED.y
-  t.fill(x, y, 8, 6, av.skin)
-  const hair = av.hairStyle === "beanie" ? av.hoodie : av.hair
-  t.fill(x, y - 1, 8, 2, hair)
-  if (av.hairStyle === "long") t.fill(x + 7, y, 1, 5, hair)
-  // closed eye
-  t.fill(x + 4, y + 3, 3, 1, [70, 55, 60])
+function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: number) {
+  const x = g.bedX
+  const top = g.floorY - 20
 
-  // blanket with breathing bump — rises over the sleeping body
+  // head on pillow
+  const hx = x + 11
+  const hy = top
+  t.fill(hx, hy, 8, 6, av.skin)
+  const hair = av.hairStyle === "beanie" ? av.hoodie : av.hair
+  t.fill(hx, hy - 1, 8, 2, hair)
+  if (av.hairStyle === "long") t.fill(hx + 7, hy, 1, 5, hair)
+  // closed eye
+  t.fill(hx + 4, hy + 3, 3, 1, [70, 55, 60])
+
+  // breathing patchwork bump over the body
   const breathe = Math.sin(tMs * 0.0012 * TAU) > -0.1 ? 1 : 0
-  const bumpY = BED.y - 2 - breathe
-  t.fill(BED.x + 26, bumpY, 54, 19 + (BED.y - 1 - bumpY), [108, 74, 158])
-  t.fill(BED.x + 26, bumpY, 54, 2, [128, 92, 182])
-  // blanket fold shadow near head
-  t.fill(BED.x + 26, bumpY + 2, 3, 17, [92, 62, 138])
+  const bumpY = top - 2 - breathe
+  quilt(t, x + 26, bumpY, 54, 20 + (top - 1 - bumpY))
+  // fold shadow near head
+  t.fill(x + 26, bumpY + 2, 3, 17, scale(QUILT_A, 0.7))
 
   // Z's drifting up from the head
   for (let i = 0; i < 3; i++) {
     const age = ((tMs + i * 1100) % 3300) / 3300
-    const zx = x + 4 + Math.floor(age * 10)
-    const zy = y - 6 - Math.floor(age * 14)
+    const zx = hx + 4 + Math.floor(age * 10)
+    const zy = hy - 6 - Math.floor(age * 14)
     const a = 0.75 * Math.sin(Math.PI * age)
     if (a > 0.08) drawZ(t, zx, zy, a)
   }
@@ -751,30 +1105,30 @@ function drawAvatarSleeping(t: PixelTarget, av: AvatarSpec, tMs: number) {
 
 // ------------------------------ atmosphere ---------------------------------
 
-function drawDust(t: PixelTarget, s: SceneState, tMs: number) {
+function drawDust(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
   const vis = 0.16 + (0.4 - Math.min(0.4, s.mood.ambient)) * 0.5
-  for (let i = 0; i < 12; i++) {
-    const bx = hash(i * 11 + 3) * ROOM_W
-    const by = 30 + hash(i * 17 + 6) * 100
+  for (let i = 0; i < 14; i++) {
+    const bx = hash(i * 11 + 3) * g.w
+    const by = 30 + hash(i * 17 + 6) * Math.max(60, g.floorY - 40)
     const x = Math.round(bx + Math.sin(tMs * 0.00021 + i * 2.1) * 14)
     const y = Math.round(by + Math.sin(tMs * 0.00013 + i * 1.3) * 8)
+    if (x < 0 || x >= g.w || y < 0 || y >= g.h) continue
     const a = vis * (0.25 + 0.75 * Math.pow(Math.sin(tMs * 0.0009 + i * 1.9), 2))
     if (a > 0.04) t.add(x, y, 1, 1, [255, 246, 220], Math.min(0.5, a))
   }
 }
 
-function drawLighting(t: PixelTarget, s: SceneState) {
+function drawLighting(t: PixelTarget, g: RoomGeo, s: SceneState) {
   const m = s.mood
-  // world tint
-  if (m.tintAmt > 0.01) t.mul(0, 0, ROOM_W, ROOM_H, m.tint, m.tintAmt)
-  // darkness
-  if (m.ambient > 0.005) t.mul(0, 0, ROOM_W, ROOM_H, [44, 50, 104], m.ambient)
+  if (m.tintAmt > 0.01) t.mul(0, 0, g.w, g.h, m.tint, m.tintAmt)
+  if (m.ambient > 0.005) t.mul(0, 0, g.w, g.h, [44, 50, 104], m.ambient)
   // vignette (stronger at night)
   const v = 0.1 + m.ambient * 0.3
-  t.blend(0, 0, ROOM_W, 8, [10, 10, 26], v)
-  t.blend(0, ROOM_H - 8, ROOM_W, 8, [8, 8, 22], v * 0.8)
-  t.blend(0, 0, 6, ROOM_H, [10, 10, 26], v * 0.7)
-  t.blend(ROOM_W - 6, 0, 6, ROOM_H, [10, 10, 26], v * 0.7)
+  const vw = Math.max(6, Math.round(g.w * 0.03))
+  t.blend(0, 0, g.w, 8, [10, 10, 26], v)
+  t.blend(0, g.h - 8, g.w, 8, [8, 8, 22], v * 0.8)
+  t.blend(0, 0, vw, g.h, [10, 10, 26], v * 0.7)
+  t.blend(g.w - vw, 0, vw, g.h, [10, 10, 26], v * 0.7)
 }
 
 // ------------------------------ main render --------------------------------
@@ -784,46 +1138,37 @@ export function renderRoom(
   now: Date,
   avatar: AvatarSpec = DEFAULT_AVATAR,
   prefs: AfkPrefs = DEFAULT_PREFS,
-  tMs: number = Date.now()
+  tMs: number = Date.now(),
+  size: RoomSize = { w: BASE_W, h: 160 }
 ) {
+  const g = layoutOf(size.w, size.h)
   const s = sceneStateAt(now, prefs)
 
-  // walls + floor
-  t.fill(0, 0, ROOM_W, ROOM_H, WALL)
-  // subtle wall shading
-  t.fill(0, 104, ROOM_W, 8, scale(WALL, 0.86))
-  t.fill(0, 110, ROOM_W, 2, BASEBOARD)
-  // floor
-  t.fill(0, 112, ROOM_W, ROOM_H - 112, FLOOR)
-  for (let y = 116; y < ROOM_H; y += 8) {
-    t.fill(0, y, ROOM_W, 1, scale(FLOOR, 1.08))
-    t.fill(0, y + 4, ROOM_W, 1, FLOOR_DARK)
-  }
-  // plank joints
-  for (let x = 20; x < ROOM_W; x += 32) {
-    t.fill(x, 112, 1, ROOM_H - 112, scale(FLOOR, 0.92))
-  }
+  drawWalls(t, g)
+  drawFloor(t, g)
 
-  drawWindow(t, s, tMs)
-  drawWindowShaft(t, s)
-  drawPoster(t, tMs)
-  drawWallClock(t, now)
-  drawShelf(t)
-  drawDresserAndMicrowave(t, s, tMs)
-  drawRug(t)
-  drawPlant(t)
-  drawBed(t)
-  drawLamp(t, s)
-  drawDesk(t, s, tMs)
+  drawWindowShaft(t, g, s)
+  drawWindow(t, g, s, tMs)
+  drawPoster(t, g, tMs)
+  drawWallClock(t, g, now)
+  drawShelf(t, g)
+  drawFairyLights(t, g, s, tMs)
+
+  drawRug(t, g)
+  drawDresserAndMicrowave(t, g, s, tMs)
+  drawPlant(t, g)
+  drawBed(t, g)
+  drawLamp(t, g, s)
+  drawDesk(t, g, s, tMs)
 
   // the resident
-  if (s.sleeping) drawAvatarSleeping(t, avatar, tMs)
-  else if (s.standing) drawAvatarStanding(t, avatar, tMs, s.justWoke, s.yawning)
-  else drawAvatarSitting(t, avatar, tMs)
+  if (s.sleeping) drawAvatarSleeping(t, g, avatar, tMs)
+  else if (s.standing) drawAvatarStanding(t, g, avatar, tMs, s.justWoke, s.yawning)
+  else drawAvatarSitting(t, g, avatar, tMs)
 
-  drawCat(t, tMs)
-  drawDust(t, s, tMs)
+  drawCat(t, g, tMs)
+  drawDust(t, g, s, tMs)
 
   // final lighting pass
-  drawLighting(t, s)
+  drawLighting(t, g, s)
 }
