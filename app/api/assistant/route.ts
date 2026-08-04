@@ -14,9 +14,10 @@ const AI_API_KEY = process.env.ASSISTANT_AI_KEY ?? process.env.GROQ_API_KEY ?? "
 const AI_BASE_URL = (
   process.env.ASSISTANT_AI_BASE_URL ?? "https://api.groq.com/openai/v1/chat/completions"
 ).trim()
-const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "llama-3.3-70b-versatile,llama-3.1-8b-instant")
+// Default cascade = models confirmed live on Cerebras' free tier (override with ASSISTANT_AI_MODELS).
+const AI_MODELS = (process.env.ASSISTANT_AI_MODELS ?? "gpt-oss-120b,zai-glm-4.7,qwen-3-32b,llama3.1-8b")
   .split(",")
-  .map((model) => model.trim())
+  .map((model) => model.trim().toLowerCase())
   .filter(Boolean)
 const DAILY_AI_LIMIT = Math.max(0, Number(process.env.ASSISTANT_DAILY_AI_LIMIT ?? "10") || 10)
 
