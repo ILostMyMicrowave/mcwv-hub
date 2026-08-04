@@ -35,6 +35,19 @@ export type AskerContext = {
   nextPlayer: string | null
   gain24h: number | null
   inRoster: boolean
+  wars: AskerWar[] /* newest ended war first, [] when unknown */
+}
+
+export type AskerWar = { title: string; points: number; endedAt: string | null }
+
+export type WarHistoryEntry = {
+  battleId: string
+  title: string
+  endedAt: string | null
+  scorers: number
+  clanPoints: number
+  topUsername: string | null
+  topPoints: number | null
 }
 
 export type SharedWarContext = {
@@ -60,6 +73,7 @@ export type SharedWarContext = {
   zeroCount: number
   zeroNames: string[]
   contributors: number | null
+  history: WarHistoryEntry[] /* ended wars, newest first; [] when tables missing */
 }
 
 type Json = Record<string, unknown>
@@ -210,6 +224,106 @@ async function memberLines(battleKey: string): Promise<MemberLine[]> {
 
 let sharedCache: { at: number; context: SharedWarContext } | null = null
 
+// --- War history brain ------------------------------------------------------
+// Per-war finals computed from each member's LAST snapshot inside that battle
+// (plus 12h grace). Everything fails soft: missing tables just mean no history.
+
+const HISTORY_SQL = `
+  WITH recent AS (
+    SELECT battle_id, battle_name, end_time
+    FROM battles
+    WHERE end_time IS NOT NULL AND end_time <= NOW()
+    ORDER BY end_time DESC
+    LIMIT $1
+  ),
+  finals AS (
+    SELECT DISTINCT ON (rb.battle_id, h.roblox_id)
+      rb.battle_id, h.roblox_id, h.username, h.points
+    FROM player_leaderboard_history h
+    JOIN recent rb
+      ON regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') =
+         regexp_replace(lower(rb.battle_id), '[^a-z0-9]+', '', 'g')
+    WHERE h.points IS NOT NULL
+      AND h.captured_at <= rb.end_time + INTERVAL '12 hours'
+    ORDER BY rb.battle_id, h.roblox_id, h.captured_at DESC
+  ),
+  agg AS (
+    SELECT battle_id,
+           COUNT(*) FILTER (WHERE points > 0)::int AS scorers,
+           COALESCE(SUM(points), 0)::float8 AS clan_points
+    FROM finals
+    GROUP BY battle_id
+  ),
+  tops AS (
+    SELECT DISTINCT ON (battle_id) battle_id, username, points
+    FROM finals
+    ORDER BY battle_id, points DESC
+  )
+  SELECT rb.battle_id, rb.battle_name, rb.end_time,
+         agg.scorers, agg.clan_points, tops.username AS top_username, tops.points AS top_points
+  FROM recent rb
+  LEFT JOIN agg ON agg.battle_id = rb.battle_id
+  LEFT JOIN tops ON tops.battle_id = rb.battle_id
+  ORDER BY rb.end_time DESC`
+
+const prettyWarTitle = (battleId: string, battleName: unknown): string => {
+  const raw = typeof battleName === "string" && battleName.trim() ? battleName.trim() : battleId
+  return raw.replace(/battle\s*\d*/gi, "").trim() || raw
+}
+
+async function historyEntries(limit = 8): Promise<WarHistoryEntry[]> {
+  try {
+    const result = await pool.query(HISTORY_SQL, [limit])
+    return (result.rows as Json[]).map((row) => ({
+      battleId: String(row.battle_id ?? ""),
+      title: prettyWarTitle(String(row.battle_id ?? ""), row.battle_name),
+      endedAt: row.end_time ? new Date(String(row.end_time)).toISOString() : null,
+      scorers: asNumber(row.scorers) ?? 0,
+      clanPoints: asNumber(row.clan_points) ?? 0,
+      topUsername: row.top_username ? String(row.top_username) : null,
+      topPoints: asNumber(row.top_points),
+    }))
+  } catch {
+    return []
+  }
+}
+
+export async function loadAskerWars(robloxId: string | null, limit = 8): Promise<AskerWar[]> {
+  if (!robloxId) return []
+  try {
+    const result = await pool.query(
+      `WITH recent AS (
+         SELECT battle_id, battle_name, end_time
+         FROM battles
+         WHERE end_time IS NOT NULL AND end_time <= NOW()
+         ORDER BY end_time DESC
+         LIMIT $2
+       ),
+       mine AS (
+         SELECT DISTINCT ON (rb.battle_id)
+           rb.battle_id, rb.battle_name, rb.end_time, h.points
+         FROM player_leaderboard_history h
+         JOIN recent rb
+           ON regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') =
+              regexp_replace(lower(rb.battle_id), '[^a-z0-9]+', '', 'g')
+         WHERE h.roblox_id::text = $1
+           AND h.points IS NOT NULL
+           AND h.captured_at <= rb.end_time + INTERVAL '12 hours'
+         ORDER BY rb.battle_id, h.captured_at DESC
+       )
+       SELECT battle_id, battle_name, end_time, points FROM mine ORDER BY end_time DESC`,
+      [robloxId, limit]
+    )
+    return (result.rows as Json[]).map((row) => ({
+      title: prettyWarTitle(String(row.battle_id ?? ""), row.battle_name),
+      points: asNumber(row.points) ?? 0,
+      endedAt: row.end_time ? new Date(String(row.end_time)).toISOString() : null,
+    }))
+  } catch {
+    return []
+  }
+}
+
 export async function getSharedWarContext(force = false): Promise<SharedWarContext> {
   if (!force && sharedCache && Date.now() - sharedCache.at < SHARED_CACHE_MS) {
     return sharedCache.context
@@ -220,6 +334,7 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     fetchJson(CLAN_API),
     fetchJson(CLANS_LEADERBOARD_API),
   ])
+  const historyPromise = historyEntries()
 
   const configData = ((battlePayload?.data as Json | undefined)?.configData ?? null) as Json | null
   const battleId = typeof configData?.Title === "string" ? configData.Title : null
@@ -332,6 +447,7 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     zeroCount: zeroRows.length,
     zeroNames: zeroRows.slice(0, 8).map((row) => row.username),
     contributors,
+    history: await historyPromise,
   }
 
   sharedCache = { at: Date.now(), context }
@@ -340,7 +456,8 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
 
 export function buildAskerContext(
   user: { username: string; robloxId: string | null },
-  shared: SharedWarContext
+  shared: SharedWarContext,
+  wars: AskerWar[] = []
 ): AskerContext {
   const base: AskerContext = {
     username: user.username,
@@ -351,6 +468,7 @@ export function buildAskerContext(
     nextPlayer: null,
     gain24h: null,
     inRoster: false,
+    wars,
   }
 
   if (!shared.members.length) return base
