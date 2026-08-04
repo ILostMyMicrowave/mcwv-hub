@@ -1,0 +1,407 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_AVATAR,
+  HAIR_PRESETS,
+  HAIR_STYLES,
+  HOODIE_PRESETS,
+  ROOM_H,
+  ROOM_W,
+  SKIN_PRESETS,
+  renderRoom,
+  type AfkPrefs,
+  type AvatarSpec,
+  type HairStyle,
+  type PixelTarget,
+  type RGB,
+} from "@/components/afk/roomEngine";
+
+// ---------------------------------------------------------------------------
+// CanvasTarget — PixelTarget adapter over CanvasRenderingContext2D
+// ---------------------------------------------------------------------------
+
+const css = (c: RGB) => `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})`;
+
+class CanvasTarget implements PixelTarget {
+  constructor(private ctx: CanvasRenderingContext2D) {}
+  fill(x: number, y: number, w: number, h: number, c: RGB) {
+    this.ctx.fillStyle = css(c);
+    this.ctx.fillRect(x, y, w, h);
+  }
+  blend(x: number, y: number, w: number, h: number, c: RGB, a: number) {
+    this.ctx.globalAlpha = a;
+    this.ctx.fillStyle = css(c);
+    this.ctx.fillRect(x, y, w, h);
+    this.ctx.globalAlpha = 1;
+  }
+  mul(x: number, y: number, w: number, h: number, c: RGB, a: number) {
+    this.ctx.globalCompositeOperation = "multiply";
+    this.ctx.globalAlpha = a;
+    this.ctx.fillStyle = css(c);
+    this.ctx.fillRect(x, y, w, h);
+    this.ctx.globalCompositeOperation = "source-over";
+    this.ctx.globalAlpha = 1;
+  }
+  add(x: number, y: number, w: number, h: number, c: RGB, a: number) {
+    this.ctx.globalCompositeOperation = "lighter";
+    this.ctx.globalAlpha = a;
+    this.ctx.fillStyle = css(c);
+    this.ctx.fillRect(x, y, w, h);
+    this.ctx.globalCompositeOperation = "source-over";
+    this.ctx.globalAlpha = 1;
+  }
+  clip(x: number, y: number, w: number, h: number) {
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.ctx.rect(x, y, w, h);
+    this.ctx.clip();
+  }
+  unclip() {
+    this.ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// prefs (localStorage)
+// ---------------------------------------------------------------------------
+
+const PREFS_KEY = "mcwv-afk-room";
+
+type StoredPrefs = {
+  bedtime: number; // 21,22,23,0,1
+  skin: number;
+  hairColor: number;
+  hairStyle: HairStyle;
+  hoodie: number;
+};
+
+const DEFAULT_STORED: StoredPrefs = {
+  bedtime: 23,
+  skin: 1,
+  hairColor: 0,
+  hairStyle: "short",
+  hoodie: 0,
+};
+
+function loadPrefs(): StoredPrefs {
+  if (typeof window === "undefined") return DEFAULT_STORED;
+  try {
+    const raw = window.localStorage.getItem(PREFS_KEY);
+    if (!raw) return DEFAULT_STORED;
+    const parsed = JSON.parse(raw) as Partial<StoredPrefs>;
+    return {
+      bedtime: typeof parsed.bedtime === "number" ? parsed.bedtime : DEFAULT_STORED.bedtime,
+      skin: typeof parsed.skin === "number" ? parsed.skin : DEFAULT_STORED.skin,
+      hairColor: typeof parsed.hairColor === "number" ? parsed.hairColor : DEFAULT_STORED.hairColor,
+      hairStyle:
+        parsed.hairStyle === "short" || parsed.hairStyle === "spiky" ||
+        parsed.hairStyle === "beanie" || parsed.hairStyle === "long"
+          ? parsed.hairStyle
+          : DEFAULT_STORED.hairStyle,
+      hoodie: typeof parsed.hoodie === "number" ? parsed.hoodie : DEFAULT_STORED.hoodie,
+    };
+  } catch {
+    return DEFAULT_STORED;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HUD data
+// ---------------------------------------------------------------------------
+
+type AfkApiResponse = {
+  ok?: boolean;
+  clan?: { rank?: number | null } | null;
+  me?: { points?: number | null; war?: string | null } | null;
+  battle?: { active?: boolean } | null;
+};
+
+type HudState = {
+  rank: number | null;
+  points: number | null;
+  war: "current" | "last" | null;
+  battleActive: boolean;
+  stale: boolean;
+};
+
+const INITIAL_HUD: HudState = { rank: null, points: null, war: null, battleActive: false, stale: false };
+
+// ---------------------------------------------------------------------------
+// component
+// ---------------------------------------------------------------------------
+
+export default function AfkRoom() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [prefs, setPrefs] = useState<StoredPrefs>(DEFAULT_STORED);
+  const [loaded, setLoaded] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [hud, setHud] = useState<HudState>(INITIAL_HUD);
+
+  // load prefs once (localStorage)
+  useEffect(() => {
+    setPrefs(loadPrefs());
+    setLoaded(true);
+  }, []);
+
+  // persist
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      /* private mode — fine */
+    }
+  }, [prefs, loaded]);
+
+  const avatar: AvatarSpec = useMemo(
+    () => ({
+      skin: SKIN_PRESETS[prefs.skin % SKIN_PRESETS.length]?.value ?? DEFAULT_AVATAR.skin,
+      hair: HAIR_PRESETS[prefs.hairColor % HAIR_PRESETS.length]?.value ?? DEFAULT_AVATAR.hair,
+      hairStyle: prefs.hairStyle,
+      hoodie: HOODIE_PRESETS[prefs.hoodie % HOODIE_PRESETS.length]?.value ?? DEFAULT_AVATAR.hoodie,
+    }),
+    [prefs]
+  );
+
+  const enginePrefs: AfkPrefs = useMemo(() => ({ bedtime: prefs.bedtime }), [prefs.bedtime]);
+
+  // render loop — chill 12fps, pauses with the tab, gentle on battery
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const target = new CanvasTarget(ctx);
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    let raf = 0;
+    let last = 0;
+    const FRAME_MS = 1000 / 12;
+
+    const draw = (tMs: number) => {
+      ctx.imageSmoothingEnabled = false;
+      renderRoom(target, new Date(), avatar, enginePrefs, tMs);
+    };
+
+    if (reduced) {
+      draw(0);
+      const timer = window.setInterval(() => draw(0), 30_000);
+      return () => window.clearInterval(timer);
+    }
+
+    const loop = (tMs: number) => {
+      raf = window.requestAnimationFrame(loop);
+      if (tMs - last < FRAME_MS) return;
+      last = tMs;
+      draw(tMs);
+    };
+    raf = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(raf);
+  }, [avatar, enginePrefs]);
+
+  // war HUD polling — every 60s, keeps last numbers on a hiccup
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const res = await fetch("/api/afk", { cache: "no-store" });
+        if (!res.ok) throw new Error(`http ${res.status}`);
+        const data = (await res.json()) as AfkApiResponse;
+        if (cancelled) return;
+        const war = data.me?.war === "current" || data.me?.war === "last" ? data.me.war : null;
+        setHud({
+          rank: typeof data.clan?.rank === "number" ? data.clan.rank : null,
+          points: typeof data.me?.points === "number" ? data.me.points : null,
+          war,
+          battleActive: Boolean(data.battle?.active),
+          stale: false,
+        });
+      } catch {
+        if (!cancelled) setHud((h) => ({ ...h, stale: true }));
+      }
+    };
+    pull();
+    const timer = window.setInterval(pull, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("en-GB"));
+
+  return (
+    <main className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-[#0b0a16] p-4">
+      <style>{`
+        @font-face {
+          font-family: 'PS2P';
+          src: url('/fonts/PressStart2P.woff2') format('woff2');
+          font-display: swap;
+        }
+        .afk-pixel {
+          font-family: 'PS2P', ui-monospace, 'Courier New', monospace;
+          text-shadow: 0 0 6px rgba(180, 140, 255, 0.55), 0 2px 0 rgba(0,0,0,0.6);
+          letter-spacing: 0.04em;
+        }
+      `}</style>
+
+      <div className="relative" style={{ width: "min(92vw, 460px)" }}>
+        {/* the room */}
+        <div className="overflow-hidden rounded-2xl border border-violet-900/60 shadow-[0_0_60px_-14px_rgba(139,92,246,0.5)]">
+          <canvas
+            ref={canvasRef}
+            width={ROOM_W}
+            height={ROOM_H}
+            className="block h-auto w-full"
+            style={{ imageRendering: "pixelated" }}
+            role="img"
+            aria-label="A cozy pixel bedroom that follows your local time of day"
+          />
+        </div>
+
+        {/* war HUD */}
+        <div
+          className={`afk-pixel pointer-events-none absolute right-3 top-3 text-right transition-opacity duration-700 ${
+            hud.stale ? "opacity-50" : "opacity-100"
+          }`}
+        >
+          <div className="text-[11px] leading-relaxed text-violet-100 sm:text-xs">
+            MCWV {hud.rank !== null ? `#${hud.rank}` : "#—"}
+          </div>
+          <div className="mt-1 text-[11px] leading-relaxed text-violet-300 sm:text-xs">
+            YOU {fmt(hud.points)}
+          </div>
+          {!hud.battleActive && hud.war === "last" && (
+            <div className="mt-1 text-[7px] tracking-widest text-violet-400/80">LAST WAR</div>
+          )}
+          {hud.battleActive && (
+            <div className="mt-1 text-[7px] tracking-widest text-emerald-300/90">LIVE ⚔</div>
+          )}
+        </div>
+
+        {/* settings gear */}
+        <button
+          type="button"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-label="Room settings"
+          className="absolute bottom-3 right-3 rounded-full border border-violet-800/70 bg-[#17142a]/85 px-2 py-1 text-xs text-violet-200 opacity-60 transition hover:opacity-100"
+        >
+          ⚙️
+        </button>
+
+        {panelOpen && (
+          <div className="absolute bottom-12 right-3 w-56 rounded-xl border border-violet-800/70 bg-[#17142a]/95 p-3 text-xs text-violet-100 shadow-xl backdrop-blur">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-semibold">Room settings</span>
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                className="text-violet-400 hover:text-violet-200"
+                aria-label="Close settings"
+              >
+                ✕
+              </button>
+            </div>
+
+            <label className="mb-3 block">
+              <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
+                Bedtime
+              </span>
+              <select
+                value={prefs.bedtime}
+                onChange={(e) => setPrefs((p) => ({ ...p, bedtime: Number(e.target.value) }))}
+                className="w-full rounded-md border border-violet-800 bg-[#0f0d1e] px-2 py-1 text-violet-100"
+              >
+                <option value={21}>9:00 PM</option>
+                <option value={22}>10:00 PM</option>
+                <option value={23}>11:00 PM</option>
+                <option value={0}>Midnight</option>
+                <option value={1}>1:00 AM</option>
+              </select>
+            </label>
+
+            <SwatchRow
+              label="Skin"
+              colors={SKIN_PRESETS.map((p) => p.value)}
+              selected={prefs.skin}
+              onSelect={(i) => setPrefs((p) => ({ ...p, skin: i }))}
+            />
+            <SwatchRow
+              label="Hair"
+              colors={HAIR_PRESETS.map((p) => p.value)}
+              selected={prefs.hairColor}
+              onSelect={(i) => setPrefs((p) => ({ ...p, hairColor: i }))}
+            />
+            <SwatchRow
+              label="Hoodie"
+              colors={HOODIE_PRESETS.map((p) => p.value)}
+              selected={prefs.hoodie}
+              onSelect={(i) => setPrefs((p) => ({ ...p, hoodie: i }))}
+            />
+
+            <div className="mt-1">
+              <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
+                Hair style
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {HAIR_STYLES.map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setPrefs((p) => ({ ...p, hairStyle: s.value }))}
+                    className={`rounded-md border px-2 py-0.5 text-[10px] ${
+                      prefs.hairStyle === s.value
+                        ? "border-violet-400 bg-violet-500/20 text-violet-100"
+                        : "border-violet-800/60 text-violet-300 hover:border-violet-600"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <p className="text-center text-[11px] text-violet-400/70">
+        your room follows your clock · war stats refresh every 60s
+      </p>
+    </main>
+  );
+}
+
+function SwatchRow({
+  label,
+  colors,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  colors: RGB[];
+  selected: number;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <div className="mb-2">
+      <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">{label}</span>
+      <div className="flex gap-1.5">
+        {colors.map((c, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onSelect(i)}
+            aria-label={`${label} option ${i + 1}`}
+            className={`h-5 w-5 rounded-full border-2 transition ${
+              selected === i
+                ? "border-white scale-110"
+                : "border-black/30 hover:border-violet-300/70"
+            }`}
+            style={{ backgroundColor: css(c) }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
