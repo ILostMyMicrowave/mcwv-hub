@@ -2,10 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import AssistantCard from "@/components/AssistantCard";
+import type { AssistantCardData } from "@/lib/assistantEngine";
+
 type ChatMessage = {
   from: "me" | "bot";
   text: string;
   source?: string | null;
+  card?: AssistantCardData | null;
 };
 
 type AssistantResponse = {
@@ -13,6 +17,7 @@ type AssistantResponse = {
   chips?: string[];
   source?: string;
   topic?: string | null;
+  card?: AssistantCardData | null;
   error?: string;
 };
 
@@ -86,7 +91,7 @@ export default function AssistantBubble() {
       });
       const data = (await res.json().catch(() => ({}))) as AssistantResponse;
       if (!res.ok || !data.reply) throw new Error(data.error ?? "Assistant request failed");
-      setMessages((current) => [...current, { from: "bot", text: String(data.reply), source: data.source ?? null }]);
+      setMessages((current) => [...current, { from: "bot", text: String(data.reply), source: data.source ?? null, card: data.card ?? null }]);
       if (Array.isArray(data.chips) && data.chips.length) setChips(data.chips);
       if (typeof data.topic === "string" && data.topic) topicRef.current = data.topic;
     } catch (err) {
@@ -167,11 +172,7 @@ export default function AssistantBubble() {
                   }
                 >
                   {renderRichText(message.text)}
-                  {message.source?.startsWith("ai:") ? (
-                    <div className="mt-1 text-[10px] text-zinc-500">
-                      ⚡ AI · {message.source.slice(3).split("/").pop()}
-                    </div>
-                  ) : null}
+                  {message.card ? <AssistantCard card={message.card} /> : null}
                 </div>
               </div>
             ))}
