@@ -198,6 +198,28 @@ function weatherLine(w: WeatherState): string {
   }
 }
 
+// --- mobile formatting -------------------------------------------------------
+// Press Start 2P advances ~1em per glyph, so long ticker lines ("CAT FEEDING
+// IN 70 MIN" ≈ 250px) collide with the top-right war HUD on phones. Below the
+// sm breakpoint we swap in pocket-sized strings; a width cap + ellipsis backs
+// it up. Full strings still power the aria/title text.
+
+/** pocket-sized event labels for narrow screens */
+const COMPACT_EVENT_LABEL: Record<string, string> = {
+  "FEEDING THE CAT": "FEEDING CAT",
+  "WATERING PLANTS": "WATERING",
+  "CAT FEEDING": "CAT FEED",
+  "PLANT WATERING": "PLANTS",
+};
+
+/** pocket-sized sky lines (only the ones too wide at 9px get shortened) */
+function compactWeatherLine(w: WeatherState): string {
+  switch (w.kind) {
+    case "rain": return "RAIN ON GLASS"
+    default: return weatherLine(w)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ambience — WebAudio-synthesized rain / wind / crickets / thunder + the
 // room's little domestic one-shots: lamp click, CRT blip, alarm, key clacks,
@@ -539,7 +561,7 @@ export default function AfkRoom() {
   const ambRef = useRef<Ambience | null>(null);
 
   // top-left status ticker: clock + life's next moment (or the sky's mood)
-  const [ticker, setTicker] = useState<{ clock: string; line: string }>({ clock: "--:--", line: "" });
+  const [ticker, setTicker] = useState<{ clock: string; line: string; aria: string }>({ clock: "--:--", line: "", aria: "" });
   const tickerPrev = useRef("");
 
   // pan camera state (mutated directly — no react churn at 12fps)
@@ -753,13 +775,21 @@ export default function AfkRoom() {
         const mm = String(now.getMinutes()).padStart(2, "0");
         const clock = `${hh}:${mm}`;
         const ev = nextEventAt(now, enginePrefs);
-        const line = ev
+        const aria = ev
           ? `${ev.emoji} ${ev.kind === "now" ? "NOW: " : ""}${ev.label}${ev.kind === "in" ? ` IN ${ev.mins} MIN` : ""}`
           : `${KIND_EMOJI[weather.kind]} ${weatherLine(weather)}`;
+        // pocket-sized strings under the sm breakpoint so the ticker never
+        // reaches the war HUD's corner — countdowns keep their minutes as "NM"
+        const compact = v.vw < 640;
+        const line = !compact
+          ? aria
+          : ev
+            ? `${ev.emoji} ${COMPACT_EVENT_LABEL[ev.label] ?? ev.label}${ev.kind === "in" ? ` ${ev.mins}M` : ""}`
+            : `${KIND_EMOJI[weather.kind]} ${compactWeatherLine(weather)}`;
         const key = `${clock}|${line}`;
         if (key !== tickerPrev.current) {
           tickerPrev.current = key;
-          setTicker({ clock, line });
+          setTicker({ clock, line, aria });
         }
       }
 
@@ -932,12 +962,19 @@ export default function AfkRoom() {
         style={{
           top: "max(0.75rem, env(safe-area-inset-top))",
           left: "max(0.75rem, env(safe-area-inset-left))",
+          // keep clear of the top-right war HUD even on the narrowest phones
+          maxWidth: "calc(100vw - 10rem)",
         }}
         role="status"
         aria-label="Room status"
       >
         <div className="text-[11px] leading-relaxed text-violet-100 sm:text-xs">{ticker.clock}</div>
-        <div className="mt-1 text-[9px] leading-relaxed text-violet-300 sm:text-[10px]">{ticker.line}</div>
+        <div
+          className="mt-1 truncate text-[9px] leading-relaxed text-violet-300 sm:text-[10px]"
+          title={ticker.line !== ticker.aria ? ticker.aria : undefined}
+        >
+          {ticker.line}
+        </div>
       </div>
 
       {/* war HUD */}
