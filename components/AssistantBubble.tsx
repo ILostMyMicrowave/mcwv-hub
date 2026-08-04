@@ -12,7 +12,7 @@ type AssistantResponse = {
   reply?: string;
   chips?: string[];
   source?: string;
-  aiRemaining?: number | null;
+  topic?: string | null;
   error?: string;
 };
 
@@ -38,9 +38,9 @@ export default function AssistantBubble() {
   const [chips, setChips] = useState<string[]>(STARTER_CHIPS);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [aiRemaining, setAiRemaining] = useState<number | null>(null);
   const [greeted, setGreeted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const topicRef = useRef<string | null>(null);
 
   useEffect(() => {
     try {
@@ -82,13 +82,13 @@ export default function AssistantBubble() {
       const res = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, context: { topic: topicRef.current } }),
       });
       const data = (await res.json().catch(() => ({}))) as AssistantResponse;
       if (!res.ok || !data.reply) throw new Error(data.error ?? "Assistant request failed");
       setMessages((current) => [...current, { from: "bot", text: String(data.reply), source: data.source ?? null }]);
       if (Array.isArray(data.chips) && data.chips.length) setChips(data.chips);
-      if (typeof data.aiRemaining === "number") setAiRemaining(data.aiRemaining);
+      if (typeof data.topic === "string" && data.topic) topicRef.current = data.topic;
     } catch (err) {
       setMessages((current) => [
         ...current,
@@ -148,13 +148,8 @@ export default function AssistantBubble() {
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 War HQ · always on
               </div>
-            </div>
-            {aiRemaining !== null && aiRemaining <= 3 && (
-              <div className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-200">
-                {aiRemaining} AI left
-              </div>
-            )}
           </div>
+        </div>
 
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
             {messages.map((message, index) => (
