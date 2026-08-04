@@ -93,17 +93,76 @@ export async function GET() {
     }
   }
 
+  // Ask the provider which models THIS key can actually see.
+  const modelsUrl = AI_BASE_URL.replace(/\/chat\/completions$/, "/models")
+  let accountModels: string[] | null = null
+  let accountModelsStatus = 0
+  try {
+    const res = await fetch(modelsUrl, {
+      headers: { Authorization: `Bearer ${AI_API_KEY}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    accountModelsStatus = res.status
+    if (res.ok) {
+      const data = (await res.json().catch(() => null)) as { data?: Array<{ id?: unknown }> } | null
+      accountModels = (data?.data ?? [])
+        .map((entry) => String(entry.id ?? ""))
+        .filter(Boolean)
+    }
+  } catch {
+    accountModelsStatus = -1
+  }
+
+  // If the account can see models we haven't tried, ping up to 5 of them too.
+  const extraModels = (accountModels ?? []).filter((m) => !MODELS.includes(m)).slice(0, 5)
+  for (const model of extraModels) {
+    const started = Date.now()
+    try {
+      const res = await fetch(AI_BASE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${AI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "Reply with exactly: pong" }],
+        }),
+        signal: AbortSignal.timeout(15_000),
+      })
+      const body = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 220)
+      results.push({
+        model,
+        ok: res.ok,
+        status: res.status,
+        ms: Date.now() - started,
+        detail: res.ok ? "✅ answered (account-visible extra)" : body,
+      })
+    } catch (err) {
+      results.push({
+        model,
+        ok: false,
+        status: 0,
+        ms: Date.now() - started,
+        detail: `network/timeout: ${String(err).slice(0, 180)}`,
+      })
+    }
+  }
+
   const anyOk = results.some((r) => r.ok)
   const statuses = [...new Set(results.map((r) => r.status))]
-  const verdict = anyOk
-    ? `✅ AI layer healthy — ${results.find((r) => r.ok)?.model} answered`
-    : statuses.every((s) => s === 402)
-      ? "💳 Provider rejects the account: free tier not provisioned or quota exhausted (402 on every model) — check the provider dashboard's billing/limits page"
-      : statuses.every((s) => s === 401)
-        ? "🔑 API key rejected (401) — regenerate the key at the provider and update AI_API_KEY"
-        : statuses.every((s) => s === 404)
-          ? "❓ All models 404 — none of these model IDs exist at this provider; check the provider's model list"
-          : `⚠️ All models failing with mixed/unknown statuses: ${statuses.join(", ")}`
+  let verdict: string
+  if (anyOk) {
+    const winners = results.filter((r) => r.ok).map((r) => r.model)
+    verdict = `✅ Working model(s) found! Put this in ASSISTANT_AI_MODELS (Production) and redeploy: ${winners.join(",")}`
+  } else if (accountModels && accountModels.length === 0) {
+    verdict =
+      "🚫 The key's model list is EMPTY — the provider provisioned this account with zero usable models (free tier stuck). Check for a verification email / billing banner in the provider dashboard."
+  } else if (accountModels) {
+    verdict = `🔍 Your account can see ${accountModels.length} model(s) but none answered — see per-model statuses below.`
+  } else {
+    verdict = `⚠️ All configured models failed (statuses: ${statuses.join(", ")}) and the account model list couldn't be fetched (HTTP ${accountModelsStatus}).`
+  }
 
   return NextResponse.json({
     checkedAt: new Date().toISOString(),
@@ -116,6 +175,9 @@ export async function GET() {
     models: MODELS,
     modelsFromEnv: Boolean(process.env.ASSISTANT_AI_MODELS),
     dailyAiLimit: process.env.ASSISTANT_DAILY_AI_LIMIT ?? "10",
+    accountModelsEndpoint: modelsUrl,
+    accountModelsStatus,
+    accountModels,
     results,
   })
 }
