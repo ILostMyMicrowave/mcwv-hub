@@ -4,6 +4,7 @@ import { getIronSession } from "iron-session";
 import { z } from "zod";
 import { pool } from "@/lib/db";
 import { sessionOptions, type SessionData } from "@/lib/session";
+import { mergeDisplayBadges, parseBadgeArray } from "@/lib/badgeMerge";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -101,6 +102,8 @@ async function ensureBadgePresetTable() {
   `);
 
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS leaderboard_badge_presets_key_idx ON leaderboard_badge_presets (badge_key)`);
+  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_id TEXT`);
+  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_name TEXT`);
 }
 
 async function normalizeAssignableBadges(badges: string[]) {
@@ -113,7 +116,8 @@ async function normalizeAssignableBadges(badges: string[]) {
     `SELECT badge_key
      FROM leaderboard_badge_presets
      WHERE enabled = TRUE
-       AND badge_key = ANY($1)`,
+       AND badge_key = ANY($1)
+       AND linked_discord_role_id IS NULL`,
     [requested]
   );
 
@@ -160,6 +164,7 @@ async function ensureProfileStylesTable() {
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS font_preset TEXT NOT NULL DEFAULT 'default'`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS auto_badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_styles_roblox_id_key ON user_profile_styles (roblox_id)`);
 }
@@ -321,16 +326,29 @@ export async function POST(req: Request) {
     await ensureProfileStylesTable();
 
     let badges: string[] = [];
+    const existing = await pool.query<{ badges: unknown; auto_badges: unknown }>(
+      `SELECT badges, auto_badges FROM user_profile_styles WHERE roblox_id = $1 LIMIT 1`,
+      [targetRobloxId]
+    );
     if (canManageCards) {
-      badges = await normalizeAssignableBadges(parsed.data.badges);
+      // Officers edit the MANUAL pins; role-linked (auto) badges ride along
+      // untouched and are re-merged into the display order after them.
+      const selected = await normalizeAssignableBadges(parsed.data.badges);
+      const autoBadges = parseBadgeArray(existing.rows[0]?.auto_badges);
+      if (autoBadges.length) {
+        const orderRes = await pool.query<{ badge_key: string; sort_order: number }>(
+          `SELECT badge_key, sort_order FROM leaderboard_badge_presets`
+        );
+        const orderOf = (key: string) => {
+          const row = orderRes.rows.find((r) => r.badge_key === key);
+          return row ? Number(row.sort_order ?? 100) : Number.MAX_SAFE_INTEGER / 2;
+        };
+        badges = mergeDisplayBadges(selected, autoBadges, orderOf);
+      } else {
+        badges = selected;
+      }
     } else {
-      const existing = await pool.query<{ badges: unknown }>(
-        `SELECT badges FROM user_profile_styles WHERE roblox_id = $1 LIMIT 1`,
-        [targetRobloxId]
-      );
-      badges = Array.isArray(existing.rows[0]?.badges)
-        ? existing.rows[0].badges.map(String).slice(0, 8)
-        : [];
+      badges = parseBadgeArray(existing.rows[0]?.badges).slice(0, 8);
     }
 
     const result = await pool.query(
