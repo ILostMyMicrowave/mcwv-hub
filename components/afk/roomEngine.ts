@@ -129,6 +129,8 @@ export function moodAt(hour: number): MoodFrame {
 export type AfkPrefs = {
   /** local hour the avatar goes to bed: 21,22,23,0 (=24),1 (=25) */
   bedtime: number
+  /** v7: the cat's name — ticker lines use it when set ("MOCHI IS EATING") */
+  catName?: string
 }
 
 export const DEFAULT_PREFS: AfkPrefs = { bedtime: 23 }
@@ -167,7 +169,7 @@ export function lightningAt(tMs: number, w: WeatherState): number {
   return clamp01(f) * (0.55 + 0.45 * w.intensity)
 }
 
-const daySeedOf = (now: Date) =>
+export const daySeedOf = (now: Date) =>
   hash((now.getFullYear() * 372 + (now.getMonth() + 1) * 31 + now.getDate()) * 0.773)
 
 /**
@@ -210,7 +212,13 @@ export type DayPhase = "sleep" | "wake" | "day" | "evening" | "tobed"
 
 export type SceneState = {
   hour: number
+  /** day of week 0..6 — powers the weekly rhythm (v7) */
+  dow: number
   weekend: boolean
+  /** effective wake hour — Sundays lie in an extra hour (v7) */
+  wakeH: number
+  /** effective bedtime hour — Friday nights run 45 min later (v7) */
+  bedH: number
   sleeping: boolean
   /** brief stand-by-bed moment after waking / before bed */
   standing: boolean
@@ -224,6 +232,18 @@ export type SceneState = {
 
 const hoursUntil = (from: number, to: number) => ((to - from + 24) % 24 + 24) % 24
 
+/** the weekly rhythm: weekdays 6:30, weekends 9:00 + an hour for Sundays;
+ *  Friday nights stretch bedtime by 45 minutes */
+export type DayHours = { wake: number; bedH: number; friday: boolean; sunday: boolean }
+export function dayHoursOf(dow: number, prefs: AfkPrefs): DayHours {
+  const weekend = dow === 0 || dow === 6
+  const wake = (weekend ? 9 : 6.5) + (dow === 0 ? 1 : 0)
+  const raw = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  let bedH = raw + (dow === 5 ? 0.75 : 0)
+  if (bedH >= 24) bedH -= 24
+  return { wake, bedH, friday: dow === 5, sunday: dow === 0 }
+}
+
 export function sceneStateAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): SceneState {
   const hour =
     now.getHours() +
@@ -231,9 +251,9 @@ export function sceneStateAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): SceneS
     (now.getSeconds() + now.getMilliseconds() / 1000) / 3600
   const day = now.getDay()
   const weekend = day === 0 || day === 6
-  const wake = weekend ? 9 : 6.5
-  const bedRaw = prefs.bedtime
-  const bedH = bedRaw >= 24 ? bedRaw - 24 : bedRaw
+  const hours = dayHoursOf(day, prefs)
+  const wake = hours.wake
+  const bedH = hours.bedH
 
   const sleeping =
     bedH < wake ? hour >= bedH && hour < wake : hour >= bedH || hour < wake
@@ -264,7 +284,10 @@ export function sceneStateAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): SceneS
 
   return {
     hour,
+    dow: day,
     weekend,
+    wakeH: hours.wake,
+    bedH: hours.bedH,
     sleeping,
     standing,
     justWoke,
@@ -675,7 +698,7 @@ function sunMoonPos(hour: number, g: RoomGeo, inn: { x: number; y: number; w: nu
   return { x: inn.x + 6 + nt * (inn.w - 14), y: inn.y + inn.h - 14 - Math.sin(Math.PI * nt) * (inn.h - 22), sun: false }
 }
 
-function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth: WeatherState, wl: WindowLight, life: LifeState) {
+function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth: WeatherState, wl: WindowLight, life: LifeState, now: Date) {
   const m = s.mood
   const W = { x: g.winX, y: g.winY, w: g.winW, h: g.winH }
   const inn = { x: W.x + 4, y: W.y + 4, w: W.w - 8, h: W.h - 8 }
@@ -790,8 +813,9 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth:
     }
   }
 
-  // shooting star — one streaks by every ~53s on clear nights
-  if (starVis > 0.5) {
+  // shooting stars — only inside the night's few seeded meteor windows, so a
+  // streak is a rare treat: one flies every ~53s while a window is open
+  if (starVis > 0.5 && meteorWindowAt(now, wth, s)) {
     const cycle = tMs % 53000
     if (cycle < 900) {
       const p = cycle / 900
@@ -799,10 +823,10 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth:
       const sx = inn.x + Math.floor(hash(lane * 3.3) * inn.w * 0.55) + Math.floor(p * 18)
       const sy = inn.y + 1 + Math.floor(hash(lane * 7.7) * 10) + Math.floor(p * 9)
       const fade = Math.sin(Math.PI * p)
-      t.add(sx, sy, 1, 1, [255, 255, 255], 0.85 * fade)
-      t.add(sx - 1, sy - 1, 1, 1, [220, 228, 255], 0.5 * fade)
-      t.add(sx - 2, sy - 1, 1, 1, [190, 200, 255], 0.3 * fade)
-      t.add(sx - 3, sy - 2, 1, 1, [190, 200, 255], 0.18 * fade)
+      t.blend(sx, sy, 1, 1, [250, 252, 255], 0.9 * fade) // bright dashes don't survive soft adds
+      t.add(sx - 1, sy - 1, 1, 1, [220, 228, 255], 0.55 * fade)
+      t.add(sx - 2, sy - 1, 1, 1, [190, 200, 255], 0.35 * fade)
+      t.add(sx - 3, sy - 2, 1, 1, [190, 200, 255], 0.22 * fade)
     }
   }
 
@@ -825,10 +849,24 @@ function drawWindow(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, wth:
       ellipse(t, body.x, body.y, 3, 3, "fill", mix([255, 226, 150], [255, 196, 120], hot))
       ellipse(t, body.x, body.y, 2, 2, "fill", [255, 242, 190])
     } else {
-      if (m.stars > 0.1) glow(t, body.x, body.y, 7, 7, [190, 205, 255], 0.32 * m.stars)
-      ellipse(t, body.x, body.y, 3, 3, "fill", [232, 234, 220])
-      t.fill(body.x - 1, body.y - 1, 1, 1, [198, 200, 186])
-      t.fill(body.x + 1, body.y + 1, 1, 1, [206, 208, 194])
+      // v7: the REAL moon — phase-accurate disc, waxing lit on the right,
+      // earthshine ghost on the dark side when it's a thin sliver
+      const mp = moonPhaseAt(now)
+      if (m.stars > 0.1) glow(t, body.x, body.y, 7, 7, [190, 205, 255], 0.32 * m.stars * (0.25 + 0.75 * mp.illum))
+      const k = Math.cos(2 * Math.PI * mp.frac)
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          if (dx * dx + dy * dy > 10) continue
+          const lit = mp.waxing ? dx / 3 >= k : dx / 3 <= -k
+          if (lit) t.fill(body.x + dx, body.y + dy, 1, 1, [232, 234, 220])
+          else t.blend(body.x + dx, body.y + dy, 1, 1, [150, 156, 180], 0.35) // earthshine
+        }
+      }
+      if (mp.illum > 0.55) {
+        // craters only when there's enough moon to hold them
+        t.fill(body.x - 1, body.y - 1, 1, 1, [198, 200, 186])
+        t.fill(body.x + 1, body.y + 1, 1, 1, [206, 208, 194])
+      }
     }
   }
 
@@ -1422,11 +1460,13 @@ const CAT_BODY: RGB = [214, 176, 126] // ginger
 const CAT_STRIPE: RGB = [176, 136, 88]
 const CAT_DARK: RGB = [120, 88, 60]
 
-function drawCat(t: PixelTarget, g: RoomGeo, life: CatFrame, tMs: number) {
+function drawCat(t: PixelTarget, g: RoomGeo, life: CatFrame, tMs: number, fx?: LiveOverrides) {
   const { x, pose, facing, perk } = life
   const gy = life.gy
   const breathe = Math.sin(tMs * 0.0011) > -0.2 ? 1 : 0
   const flick = tMs % 6000 < 700
+  // v7: tap-to-pet hearts — drawn first so they rise above whatever pose follows
+  if (fx?.petHeartsUntil && tMs < fx.petHeartsUntil) drawHearts(t, x + 6, gy - 8, tMs)
 
   if (pose === "loaf") {
     const y = gy - 7
@@ -1469,6 +1509,34 @@ function drawCat(t: PixelTarget, g: RoomGeo, life: CatFrame, tMs: number) {
       t.blend(x + 7, gy - 10, 1, 1, [230, 232, 255], a)
       t.blend(x + 6, gy - 9, 3, 1, [230, 232, 255], a)
     }
+    return
+  }
+
+  if (pose === "zoom") {
+    // ZOOMIES: flattened body, pinned ears, tail straight, blurring legs
+    contactShadow(t, x, gy, 13, 0.2)
+    const step = Math.floor(tMs / 80) % 2
+    t.fill(x, gy - 5, 13, 4, CAT_BODY)
+    t.fill(x + 1, gy - 6, 11, 1, CAT_BODY)
+    t.fill(x + 3, gy - 5, 1, 1, CAT_STRIPE)
+    t.fill(x + 7, gy - 5, 1, 1, CAT_STRIPE)
+    t.fill(x + 10, gy - 5, 1, 1, CAT_STRIPE)
+    // pinned-back ear + low head at the front
+    const ex = facing > 0 ? x + 11 : x + 1
+    t.fill(ex, gy - 6, 1, 1, CAT_STRIPE)
+    const hx = facing > 0 ? x + 12 : x - 2
+    t.fill(hx, gy - 6, 3, 2, CAT_BODY)
+    // tail straight out behind
+    const tx = facing > 0 ? x - 3 : x + 13
+    t.fill(tx, gy - 6, 3, 1, CAT_STRIPE)
+    // blur legs flickering at 12fps-ish
+    t.fill(x + 2, gy - 1 - step, 1, 1 + step, CAT_BODY)
+    t.fill(x + 5, gy - 2 + step, 1, 2 - step, CAT_BODY)
+    t.fill(x + 9, gy - 1 - step, 1, 1 + step, CAT_BODY)
+    t.fill(x + 11, gy - 2 + step, 1, 2 - step, CAT_BODY)
+    // speed lines trailing
+    t.blend(facing > 0 ? x - 6 : x + 15, gy - 5, 3, 1, [200, 200, 230], 0.18)
+    t.blend(facing > 0 ? x - 8 : x + 17, gy - 3, 3, 1, [200, 200, 230], 0.12)
     return
   }
 
@@ -1626,7 +1694,7 @@ function drawRimLights(t: PixelTarget, g: RoomGeo, s: SceneState, wl: WindowLigh
 // room's little lives run on their own schedule whether anyone watches or
 // not — open the page a day later and the cat has simply moved on with life.
 
-export type CatPose = "loaf" | "sit" | "curl" | "sill" | "desk" | "walk" | "eat"
+export type CatPose = "loaf" | "sit" | "curl" | "sill" | "desk" | "walk" | "eat" | "zoom"
 
 export type CatFrame = {
   x: number
@@ -1663,6 +1731,7 @@ export type ResidentFrame =
   | { mode: "stand"; justWoke: boolean; yawning: boolean; x: number }
   | { mode: "walk"; x: number; facing: 1 | -1; carry?: CarryProp }
   | { mode: "chore"; kind: "pour" | "water" | "pet"; x: number; p: number; facing: 1 | -1 }
+  | { mode: "winddown"; prop: "book" | "phone"; p: number }
   | { mode: "sit" }
 
 export type LifeState = {
@@ -1837,7 +1906,7 @@ export type Chores = {
 const wrapDay = (v: number) => ((v % 86400) + 86400) % 86400
 
 function choresAt(g: RoomGeo, s: SceneState, prefs: AfkPrefs, daySeed: number): Chores {
-  const wake = s.weekend ? 9 : 6.5
+  const wake = s.wakeH
   const bowlX = g.dresserX + 30
   const standX = bowlX + 8
   const outT = Math.abs(g.sitX - standX) / WALK_SPEED
@@ -1882,9 +1951,9 @@ function pettableCat(cat: CatFrame, floorY: number): boolean {
   return (cat.pose === "loaf" || cat.pose === "curl") && cat.gy > floorY + 8
 }
 
-function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs, cat: CatFrame, chores: Chores): ResidentFrame {
-  const wake = s.weekend ? 9 : 6.5
-  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs, cat: CatFrame, chores: Chores, daySeed: number = 0): ResidentFrame {
+  const wake = s.wakeH
+  const bedH = s.bedH
   const wakeSec = wake * 3600
   const daySec = s.hour * 3600
   const sitX = g.sitX
@@ -1950,7 +2019,12 @@ function residentPlan(g: RoomGeo, s: SceneState, prefs: AfkPrefs, cat: CatFrame,
       const p = (preRel - 0.9 - (petNow ? 3 : 0) - leg1) / rest
       return { mode: "walk", x: Math.round(from - (from - riseX) * p), facing: -1 }
     }
-    return { mode: "stand", justWoke: false, yawning: true, x: riseX }
+    const arrive = 0.9 + (petNow ? 3 + leg1 : 0) + back
+    // one big bedside yawn, then climb in and wind down with a book or the
+    // phone — each night picks its poison
+    if (preRel < arrive + 2.2) return { mode: "stand", justWoke: false, yawning: true, x: riseX }
+    const prop = hash(daySeed * 23.77 + 1.9) < 0.5 ? ("book" as const) : ("phone" as const)
+    return { mode: "winddown", prop, p: clamp01((preRel - arrive - 2.2) / Math.max(1, 1080 - arrive - 2.2)) }
   }
 
   // --- errands: cat feeding (twice a day) ---------------------------------
@@ -1999,7 +2073,7 @@ function lampLevelAt(s: SceneState, prefs: AfkPrefs): number {
   const env = clamp01((s.mood.ambient - 0.14) / 0.06)
   let gate = 1
   if (s.sleeping) {
-    const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+    const bedH = s.bedH
     const relIn = wrapDay(s.hour * 3600 - bedH * 3600)
     // click as the quilt slides: on through flap & perch, fade out, off all night
     gate = relIn < 2.8 ? 1 : relIn < 3.4 ? 1 - (relIn - 2.8) / 0.6 : 0
@@ -2012,14 +2086,14 @@ function screenPowerAt(
   s: SceneState,
   prefs: AfkPrefs
 ): { power: number; crtLine: number | null } {
-  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  const bedH = s.bedH
   if (s.sleeping) {
     const relIn = wrapDay(s.hour * 3600 - bedH * 3600)
     if (relIn < 2.8) return { power: 1, crtLine: null }
     if (relIn < 3.3) return { power: 0, crtLine: -((relIn - 2.8) / 0.5) } // collapse
     return { power: 0, crtLine: null }
   }
-  const wake = s.weekend ? 9 : 6.5
+  const wake = s.wakeH
   const rel = s.hour * 3600 - wake * 3600
   if (s.phase === "wake" && rel >= 0 && rel < 0.5) return { power: rel / 0.5, crtLine: rel / 0.5 } // warm-up
   return { power: 1, crtLine: null }
@@ -2028,10 +2102,10 @@ function screenPowerAt(
 /** curtains: closed overnight, slide open as the morning walk passes the
  *  window, slide shut as the wind-down walk passes it again */
 function curtainPAt(g: RoomGeo, s: SceneState, prefs: AfkPrefs, chores: Chores, cat: CatFrame): number {
-  const wake = s.weekend ? 9 : 6.5
+  const wake = s.wakeH
   const wakeSec = wake * 3600
   const daySec = s.hour * 3600
-  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  const bedH = s.bedH
   const riseX = g.bedX + 30
   const sitX = g.sitX
 
@@ -2063,6 +2137,57 @@ function plantBoostAt(s: SceneState, g: RoomGeo, chores: Chores): number {
   const rel = s.hour * 3600 - firstWatered
   if (rel < 0 || rel > 3600) return 0
   return clamp01(1 - rel / 3600)
+}
+
+// --- v7: real moon phases + meteor showers -----------------------------------
+
+export type MoonPhase = {
+  /** days since the last new moon */
+  age: number
+  /** 0..1 across the cycle (0 = new, 0.5 = full) */
+  frac: number
+  /** 0..1 lit fraction (full moon ≈ 1) */
+  illum: number
+  /** growing (lit on the right here in the northern hemisphere) */
+  waxing: boolean
+}
+
+export function moonPhaseAt(now: Date): MoonPhase {
+  const SYNODIC = 29.530588853
+  const epoch = Date.UTC(2000, 0, 6, 18, 14) // a well-known new moon
+  const age = ((((now.getTime() - epoch) / 86400000) % SYNODIC) + SYNODIC) % SYNODIC
+  const frac = age / SYNODIC
+  return { age, frac, illum: (1 - Math.cos(2 * Math.PI * frac)) / 2, waxing: frac < 0.5 }
+}
+
+/** a few seeded ~2.5-min meteor windows per clear night — streaks only fly
+ *  during them, so catching one feels rare and worth wishing on */
+export function meteorWindowAt(now: Date, weather: WeatherState, s: SceneState): boolean {
+  if (s.mood.stars < 0.5) return false
+  const fair = weather.kind === "clear" || (weather.kind === "cloud" && weather.intensity < 0.5)
+  if (!fair) return false
+  const daySeed = daySeedOf(now)
+  const mins = now.getHours() * 60 + now.getMinutes()
+  for (let k = 0; k < 4; k++) {
+    const start = 20.8 * 60 + Math.floor(hash(daySeed * 31.7 + k * 7.13) * 7 * 60)
+    if (mins >= start && mins < start + 2.5) return true
+  }
+  return false
+}
+
+// --- v7: the zoomies -----------------------------------------------------------
+
+export type Zoomies = { start: number; dur: number; laps: number; am: boolean }
+
+/** evening madness on ~42% of days; a rare 3am special on ~12% */
+export function zoomiesAt(daySeed: number): Zoomies | null {
+  if (hash(daySeed * 13.77 + 2.41) < 0.42) {
+    return { start: (20.55 + hash(daySeed * 3.31 + 0.62) * 0.6) * 3600, dur: 11, laps: 3, am: false }
+  }
+  if (hash(daySeed * 29.17 + 3.33) < 0.12) {
+    return { start: (3.05 + hash(daySeed * 9.7 + 0.31) * 0.35) * 3600, dur: 4.2, laps: 1, am: true }
+  }
+  return null
 }
 
 /** faint rainbow in the slot right after rain/storm gives way to fair sky */
@@ -2098,6 +2223,29 @@ export function lifeState(
 
   // cat first, then the resident (pet stops need to know where the cat is)
   let cat = catPlan(g, s, wl, bf, w, daySeed, tMs, bird)
+  // ZOOMIES: laps of the room at full scuttle, foreground plane, ears pinned
+  {
+    const zm = zoomiesAt(daySeed)
+    if (zm) {
+      const rel = daySec - zm.start
+      if (rel >= 0 && rel < zm.dur) {
+        const lapT = zm.dur / zm.laps
+        const q = (rel % lapT) / lapT
+        const lap = Math.floor(rel / lapT)
+        const dir: 1 | -1 = lap % 2 === 0 ? 1 : -1
+        const eased = q * q * (3 - 2 * q)
+        const x0 = 24
+        const x1 = g.w - 32
+        cat = {
+          x: Math.round(dir > 0 ? x0 + (x1 - x0) * eased : x1 - (x1 - x0) * eased),
+          gy: g.floorY + 9,
+          pose: "zoom",
+          facing: dir,
+          perk: false,
+        }
+      }
+    }
+  }
   // supper time overrides everything — trot to the bowl and chow down
   for (const f of chores.feeds) {
     const eatStart = f.start + f.outT + 0.6
@@ -2120,7 +2268,7 @@ export function lifeState(
     }
   }
 
-  const resident = residentPlan(g, s, prefs, cat, chores)
+  const resident = residentPlan(g, s, prefs, cat, chores, daySeed)
   if (resident.mode === "chore" && resident.kind === "pet") cat = { ...cat, purr: true }
 
   const snack = snackPlan(g, s, daySeed)
@@ -2129,7 +2277,7 @@ export function lifeState(
 
   const working =
     !s.weekend && s.phase === "day" && chores.work.some(([a, b]) => daySec >= a && daySec < b)
-  const wake = s.weekend ? 9 : 6.5
+  const wake = s.wakeH
   const alarmRing = s.phase === "wake" && daySec - wake * 3600 >= 0 && daySec - wake * 3600 < 1.1
   const lampLevel = lampLevelAt(s, prefs)
   const { power: screenPower, crtLine } = screenPowerAt(s, prefs)
@@ -2155,13 +2303,49 @@ export function lifeStateAt(
   prefs: AfkPrefs = DEFAULT_PREFS,
   tMs: number = Date.now(),
   size: RoomSize = { w: BASE_W, h: 160 },
-  weather: WeatherState = CLEAR_WEATHER
+  weather: WeatherState = CLEAR_WEATHER,
+  overrides?: LiveOverrides
 ): LifeState {
   const g = layoutOf(size.w, size.h)
   const s = sceneStateAt(now, prefs)
   const wl = dimWindowLightForWeather(windowLightOf(s), weather)
   const bf = beamField(g, wl)
-  return lifeState(g, s, wl, bf, weather, now, tMs, prefs)
+  return applyOverrides(lifeState(g, s, wl, bf, weather, now, tMs, prefs), overrides, tMs)
+}
+
+// --- v7: live overrides — taps reach into the schedule (politely, briefly) ----
+
+export type LiveOverrides = {
+  /** force the lamp on/off until this tMs (user tapped it) */
+  lamp?: { value: boolean; until: number }
+  /** force the monitor on/off until this tMs */
+  screen?: { value: boolean; until: number }
+  /** hearts float above the cat until this tMs (user petted it) */
+  petHeartsUntil?: number
+}
+
+function applyOverrides(life: LifeState, ov: LiveOverrides | undefined, tMs: number): LifeState {
+  if (!ov) return life
+  if (ov.lamp && ov.lamp.until > tMs) life.lampLevel = ov.lamp.value ? 1 : 0
+  if (ov.screen && ov.screen.until > tMs) {
+    life.screenPower = ov.screen.value ? 1 : 0
+    life.crtLine = null
+  }
+  return life
+}
+
+/** little hearts rising — shared by the pet chore and tap-to-pet (v7) */
+function drawHearts(t: PixelTarget, x: number, y: number, tMs: number) {
+  for (let i = 0; i < 3; i++) {
+    const age = ((tMs + i * 800) % 2400) / 2400
+    const hx = x + Math.round(Math.sin(age * 6 + i) * 2)
+    const hy = y - Math.round(age * 10)
+    const a = 0.9 * (1 - age)
+    if (a > 0.1) {
+      t.blend(hx, hy, 1, 1, [255, 120, 150], a)
+      t.blend(hx + 1, hy, 1, 1, [255, 150, 175], a)
+    }
+  }
 }
 
 /** where the camera should look: the resident (or the microwave run in progress) */
@@ -2177,6 +2361,8 @@ export function focusXAt(life: LifeState, g: RoomGeo): number {
     case "walk":
     case "chore":
       return r.x + 5
+    case "winddown":
+      return g.bedX + 40
     case "sit":
       return g.sitX + 5
   }
@@ -2206,17 +2392,39 @@ export function nextEventAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): AfkEven
   const daySeed = daySeedOf(now)
   const chores = choresAt(g, s, prefs, daySeed)
   const daySec = s.hour * 3600
-  const wake = s.weekend ? 9 : 6.5
-  const bedH = prefs.bedtime >= 24 ? prefs.bedtime - 24 : prefs.bedtime
+  const wake = s.wakeH
+  const bedH = s.bedH
 
   // ---- active little moments (priority order) ----
+  const name = prefs.catName?.trim().toUpperCase().slice(0, 10) || null
+
+  // winding down in bed: a book some nights, one more video on the rest
+  {
+    const preStart = wrapDay(bedH * 3600 - 1080)
+    const preRel = wrapDay(daySec - preStart)
+    const back = Math.abs(g.bedX + 30 - g.sitX) / WALK_SPEED
+    const arrive = 0.9 + back + 2.2 + 6 // journey + yawn + a settle buffer
+    // but the last 10 minutes belong to the LIGHTS OUT countdown (urgency wins)
+    if (!s.sleeping && preRel >= arrive && preRel < 1080 && bedH * 3600 - daySec > 600) {
+      const prop = hash(daySeed * 23.77 + 1.9) < 0.5 ? "book" : "phone"
+      return prop === "book"
+        ? { emoji: "📖", label: "READING IN BED", kind: "now" }
+        : { emoji: "📱", label: "ONE MORE VIDEO", kind: "now" }
+    }
+  }
+  // ZOOMIES — evening laps, or the rare 3am special
+  {
+    const zm = zoomiesAt(daySeed)
+    if (zm && daySec >= zm.start && daySec < zm.start + zm.dur)
+      return { emoji: "🐈", label: name ? `${name} HAS ZOOMIES` : "ZOOMIES", kind: "now" }
+  }
   for (const f of chores.feeds) {
     const eatEnd = f.start + f.outT + 0.6 + 100
     if (daySec >= f.start && daySec < eatEnd)
-      return { emoji: "🐈", label: "FEEDING THE CAT", kind: "now" }
+      return { emoji: "🐈", label: name ? `${name} IS EATING` : "FEEDING THE CAT", kind: "now" }
   }
   {
-    // microwave snack run window (mirrors snackPlan's timing)
+    // microwave snack run window (mirrors snackPlan's timing) — Fridays it's pizza
     const eveningStart = 20 * 3600 + Math.floor(daySeed * 95) * 60
     const weekendStart = 15 * 3600 + Math.floor(hash(daySeed * 13.7) * 55) * 60
     const startSec = daySec >= eveningStart ? eveningStart : s.weekend ? weekendStart : eveningStart
@@ -2225,7 +2433,9 @@ export function nextEventAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): AfkEven
     const walkMs = Math.max(2500, Math.round(((seatX - microX) / 14) * 1000))
     const totalSec = (walkMs * 2 + 900 + 6200) / 1000
     if (daySec >= startSec && daySec < startSec + totalSec && !s.sleeping && !s.standing)
-      return { emoji: "🍿", label: "SNACK RUN", kind: "now" }
+      return s.dow === 5
+        ? { emoji: "🍕", label: "PIZZA NIGHT", kind: "now" }
+        : { emoji: "🍿", label: "SNACK RUN", kind: "now" }
   }
   if (chores.water) {
     const w = chores.water
@@ -2233,6 +2443,9 @@ export function nextEventAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): AfkEven
     if (daySec >= w.start && daySec < w.start + total)
       return { emoji: "🪴", label: "WATERING PLANTS", kind: "now" }
   }
+  // Sunday's breakfast tray ride-along
+  if (s.dow === 0 && s.hour >= 10.25 && s.hour < 10.9)
+    return { emoji: "🍳", label: "BREAKFAST IN BED", kind: "now" }
 
   // ---- next scheduled thing inside the horizon ----
   // urgent journey beats (lights out / wind-down / wake-up) outrank ambient
@@ -2246,14 +2459,14 @@ export function nextEventAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): AfkEven
     // bedtime beats get a tight 45-min leash so they don't hog the evening line
     urgent.push({ at: bedH * 3600, h: 45 * 60, emoji: "🛏️", label: "LIGHTS OUT" })
     urgent.push({ at: bedH * 3600 - 1080, h: 45 * 60, emoji: "🌙", label: "WIND-DOWN" })
-    for (const f of chores.feeds) casual.push({ at: f.start, h: HORIZON_SEC, emoji: "🐈", label: "CAT FEEDING" })
+    for (const f of chores.feeds) casual.push({ at: f.start, h: HORIZON_SEC, emoji: "🐈", label: name ? `${name}'S FEEDING` : "CAT FEEDING" })
     for (const [a] of chores.work) casual.push({ at: a, h: HORIZON_SEC, emoji: "💻", label: "DESK WORK" })
     if (chores.water) casual.push({ at: chores.water.start, h: HORIZON_SEC, emoji: "🪴", label: "PLANT WATERING" })
     {
       const eveningStart = 20 * 3600 + Math.floor(daySeed * 95) * 60
       const weekendStart = 15 * 3600 + Math.floor(hash(daySeed * 13.7) * 55) * 60
       const startSec = daySec >= eveningStart ? eveningStart : s.weekend ? weekendStart : eveningStart
-      casual.push({ at: startSec, h: HORIZON_SEC, emoji: "🍿", label: "SNACK RUN" })
+      casual.push({ at: startSec, h: HORIZON_SEC, emoji: s.dow === 5 ? "🍕" : "🍿", label: s.dow === 5 ? "PIZZA NIGHT" : "SNACK RUN" })
     }
   } else {
     urgent.push({ at: wake * 3600, h: HORIZON_SEC, emoji: "⏰", label: "WAKE-UP" })
@@ -2275,6 +2488,21 @@ export function nextEventAt(now: Date, prefs: AfkPrefs = DEFAULT_PREFS): AfkEven
   // ---- ambient sky moments, when no journey is imminent ----
   if (rainbowAt(now, weatherAt(now), s.mood.ambient) > 0.25)
     return { emoji: "🌈", label: "RAINBOW", kind: "now" }
+  {
+    // full-moon nights (≈3 a month) get top billing over the summer fireflies
+    const w0 = weatherAt(now)
+    const fair = w0.kind === "clear" || (w0.kind === "cloud" && w0.intensity < 0.6)
+    if (moonPhaseAt(now).illum >= 0.94 && s.hour >= 19.2 && !s.sleeping && fair)
+      return { emoji: "🌕", label: "FULL MOON TONIGHT", kind: "now" }
+  }
+  {
+    // catch a shooting star mid-streak -> the line whispers it (beats the
+    // fireflies' constant glow: a streak is gone in seconds)
+    if (meteorWindowAt(now, weatherAt(now), s)) {
+      const ms = now.getSeconds() * 1000 + now.getMilliseconds()
+      if (ms % 53000 < 2800) return { emoji: "☄️", label: "MAKE A WISH", kind: "now" }
+    }
+  }
   {
     const month = now.getMonth()
     if (
@@ -2583,9 +2811,57 @@ function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: num
   }
 }
 
+/** v7: propped on the pillow winding down — a book some nights, the phone's
+ *  little doom-glow on others, until the quilt-flap bedtime sequence takes over */
+function drawAvatarWinddown(
+  t: PixelTarget,
+  g: RoomGeo,
+  av: AvatarSpec,
+  tMs: number,
+  frame: { prop: "book" | "phone"; p: number }
+) {
+  const x = g.bedX
+  const top = g.floorY - 20
+  const breathing = Math.sin(tMs * 0.0016) > 0 ? 1 : 0
+
+  // legs stretched out over the sheet, knees up a touch on book nights
+  t.fill(x + 12, top + 2, 17, 4, scale(av.hoodie, 0.55))
+  t.fill(x + 27, top + 4, 4, 2, [40, 36, 48]) // toes (socks)
+  if (frame.prop === "book") {
+    t.fill(x + 13, top, 5, 3 - breathing, scale(av.hoodie, 0.62)) // knee bump
+  }
+
+  // torso against the pillow, riding an easy breath
+  t.fill(x + 8, top - 9 - breathing, 9, 11, av.hoodie)
+  t.fill(x + 8, top - 9 - breathing, 9, 2, scale(av.hoodie, 1.18))
+  t.fill(x + 16, top - 9 - breathing, 1, 11, scale(av.hoodie, 0.75))
+
+  if (frame.prop === "book") {
+    // two hands holding a little paperback up front
+    const flip = tMs % 7000 < 350 // page-turn moment
+    t.fill(x + 15, top - 6, 2, 2, av.skin) // left hand
+    t.fill(x + 20, top - 6, 2, 2, av.skin) // right hand
+    t.fill(x + 16, top - 8, 6, 5, [152, 74, 74]) // cover
+    t.fill(x + 17, top - 7, flip ? 4 : 5, 3, [238, 234, 222]) // pages
+    t.fill(x + 19, top - 7, 1, 3, [214, 210, 198]) // spine crease
+    if (flip) t.fill(x + 21, top - 8, 1, 1, [238, 234, 222]) // the turning page's curl
+  } else {
+    // one hand idles, the other holds the phone up — face lit in doom-blue
+    t.fill(x + 12, top - 4, 2, 2, av.skin)
+    const thumb = tMs % 2600 < 200 ? 1 : 0 // scroll flick
+    t.fill(x + 14, top - 8 + thumb, 2, 4, scale(av.hoodie, 0.92)) // forearm
+    t.fill(x + 15, top - 10 + thumb, 2, 2, av.skin) // hand
+    t.fill(x + 16, top - 13 + thumb, 2, 4, [28, 30, 42]) // the slab
+    const flick = 0.09 + (tMs % 640 < 320 ? 0.04 : 0) // doom-flicker
+    t.add(x + 16, top - 12 + thumb, 1, 2, [150, 180, 255], 0.85) // its screen
+    t.add(x + 9, top - 15, 7, 6, [140, 170, 255], flick) // glow on the face
+  }
+
+  drawHead(t, av, x + 8, top - 17 - breathing, tMs % 3400 < 130, false)
+}
+
 /** seated on the mattress front edge, feet toward the floor — shared by both sequences */
-function drawAvatarSeatedEdge(t: PixelTarget, g: RoomGeo, av: AvatarSpec, x: number, tMs: number, yawn: boolean) {
-  const floor = g.floorY
+function drawAvatarSeatedEdge(t: PixelTarget, g: RoomGeo, av: AvatarSpec, x: number, tMs: number, yawn: boolean) {  const floor = g.floorY
   const top = floor - 20
   const blink = tMs % 3400 < 130
 
@@ -2968,14 +3244,18 @@ export function renderRoom(
   prefs: AfkPrefs = DEFAULT_PREFS,
   tMs: number = Date.now(),
   size: RoomSize = { w: BASE_W, h: 160 },
-  weather: WeatherState = CLEAR_WEATHER
+  weather: WeatherState = CLEAR_WEATHER,
+  overrides?: LiveOverrides
 ) {
   const g = layoutOf(size.w, size.h)
   const s = sceneStateAt(now, prefs)
-  const wlSky = windowLightOf(s)
+  const wlSkyBase = windowLightOf(s)
+  // brighter night glow around a full moon, dimmer hush at the new moon
+  const moonBoost = wlSkyBase.day ? 1 : 0.75 + 0.5 * moonPhaseAt(now).illum
+  const wlSky: WindowLight = { ...wlSkyBase, peak: wlSkyBase.peak * moonBoost }
   const wl0 = dimWindowLightForWeather(wlSky, weather)
   const bf0 = beamField(g, wl0)
-  const life = lifeState(g, s, wl0, bf0, weather, now, tMs, prefs)
+  const life = applyOverrides(lifeState(g, s, wl0, bf0, weather, now, tMs, prefs), overrides, tMs)
   const flash = lightningAt(tMs, weather)
   const dayNum = Math.floor(now.getTime() / 86400000)
   // drawn light obeys the curtains (the sky itself stays full-strength)
@@ -2986,7 +3266,7 @@ export function renderRoom(
   drawWalls(t, g)
   drawFloor(t, g)
 
-  drawWindow(t, g, s, tMs, weather, wlSky /* full-strength for sky lining */, life)
+  drawWindow(t, g, s, tMs, weather, wlSky /* full-strength for sky lining */, life, now)
   drawWallWash(t, g, s, wl)
   drawGodRays(t, g, wl, bf)
   drawPoster(t, g, tMs)
@@ -2997,6 +3277,14 @@ export function renderRoom(
   drawFairyLights(t, g, s, tMs, weather.wind)
 
   drawRug(t, g)
+  // v7: Friday-night pizza ritual — the box lives on the floor by the bed 'til morning
+  if ((s.dow === 5 && s.hour >= 18.5) || (s.dow === 6 && s.hour < 7)) {
+    const bx = g.bedX + 84
+    t.fill(bx, g.floorY - 4, 10, 3, [238, 226, 206])
+    t.fill(bx + 1, g.floorY - 3, 8, 1, [202, 92, 84])
+    t.fill(bx + 4, g.floorY - 2, 2, 1, [168, 138, 92]) // grease smile
+    t.fill(bx + 9, g.floorY - 3, 1, 2, scale([238, 226, 206], 0.72) as RGB) // bent corner
+  }
   drawDresserAndMicrowave(t, g, s, tMs, life.snack)
   drawBowl(t, g, life)
   drawPlant(t, g, tMs, weather.wind, life.plantBoost)
@@ -3014,11 +3302,27 @@ export function renderRoom(
   else if (res.mode === "stand") drawAvatarStanding(t, g, avatar, tMs, res.justWoke, res.yawning, res.x)
   else if (res.mode === "walk") drawAvatarWalking(t, g, avatar, tMs, res.x, res.facing, res.carry ?? false)
   else if (res.mode === "chore") drawAvatarChore(t, g, avatar, tMs, res)
+  else if (res.mode === "winddown") drawAvatarWinddown(t, g, avatar, tMs, res)
   else if (life.snack.active)
     drawAvatarWalking(t, g, avatar, tMs, life.snack.x, life.snack.facing, life.snack.carryMug ? "mug" : false)
   else drawAvatarSitting(t, g, s, avatar, tMs, life)
 
-  drawCat(t, g, life.cat, tMs)
+  // v7: Sunday breakfast-in-bed tray — appears after the lie-in morning stirs
+  if (s.dow === 0 && s.hour >= 10.25 && s.hour < 10.9) {
+    const bx = g.bedX + 33
+    const by = g.floorY - 20
+    t.fill(bx, by - 1, 12, 1, [132, 92, 60]) // tray
+    t.fill(bx + 1, by - 4, 5, 3, [244, 240, 230]) // plate
+    t.fill(bx + 2, by - 3, 3, 2, [255, 208, 92]) // eggs
+    t.fill(bx + 3, by - 3, 1, 1, [255, 250, 240]) // egg white pop
+    t.fill(bx + 7, by - 4, 3, 3, [202, 88, 80]) // mug
+    t.fill(bx + 10, by - 3, 1, 1, [202, 88, 80]) // handle
+    const steam = 0.22 + 0.16 * Math.sin(tMs * 0.0021)
+    t.blend(bx + 7, by - 6 - (Math.floor(tMs / 900) % 2), 1, 1, [220, 224, 240], steam)
+    t.blend(bx + 9, by - 5 - (Math.floor(tMs / 900 + 1) % 2), 1, 1, [220, 224, 240], steam * 0.7)
+  }
+
+  drawCat(t, g, life.cat, tMs, overrides)
   drawRimLights(t, g, s, wl)
   drawDust(t, g, wl, bf, tMs)
 
