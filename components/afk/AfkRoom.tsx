@@ -565,7 +565,7 @@ export default function AfkRoom() {
   const tickerPrev = useRef("");
 
   // pan camera state (mutated directly — no react churn at 12fps)
-  const cam = useRef({ x: -1, lastDrag: -1e12 });
+  const cam = useRef({ x: -1, v: 0, target: -1, lastDrag: -1e12, lastT: 0 });
   const sfxPrev = useRef({
     lamp: 1,
     screen: 1,
@@ -650,6 +650,10 @@ export default function AfkRoom() {
       const c = cam.current;
       const maxX = Math.max(0, v.cssW - v.vw);
       c.x = c.x < 0 ? maxX / 2 : Math.min(Math.max(0, c.x), maxX);
+      c.v = 0;
+      if (v.mode === "pan" && panInnerRef.current) {
+        panInnerRef.current.style.transform = `translate3d(${(-c.x).toFixed(2)}px, ${v.ty}px, 0)`;
+      }
     };
     const onResize = () => {
       window.clearTimeout(timer);
@@ -674,13 +678,18 @@ export default function AfkRoom() {
     let startClient = 0;
     let startX = 0;
     let moved = 0;
+    let lastDx = 0;
+    let lastMoveT = 0;
     const maxX = () => Math.max(0, viewRef.current.cssW - viewRef.current.vw);
 
     const down = (ev: PointerEvent) => {
       dragging = true;
       moved = 0;
+      lastDx = 0;
+      lastMoveT = performance.now();
       startClient = ev.clientX;
       startX = cam.current.x < 0 ? maxX() / 2 : cam.current.x;
+      cam.current.v = 0; // grab kills any spring/fling motion
       el.setPointerCapture(ev.pointerId);
     };
     const move = (ev: PointerEvent) => {
@@ -699,9 +708,24 @@ export default function AfkRoom() {
         }
       }
       cam.current.x = Math.min(maxX(), Math.max(0, startX - dx));
+      // smoothed finger velocity → fling inertia on release
+      const nowT = performance.now();
+      const ddt = (nowT - lastMoveT) / 1000;
+      if (ddt > 0.008) {
+        cam.current.v = cam.current.v * 0.65 + (-(dx - lastDx) / ddt) * 0.35;
+        lastDx = dx;
+        lastMoveT = nowT;
+      }
+      // write here too (not just the rAF tick): reduced-motion users get no loop,
+      // and this keeps the room glued to the finger even between ticks
+      const inner = panInnerRef.current;
+      if (inner) inner.style.transform = `translate3d(${(-cam.current.x).toFixed(2)}px, ${viewRef.current.ty}px, 0)`;
     };
     const up = () => {
       dragging = false;
+      // finger held still before lifting → no fling; otherwise cap the throw
+      if (performance.now() - lastMoveT > 90) cam.current.v = 0;
+      else cam.current.v = Math.max(-2600, Math.min(2600, cam.current.v));
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
@@ -793,18 +817,12 @@ export default function AfkRoom() {
         }
       }
 
-      // --- camera: soft-follow the resident unless the user drove recently ---
-      if (v.mode === "pan" && panInnerRef.current) {
+      // --- camera: hand the spring its target; the motion itself runs at full
+      // display rate in tickCam (this draw only goes at a chill 12fps) ---
+      if (v.mode === "pan") {
         const maxX = Math.max(0, v.cssW - v.vw);
-        const c = cam.current;
-        if (c.x < 0) c.x = maxX / 2;
-        if (!reduced && performance.now() - c.lastDrag > 6000) {
-          const focusCss = focusXAt(life, g) * v.ps;
-          const targetX = Math.min(maxX, Math.max(0, focusCss - v.vw * 0.5));
-          c.x += (targetX - c.x) * 0.075;
-        }
-        c.x = Math.min(maxX, Math.max(0, c.x));
-        panInnerRef.current.style.transform = `translate3d(${-Math.round(c.x)}px, ${v.ty}px, 0)`;
+        const focusCss = focusXAt(life, g) * v.ps;
+        cam.current.target = Math.min(maxX, Math.max(0, focusCss - v.vw * 0.5));
       }
 
       // --- domestic one-shots on rising/falling edges (silent when off) ---
@@ -857,14 +875,62 @@ export default function AfkRoom() {
       );
     };
 
+    // camera motion at display refresh rate — a critically damped spring toward
+    // the resident's focus point (never overshoots), plus fling inertia after
+    // the user lets go. Sub-pixel transforms: no more whole-px stair-steps.
+    const tickCam = (tMs: number) => {
+      const inner = panInnerRef.current;
+      const vv = viewRef.current;
+      if (!inner) return;
+      const c = cam.current;
+      const dt = c.lastT > 0 ? Math.min(0.05, Math.max(0, (tMs - c.lastT) / 1000)) : 0;
+      c.lastT = tMs;
+      if (vv.mode !== "pan") return;
+      const maxX = Math.max(0, vv.cssW - vv.vw);
+      if (c.x < 0) c.x = maxX / 2;
+      if (dt > 0) {
+        if (tMs - c.lastDrag < 6000) {
+          // user-driven window: only a dying fling glides here
+          if (Math.abs(c.v) > 8) {
+            c.x += c.v * dt;
+            c.v *= Math.exp(-3.4 * dt);
+            if (c.x <= 0 || c.x >= maxX) {
+              c.x = Math.min(maxX, Math.max(0, c.x));
+              c.v = 0;
+            }
+          } else c.v = 0;
+        } else if (!reduced) {
+          // critically damped spring — smooth acceleration, zero overshoot
+          const om = 4.4;
+          const target = c.target < 0 ? maxX / 2 : c.target;
+          c.v += (-(c.x - target) * om * om - 2 * om * c.v) * dt;
+          c.x += c.v * dt;
+          if (Math.abs(target - c.x) < 0.5 && Math.abs(c.v) < 3) {
+            c.x = target;
+            c.v = 0;
+          }
+          if (c.x < 0) {
+            c.x = 0;
+            c.v = 0;
+          } else if (c.x > maxX) {
+            c.x = maxX;
+            c.v = 0;
+          }
+        }
+      }
+      inner.style.transform = `translate3d(${(-c.x).toFixed(2)}px, ${vv.ty}px, 0)`;
+    };
+
     if (reduced) {
       draw(0);
+      tickCam(0); // settle the initial transform even without the loop
       const timer = window.setInterval(() => draw(0), 30_000);
       return () => window.clearInterval(timer);
     }
 
     const loop = (tMs: number) => {
       raf = window.requestAnimationFrame(loop);
+      tickCam(tMs); // camera moves at display rate — buttery even at 12fps paint
       if (tMs - last < FRAME_MS) return;
       last = tMs;
       draw(tMs);
