@@ -46,12 +46,16 @@ export default function RootLayout({
             `,
           }}
         />
-        {/* Hide the boot intro pre-paint when it already played this session */}
+        {/* Hide the boot intro pre-paint when it already played on this device
+            (localStorage) or in a legacy session still carrying the old flag */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                if (sessionStorage.getItem("mcwv_intro_seen_v1") === "1") {
+                if (
+                  localStorage.getItem("mcwv_intro_seen_v1") === "1" ||
+                  sessionStorage.getItem("mcwv_intro_seen_v1") === "1"
+                ) {
                   document.documentElement.setAttribute("data-intro-done", "1");
                 }
               } catch {}
