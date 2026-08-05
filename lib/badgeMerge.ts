@@ -63,3 +63,38 @@ export function countBadgeDiff(previous: string[], next: string[]) {
 export function manualSubset(badges: string[], autoBadges: string[]): string[] {
   return badges.filter((key) => !autoBadges.includes(key));
 }
+
+/**
+ * Tier collapse for role-linked badges.
+ *
+ * Of the EXCLUSIVE-tier badges a member qualifies for, only the one(s) with
+ * the highest Discord role position survive — Owner hides Head Officer hides
+ * Officer, etc. Non-tier badges (OG, Donator, ...) are never touched.
+ *
+ * positionOf returns the Discord role position (higher = higher in the server
+ * role list) or null when the role isn't in the catalogue. If NO tier badge
+ * has a known position, nothing is collapsed (safe default: show all).
+ */
+export function collapseExclusiveTiers<
+  T extends { key: string; exclusive: boolean; roleId: string }
+>(
+  qualifying: readonly T[],
+  positionOf: (roleId: string) => number | null
+): T[] {
+  const flagged = qualifying.filter((badge) => badge.exclusive);
+  if (flagged.length <= 1) return [...qualifying];
+
+  let bestPosition = Number.NEGATIVE_INFINITY;
+  for (const badge of flagged) {
+    const position = positionOf(badge.roleId);
+    if (position !== null && position > bestPosition) bestPosition = position;
+  }
+  if (bestPosition === Number.NEGATIVE_INFINITY) return [...qualifying];
+
+  const winners = new Set(
+    flagged
+      .filter((badge) => (positionOf(badge.roleId) ?? Number.NEGATIVE_INFINITY) === bestPosition)
+      .map((badge) => badge.key)
+  );
+  return qualifying.filter((badge) => !badge.exclusive || winners.has(badge.key));
+}
