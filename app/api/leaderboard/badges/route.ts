@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { z } from "zod";
@@ -7,6 +7,8 @@ import { sessionOptions, type SessionData } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+// Linking a badge kicks a role sweep after the response — give it room on Hobby.
+export const maxDuration = 60;
 
 type BadgePresetRow = {
   id: number;
@@ -16,6 +18,8 @@ type BadgePresetRow = {
   color: string;
   enabled: boolean;
   sort_order: number;
+  linked_discord_role_id: string | null;
+  linked_discord_role_name: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -33,6 +37,15 @@ const badgeSchema = z.object({
   color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a valid hex colour, e.g. #34d399."),
   enabled: z.boolean().default(true),
   sortOrder: z.number().int().min(0).max(9999).default(100),
+  // Optional Discord-role link: members holding this role get the badge
+  // pinned automatically (read-only on Discord; nothing edits any roles).
+  linkedDiscordRoleId: z
+    .string()
+    .trim()
+    .regex(/^\d{15,25}$/, "Discord role IDs are 15-25 digits.")
+    .nullable()
+    .optional(),
+  linkedDiscordRoleName: z.string().trim().max(100).nullable().optional(),
 });
 
 function isOwner(user: CurrentUser | null) {
@@ -69,6 +82,8 @@ function normalizePreset(row: BadgePresetRow) {
     color: row.color,
     enabled: Boolean(row.enabled),
     sortOrder: Number(row.sort_order ?? 100),
+    linkedDiscordRoleId: row.linked_discord_role_id ?? null,
+    linkedDiscordRoleName: row.linked_discord_role_name ?? null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -101,6 +116,8 @@ async function ensureBadgeTables() {
   await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS leaderboard_badge_presets_key_idx ON leaderboard_badge_presets (badge_key)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS leaderboard_badge_presets_enabled_order_idx ON leaderboard_badge_presets (enabled, sort_order, label)`);
+  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_id TEXT`);
+  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_name TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS leaderboard_badge_meta (
@@ -156,18 +173,28 @@ export async function GET() {
     await ensureBadgeTables();
 
     const result = await pool.query<BadgePresetRow>(
-      `SELECT id, badge_key, label, emoji, color, enabled, sort_order, created_at, updated_at
+      `SELECT id, badge_key, label, emoji, color, enabled, sort_order,
+              linked_discord_role_id, linked_discord_role_name, created_at, updated_at
        FROM leaderboard_badge_presets
        WHERE enabled = TRUE OR $1 = TRUE
        ORDER BY sort_order ASC, label ASC`,
       [isOwner(user)]
     );
 
+    let syncMeta = null;
+    try {
+      const { getRoleSyncMeta } = await import("@/lib/badgeRoleSync");
+      syncMeta = await getRoleSyncMeta();
+    } catch {
+      // meta is informational only
+    }
+
     return NextResponse.json({
       success: true,
       canManagePresets: isOwner(user),
       canAssignBadges: isOfficer(user),
       presets: result.rows.map(normalizePreset),
+      sync: syncMeta,
     });
   } catch (err) {
     console.error("[leaderboard/badges] GET error:", err);
@@ -204,6 +231,21 @@ export async function POST(req: Request) {
     await ensureBadgeTables();
 
     const key = slugifyBadge(parsed.data.label);
+    const nextRoleId = parsed.data.linkedDiscordRoleId || null;
+
+    // Read the previous link so transitions can be handled precisely:
+    //   null -> role   = newly linked (strip manual pins, sync now)
+    //   role -> role'  = re-linked to a different role (same handling)
+    //   role -> null   = unlinked (clear auto badges off cards)
+    //   role -> role   = unrelated edit (leave cards alone)
+    const previous = await pool.query<{ linked_discord_role_id: string | null }>(
+      `SELECT linked_discord_role_id
+       FROM leaderboard_badge_presets
+       WHERE badge_key = $1
+       LIMIT 1`,
+      [key]
+    );
+    const prevRoleId = previous.rows[0]?.linked_discord_role_id || null;
 
     const result = await pool.query<BadgePresetRow>(
       `INSERT INTO leaderboard_badge_presets (
@@ -213,9 +255,11 @@ export async function POST(req: Request) {
         color,
         enabled,
         sort_order,
+        linked_discord_role_id,
+        linked_discord_role_name,
         created_by,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       ON CONFLICT (badge_key)
       DO UPDATE SET
         label = EXCLUDED.label,
@@ -223,8 +267,11 @@ export async function POST(req: Request) {
         color = EXCLUDED.color,
         enabled = EXCLUDED.enabled,
         sort_order = EXCLUDED.sort_order,
+        linked_discord_role_id = EXCLUDED.linked_discord_role_id,
+        linked_discord_role_name = EXCLUDED.linked_discord_role_name,
         updated_at = NOW()
-      RETURNING id, badge_key, label, emoji, color, enabled, sort_order, created_at, updated_at`,
+      RETURNING id, badge_key, label, emoji, color, enabled, sort_order,
+                linked_discord_role_id, linked_discord_role_name, created_at, updated_at`,
       [
         key,
         parsed.data.label,
@@ -232,9 +279,39 @@ export async function POST(req: Request) {
         parsed.data.color,
         parsed.data.enabled,
         parsed.data.sortOrder,
+        parsed.data.linkedDiscordRoleId || null,
+        parsed.data.linkedDiscordRoleName || null,
         Number(user.id),
       ]
     );
+
+    const roleSync = await import("@/lib/badgeRoleSync");
+
+    if (nextRoleId && prevRoleId !== nextRoleId) {
+      // Newly (re-)linked: the badge becomes auto-managed. Wipe manual pins so
+      // the sweep owns its presence on cards, then sync right away — the owner
+      // should see role members get the badge within seconds.
+      try {
+        await roleSync.stripManualBadgeEverywhere(key);
+      } catch (stripErr) {
+        console.error("[leaderboard/badges] manual-strip after link failed:", stripErr);
+      }
+      after(async () => {
+        try {
+          await roleSync.syncBadgeRoles({ trigger: "preset-link", budgetMs: 25_000 });
+        } catch (syncErr) {
+          console.error("[leaderboard/badges] post-link sync failed:", syncErr);
+        }
+      });
+    } else if (!nextRoleId && prevRoleId) {
+      // Unlinked: nothing recomputes this badge anymore, so stale auto-granted
+      // copies would stick to cards forever — strip them everywhere.
+      try {
+        await roleSync.stripBadgeEverywhere(key);
+      } catch (stripErr) {
+        console.error("[leaderboard/badges] strip after unlink failed:", stripErr);
+      }
+    }
 
     return NextResponse.json({ success: true, preset: normalizePreset(result.rows[0]) });
   } catch (err) {
@@ -270,16 +347,9 @@ export async function DELETE(req: Request) {
     );
 
     if (stylesTable.rows[0]?.exists) {
-      await pool.query(
-        `UPDATE user_profile_styles
-         SET badges = COALESCE((
-           SELECT jsonb_agg(value)
-           FROM jsonb_array_elements_text(badges) AS value
-           WHERE value <> $1
-         ), '[]'::jsonb)
-         WHERE badges ? $1`,
-        [key]
-      );
+      // strip from BOTH the display array and the auto (role-synced) array
+      const { stripBadgeEverywhere } = await import("@/lib/badgeRoleSync");
+      await stripBadgeEverywhere(key);
     }
 
     return NextResponse.json({ success: true });
