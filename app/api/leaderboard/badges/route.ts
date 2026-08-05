@@ -20,6 +20,7 @@ type BadgePresetRow = {
   sort_order: number;
   linked_discord_role_id: string | null;
   linked_discord_role_name: string | null;
+  exclusive_tier: boolean;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -32,6 +33,13 @@ type CurrentUser = {
 
 const badgeSchema = z.object({
   id: z.number().int().positive().optional(),
+  // Present when EDITING an existing preset (key stays stable so cards keep
+  // their badges even if the label changes). Absent = create/upsert by slug.
+  key: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9_]{1,48}$/, "Invalid badge key.")
+    .optional(),
   label: z.string().trim().min(1, "Badge label is required.").max(32, "Badge label is too long."),
   emoji: z.string().trim().max(16).nullable().optional(),
   color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a valid hex colour, e.g. #34d399."),
@@ -46,6 +54,17 @@ const badgeSchema = z.object({
     .nullable()
     .optional(),
   linkedDiscordRoleName: z.string().trim().max(100).nullable().optional(),
+  // Tier badges: of the tier badges a member qualifies for, only the one with
+  // the highest Discord role position shows (Owner hides Head Officer hides
+  // Officer, etc.). Only meaningful when a Discord role is linked.
+  exclusiveTier: z.boolean().default(false),
+});
+
+const reorderSchema = z.object({
+  keys: z
+    .array(z.string().trim().regex(/^[a-z0-9_]{1,48}$/, "Invalid badge key."))
+    .min(1)
+    .max(200),
 });
 
 function isOwner(user: CurrentUser | null) {
@@ -84,6 +103,7 @@ function normalizePreset(row: BadgePresetRow) {
     sortOrder: Number(row.sort_order ?? 100),
     linkedDiscordRoleId: row.linked_discord_role_id ?? null,
     linkedDiscordRoleName: row.linked_discord_role_name ?? null,
+    exclusiveTier: Boolean(row.exclusive_tier),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -118,6 +138,7 @@ async function ensureBadgeTables() {
   await pool.query(`CREATE INDEX IF NOT EXISTS leaderboard_badge_presets_enabled_order_idx ON leaderboard_badge_presets (enabled, sort_order, label)`);
   await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_id TEXT`);
   await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_name TEXT`);
+  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS exclusive_tier BOOLEAN NOT NULL DEFAULT FALSE`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS leaderboard_badge_meta (
@@ -174,7 +195,7 @@ export async function GET() {
 
     const result = await pool.query<BadgePresetRow>(
       `SELECT id, badge_key, label, emoji, color, enabled, sort_order,
-              linked_discord_role_id, linked_discord_role_name, created_at, updated_at
+              linked_discord_role_id, linked_discord_role_name, exclusive_tier, created_at, updated_at
        FROM leaderboard_badge_presets
        WHERE enabled = TRUE OR $1 = TRUE
        ORDER BY sort_order ASC, label ASC`,
@@ -230,7 +251,8 @@ export async function POST(req: Request) {
 
     await ensureBadgeTables();
 
-    const key = slugifyBadge(parsed.data.label);
+    const editKey = parsed.data.key || "";
+    const key = editKey || slugifyBadge(parsed.data.label);
     const nextRoleId = parsed.data.linkedDiscordRoleId || null;
 
     // Read the previous link so transitions can be handled precisely:
@@ -247,43 +269,78 @@ export async function POST(req: Request) {
     );
     const prevRoleId = previous.rows[0]?.linked_discord_role_id || null;
 
-    const result = await pool.query<BadgePresetRow>(
-      `INSERT INTO leaderboard_badge_presets (
-        badge_key,
-        label,
-        emoji,
-        color,
-        enabled,
-        sort_order,
-        linked_discord_role_id,
-        linked_discord_role_name,
-        created_by,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-      ON CONFLICT (badge_key)
-      DO UPDATE SET
-        label = EXCLUDED.label,
-        emoji = EXCLUDED.emoji,
-        color = EXCLUDED.color,
-        enabled = EXCLUDED.enabled,
-        sort_order = EXCLUDED.sort_order,
-        linked_discord_role_id = EXCLUDED.linked_discord_role_id,
-        linked_discord_role_name = EXCLUDED.linked_discord_role_name,
-        updated_at = NOW()
-      RETURNING id, badge_key, label, emoji, color, enabled, sort_order,
-                linked_discord_role_id, linked_discord_role_name, created_at, updated_at`,
-      [
-        key,
-        parsed.data.label,
-        emoji || null,
-        parsed.data.color,
-        parsed.data.enabled,
-        parsed.data.sortOrder,
-        parsed.data.linkedDiscordRoleId || null,
-        parsed.data.linkedDiscordRoleName || null,
-        Number(user.id),
-      ]
-    );
+    if (editKey && !previous.rows.length) {
+      return NextResponse.json({ error: "Badge preset not found — it may have been deleted." }, { status: 404 });
+    }
+
+    const returningCols = `id, badge_key, label, emoji, color, enabled, sort_order,
+                linked_discord_role_id, linked_discord_role_name, exclusive_tier, created_at, updated_at`;
+
+    const result = editKey
+      ? // Edit mode: the key is stable, so cards keep their badges even when
+        // the label changes. sort_order is untouched (use the reorder arrows).
+        await pool.query<BadgePresetRow>(
+          `UPDATE leaderboard_badge_presets
+           SET label = $2,
+               emoji = $3,
+               color = $4,
+               enabled = $5,
+               linked_discord_role_id = $6,
+               linked_discord_role_name = $7,
+               exclusive_tier = $8,
+               updated_at = NOW()
+           WHERE badge_key = $1
+           RETURNING ${returningCols}`,
+          [
+            key,
+            parsed.data.label,
+            emoji || null,
+            parsed.data.color,
+            parsed.data.enabled,
+            nextRoleId,
+            parsed.data.linkedDiscordRoleName || null,
+            parsed.data.exclusiveTier && Boolean(nextRoleId),
+          ]
+        )
+      : await pool.query<BadgePresetRow>(
+          `INSERT INTO leaderboard_badge_presets (
+            badge_key,
+            label,
+            emoji,
+            color,
+            enabled,
+            sort_order,
+            linked_discord_role_id,
+            linked_discord_role_name,
+            exclusive_tier,
+            created_by,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+          ON CONFLICT (badge_key)
+          DO UPDATE SET
+            label = EXCLUDED.label,
+            emoji = EXCLUDED.emoji,
+            color = EXCLUDED.color,
+            enabled = EXCLUDED.enabled,
+            sort_order = EXCLUDED.sort_order,
+            linked_discord_role_id = EXCLUDED.linked_discord_role_id,
+            linked_discord_role_name = EXCLUDED.linked_discord_role_name,
+            exclusive_tier = EXCLUDED.exclusive_tier,
+            updated_at = NOW()
+          RETURNING ${returningCols}`,
+          [
+            key,
+            parsed.data.label,
+            emoji || null,
+            parsed.data.color,
+            parsed.data.enabled,
+            parsed.data.sortOrder,
+            nextRoleId,
+            parsed.data.linkedDiscordRoleName || null,
+            parsed.data.exclusiveTier && Boolean(nextRoleId),
+            Number(user.id),
+          ]
+        );
 
     const roleSync = await import("@/lib/badgeRoleSync");
 
@@ -317,6 +374,49 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("[leaderboard/badges] POST error:", err);
     return NextResponse.json({ error: "Failed to save badge preset" }, { status: 500 });
+  }
+}
+
+// Reorder presets: body { keys: [...] } becomes the new sort_order (0..n-1).
+// Drives picker order, admin pills, and the auto-badge order on cards.
+export async function PATCH(req: Request) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!isOwner(user)) {
+      return NextResponse.json({ error: "Only the owner can manage badge presets." }, { status: 403 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const parsed = reorderSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.errors[0]?.message ?? "Invalid reorder payload" },
+        { status: 400 }
+      );
+    }
+
+    await ensureBadgeTables();
+
+    const keys = parsed.data.keys;
+    await pool.query(
+      `UPDATE leaderboard_badge_presets AS p
+       SET sort_order = v.ord, updated_at = NOW()
+       FROM (
+         SELECT unnest($1::text[]) AS badge_key, unnest($2::int[]) AS ord
+       ) AS v
+       WHERE p.badge_key = v.badge_key`,
+      [keys, keys.map((_, index) => index)]
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("[leaderboard/badges] PATCH error:", err);
+    return NextResponse.json({ error: "Failed to reorder badge presets" }, { status: 500 });
   }
 }
 
