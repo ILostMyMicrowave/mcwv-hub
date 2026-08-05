@@ -1588,7 +1588,7 @@ function drawRimLights(t: PixelTarget, g: RoomGeo, s: SceneState, wl: WindowLigh
   // bed: headboard left edge + top, quilt top edge, pillow edge
   t.add(g.bedX - 2, bedTop - 18, 1, 36, c, a)
   t.add(g.bedX - 2, bedTop - 18, 6, 1, c, a * 0.8)
-  t.add(g.bedX + 26, bedTop - 2, 40, 1, c, a * 0.5)
+  t.add(g.bedX + 22, bedTop - 2, 44, 1, c, a * 0.5)
   t.add(g.bedX + 8, bedTop - 2, 1, 8, c, a * 0.4)
   // dresser + microwave tops
   t.add(g.dresserX, dresserTop, 1, 24, c, a * 0.7)
@@ -2543,28 +2543,35 @@ function drawAvatarSleeping(t: PixelTarget, g: RoomGeo, av: AvatarSpec, tMs: num
     t.fill(hx + 1, hy - 2, 1, 1, hair)
     t.fill(hx + 5, hy - 2, 1, 1, hair)
   }
-  // peacefully closed eyes + a soft cheek shade
-  t.fill(hx + 2, hy + 3, 2, 1, [70, 55, 60])
-  t.fill(hx + 5, hy + 3, 2, 1, [70, 55, 60])
-  t.fill(hx + 2, hy + 4, 1, 1, [122, 94, 96]) // lash hint
-  t.fill(hx + 6, hy + 4, 1, 1, scale(av.skin, 0.84) as RGB)
+  // peacefully closed eyes: thin lid lines + a lash tick under each — in dim
+  // night light the old fat bars read as wide-awake open eyes
+  t.fill(hx + 2, hy + 3, 2, 1, [96, 74, 78])
+  t.fill(hx + 5, hy + 3, 2, 1, [96, 74, 78])
+  t.fill(hx + 2, hy + 4, 1, 1, [122, 94, 96]) // lash hints
+  t.fill(hx + 6, hy + 4, 1, 1, [122, 94, 96])
+  t.fill(hx + 6, hy + 5, 1, 1, scale(av.skin, 0.84) as RGB) // cheek shade
   // the snot bubble — it swells and shrinks with every breath
   const bub = breath > 0.45 ? 2 : 1
   t.blend(hx + 4, hy + 6 - bub, bub, bub, [214, 226, 255], 0.26 + 0.12 * breath)
   if (bub > 1) t.blend(hx + 4, hy + 4, 1, 1, [246, 250, 255], 0.5)
 
-  // quilt over the body, the breath traveling down it as a roaming highlight
+  // quilt over the body, TUCKED UP TO THE CHIN: the patchwork now rises in a
+  // little shoulder stair to meet the jaw — the old cliff left a bare sheet
+  // band between pillow and covers that read as a missing body
   const breathe = Math.round(breath)
-  quilt(t, x + 26, bumpY, 54, 20 + (top - 1 - bumpY))
-  t.fill(x + 26, bumpY + 2, 3, 17, scale(QUILT_A, 0.7))
+  const qh = 20 + (top - 1 - bumpY)
+  quilt(t, x + 24, bumpY, 56, qh)
+  t.fill(x + 22, bumpY + 2, 2, 1, QUILT_A) // shoulder stair…
+  t.fill(x + 20, bumpY + 3, 4, qh - 3, QUILT_A) // …rising to just right of the chin
+  t.fill(x + 20, bumpY + 3, 1, qh - 3, scale(QUILT_A, 0.72)) // seam shade on the rise
   const waveX = x + 30 + Math.round(breath * 14)
   t.blend(waveX, bumpY + 1, 5, 1, QUILT_HL, 0.5)
   t.blend(waveX + 1, bumpY + 2, 3, 1, QUILT_HL, 0.28)
 
-  // one arm flopped over the covers, riding the breathing chest
-  const armY = bumpY + 3 - breathe
-  t.fill(x + 28, armY + 1, 4, 2, scale(av.hoodie, 0.92))
-  t.fill(x + 31, armY + 2, 2, 2, av.skin) // the hand
+  // one hand out of the covers, tucked up by the cheek — riding every breath
+  t.fill(x + 22, bumpY + 1, 3, 3, scale(av.hoodie, 0.92)) // sleeve peeking over the fold
+  t.fill(x + 19, bumpY + 2, 2, 2, av.skin) // the hand
+  t.fill(x + 21, bumpY + 3, 1, 1, av.skin) // knuckle
 
   // Z's drifting up from the head
   for (let i = 0; i < 3; i++) {
@@ -2808,7 +2815,7 @@ function drawFishTank(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
 function drawAlarmClock(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, ringing: boolean) {
   const x = g.bedX - 1
   const top = g.floorY - 20
-  const y = top - 25
+  const y = top - 22 // feet rest on the headboard's top edge — nothing floats
   const jig = ringing ? (Math.floor(tMs / 70) % 2 === 0 ? 1 : -1) : 0
   // bells + hammer
   t.fill(x - 1 + jig, y - 2, 2, 2, [206, 208, 216])
