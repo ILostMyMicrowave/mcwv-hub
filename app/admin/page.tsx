@@ -5331,6 +5331,7 @@ type LeaderboardBadgePreset = {
   sortOrder: number;
   linkedDiscordRoleId?: string | null;
   linkedDiscordRoleName?: string | null;
+  exclusiveTier?: boolean | null;
 };
 
 type BadgeRoleOption = {
@@ -5366,12 +5367,31 @@ function BadgePresetManager() {
   const [emoji, setEmoji] = useState("");
   const [color, setColor] = useState("#34d399");
   const [roleId, setRoleId] = useState("");
+  const [tier, setTier] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [roles, setRoles] = useState<BadgeRoleOption[]>([]);
   const [rolesNote, setRolesNote] = useState("");
   const [syncMeta, setSyncMeta] = useState<BadgeRoleSyncMeta>(null);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const editing = presets.find((preset) => preset.key === editingKey) ?? null;
+
+  // If the editing target links to a role the bot didn't return (bot asleep,
+  // role deleted), keep that role selectable so saving can't silently unlink.
+  const roleOptions = useMemo(() => {
+    if (editing?.linkedDiscordRoleId && !roles.some((role) => role.id === editing.linkedDiscordRoleId)) {
+      return [
+        {
+          id: editing.linkedDiscordRoleId,
+          name: `${editing.linkedDiscordRoleName ?? "Linked role"} (not loaded)`,
+        },
+        ...roles,
+      ];
+    }
+    return roles;
+  }, [editing, roles]);
 
   async function loadPresets() {
     const res = await fetch("/api/leaderboard/badges", { cache: "no-store" }).catch(() => null);
@@ -5409,6 +5429,25 @@ function BadgePresetManager() {
     void loadRoles();
   }, []);
 
+  function resetForm() {
+    setLabel("");
+    setEmoji("");
+    setColor("#34d399");
+    setRoleId("");
+    setTier(false);
+    setEditingKey(null);
+  }
+
+  function startEdit(preset: LeaderboardBadgePreset) {
+    setEditingKey(preset.key);
+    setLabel(preset.label);
+    setEmoji(preset.emoji ?? "");
+    setColor(preset.color);
+    setRoleId(preset.linkedDiscordRoleId ?? "");
+    setTier(Boolean(preset.exclusiveTier));
+    setStatus(`Editing “${preset.label}” — save to apply, or cancel.`);
+  }
+
   async function savePreset() {
     if (!label.trim()) {
       setStatus("Add a badge name first.");
@@ -5421,37 +5460,77 @@ function BadgePresetManager() {
     }
 
     setLoading(true);
-    setStatus("Saving badge preset...");
+    setStatus(editing ? "Saving changes..." : "Saving badge preset...");
 
     try {
-      const linkedRole = roleId ? roles.find((role) => role.id === roleId) ?? null : null;
+      const linkedRoleName = roleId
+        ? roleOptions.find((role) => role.id === roleId)?.name?.replace(/ \(not loaded\)$/, "") ?? null
+        : null;
       const res = await fetch("/api/leaderboard/badges", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editing ? { key: editing.key } : {}),
           label: label.trim(),
           emoji: emoji.trim() || null,
           color,
           enabled: true,
-          sortOrder: presets.length + 1,
+          sortOrder: editing
+            ? editing.sortOrder
+            : presets.length
+            ? Math.max(...presets.map((preset) => preset.sortOrder)) + 1
+            : 0,
           linkedDiscordRoleId: roleId || null,
-          linkedDiscordRoleName: linkedRole?.name ?? null,
+          linkedDiscordRoleName: linkedRoleName,
+          exclusiveTier: tier && Boolean(roleId),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data.error ?? "Failed to save badge"));
 
-      setLabel("");
-      setEmoji("");
-      setRoleId("");
+      const wasLinked = Boolean(roleId);
+      resetForm();
       setStatus(
-        roleId
-          ? `Badge saved & linked to ${linkedRole?.name ?? "the role"} — a sync just ran, so role members have it already.`
+        editing
+          ? wasLinked
+            ? `Badge updated — still linked to ${linkedRoleName ?? "the role"}, members stay in sync.`
+            : "Badge updated."
+          : wasLinked
+          ? `Badge saved & linked to ${linkedRoleName ?? "the role"} — a sync just ran, so role members have it already.`
           : "Badge preset saved."
       );
       await loadPresets();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Failed to save badge");
+    } finally {
+      setLoading(false);
+      window.setTimeout(() => setStatus(""), 3200);
+    }
+  }
+
+  async function movePreset(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= presets.length) return;
+
+    const next = [...presets];
+    [next[index], next[target]] = [next[target], next[index]];
+    setPresets(next);
+
+    setLoading(true);
+    setStatus("Saving badge order...");
+
+    try {
+      const res = await fetch("/api/leaderboard/badges", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys: next.map((preset) => preset.key) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Failed to save order"));
+      setStatus("Badge order saved.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save order");
+      await loadPresets(); // revert optimistic swap
     } finally {
       setLoading(false);
       window.setTimeout(() => setStatus(""), 2200);
@@ -5471,6 +5550,7 @@ function BadgePresetManager() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data.error ?? "Failed to delete badge"));
 
+      if (editingKey === key) resetForm();
       setStatus("Badge preset deleted.");
       await loadPresets();
     } catch (err) {
@@ -5545,14 +5625,26 @@ function BadgePresetManager() {
               className="h-12 w-full rounded-2xl border border-white/10 bg-black/30"
             />
           </label>
-          <button
-            type="button"
-            className="admin-button"
-            disabled={loading}
-            onClick={() => void savePreset()}
-          >
-            Add Preset
-          </button>
+          <div className="flex gap-2">
+            {editing && (
+              <button
+                type="button"
+                className="admin-button"
+                disabled={loading}
+                onClick={resetForm}
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              className="admin-button"
+              disabled={loading}
+              onClick={() => void savePreset()}
+            >
+              {editing ? "Save Changes" : "Add Preset"}
+            </button>
+          </div>
         </div>
 
         <label className="block space-y-2">
@@ -5563,7 +5655,7 @@ function BadgePresetManager() {
             onChange={(event) => setRoleId(event.target.value)}
           >
             <option value="">No link — officers pin this badge by hand</option>
-            {roles.map((role) => (
+            {roleOptions.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name}
                 {role.guildName ? ` · ${role.guildName}` : ""}
@@ -5574,8 +5666,22 @@ function BadgePresetManager() {
           <span className="admin-label block text-xs">
             {roleId
               ? "Members holding that role in the Discord server get this badge automatically — lose the role, lose the badge. Read-only: no roles are ever created, assigned, or edited."
-              : "Link a role (e.g. OG) to make this badge fully automatic. To link/unlink an existing badge, re-add it with the same name and the new role setting."}
+              : "Link a role (e.g. OG) to make this badge fully automatic — or use ✎ on a badge below to link it."}
             {rolesNote ? ` ${rolesNote}` : ""}
+          </span>
+        </label>
+
+        <label className={`flex items-start gap-2 text-sm transition ${roleId ? "text-zinc-200" : "text-zinc-600"}`}>
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={tier}
+            disabled={!roleId}
+            onChange={(event) => setTier(event.target.checked)}
+          />
+          <span>
+            <b>★ Tier badge</b> — a member only shows their <b>highest</b> tier badge, ranked by your Discord role list
+            (Owner hides Head Officer &amp; Officer; Head Officer hides Officer, and so on). Needs a linked role.
           </span>
         </label>
 
@@ -5604,35 +5710,72 @@ function BadgePresetManager() {
 
         {status && <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-200">{status}</div>}
 
-        <div className="flex flex-wrap gap-2">
-          {presets.length ? presets.map((preset) => (
+        <div>
+          {presets.length > 1 && (
+            <p className="mb-2 text-xs text-zinc-500">
+              Order matters: top = shown first on cards and in pickers. Use ▲▼ to rearrange.
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+          {presets.length ? presets.map((preset, index) => (
             <div
               key={preset.key}
-              className="flex items-center gap-2 rounded-full border px-3 py-2 text-sm"
+              className={`flex items-center gap-1 rounded-full border px-2 py-2 text-sm ${editingKey === preset.key ? "ring-2 ring-emerald-400/50" : ""}`}
               style={{
                 borderColor: `${preset.color}88`,
                 background: `${preset.color}1f`,
               }}
             >
+              <span className="flex flex-col">
+                <button
+                  type="button"
+                  className="px-1 text-[9px] leading-none text-zinc-400 transition hover:text-white disabled:opacity-20"
+                  disabled={loading || index === 0}
+                  onClick={() => void movePreset(index, -1)}
+                  aria-label={`Move ${preset.label} up`}
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  className="px-1 text-[9px] leading-none text-zinc-400 transition hover:text-white disabled:opacity-20"
+                  disabled={loading || index === presets.length - 1}
+                  onClick={() => void movePreset(index, 1)}
+                  aria-label={`Move ${preset.label} down`}
+                >
+                  ▼
+                </button>
+              </span>
               <span className="font-semibold" style={{ color: preset.color }}>
                 {preset.emoji ? `${preset.emoji} ` : ""}{preset.label}
               </span>
               {preset.linkedDiscordRoleId && (
                 <span
                   className="rounded-full border border-white/15 bg-black/25 px-2 py-0.5 text-[10px] font-bold text-zinc-300"
-                  title={preset.linkedDiscordRoleName
-                    ? `Auto-synced from the “${preset.linkedDiscordRoleName}” Discord role`
-                    : "Auto-synced from a Discord role"}
+                  title={`${preset.linkedDiscordRoleName
+                    ? `Auto-synced from the “${preset.linkedDiscordRoleName}” Discord role.`
+                    : "Auto-synced from a Discord role."}${preset.exclusiveTier ? " ★ Tier badge: only the member's highest tier shows." : ""}`}
                 >
-                  🔗 {preset.linkedDiscordRoleName ?? "role"}
+                  🔗 {preset.linkedDiscordRoleName ?? "role"}{preset.exclusiveTier ? " ★" : ""}
                 </span>
               )}
               <button
                 type="button"
-                className="ml-1 rounded-full px-2 text-xs text-zinc-300 hover:bg-white/10"
+                className="rounded-full px-1.5 text-xs text-zinc-300 transition hover:bg-white/10"
+                disabled={loading}
+                onClick={() => startEdit(preset)}
+                aria-label={`Edit ${preset.label}`}
+                title={`Edit ${preset.label}`}
+              >
+                ✎
+              </button>
+              <button
+                type="button"
+                className="rounded-full px-1.5 text-xs text-zinc-300 transition hover:bg-white/10"
                 disabled={loading}
                 onClick={() => void deletePreset(preset.key, preset.label)}
                 aria-label={`Delete ${preset.label}`}
+                title={`Delete ${preset.label}`}
               >
                 ×
               </button>
@@ -5640,6 +5783,7 @@ function BadgePresetManager() {
           )) : (
             <p className="text-sm text-zinc-500">No badge presets yet. Add one above to start assigning badges.</p>
           )}
+          </div>
         </div>
       </div>
     </Panel>
