@@ -19,6 +19,8 @@ import {
   type AfkPrefs,
   type AvatarSpec,
   type HairStyle,
+  type LifeState,
+  type LiveOverrides,
   type PixelTarget,
   type RGB,
   type RoomSize,
@@ -82,6 +84,7 @@ type StoredPrefs = {
   hairColor: number;
   hairStyle: HairStyle;
   hoodie: number;
+  catName: string; // v7: empty = classic generic ticker lines
 };
 
 const DEFAULT_STORED: StoredPrefs = {
@@ -90,6 +93,7 @@ const DEFAULT_STORED: StoredPrefs = {
   hairColor: 0,
   hairStyle: "short",
   hoodie: 0,
+  catName: "",
 };
 
 function loadPrefs(): StoredPrefs {
@@ -108,6 +112,7 @@ function loadPrefs(): StoredPrefs {
           ? parsed.hairStyle
           : DEFAULT_STORED.hairStyle,
       hoodie: typeof parsed.hoodie === "number" ? parsed.hoodie : DEFAULT_STORED.hoodie,
+      catName: typeof parsed.catName === "string" ? parsed.catName.slice(0, 9) : DEFAULT_STORED.catName,
     };
   } catch {
     return DEFAULT_STORED;
@@ -210,6 +215,10 @@ const COMPACT_EVENT_LABEL: Record<string, string> = {
   "WATERING PLANTS": "WATERING",
   "CAT FEEDING": "CAT FEED",
   "PLANT WATERING": "PLANTS",
+  "READING IN BED": "READING",
+  "ONE MORE VIDEO": "DOOMSCROLL",
+  "FULL MOON TONIGHT": "FULL MOON",
+  "BREAKFAST IN BED": "BREAKFAST",
 };
 
 /** pocket-sized sky lines (only the ones too wide at 9px get shortened) */
@@ -739,6 +748,73 @@ export default function AfkRoom() {
     };
   }, [view.mode, hasPanned]);
 
+  // v7: taps — pet the cat, click the lamp, wake/sleep the monitor. A tap is a
+  // <450ms, <8px pointer dance so it never fights the drag-to-pan gesture.
+  useEffect(() => {
+    const el = panOuterRef.current;
+    if (!el) return;
+    let downAt = 0;
+    let downX = 0;
+    let downY = 0;
+    const down = (ev: PointerEvent) => {
+      downAt = performance.now();
+      downX = ev.clientX;
+      downY = ev.clientY;
+    };
+    const up = (ev: PointerEvent) => {
+      if (!downAt) return;
+      const quick = performance.now() - downAt < 450;
+      const small = Math.hypot(ev.clientX - downX, ev.clientY - downY) <= 8;
+      downAt = 0;
+      if (!quick || !small) return;
+      const v = viewRef.current;
+      const life = lastLifeRef.current;
+      if (!life) return;
+      const rect = el.getBoundingClientRect();
+      const px = ev.clientX - rect.left;
+      const py = ev.clientY - rect.top;
+      let lx: number;
+      let ly: number;
+      if (v.mode === "pan") {
+        lx = (px + (cam.current.x < 0 ? (v.cssW - v.vw) / 2 : cam.current.x)) / v.ps;
+        ly = (py - v.ty) / v.ps;
+      } else {
+        lx = (px / Math.max(1, v.cssW)) * v.size.w;
+        ly = (py / Math.max(1, v.cssH)) * v.size.h;
+      }
+      const g = layoutOf(v.size.w, v.size.h);
+      const nowT = performance.now();
+      // the cat — the priority target, with a soft halo (it's smol)
+      const c = life.cat;
+      if (lx >= c.x - 3 && lx <= c.x + 14 && ly >= c.gy - 10 && ly <= c.gy + 3) {
+        fxRef.current.petHeartsUntil = nowT + 2600;
+        loveUntilRef.current = nowT + 10000;
+        ambRef.current?.purr();
+        return;
+      }
+      // floor lamp
+      if (lx >= g.lampX - 9 && lx <= g.lampX + 3 && ly >= g.floorY - 50 && ly <= g.floorY - 2) {
+        fxRef.current.lamp = { value: life.lampLevel < 0.5, until: nowT + 25 * 60000 };
+        return;
+      }
+      // desk monitor
+      if (lx >= g.deskX + g.deskW - 31 && lx <= g.deskX + g.deskW - 10 && ly >= g.floorY - 52 && ly <= g.floorY - 26) {
+        fxRef.current.screen = { value: life.screenPower < 0.5, until: nowT + 25 * 60000 };
+      }
+    };
+    const cancel = () => {
+      downAt = 0;
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", cancel);
+    return () => {
+      el.removeEventListener("pointerdown", down);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", cancel);
+    };
+  }, []);
+
   const avatar: AvatarSpec = useMemo(
     () => ({
       skin: SKIN_PRESETS[prefs.skin % SKIN_PRESETS.length]?.value ?? DEFAULT_AVATAR.skin,
@@ -749,7 +825,16 @@ export default function AfkRoom() {
     [prefs]
   );
 
-  const enginePrefs: AfkPrefs = useMemo(() => ({ bedtime: prefs.bedtime }), [prefs.bedtime]);
+  const enginePrefs: AfkPrefs = useMemo(
+    () => ({ bedtime: prefs.bedtime, catName: prefs.catName || undefined }),
+    [prefs.bedtime, prefs.catName]
+  );
+
+  // v7: taps reach into the room — hearts over the cat, manual lamp/screen
+  // switches with a polite 25-min expiry. Plain refs; the loop reads them.
+  const fxRef = useRef<LiveOverrides>({});
+  const loveUntilRef = useRef(0);
+  const lastLifeRef = useRef<LifeState | null>(null);
 
   // render loop — chill 12fps, pauses with the tab, gentle on battery
   useEffect(() => {
@@ -786,11 +871,12 @@ export default function AfkRoom() {
         };
       }
       const weather = skyRef.current;
-      renderRoom(target, now, avatar, enginePrefs, tMs, viewRef.current.size, weather);
+      renderRoom(target, now, avatar, enginePrefs, tMs, viewRef.current.size, weather, fxRef.current);
 
       // everything alive this frame — powers the camera and the little sounds
       const v = viewRef.current;
-      const life = lifeStateAt(now, enginePrefs, tMs, v.size, weather);
+      const life = lifeStateAt(now, enginePrefs, tMs, v.size, weather, fxRef.current);
+      lastLifeRef.current = life;
       const g = layoutOf(v.size.w, v.size.h);
 
       // --- status ticker (only re-renders when a displayed string changes) ---
@@ -799,17 +885,22 @@ export default function AfkRoom() {
         const mm = String(now.getMinutes()).padStart(2, "0");
         const clock = `${hh}:${mm}`;
         const ev = nextEventAt(now, enginePrefs);
-        const aria = ev
-          ? `${ev.emoji} ${ev.kind === "now" ? "NOW: " : ""}${ev.label}${ev.kind === "in" ? ` IN ${ev.mins} MIN` : ""}`
-          : `${KIND_EMOJI[weather.kind]} ${weatherLine(weather)}`;
+        const loving = performance.now() < loveUntilRef.current;
+        const aria = loving
+          ? `💜 ${enginePrefs.catName?.trim().toUpperCase() || "THE CAT"} LOVES YOU`
+          : ev
+            ? `${ev.emoji} ${ev.kind === "now" ? "NOW: " : ""}${ev.label}${ev.kind === "in" ? ` IN ${ev.mins} MIN` : ""}`
+            : `${KIND_EMOJI[weather.kind]} ${weatherLine(weather)}`;
         // pocket-sized strings under the sm breakpoint so the ticker never
         // reaches the war HUD's corner — countdowns keep their minutes as "NM"
         const compact = v.vw < 640;
-        const line = !compact
-          ? aria
-          : ev
-            ? `${ev.emoji} ${COMPACT_EVENT_LABEL[ev.label] ?? ev.label}${ev.kind === "in" ? ` ${ev.mins}M` : ""}`
-            : `${KIND_EMOJI[weather.kind]} ${compactWeatherLine(weather)}`;
+        const line = loving
+          ? aria // the love line is already pocket-sized
+          : !compact
+            ? aria
+            : ev
+              ? `${ev.emoji} ${(COMPACT_EVENT_LABEL[ev.label] ?? ev.label).replace(" IS EATING", " EATS").replace(" HAS ZOOMIES", " ZOOMIES")}${ev.kind === "in" ? ` ${ev.mins}M` : ""}`
+              : `${KIND_EMOJI[weather.kind]} ${compactWeatherLine(weather)}`;
         const key = `${clock}|${line}`;
         if (key !== tickerPrev.current) {
           tickerPrev.current = key;
@@ -1131,6 +1222,23 @@ export default function AfkRoom() {
               <option value={0}>Midnight</option>
               <option value={1}>1:00 AM</option>
             </select>
+          </label>
+
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wide text-violet-400">
+              Cat's name
+            </span>
+            <input
+              type="text"
+              value={prefs.catName}
+              maxLength={9}
+              placeholder="(unnamed menace)"
+              onChange={(e) =>
+                setPrefs((p) => ({ ...p, catName: e.target.value.replace(/[^a-zA-Z0-9 ]/g, "").slice(0, 9) }))
+              }
+              className="w-full rounded-md border border-violet-800 bg-[#0f0d1e] px-2 py-1 uppercase tracking-wider text-violet-100 placeholder:normal-case placeholder:tracking-normal placeholder:text-violet-500/70"
+            />
+            <span className="mt-1 block text-[9px] text-violet-500/80">the ticker uses it at dinner time & mid-zoomies</span>
           </label>
 
           <SwatchRow
