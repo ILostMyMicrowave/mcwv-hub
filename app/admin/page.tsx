@@ -5329,7 +5329,28 @@ type LeaderboardBadgePreset = {
   color: string;
   enabled: boolean;
   sortOrder: number;
+  linkedDiscordRoleId?: string | null;
+  linkedDiscordRoleName?: string | null;
 };
+
+type BadgeRoleOption = {
+  id: string;
+  name: string;
+  guildName?: string;
+  memberCount?: number;
+};
+
+type BadgeRoleSyncMeta = {
+  at?: string;
+  trigger?: string;
+  ok?: boolean;
+  presets?: number;
+  usersChecked?: number;
+  usersSkipped?: number;
+  grants?: number;
+  removals?: number;
+  error?: string | null;
+} | null;
 
 function isSingleBadgeEmoji(value: string) {
   const trimmed = value.trim();
@@ -5344,6 +5365,11 @@ function BadgePresetManager() {
   const [label, setLabel] = useState("");
   const [emoji, setEmoji] = useState("");
   const [color, setColor] = useState("#34d399");
+  const [roleId, setRoleId] = useState("");
+  const [roles, setRoles] = useState<BadgeRoleOption[]>([]);
+  const [rolesNote, setRolesNote] = useState("");
+  const [syncMeta, setSyncMeta] = useState<BadgeRoleSyncMeta>(null);
+  const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -5352,10 +5378,35 @@ function BadgePresetManager() {
     if (!res?.ok) return;
     const data = await res.json().catch(() => ({}));
     setPresets(Array.isArray(data.presets) ? data.presets : []);
+    setSyncMeta(data.sync && typeof data.sync === "object" ? (data.sync as BadgeRoleSyncMeta) : null);
+  }
+
+  async function loadRoles() {
+    const res = await fetch("/api/leaderboard/badges/roles", { cache: "no-store" }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
+    if (!res?.ok) {
+      setRoles([]);
+      setRolesNote(String(data.error ?? "Could not load Discord roles from the bot."));
+      return;
+    }
+    const list: unknown[] = Array.isArray(data.roles) ? data.roles : [];
+    setRoles(
+      list
+        .filter((role: unknown): role is Record<string, unknown> => Boolean(role) && typeof role === "object")
+        .map((role) => ({
+          id: String(role.id ?? ""),
+          name: String(role.name ?? ""),
+          guildName: role.guildName ? String(role.guildName) : undefined,
+          memberCount: typeof role.memberCount === "number" ? role.memberCount : undefined,
+        }))
+        .filter((role) => role.id && role.name)
+    );
+    setRolesNote("");
   }
 
   useEffect(() => {
     void loadPresets();
+    void loadRoles();
   }, []);
 
   async function savePreset() {
@@ -5373,6 +5424,7 @@ function BadgePresetManager() {
     setStatus("Saving badge preset...");
 
     try {
+      const linkedRole = roleId ? roles.find((role) => role.id === roleId) ?? null : null;
       const res = await fetch("/api/leaderboard/badges", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5382,6 +5434,8 @@ function BadgePresetManager() {
           color,
           enabled: true,
           sortOrder: presets.length + 1,
+          linkedDiscordRoleId: roleId || null,
+          linkedDiscordRoleName: linkedRole?.name ?? null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -5389,7 +5443,12 @@ function BadgePresetManager() {
 
       setLabel("");
       setEmoji("");
-      setStatus("Badge preset saved.");
+      setRoleId("");
+      setStatus(
+        roleId
+          ? `Badge saved & linked to ${linkedRole?.name ?? "the role"} — a sync just ran, so role members have it already.`
+          : "Badge preset saved."
+      );
       await loadPresets();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Failed to save badge");
@@ -5422,6 +5481,28 @@ function BadgePresetManager() {
     }
   }
 
+  async function runRoleSync() {
+    setSyncing(true);
+    setStatus("Syncing badges with Discord roles...");
+
+    try {
+      const res = await fetch("/api/leaderboard/badges/sync", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Role sync failed"));
+
+      const stats = isRecord(data.stats) ? data.stats : {};
+      setStatus(
+        `Role sync done: ${Number(stats.grants ?? 0)} badge(s) added, ${Number(stats.removals ?? 0)} removed across ${Number(stats.usersChecked ?? 0)} member(s).`
+      );
+      await loadPresets();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Role sync failed");
+    } finally {
+      setSyncing(false);
+      window.setTimeout(() => setStatus(""), 5000);
+    }
+  }
+
   return (
     <Panel
       title="Leaderboard Badge Presets"
@@ -5429,7 +5510,7 @@ function BadgePresetManager() {
     >
       <div className="space-y-5">
         <p className="text-sm text-zinc-400">
-          Create the badge options officers can assign on leaderboard profile cards. Officers can only pick from this list.
+          Create the badge options for leaderboard profile cards. Officers pin them by hand — or link a badge to a Discord server role (like OG) and it appears on members&apos; cards automatically. Roles are only ever read, never edited.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-[1fr_6rem_7rem_auto] sm:items-end">
@@ -5474,6 +5555,53 @@ function BadgePresetManager() {
           </button>
         </div>
 
+        <label className="block space-y-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Link Discord Role (optional)</span>
+          <select
+            className="admin-input"
+            value={roleId}
+            onChange={(event) => setRoleId(event.target.value)}
+          >
+            <option value="">No link — officers pin this badge by hand</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+                {role.guildName ? ` · ${role.guildName}` : ""}
+                {typeof role.memberCount === "number" ? ` · ${role.memberCount} member${role.memberCount === 1 ? "" : "s"}` : ""}
+              </option>
+            ))}
+          </select>
+          <span className="admin-label block text-xs">
+            {roleId
+              ? "Members holding that role in the Discord server get this badge automatically — lose the role, lose the badge. Read-only: no roles are ever created, assigned, or edited."
+              : "Link a role (e.g. OG) to make this badge fully automatic. To link/unlink an existing badge, re-add it with the same name and the new role setting."}
+            {rolesNote ? ` ${rolesNote}` : ""}
+          </span>
+        </label>
+
+        <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-zinc-400">
+            <span className="mr-1">🔗</span>
+            Role-linked badges refresh automatically in the background.
+            {syncMeta?.at ? (
+              <>
+                {" "}Last run {formatRelativeTime(syncMeta.at, Date.now())}{syncMeta.ok === false ? " (failed)" : ""} · {syncMeta.grants ?? 0} added · {syncMeta.removals ?? 0} removed
+                {syncMeta.error ? ` · ${syncMeta.error}` : ""}.
+              </>
+            ) : (
+              " No sync has run yet."
+            )}
+          </div>
+          <button
+            type="button"
+            className="admin-button shrink-0"
+            disabled={syncing}
+            onClick={() => void runRoleSync()}
+          >
+            {syncing ? "Syncing with Discord…" : "🔄 Sync now"}
+          </button>
+        </div>
+
         {status && <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-200">{status}</div>}
 
         <div className="flex flex-wrap gap-2">
@@ -5489,6 +5617,16 @@ function BadgePresetManager() {
               <span className="font-semibold" style={{ color: preset.color }}>
                 {preset.emoji ? `${preset.emoji} ` : ""}{preset.label}
               </span>
+              {preset.linkedDiscordRoleId && (
+                <span
+                  className="rounded-full border border-white/15 bg-black/25 px-2 py-0.5 text-[10px] font-bold text-zinc-300"
+                  title={preset.linkedDiscordRoleName
+                    ? `Auto-synced from the “${preset.linkedDiscordRoleName}” Discord role`
+                    : "Auto-synced from a Discord role"}
+                >
+                  🔗 {preset.linkedDiscordRoleName ?? "role"}
+                </span>
+              )}
               <button
                 type="button"
                 className="ml-1 rounded-full px-2 text-xs text-zinc-300 hover:bg-white/10"
