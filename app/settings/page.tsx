@@ -276,6 +276,9 @@ export default function Settings() {
 
   function replayIntro() {
     try {
+      // Both stores must go — the gate checks localStorage first (v2)
+      // and promotes legacy sessionStorage on read.
+      localStorage.removeItem(INTRO_SESSION_KEY);
       sessionStorage.removeItem(INTRO_SESSION_KEY);
       document.documentElement.removeAttribute("data-intro-done");
     } catch {
