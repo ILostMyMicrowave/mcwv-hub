@@ -51,6 +51,8 @@ type BadgePreset = {
   color: string;
   enabled: boolean;
   sortOrder: number;
+  linkedDiscordRoleId?: string | null;
+  linkedDiscordRoleName?: string | null;
 };
 
 type BadgeApiResponse = {
@@ -1137,6 +1139,22 @@ function StyleEditorModal({
   const editingAnotherMember = Boolean(targetEntry && targetRobloxId !== String(currentUser?.roblox_id ?? ""));
   const canEditBadges = officerTools;
 
+  // Badges linked to a Discord role are auto-managed by the role sync — they
+  // can never be pinned by hand, so they live outside the officer selection.
+  const linkedBadgeKeys = useMemo(
+    () => new Set(badgePresets.filter((badge) => badge.linkedDiscordRoleId).map((badge) => badge.key)),
+    [badgePresets]
+  );
+  const linkedPresets = useMemo(
+    () => badgePresets.filter((badge) => badge.enabled && badge.linkedDiscordRoleId),
+    [badgePresets]
+  );
+
+  useEffect(() => {
+    if (!linkedBadgeKeys.size) return;
+    setSelectedBadges((current) => current.filter((key) => !linkedBadgeKeys.has(key)));
+  }, [linkedBadgeKeys]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -1374,25 +1392,53 @@ function StyleEditorModal({
                 <span className="text-xs text-zinc-500">Officer-only · choose from owner presets</span>
               </div>
               {badgePresets.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {badgePresets.filter((badge) => badge.enabled).map((badge) => {
-                    const active = selectedBadges.includes(badge.key);
-                    return (
-                      <button
-                        key={badge.key}
-                        type="button"
-                        onClick={() => toggleBadge(badge.key)}
-                        className="rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:scale-105"
-                        style={{
-                          borderColor: active ? `${badge.color}cc` : "rgba(255,255,255,0.12)",
-                          background: active ? `${badge.color}2e` : "rgba(255,255,255,0.05)",
-                          color: active ? badge.color : "rgb(212 212 216)",
-                        }}
-                      >
-                        {badge.emoji ? `${badge.emoji} ` : ""}{badge.label}
-                      </button>
-                    );
-                  })}
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {badgePresets.filter((badge) => badge.enabled && !badge.linkedDiscordRoleId).map((badge) => {
+                      const active = selectedBadges.includes(badge.key);
+                      return (
+                        <button
+                          key={badge.key}
+                          type="button"
+                          onClick={() => toggleBadge(badge.key)}
+                          className="rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:scale-105"
+                          style={{
+                            borderColor: active ? `${badge.color}cc` : "rgba(255,255,255,0.12)",
+                            background: active ? `${badge.color}2e` : "rgba(255,255,255,0.05)",
+                            color: active ? badge.color : "rgb(212 212 216)",
+                          }}
+                        >
+                          {badge.emoji ? `${badge.emoji} ` : ""}{badge.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {linkedPresets.length > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs text-zinc-500">
+                        🔗 Auto badges — synced from Discord roles. Members holding the role get them automatically; they can&apos;t be pinned by hand.
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {linkedPresets.map((badge) => (
+                          <span
+                            key={badge.key}
+                            className="cursor-not-allowed rounded-full border px-3 py-1.5 text-xs font-semibold opacity-75"
+                            style={{
+                              borderColor: `${badge.color}55`,
+                              background: `${badge.color}14`,
+                              color: badge.color,
+                            }}
+                            title={badge.linkedDiscordRoleName
+                              ? `Auto-synced from the “${badge.linkedDiscordRoleName}” Discord role`
+                              : "Auto-synced from a Discord role"}
+                          >
+                            🔗 {badge.emoji ? `${badge.emoji} ` : ""}{badge.label}
+                            {badge.linkedDiscordRoleName ? ` · ${badge.linkedDiscordRoleName}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-zinc-400">
@@ -1403,7 +1449,7 @@ function StyleEditorModal({
           ) : (
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
               <span className="admin-label">Badges</span>
-              <p className="text-sm text-zinc-400">Badges are assigned by officers from owner-approved presets. Your current badges will be kept when you save.</p>
+              <p className="text-sm text-zinc-400">Badges are assigned by officers from owner-approved presets, and 🔗 badges appear automatically from your Discord server roles. Your current badges will be kept when you save.</p>
             </div>
           )}
         </div>
