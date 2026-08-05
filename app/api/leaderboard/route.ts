@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 
@@ -1448,6 +1448,18 @@ async function getCachedLeaderboard(
 export async function GET(req: Request) {
   const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
+
+  // Discord-role linked badges auto-update: after the response goes out, run a
+  // role sweep if one is due. Stale-gated inside (no-op when no badges are
+  // role-linked or the last sweep is fresh), and read-only on Discord's side.
+  after(async () => {
+    try {
+      const { maybeAutoSyncBadgeRoles } = await import("@/lib/badgeRoleSync");
+      await maybeAutoSyncBadgeRoles({ trigger: "leaderboard-view", budgetMs: 20_000 });
+    } catch (syncErr) {
+      console.error("[leaderboard] badge role auto-sync failed:", syncErr);
+    }
+  });
 
   try {
     const url = new URL(req.url);
