@@ -596,3 +596,49 @@ body {
 .glow-emerald {
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
 }
+
+/* ---------------------------------------------------------------------------
+ * Installed-app feel: native page transitions + notch safe areas
+ * ------------------------------------------------------------------------- */
+
+/* Cross-document transitions (full loads) — soft navigations are animated by
+ * React's <ViewTransition> in app/layout.tsx. Browsers without support just
+ * render instantly; nothing breaks. */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root) {
+  animation: mcwv-vt-out 150ms ease both;
+}
+::view-transition-new(root) {
+  animation: mcwv-vt-in 220ms ease both;
+}
+
+@keyframes mcwv-vt-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes mcwv-vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* viewport-fit: cover means content can slide under the notch / home bar —
+ * reclaim the padding so nothing interactive gets clipped when installed. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
