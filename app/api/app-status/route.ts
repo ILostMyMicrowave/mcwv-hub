@@ -1,6 +1,7 @@
 import { getAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 import { getSharedWarContext } from "@/lib/warContext";
+import { sweepBroadcasts, sweepWarPresence } from "@/lib/pushJobs";
 import {
   ensurePushTables,
   pushConfigured,
@@ -38,16 +39,28 @@ export async function GET() {
         [`war-push:${battleId}`]
       );
       if (rows.length > 0) {
-        const result = await sendPushToAll({
-          title: "⚔️ WAR DECLARED",
-          body: `${battleId} is live — MCWV, to arms!`,
-          url: "/war-info",
-          tag: `war-${battleId}`.slice(0, 48),
-        });
+        const result = await sendPushToAll(
+          {
+            title: "⚔️ WAR DECLARED",
+            body: `${battleId} is live — MCWV, to arms!`,
+            url: "/war-info",
+            tag: `war-${battleId}`.slice(0, 48),
+          },
+          { type: "war" }
+        );
         pushSent = result.sent;
       }
     } catch {
       // Push is best-effort — never let it break the status endpoint.
+    }
+  }
+
+  // Fan-out jobs — broadcast mirroring always, presence tracking only while
+  // a battle is live. Both are deduped/cooled-down internally.
+  if (pushConfigured()) {
+    await sweepBroadcasts().catch(() => null);
+    if (warActive) {
+      await sweepWarPresence().catch(() => null);
     }
   }
 
