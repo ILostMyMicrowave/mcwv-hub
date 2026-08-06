@@ -12,6 +12,7 @@ type Row = {
   title: string;
   body: string | null;
   url: string | null;
+  image_url: string | null;
   created_at: Date | string;
 };
 
@@ -32,7 +33,7 @@ export async function GET(
 
   await ensurePushTables();
   const { rows } = await pool.query<Row>(
-    `SELECT id::text AS id, type, title, body, url, created_at
+    `SELECT id::text AS id, type, title, body, url, image_url, created_at
      FROM notifications
      WHERE id = $1
        AND (audience <> 'user' OR user_id = $2)
@@ -52,6 +53,7 @@ export async function GET(
       title: row.title,
       body: row.body,
       url: row.url,
+      imageUrl: row.image_url,
       createdAt:
         row.created_at instanceof Date
           ? row.created_at.toISOString()
