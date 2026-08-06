@@ -3,6 +3,7 @@ import { requireBroadcastUser } from "@/lib/broadcastAccess"
 import { pool } from "@/lib/db"
 import {
   broadcastTablesExist,
+  ensureBroadcastImageColumns,
   isUniqueViolation,
   mapTemplateRow,
   missingTablesResponse,
@@ -23,6 +24,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!auth.ok) return auth.response
 
   if (!(await broadcastTablesExist())) return missingTablesResponse()
+  await ensureBroadcastImageColumns()
 
   const id = await parseId(params)
   if (!id) return NextResponse.json({ error: "Invalid template id" }, { status: 400 })
@@ -31,7 +33,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const existing = await pool.query(
-      `SELECT id, name, audience, value, delivery, style, message
+      `SELECT id, name, audience, value, delivery, style, message, image_url
        FROM broadcast_templates WHERE id = $1 LIMIT 1`,
       [id]
     )
@@ -43,14 +45,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const parsed = sanitizeTemplateInput(merged)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
 
-    const { name, audience, value, delivery, style, message } = parsed.data
+    const { name, audience, value, delivery, style, message, imageUrl } = parsed.data
     const result = await pool.query(
       `UPDATE broadcast_templates
        SET name = $2, audience = $3, value = $4, delivery = $5, style = $6,
-           message = $7, updated_by = $8, updated_at = NOW()
+           message = $7, image_url = $8, updated_by = $9, updated_at = NOW()
        WHERE id = $1
-       RETURNING id, name, audience, value, delivery, style, message, created_by, updated_by, updated_at`,
-      [id, name, audience, value, delivery, style, message, auth.user.username]
+       RETURNING id, name, audience, value, delivery, style, message, image_url, created_by, updated_by, updated_at`,
+      [id, name, audience, value, delivery, style, message, imageUrl, auth.user.username]
     )
 
     return NextResponse.json({ template: mapTemplateRow(result.rows[0]) })
