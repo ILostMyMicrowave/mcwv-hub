@@ -29,5 +29,11 @@ export async function POST() {
     { type: "test", audience: "user", userId: auth.user.id } // logged → tap deep-links the inbox
   );
 
-  return NextResponse.json({ success: true, ...result });
+  // inboxLogged tells the client whether the alert reached the inbox too —
+  // the exact signal that was invisible during the "empty inbox" bug.
+  return NextResponse.json({
+    success: true,
+    ...result,
+    inboxLogged: result.notifId !== null,
+  });
 }
