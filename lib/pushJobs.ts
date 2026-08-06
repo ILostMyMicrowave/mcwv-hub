@@ -1,5 +1,6 @@
 import { pool } from "@/lib/db";
 import { broadcastImageColumnsReady, broadcastTablesExist } from "@/lib/broadcastDb";
+import { stripDiscordMarkdown } from "@/lib/discordFormat";
 import {
   ensurePushTables,
   getStateText,
@@ -212,9 +213,13 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
     const image =
       String(row.image_url ?? "").trim() ||
       rawMessage.match(IMAGE_URL_RE)?.[1];
-    const message = rawMessage
-      .replace(/<@[!&]?\d+>/g, "")
-      .replace(/<#\d+>/g, "")
+    // Phones can't render markdown — "**War**" reads as "War" on lock screens.
+    // (The inbox gets the raw text via fullBody and renders it properly.)
+    const message = stripDiscordMarkdown(
+      rawMessage
+        .replace(/<@[!&]?\d+>/g, "")
+        .replace(/<#\d+>/g, "")
+    )
       .replace(/\s+/g, " ")
       .trim();
     const body = message.length > 160 ? `${message.slice(0, 157)}…` : message;
