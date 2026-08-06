@@ -17,8 +17,11 @@ self.addEventListener("push", (event) => {
   const title = data.title || "MCWV Hub";
   const options = {
     body: data.body || "",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    // Large icon (expanded notification): full artwork.
+    icon: "/icons/icon-512.png",
+    // Status-bar badge: Android alpha-MASKS this one — opaque pixels become
+    // a solid block, so it must be a mono alpha silhouette, never artwork.
+    badge: "/icons/badge-96.png",
     tag: data.tag || "mcwv",
     renotify: Boolean(data.tag),
     data: { url: data.url || "/" },
