@@ -66,16 +66,20 @@ function DesktopLinkItem({
   item,
   isActiveTop,
   registerRef,
+  badge,
 }: {
   item: Extract<NavGroup, { type: "link" }>;
   isActiveTop: boolean;
   registerRef: (id: string, el: HTMLElement | null) => void;
+  /** Unread-count pill (inbox). Null/0 hides it. */
+  badge?: number | null;
 }) {
   return (
     <Link
       href={item.href}
       ref={(el) => registerRef(item.id, el)}
       aria-current={isActiveTop ? "page" : undefined}
+      aria-label={badge && badge > 0 ? `${item.label}, ${badge} unread` : undefined}
       className={DESKTOP_ITEM_CLASS}
       style={desktopItemStyle(isActiveTop)}
     >
@@ -85,6 +89,14 @@ function DesktopLinkItem({
         </span>
       ) : null}
       <span>{item.label}</span>
+      {badge && badge > 0 ? (
+        <span
+          aria-hidden
+          className="ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-1.5 py-[3px] text-[10px] font-black leading-none text-white shadow-[0_0_12px_rgba(139,92,246,0.55)]"
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -301,6 +313,7 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<NavbarUser>(null);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [activeAdminSection, setActiveAdminSection] = useState<string | null>(null);
   const [renderDrawer, setRenderDrawer] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -366,6 +379,7 @@ export default function Navbar() {
             { href: "/hall-of-fame", label: "Hall of Fame", icon: "👑", description: "Top members and legends" },
           ],
         },
+        { type: "link", id: "inbox", href: "/notifications", label: "Inbox", icon: "🔔" },
         {
           type: "group",
           id: "staff",
@@ -584,10 +598,44 @@ export default function Navbar() {
       .catch(() => {
         if (!cancelled) setUser(null);
       });
-    return () => {
-      cancelled = true;
+    return () => {      cancelled = true;
     };
   }, []);
+
+  // Unread-alert badge on the Inbox link: tiny count endpoint every 60s,
+  // on foreground, and INSTANTLY when the inbox dispatches its
+  // "mcwv:alerts-changed" signal (mark-read, refresh, mark-all).
+  useEffect(() => {
+    if (!user) {
+      setUnreadAlerts(0);
+      return;
+    }
+    let stop = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/notifications/unread-count", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { unread?: number };
+        if (!stop) setUnreadAlerts(Math.max(0, Number(data.unread ?? 0)));
+      } catch {
+        // Badge is best-effort — never let it break navigation.
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    const onChanged = () => void tick();
+    void tick();
+    const interval = setInterval(() => void tick(), 60_000);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("mcwv:alerts-changed", onChanged);
+    return () => {
+      stop = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("mcwv:alerts-changed", onChanged);
+    };
+  }, [user]);
 
   useEffect(() => {
     const updateSection = () => {
@@ -911,6 +959,7 @@ export default function Navbar() {
                 item={item}
                 isActiveTop={activeTopId === item.id}
                 registerRef={registerRef}
+                badge={item.id === "inbox" ? unreadAlerts : null}
               />
             ) : (
               <DesktopGroupItem
@@ -1059,6 +1108,14 @@ export default function Navbar() {
                         )}
                         <span className="text-base">{item.icon}</span>
                         <span className="font-semibold">{item.label}</span>
+                        {item.id === "inbox" && unreadAlerts > 0 ? (
+                          <span
+                            aria-label={`${unreadAlerts} unread alerts`}
+                            className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-2 py-1 text-[10px] font-black leading-none text-white shadow-[0_0_14px_rgba(139,92,246,0.55)]"
+                          >
+                            {unreadAlerts > 99 ? "99+" : unreadAlerts}
+                          </span>
+                        ) : null}
                       </Link>
                     );
                   }
