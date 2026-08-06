@@ -1,20 +1,36 @@
 /* MCWV Hub — push service worker.
  *
- * PUSH ONLY, ON PURPOSE: there is deliberately no `fetch` handler here, so
- * nothing is ever cached for offline use. Pages are session-authenticated —
-// caching them would be a footgun. This worker does exactly two things:
- *   1. Receive push events and show a notification.
- *   2. On tap, focus the app and navigate to the right page.
+ * PUSH ONLY, ON PURPOSE: no `fetch` handler, nothing is ever cached offline.
+ * Pages are session-authenticated — caching them would be a footgun.
+ *
+ * v5 reliability notes:
+ *  - Click handling is openWindow-ONLY on purpose. The old focus()/
+ *    navigate() juggling silently no-ops on some builds (WebAPK especially)
+ *    and dumps the user on whatever page the app last had open.
+ *  - SW_VERSION + the message handler let the settings page verify which
+ *    worker is actually alive on the device (zombie-worker detector).
  */
+const SW_VERSION = "5";
 
-// Take over immediately on deploy — without these, an updated worker WAITS
-// until every app window is closed, so fixes (like a new badge icon) appear
-// to "not work" while the old worker keeps handling pushes.
-self.addEventListener("install", (event) => {
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("message", (event) => {
+  if (
+    event.data === "mcwv-version?" &&
+    event.source &&
+    "postMessage" in event.source
+  ) {
+    try {
+      event.source.postMessage({ type: "mcwv-version", version: SW_VERSION });
+    } catch {
+      /* diagnostics are best-effort */
+    }
+  }
 });
 
 self.addEventListener("push", (event) => {
@@ -28,14 +44,17 @@ self.addEventListener("push", (event) => {
   const title = data.title || "MCWV Hub";
   const options = {
     body: data.body || "",
-    // Large icon (expanded notification): full artwork.
+    // Large icon: full artwork. Status-bar badge: MUST be the mono alpha
+    // silhouette (Android alpha-masks it; artwork becomes a white brick).
     icon: "/icons/icon-512.png",
-    // Status-bar badge: Android alpha-MASKS this one — opaque pixels become
-    // a solid block, so it must be a mono alpha silhouette, never artwork.
     badge: "/icons/badge-96.png",
     tag: data.tag || "mcwv",
     renotify: Boolean(data.tag),
-    data: { url: data.url || "/" },
+    data: { url: data.url || "/notifications", notifId: data.notifId ?? null },
+    actions: [
+      { action: "open", title: "Open" },
+      { action: "dismiss", title: "Dismiss" },
+    ],
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
@@ -43,37 +62,14 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  if (event.action === "dismiss") return;
+
   const rawUrl =
-    (event.notification.data && event.notification.data.url) || "/";
+    (event.notification.data && event.notification.data.url) ||
+    "/notifications";
+  // Absolute URL is non-negotiable: Chrome navigate/openWindow paths treat
+  // relative URLs inconsistently across builds.
+  const target = new URL(rawUrl, self.location.origin).href;
 
-  event.waitUntil(
-    (async () => {
-      // MUST be absolute: Chrome's WindowClient.navigate() silently rejects
-      // relative URLs on some builds — the tap then just refocuses whatever
-      // page was open and the #n= hash (popup trigger) never loads.
-      const targetUrl = new URL(rawUrl, self.location.origin).href;
-
-      const windowClients = await self.clients.matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      });
-      const existing = windowClients.find(
-        (client) => client.url && client.url.startsWith(self.location.origin)
-      );
-
-      if (existing) {
-        if (typeof existing.navigate === "function") {
-          try {
-            // Navigate FIRST (hands the #n= hash to the app), then focus.
-            await existing.navigate(targetUrl);
-            await existing.focus();
-            return;
-          } catch {
-            // Fall through to openWindow below.
-          }
-        }
-      }
-      await self.clients.openWindow(targetUrl);
-    })()
-  );
+  event.waitUntil(self.clients.openWindow(target));
 });
