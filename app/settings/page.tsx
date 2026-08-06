@@ -2,6 +2,8 @@
 
 import Navbar from "@/components/Navbar";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
+import PwaInstallCard from "@/components/pwa/PwaInstallCard";
+import PushCard from "@/components/pwa/PushCard";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTheme, Theme } from "@/hooks/useTheme";
 
@@ -458,6 +460,16 @@ export default function Settings() {
                     </button>
                   }
                 />
+              </div>
+            </Section>
+          </div>
+
+          {/* App & Alerts (installed PWA) */}
+          <div className="mt-6">
+            <Section icon="📲" eyebrow="Installed App" title="App & Alerts" delay={0.12}>
+              <div className="space-y-3">
+                <PwaInstallCard />
+                <PushCard />
               </div>
             </Section>
           </div>
