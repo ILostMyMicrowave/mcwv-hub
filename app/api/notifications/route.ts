@@ -29,17 +29,39 @@ function mapRow(row: Row) {
   };
 }
 
-// Recent alerts for the in-app popup's "menu" list.
+// The inbox: clan-wide alerts + this member's personal ones, with unread
+// tracking via their read marker.
 export async function GET() {
   const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
 
   await ensurePushTables();
-  const { rows } = await pool.query<Row>(
-    `SELECT id::text AS id, type, title, body, url, created_at
-     FROM notifications
-     ORDER BY id DESC
-     LIMIT 20`
-  );
-  return NextResponse.json({ success: true, notifications: rows.map(mapRow) });
+  const [{ rows }, marker] = await Promise.all([
+    pool.query<Row>(
+      `SELECT id::text AS id, type, title, body, url, created_at
+       FROM notifications
+       WHERE audience <> 'user' OR user_id = $1
+       ORDER BY id DESC
+       LIMIT 50`,
+      [auth.user.id]
+    ),
+    pool.query<{ last_read_notif_id: string }>(
+      `SELECT last_read_notif_id::text AS last_read_notif_id
+       FROM alert_read_marker
+       WHERE user_id = $1
+       LIMIT 1`,
+      [auth.user.id]
+    ),
+  ]);
+
+  const lastReadId = Number(marker.rows[0]?.last_read_notif_id ?? "0") || 0;
+  const notifications = rows.map(mapRow);
+  const unreadCount = notifications.filter((n) => n.id > lastReadId).length;
+
+  return NextResponse.json({
+    success: true,
+    notifications,
+    lastReadId,
+    unreadCount,
+  });
 }
