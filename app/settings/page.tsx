@@ -470,6 +470,16 @@ export default function Settings() {
               <div className="space-y-3">
                 <PwaInstallCard />
                 <PushCard />
+                <a
+                  href="/notifications"
+                  className="block rounded-2xl border border-white/10 bg-black/25 p-5 transition hover:-translate-y-0.5 hover:bg-white/[0.06]"
+                >
+                  <p className="text-sm font-bold text-white">📬 Alert inbox</p>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Every alert with unread markers — war pings, broadcasts,
+                    and personal nudges in one place.
+                  </p>
+                </a>
               </div>
             </Section>
           </div>
