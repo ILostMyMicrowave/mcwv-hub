@@ -1,20 +1,30 @@
 import { NextResponse } from "next/server"
 import { requireBroadcastUser } from "@/lib/broadcastAccess"
 import { pool } from "@/lib/db"
-import { broadcastTablesExist, mapSendRow, missingTablesResponse } from "@/lib/broadcastDb"
+import {
+  broadcastImageColumnsReady,
+  broadcastTablesExist,
+  mapSendRow,
+  missingTablesResponse,
+} from "@/lib/broadcastDb"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-const SEND_COLUMNS = `id, actor, source, template_id, audience, value, delivery, style, message,
+function sendColumns(hasImage: boolean) {
+  return `id, actor, source, template_id, audience, value, delivery, style, message,
   battle_key, matched_count, sent_count, failed_count, status, sent_at,
-  conversion_checked_at, conversion_zero_at_send, conversion_scorers, conversion_points`
+  conversion_checked_at, conversion_zero_at_send, conversion_scorers, conversion_points${
+    hasImage ? ", image_url" : ""
+  }`
+}
 
 export async function GET(req: Request) {
   const auth = await requireBroadcastUser()
   if (!auth.ok) return auth.response
 
   if (!(await broadcastTablesExist())) return missingTablesResponse()
+  const hasImage = await broadcastImageColumnsReady()
 
   const url = new URL(req.url)
   const limitParam = Number(url.searchParams.get("limit") ?? "25")
@@ -26,7 +36,7 @@ export async function GET(req: Request) {
   try {
     const [rows, count, stats] = await Promise.all([
       pool.query(
-        `SELECT ${SEND_COLUMNS}
+        `SELECT ${sendColumns(hasImage)}
          FROM broadcast_sends
          ORDER BY sent_at DESC, id DESC
          LIMIT $1 OFFSET $2`,
