@@ -18,6 +18,18 @@ const POLL_MS = 5 * 60 * 1000;
  */
 export default function AppBadgeSync() {
   useEffect(() => {
+    // Kick the push service worker to self-update on every app open.
+    // Browsers only check for worker updates on their own ~daily schedule,
+    // so without this, a fixed push-sw.js sits live on the server but
+    // dormant on devices. Once the new script is seen, the worker's own
+    // skipWaiting + clients.claim() swap it in immediately.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .getRegistration()
+        .then((registration) => registration?.update())
+        .catch(() => undefined);
+    }
+
     const nav = navigator as BadgeNavigator;
     if (typeof nav.setAppBadge !== "function") return;
 
