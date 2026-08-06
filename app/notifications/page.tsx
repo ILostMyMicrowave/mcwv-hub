@@ -9,6 +9,7 @@ type HubNotification = {
   title: string;
   body: string | null;
   url: string | null;
+  imageUrl: string | null;
   createdAt: string;
 };
 
@@ -35,6 +36,10 @@ export default function NotificationsPage() {
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
+  const [officer, setOfficer] = useState(false);
+  const [editingImage, setEditingImage] = useState(false);
+  const [imageInput, setImageInput] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -46,9 +51,11 @@ export default function NotificationsPage() {
       const data = (await res.json()) as {
         notifications?: HubNotification[];
         lastReadId?: number;
+        officer?: boolean;
       };
       setItems(data.notifications ?? []);
       setLastReadId(Number(data.lastReadId ?? 0));
+      setOfficer(Boolean(data.officer));
 
       const param = Number(new URLSearchParams(window.location.search).get("n"));
       if (Number.isFinite(param) && param > 0) {
@@ -118,7 +125,29 @@ export default function NotificationsPage() {
   function openAlert(item: HubNotification) {
     setHighlightId(item.id);
     void markRead(item.id);
+    setEditingImage(false);
     history.replaceState(null, "", `/notifications?n=${item.id}`);
+  }
+
+  async function saveImage(imageUrl: string | null) {
+    if (!hero) return;
+    setImageBusy(true);
+    try {
+      const res = await fetch(`/api/notifications/${hero.id}/image`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl }),
+      });
+      if (res.ok) {
+        setItems((prev) =>
+          prev.map((item) => (item.id === hero.id ? { ...item, imageUrl } : item))
+        );
+        setEditingImage(false);
+        setImageInput("");
+      }
+    } finally {
+      setImageBusy(false);
+    }
   }
 
   const listItems = hero ? items.filter((item) => item.id !== hero.id) : items;
@@ -173,6 +202,16 @@ export default function NotificationsPage() {
                 close ✕
               </button>
             </div>
+            {hero.imageUrl ? (
+              <img
+                src={hero.imageUrl}
+                alt="Alert attachment"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+                className="max-h-64 w-full border-b border-violet-400/20 object-cover"
+              />
+            ) : null}
             <div className="px-6 py-5">
               <div className="flex items-start gap-4">
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/40 text-2xl">
@@ -192,14 +231,54 @@ export default function NotificationsPage() {
                   {hero.body}
                 </p>
               ) : null}
-              {hero.url ? (
-                <a
-                  href={hero.url}
-                  onClick={() => void markRead(hero.id)}
-                  className="mt-5 inline-block rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
-                >
-                  Open page →
-                </a>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                {hero.url ? (
+                  <a
+                    href={hero.url}
+                    onClick={() => void markRead(hero.id)}
+                    className="rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
+                  >
+                    Open page →
+                  </a>
+                ) : null}
+                {officer ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingImage((v) => !v);
+                      setImageInput(hero.imageUrl ?? "");
+                    }}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
+                  >
+                    🖼️ {hero.imageUrl ? "Change image" : "Attach image"}
+                  </button>
+                ) : null}
+              </div>
+
+              {officer && editingImage ? (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-xs font-semibold text-zinc-400">
+                    Paste a direct image link (Discord CDN, imgur, /og-card.png
+                    style). Leave empty + Save to clear.
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      type="url"
+                      value={imageInput}
+                      onChange={(event) => setImageInput(event.target.value)}
+                      placeholder="https://…/banner.png"
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-violet-400/50"
+                    />
+                    <button
+                      type="button"
+                      disabled={imageBusy}
+                      onClick={() => void saveImage(imageInput.trim() || null)}
+                      className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-4 py-2 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                    >
+                      {imageBusy ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
               ) : null}
             </div>
           </section>
@@ -256,6 +335,17 @@ export default function NotificationsPage() {
                       {formatWhen(item.createdAt)}
                     </span>
                   </span>
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt=""
+                      loading="lazy"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                      className="h-11 w-11 shrink-0 rounded-xl border border-white/10 object-cover"
+                    />
+                  ) : null}
                   <span className="shrink-0 text-zinc-600">›</span>
                 </button>
               );
