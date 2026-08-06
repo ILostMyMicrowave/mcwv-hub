@@ -27,6 +27,47 @@ export default function PushCard() {
   // Officer-only: clan-wide "Discord broadcasts → app alerts" kill-switch.
   const [bcPref, setBcPref] = useState<{ officer: boolean; enabled: boolean } | null>(null);
   const [bcBusy, setBcBusy] = useState(false);
+  // Diagnostics: which worker is ACTUALLY alive on this device + device count.
+  const [diag, setDiag] = useState<{ version: string | null; devices: number | null } | null>(null);
+
+  // Ask the living worker for its version (push-sw.js ≥v5 answers; zombie
+  // workers from before never reply → we warn instead).
+  async function queryWorkerVersion(): Promise<string | null> {
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
+      if (!worker) return null;
+      const channel = new MessageChannel();
+      const reply = new Promise<string | null>((resolve) => {
+        const timeout = setTimeout(() => resolve(null), 1500);
+        channel.port1.onmessage = (event) => {
+          clearTimeout(timeout);
+          const data = event.data as { type?: string; version?: string } | null;
+          resolve(data?.type === "mcwv-version" ? (data.version ?? null) : null);
+        };
+      });
+      worker.postMessage("mcwv-version?", [channel.port2]);
+      return await reply;
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshDiag() {
+    if (!supported || typeof Notification === "undefined") return;
+    const version = await queryWorkerVersion();
+    let devices: number | null = null;
+    try {
+      const res = await fetch("/api/push/subscribe", { cache: "no-store" });
+      if (res.ok) {
+        const data = (await res.json()) as { devices?: number };
+        devices = typeof data.devices === "number" ? data.devices : null;
+      }
+    } catch {
+      devices = null;
+    }
+    setDiag({ version, devices });
+  }
 
   const supported =
     typeof window !== "undefined" &&
@@ -70,6 +111,11 @@ export default function PushCard() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (status === "on") void refreshDiag();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   useEffect(() => {
     fetch("/api/push/broadcast-pref", { cache: "no-store" })
@@ -253,6 +299,29 @@ export default function PushCard() {
       ) : null}
       {note ? (
         <p className="mt-3 text-sm text-zinc-300">{note}</p>
+      ) : null}
+
+      {status === "on" && diag ? (
+        diag.version ? (
+          <p className="mt-3 text-xs text-zinc-500">
+            ⚙️ Worker v{diag.version} ✓
+            {diag.devices !== null
+              ? ` · ${diag.devices} device${diag.devices === 1 ? "" : "s"} subscribed`
+              : ""}{" "}
+            ·{" "}
+            <a
+              href="/notifications"
+              className="font-semibold text-violet-300 underline decoration-violet-400/40 underline-offset-2 transition hover:text-violet-200"
+            >
+              📬 Open inbox
+            </a>
+          </p>
+        ) : (
+          <p className="mt-3 text-xs text-amber-300/90">
+            ⚠️ Alerts work, but your phone runs an old worker (no version
+            reply). Toggle alerts off/on once to refresh it.
+          </p>
+        )
       ) : null}
 
       {bcPref?.officer ? (
