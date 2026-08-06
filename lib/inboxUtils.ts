@@ -111,19 +111,6 @@ export function dayLabelOf(iso: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Hero CTA — the row stores the REAL destination page, so label it properly.
-// ---------------------------------------------------------------------------
-
-export function ctaFor(url: string | null): { href: string; label: string } | null {
-  if (!url || url.startsWith("/notifications")) return null;
-  if (url.startsWith("/war")) return { href: url, label: "⚔️ Open War Room" };
-  if (url.startsWith("/leaderboard")) return { href: url, label: "🏆 Open Leaderboard" };
-  if (url.startsWith("/dashboard")) return { href: url, label: "📊 Open Dashboard" };
-  if (url.startsWith("/settings")) return { href: url, label: "⚙️ Open Settings" };
-  return { href: url, label: "Open page →" };
-}
-
-// ---------------------------------------------------------------------------
 // Ordering — the bit that MUST be correct.
 // ---------------------------------------------------------------------------
 
