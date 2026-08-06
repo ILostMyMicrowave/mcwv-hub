@@ -23,16 +23,24 @@ import { pool } from "@/lib/db";
 export type PushPayload = {
   title: string;
   body?: string;
+  /** REAL destination page, shown as "Open page →" in the inbox. */
   url?: string;
   tag?: string;
+  /** Inbox row id — set server-side so taps deep-link /notifications?n=<id>. */
+  notifId?: number | null;
 };
 
 // Alert categories — each typed send is logged to `notifications` and the
-// device URL gains #n=<id> so a tap opens the in-app popup for THAT alert.
+// device URL becomes /notifications?n=<id> so a tap opens the inbox with
+// THAT alert highlighted.
 export type PushType = "test" | "war" | "presence" | "broadcast";
 
 export type SendOptions = {
   type?: PushType;
+  /** 'clan' (default) = visible in every member's inbox; 'user' = only userId's. */
+  audience?: "clan" | "user";
+  /** Required when audience is 'user'. */
+  userId?: number;
   /** Long-form body stored in `notifications` when the push body is truncated. */
   fullBody?: string;
 };
@@ -102,6 +110,19 @@ export function ensurePushTables(): Promise<void> {
       await pool.query(`ALTER TABLE member_presence_state ADD COLUMN IF NOT EXISTS user_id BIGINT`);
       await pool.query(`ALTER TABLE member_presence_state ADD COLUMN IF NOT EXISTS username TEXT`);
       await pool.query(`ALTER TABLE member_presence_state ADD COLUMN IF NOT EXISTS last_alerted_at TIMESTAMPTZ`);
+      await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience TEXT NOT NULL DEFAULT 'clan'`);
+      await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS user_id BIGINT`);
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id)`
+      );
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS alert_read_marker (
+          user_id BIGINT PRIMARY KEY,
+          last_read_notif_id BIGINT NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`ALTER TABLE alert_read_marker ADD COLUMN IF NOT EXISTS last_read_notif_id BIGINT NOT NULL DEFAULT 0`);
     })().catch((err) => {
       tablesReady = null;
       throw err;
@@ -206,14 +227,21 @@ async function deliver(rows: SubRow[], payload: PushPayload) {
 async function logNotification(
   type: PushType,
   payload: PushPayload,
-  fullBody?: string
+  opts: SendOptions
 ): Promise<number | null> {
   try {
     const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO notifications (type, title, body, url)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO notifications (type, title, body, url, audience, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id::text AS id`,
-      [type, payload.title.slice(0, 200), (fullBody ?? payload.body ?? "").slice(0, 2000), payload.url ?? null]
+      [
+        type,
+        payload.title.slice(0, 200),
+        (opts.fullBody ?? payload.body ?? "").slice(0, 2000),
+        payload.url ?? null,
+        opts.audience ?? "clan",
+        opts.audience === "user" ? (opts.userId ?? null) : null,
+      ]
     );
     return rows[0] ? Number(rows[0].id) : null;
   } catch {
@@ -222,15 +250,16 @@ async function logNotification(
   }
 }
 
-function withNotifHash(url: string | undefined, id: number | null): string | undefined {
-  if (!id) return url;
-  return `${(url ?? "/").split("#")[0]}#n=${id}`;
+// Taps land on the inbox, deep-linked to the alert. The REAL destination
+// page stays on the notification row for the inbox's "Open page →" link.
+function buildTapUrl(id: number | null): string {
+  return id ? `/notifications?n=${id}` : "/notifications";
 }
 
 async function prepare(payload: PushPayload, opts: SendOptions = {}): Promise<PushPayload> {
   if (!opts.type) return payload;
-  const id = await logNotification(opts.type, payload, opts.fullBody);
-  return { ...payload, url: withNotifHash(payload.url, id) };
+  const id = await logNotification(opts.type, payload, opts);
+  return { ...payload, url: buildTapUrl(id), notifId: id };
 }
 
 export async function sendPushToUser(
