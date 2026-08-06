@@ -6,6 +6,7 @@ import OnboardingTour from "@/components/OnboardingTour";
 import WarReturnRecap from "@/components/WarReturnRecap";
 import BootIntroGate from "@/components/BootIntroGate";
 import GlobalAssistant from "@/components/GlobalAssistant";
+import AppBadgeSync from "@/components/AppBadgeSync";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,12 +52,58 @@ export const metadata: Metadata = {
     capable: true,
     title: "MCWV",
     statusBarStyle: "black-translucent",
+    // Launch splash screens for the installed iOS app (Safari reads
+    // apple-touch-startup-image links; one per device class).
+    startupImage: [
+      {
+        url: "/splash/ios-430x932.png",
+        media:
+          "(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/splash/ios-393x852.png",
+        media:
+          "(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/splash/ios-428x926.png",
+        media:
+          "(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/splash/ios-390x844.png",
+        media:
+          "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/splash/ios-375x812.png",
+        media:
+          "(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/splash/ios-414x896-3x.png",
+        media:
+          "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/splash/ios-414x896-2x.png",
+        media:
+          "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)",
+      },
+      {
+        url: "/splash/ios-375x667.png",
+        media:
+          "(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)",
+      },
+    ],
   },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Full-bleed on notched devices when installed (safe areas handled in CSS).
+  viewportFit: "cover",
   themeColor: "#0a0a0a",
 };
 
@@ -107,6 +154,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <BootIntroGate />
         <UserSync />
+        <AppBadgeSync />
         {children}
         <GlobalAssistant />
         <OnboardingTour />
