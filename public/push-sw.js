@@ -43,26 +43,37 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url =
+  const rawUrl =
     (event.notification.data && event.notification.data.url) || "/";
 
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then(async (clients) => {
-        const existing = clients.find((client) => "focus" in client);
-        if (existing) {
-          await existing.focus();
-          if ("navigate" in existing) {
-            try {
-              await existing.navigate(url);
-            } catch {
-              /* already focused is good enough */
-            }
+    (async () => {
+      // MUST be absolute: Chrome's WindowClient.navigate() silently rejects
+      // relative URLs on some builds — the tap then just refocuses whatever
+      // page was open and the #n= hash (popup trigger) never loads.
+      const targetUrl = new URL(rawUrl, self.location.origin).href;
+
+      const windowClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const existing = windowClients.find(
+        (client) => client.url && client.url.startsWith(self.location.origin)
+      );
+
+      if (existing) {
+        if (typeof existing.navigate === "function") {
+          try {
+            // Navigate FIRST (hands the #n= hash to the app), then focus.
+            await existing.navigate(targetUrl);
+            await existing.focus();
+            return;
+          } catch {
+            // Fall through to openWindow below.
           }
-          return undefined;
         }
-        return self.clients.openWindow(url);
-      })
+      }
+      await self.clients.openWindow(targetUrl);
+    })()
   );
 });
