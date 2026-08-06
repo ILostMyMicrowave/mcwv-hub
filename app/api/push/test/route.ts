@@ -26,7 +26,7 @@ export async function POST() {
       url: "/settings",
       tag: "mcwv-test",
     },
-    { type: "test" } // logged → tap opens the in-app alert popup too
+    { type: "test", audience: "user", userId: auth.user.id } // logged → tap deep-links the inbox
   );
 
   return NextResponse.json({ success: true, ...result });
