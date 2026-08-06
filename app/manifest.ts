@@ -54,6 +54,12 @@ export default function manifest(): MetadataRoute.Manifest {
         icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }],
       },
       {
+        name: "Alert Inbox",
+        short_name: "Inbox",
+        url: "/notifications",
+        icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }],
+      },
+      {
         name: "Admin",
         short_name: "Admin",
         url: "/admin",
@@ -78,5 +84,10 @@ export default function manifest(): MetadataRoute.Manifest {
         label: "Leaderboard on the go",
       },
     ],
-  };
+    // THE admin-redirect killer: when the installed app is already open and a
+    // deep link (notification tap, shortcut) targets it, NAVIGATE the existing
+    // window to the new URL. Default WebAPK behaviour is "restore last
+    // session" — it refocuses the stale page (that mystery /admin landing).
+    launch_handler: { client_mode: "navigate-existing" },
+  } as MetadataRoute.Manifest;
 }
