@@ -18,12 +18,16 @@ export async function POST() {
     );
   }
 
-  const result = await sendPushToUser(auth.user.id, {
-    title: "MCWV Hub 🔔",
-    body: "Test alert — you're all set! War pings will land right here.",
-    url: "/settings",
-    tag: "mcwv-test",
-  });
+  const result = await sendPushToUser(
+    auth.user.id,
+    {
+      title: "MCWV Hub 🔔",
+      body: "Test alert — you're all set! War pings will land right here.",
+      url: "/settings",
+      tag: "mcwv-test",
+    },
+    { type: "test" } // logged → tap opens the in-app alert popup too
+  );
 
   return NextResponse.json({ success: true, ...result });
 }
