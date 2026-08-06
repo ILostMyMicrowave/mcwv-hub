@@ -1,5 +1,5 @@
 import { pool } from "@/lib/db";
-import { broadcastTablesExist } from "@/lib/broadcastDb";
+import { broadcastImageColumnsReady, broadcastTablesExist } from "@/lib/broadcastDb";
 import {
   ensurePushTables,
   getStateText,
@@ -168,6 +168,9 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
 
   const exists = await broadcastTablesExist().catch(() => false);
   if (!exists) return { pushed: 0 };
+  // Adds broadcast_sends.image_url if an old DB predates it; if the ALTER
+  // itself fails we fall back to message-regex extraction for this run.
+  const hasImageColumn = await broadcastImageColumnsReady();
 
   const cursorRaw = await getStateText("broadcast_push_cursor");
   const cursor = Number(cursorRaw ?? "0");
@@ -185,8 +188,9 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
     id: number;
     message: string | null;
     audience: string | null;
+    image_url?: string | null;
   }>(
-    `SELECT id, message, audience
+    `SELECT id, message, audience${hasImageColumn ? ", image_url" : ""}
      FROM broadcast_sends
      WHERE id > $1
      ORDER BY id ASC
@@ -203,7 +207,11 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
   let pushed = 0;
   for (const row of rows) {
     const rawMessage = String(row.message ?? "").trim();
-    const image = rawMessage.match(IMAGE_URL_RE)?.[1];
+    // Explicit artwork wins; the regex stays as the legacy fallback for
+    // sends that just pasted a raw image link into the message text.
+    const image =
+      String(row.image_url ?? "").trim() ||
+      rawMessage.match(IMAGE_URL_RE)?.[1];
     const message = rawMessage
       .replace(/<@[!&]?\d+>/g, "")
       .replace(/<#\d+>/g, "")
