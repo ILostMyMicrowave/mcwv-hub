@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import DiscordMarkdown from "@/components/DiscordMarkdown";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -3187,11 +3188,14 @@ function BroadcastSection({
             <div>
               <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Message Preview</div>
               <div
-                className="rounded-2xl border p-4 text-sm whitespace-pre-wrap"
+                className="rounded-2xl border p-4 text-sm"
                 style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--foreground)" }}
               >
                 {style === "embed" && <div className="mb-2 font-semibold">📢 MCWV Broadcast</div>}
-                {renderBroadcastPreviewMessage(message, preview.sampleRecipients[0])}
+                {/* Renders Discord formatting exactly like the DMs will */}
+                <DiscordMarkdown
+                  text={renderBroadcastPreviewMessage(message, preview.sampleRecipients[0])}
+                />
                 {imageUrl.trim() ? (
                   <img
                     key={imageUrl.trim()}
