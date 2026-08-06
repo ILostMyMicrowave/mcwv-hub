@@ -30,22 +30,40 @@ export default function PushCard() {
   // Diagnostics: which worker is ACTUALLY alive on this device + device count.
   const [diag, setDiag] = useState<{ version: string | null; devices: number | null } | null>(null);
 
-  // Ask the living worker for its version (push-sw.js ≥v5 answers; zombie
-  // workers from before never reply → we warn instead).
+  // Ask the living worker for its version (v5+ answers; pre-v5 zombies
+  // never reply → we warn instead). We listen on BOTH channels: v7+ replies
+  // on our transferred MessageChannel port, v5/v6 replied straight back to
+  // the client via event.source — the page-side listener below catches
+  // either, so the version check finally reflects reality.
   async function queryWorkerVersion(): Promise<string | null> {
     try {
       const registration = await navigator.serviceWorker.getRegistration();
       const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
       if (!worker) return null;
       const channel = new MessageChannel();
+
       const reply = new Promise<string | null>((resolve) => {
-        const timeout = setTimeout(() => resolve(null), 1500);
-        channel.port1.onmessage = (event) => {
-          clearTimeout(timeout);
-          const data = event.data as { type?: string; version?: string } | null;
-          resolve(data?.type === "mcwv-version" ? (data.version ?? null) : null);
+        const pick = (data: unknown): string | null | undefined => {
+          const parsed = data as { type?: string; version?: string } | null;
+          return parsed?.type === "mcwv-version" ? (parsed.version ?? null) : undefined;
         };
+        const onSwMessage = (event: MessageEvent) => {
+          const version = pick(event.data);
+          if (version !== undefined) finish(version);
+        };
+        const finish = (version: string | null) => {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener("message", onSwMessage);
+          resolve(version);
+        };
+        const timeout = setTimeout(() => finish(null), 1500);
+        channel.port1.onmessage = (event) => {
+          const version = pick(event.data);
+          if (version !== undefined) finish(version);
+        };
+        navigator.serviceWorker.addEventListener("message", onSwMessage);
       });
+
       worker.postMessage("mcwv-version?", [channel.port2]);
       return await reply;
     } catch {
