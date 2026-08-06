@@ -20,7 +20,7 @@ const deleteSchema = z.object({
   endpoint: z.string().url().max(2000),
 });
 
-// Is the signed-in user subscribed on at least one device?
+// Is the signed-in user subscribed, and on how many devices?
 export async function GET() {
   const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
@@ -30,7 +30,8 @@ export async function GET() {
     `SELECT COUNT(*)::text AS n FROM push_subscriptions WHERE user_id = $1`,
     [auth.user.id]
   );
-  return NextResponse.json({ success: true, subscribed: Number(rows[0]?.n ?? 0) > 0 });
+  const devices = Number(rows[0]?.n ?? 0);
+  return NextResponse.json({ success: true, subscribed: devices > 0, devices });
 }
 
 // Save (or refresh) this device's push subscription. The body is exactly
