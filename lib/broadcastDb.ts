@@ -80,6 +80,40 @@ export function missingTablesResponse() {
 }
 
 // --------------------------------------------------------------------------
+// image_url columns (templates + sends). Both the bot (on boot) and the hub
+// (here, once per serverless cold start) add them idempotently, so either
+// deploy order works — no manual SQL ever.
+// --------------------------------------------------------------------------
+
+let imageColumnsReady: Promise<void> | null = null
+
+export function ensureBroadcastImageColumns(): Promise<void> {
+  if (!imageColumnsReady) {
+    imageColumnsReady = (async () => {
+      await pool.query(
+        `ALTER TABLE broadcast_templates ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT ''`
+      )
+      await pool.query(
+        `ALTER TABLE broadcast_sends ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT ''`
+      )
+    })().catch((err) => {
+      imageColumnsReady = null
+      throw err
+    })
+  }
+  return imageColumnsReady
+}
+
+// True when the image_url columns are (or just became) available — lets
+// readers degrade gracefully instead of 500ing during a deploy race.
+export async function broadcastImageColumnsReady(): Promise<boolean> {
+  return ensureBroadcastImageColumns().then(
+    () => true,
+    () => false
+  )
+}
+
+// --------------------------------------------------------------------------
 // Validation
 // --------------------------------------------------------------------------
 
@@ -107,6 +141,13 @@ function cleanFloat(value: unknown, min: number, max: number): number | null {
   return parsed >= min && parsed <= max ? Math.round(parsed * 100) / 100 : null
 }
 
+// Optional broadcast artwork: "" when absent, null when present-but-invalid.
+function cleanImageUrl(value: unknown): string | null {
+  const text = clean(value, 1000)
+  if (!text) return ""
+  return /^https?:\/\//i.test(text) ? text : null
+}
+
 export type BroadcastTemplateInput = {
   name: string
   audience: string
@@ -114,6 +155,7 @@ export type BroadcastTemplateInput = {
   delivery: string
   style: string
   message: string
+  imageUrl: string
 }
 
 export function sanitizeTemplateInput(body: unknown): Validation<BroadcastTemplateInput> {
@@ -134,7 +176,13 @@ export function sanitizeTemplateInput(body: unknown): Validation<BroadcastTempla
   const message = clean(record.message, 1900)
   if (!message) return { ok: false, error: "Message is required." }
 
-  return { ok: true, data: { name, audience, value, delivery, style, message } }
+  // Accepts both camelCase (hub UI) and snake_case (bot-flavoured payloads).
+  const imageUrl = cleanImageUrl(record.imageUrl ?? record.image_url)
+  if (imageUrl === null) {
+    return { ok: false, error: "Image URL must start with http:// or https:// — or be left empty." }
+  }
+
+  return { ok: true, data: { name, audience, value, delivery, style, message, imageUrl } }
 }
 
 export type BroadcastScheduleInput = {
@@ -249,6 +297,7 @@ export function mapTemplateRow(row: Record<string, unknown>) {
     delivery: String(row.delivery ?? "dm"),
     style: String(row.style ?? "plain"),
     message: String(row.message ?? ""),
+    imageUrl: row.image_url ? String(row.image_url) : "",
     createdBy: row.created_by ? String(row.created_by) : null,
     updatedBy: row.updated_by ? String(row.updated_by) : null,
     updatedAt: toIso(row.updated_at),
@@ -289,6 +338,7 @@ export function mapSendRow(row: Record<string, unknown>) {
     delivery: row.delivery ? String(row.delivery) : null,
     style: row.style ? String(row.style) : null,
     message: String(row.message ?? ""),
+    imageUrl: row.image_url ? String(row.image_url) : "",
     battleKey: row.battle_key ? String(row.battle_key) : null,
     matchedCount: Number(row.matched_count ?? 0),
     sentCount: Number(row.sent_count ?? 0),
