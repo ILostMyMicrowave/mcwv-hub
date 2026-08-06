@@ -1,9 +1,9 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import DiscordMarkdown from "@/components/DiscordMarkdown";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ctaFor,
   formatWhen,
   groupByDay,
   insertByRecency,
@@ -11,6 +11,7 @@ import {
   relTime,
   sortByRecency,
 } from "@/lib/inboxUtils";
+import { stripDiscordMarkdown } from "@/lib/discordFormat";
 import type { FilterId, HubNotification } from "@/lib/inboxUtils";
 
 const FILTERS: { id: FilterId; label: string }[] = [
@@ -241,6 +242,8 @@ export default function NotificationsPage() {
   function renderRow(item: HubNotification, index: number) {
     const meta = metaFor(item.type);
     const isNew = item.id > lastReadId;
+    // Previews are plain: markers stripped so "**War**" previews as "War".
+    const preview = item.body ? stripDiscordMarkdown(item.body) : "";
     return (
       <button
         key={item.id}
@@ -276,7 +279,7 @@ export default function NotificationsPage() {
               </span>
             ) : null}
           </span>
-          {item.body ? (
+          {preview ? (
             <span
               className="mt-0.5 block text-xs leading-relaxed text-zinc-500"
               style={{
@@ -286,7 +289,7 @@ export default function NotificationsPage() {
                 overflow: "hidden",
               }}
             >
-              {item.body}
+              {preview}
             </span>
           ) : null}
           <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
@@ -319,7 +322,6 @@ export default function NotificationsPage() {
   );
 
   const heroMeta = hero ? metaFor(hero.type) : null;
-  const heroCta = hero ? ctaFor(hero.url) : null;
 
   const emptyCopy =
     filter === "unread"
@@ -448,7 +450,8 @@ export default function NotificationsPage() {
                   onError={(event) => {
                     event.currentTarget.style.display = "none";
                   }}
-                  className="max-h-72 w-full border-b border-violet-400/20 object-cover transition hover:opacity-95"
+                  // object-contain: the WHOLE image, never cropped.
+                  className="max-h-[60vh] w-full border-b border-violet-400/20 bg-black/40 object-contain transition hover:opacity-95"
                 />
               </a>
             ) : null}
@@ -468,21 +471,12 @@ export default function NotificationsPage() {
                 </div>
               </div>
               {hero.body ? (
-                <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-300">
-                  {hero.body}
-                </p>
+                <div className="mt-4 break-words text-sm leading-relaxed text-zinc-300">
+                  <DiscordMarkdown text={hero.body} />
+                </div>
               ) : null}
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                {heroCta ? (
-                  <a
-                    href={heroCta.href}
-                    onClick={() => void markRead(hero.id)}
-                    className="rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
-                  >
-                    {heroCta.label} →
-                  </a>
-                ) : null}
-                {officer ? (
+              {officer ? (
+                <div className="mt-5 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -493,8 +487,8 @@ export default function NotificationsPage() {
                   >
                     🖼️ {hero.imageUrl ? "Change image" : "Attach image"}
                   </button>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
 
               {officer && editingImage ? (
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-4">
