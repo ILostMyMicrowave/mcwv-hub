@@ -24,6 +24,9 @@ export default function PushCard() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [iosNeedsInstall, setIosNeedsInstall] = useState(false);
+  // Officer-only: clan-wide "Discord broadcasts → app alerts" kill-switch.
+  const [bcPref, setBcPref] = useState<{ officer: boolean; enabled: boolean } | null>(null);
+  const [bcBusy, setBcBusy] = useState(false);
 
   const supported =
     typeof window !== "undefined" &&
@@ -67,6 +70,35 @@ export default function PushCard() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    fetch("/api/push/broadcast-pref", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data === "object") {
+          const pref = data as { officer?: boolean; enabled?: boolean };
+          setBcPref({ officer: Boolean(pref.officer), enabled: pref.enabled !== false });
+        }
+      })
+      .catch(() => null);
+  }, []);
+
+  async function toggleBroadcastAlerts() {
+    if (!bcPref) return;
+    setBcBusy(true);
+    try {
+      const res = await fetch("/api/push/broadcast-pref", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !bcPref.enabled }),
+      });
+      if (res.ok) {
+        setBcPref({ ...bcPref, enabled: !bcPref.enabled });
+      }
+    } finally {
+      setBcBusy(false);
+    }
+  }
 
   async function enable() {
     setBusy(true);
@@ -221,6 +253,30 @@ export default function PushCard() {
       ) : null}
       {note ? (
         <p className="mt-3 text-sm text-zinc-300">{note}</p>
+      ) : null}
+
+      {bcPref?.officer ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">📢 Broadcasts → app alerts</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Officer setting — Discord broadcasts also ping every subscribed
+              app. Clan-wide.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void toggleBroadcastAlerts()}
+            disabled={bcBusy}
+            className={`shrink-0 rounded-2xl px-4 py-2 text-sm font-bold transition hover:-translate-y-0.5 disabled:opacity-60 ${
+              bcPref.enabled
+                ? "bg-gradient-to-r from-emerald-500 to-emerald-400 text-black"
+                : "border border-white/10 bg-white/5 text-zinc-300"
+            }`}
+          >
+            {bcPref.enabled ? "On ✓" : "Off"}
+          </button>
+        </div>
       ) : null}
     </div>
   );
