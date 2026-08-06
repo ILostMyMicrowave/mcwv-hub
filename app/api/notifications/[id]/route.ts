@@ -15,7 +15,8 @@ type Row = {
   created_at: Date | string;
 };
 
-// One alert — hit by NotificationCenter when a push tap lands on #n=<id>.
+// One alert — visibility-checked: clan alerts for all, personal only for
+// their owner.
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -34,8 +35,9 @@ export async function GET(
     `SELECT id::text AS id, type, title, body, url, created_at
      FROM notifications
      WHERE id = $1
+       AND (audience <> 'user' OR user_id = $2)
      LIMIT 1`,
-    [numericId]
+    [numericId, auth.user.id]
   );
   const row = rows[0];
   if (!row) {
