@@ -10,7 +10,7 @@
  *  - SW_VERSION + the message handler let the settings page verify which
  *    worker is actually alive on the device (zombie-worker detector).
  */
-const SW_VERSION = "5";
+const SW_VERSION = "6";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -56,6 +56,11 @@ self.addEventListener("push", (event) => {
       { action: "dismiss", title: "Dismiss" },
     ],
   };
+
+  // Big-picture style (Chrome Android/Windows) when the alert carries art.
+  if (typeof data.image === "string" && data.image) {
+    options.image = data.image;
+  }
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
