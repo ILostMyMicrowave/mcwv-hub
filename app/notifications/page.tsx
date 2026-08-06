@@ -198,6 +198,8 @@ export default function NotificationsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ upTo }),
       });
+      // Navbar badge refreshes instantly instead of waiting for its 60s poll.
+      window.dispatchEvent(new CustomEvent("mcwv:alerts-changed"));
     } catch {
       setLastReadId(marker); // roll back if the write failed
     }
