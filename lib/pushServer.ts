@@ -114,6 +114,11 @@ export function ensurePushTables(): Promise<void> {
       await pool.query(`ALTER TABLE member_presence_state ADD COLUMN IF NOT EXISTS last_alerted_at TIMESTAMPTZ`);
       await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience TEXT NOT NULL DEFAULT 'clan'`);
       await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS user_id BIGINT`);
+      // ⚠️ THE missing line that caused "push arrived but inbox is empty":
+      // logNotification INSERTs image_url and the inbox SELECTs it, so when
+      // this column was absent every log failed silently and the inbox
+      // query 500'd into a fake-empty state. Never remove.
+      await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS image_url TEXT`);
       await pool.query(
         `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id)`
       );
@@ -247,8 +252,11 @@ async function logNotification(
       ]
     );
     return rows[0] ? Number(rows[0].id) : null;
-  } catch {
-    // Logging must never block an actual push.
+  } catch (err) {
+    // Logging must never block an actual push — but it MUST be loud:
+    // a silent failure here is exactly how "push arrived, inbox empty"
+    // bugs hide. Watch for this line in Vercel logs.
+    console.error("[push] inbox log failed:", err);
     return null;
   }
 }
@@ -259,10 +267,15 @@ function buildTapUrl(id: number | null): string {
   return id ? `/notifications?n=${id}` : "/notifications";
 }
 
-async function prepare(payload: PushPayload, opts: SendOptions = {}): Promise<PushPayload> {
-  if (!opts.type) return payload;
+// Returns the inbox id alongside the payload so callers can surface whether
+// the alert actually landed in the inbox (diagnosing "push but empty inbox").
+async function prepare(
+  payload: PushPayload,
+  opts: SendOptions = {}
+): Promise<{ payload: PushPayload; notifId: number | null }> {
+  if (!opts.type) return { payload, notifId: null };
   const id = await logNotification(opts.type, payload, opts);
-  return { ...payload, url: buildTapUrl(id), notifId: id };
+  return { payload: { ...payload, url: buildTapUrl(id), notifId: id }, notifId: id };
 }
 
 export async function sendPushToUser(
@@ -271,19 +284,21 @@ export async function sendPushToUser(
   opts: SendOptions = {}
 ) {
   await ensurePushTables();
-  const finalPayload = await prepare(payload, opts);
+  const { payload: finalPayload, notifId } = await prepare(payload, opts);
   const { rows } = await pool.query<SubRow>(
     `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
     [userId]
   );
-  return deliver(rows, finalPayload);
+  const result = await deliver(rows, finalPayload);
+  return { ...result, notifId };
 }
 
 export async function sendPushToAll(payload: PushPayload, opts: SendOptions = {}) {
   await ensurePushTables();
-  const finalPayload = await prepare(payload, opts);
+  const { payload: finalPayload, notifId } = await prepare(payload, opts);
   const { rows } = await pool.query<SubRow>(
     `SELECT endpoint, p256dh, auth FROM push_subscriptions`
   );
-  return deliver(rows, finalPayload);
+  const result = await deliver(rows, finalPayload);
+  return { ...result, notifId };
 }
