@@ -26,6 +26,8 @@ export type PushPayload = {
   /** REAL destination page, shown as "Open page →" in the inbox. */
   url?: string;
   tag?: string;
+  /** Optional big image — Android shows it big-picture style, inbox as banner. */
+  image?: string;
   /** Inbox row id — set server-side so taps deep-link /notifications?n=<id>. */
   notifId?: number | null;
 };
@@ -231,8 +233,8 @@ async function logNotification(
 ): Promise<number | null> {
   try {
     const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO notifications (type, title, body, url, audience, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO notifications (type, title, body, url, audience, user_id, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id::text AS id`,
       [
         type,
@@ -241,6 +243,7 @@ async function logNotification(
         payload.url ?? null,
         opts.audience ?? "clan",
         opts.audience === "user" ? (opts.userId ?? null) : null,
+        payload.image ?? null,
       ]
     );
     return rows[0] ? Number(rows[0].id) : null;
