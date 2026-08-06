@@ -6,6 +6,17 @@
  *   1. Receive push events and show a notification.
  *   2. On tap, focus the app and navigate to the right page.
  */
+
+// Take over immediately on deploy — without these, an updated worker WAITS
+// until every app window is closed, so fixes (like a new badge icon) appear
+// to "not work" while the old worker keeps handling pushes.
+self.addEventListener("install", (event) => {
+  self.skipWaiting();
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
