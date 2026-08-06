@@ -194,9 +194,17 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
     [cursor]
   );
 
+  // First direct image link in a broadcast becomes the alert attachment —
+  // Discord CDN artwork flows into the inbox (and Android big-picture) with
+  // zero extra work from officers.
+  const IMAGE_URL_RE =
+    /(https?:\/\/[^\s<>]+\.(?:png|jpe?g|gif|webp)(?:\?[^\s<>]*)?)/i;
+
   let pushed = 0;
   for (const row of rows) {
-    const message = String(row.message ?? "")
+    const rawMessage = String(row.message ?? "").trim();
+    const image = rawMessage.match(IMAGE_URL_RE)?.[1];
+    const message = rawMessage
       .replace(/<@[!&]?\d+>/g, "")
       .replace(/<#\d+>/g, "")
       .replace(/\s+/g, " ")
@@ -208,8 +216,9 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
           title: "📢 MCWV Broadcast",
           body: body || "New clan broadcast.",
           url: "/dashboard",
+          image,
         },
-        { type: "broadcast", fullBody: message || undefined }
+        { type: "broadcast", fullBody: rawMessage || undefined }
       );
       pushed += 1;
     } catch {
