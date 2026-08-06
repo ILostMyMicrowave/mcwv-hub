@@ -9,8 +9,12 @@
  *    and dumps the user on whatever page the app last had open.
  *  - SW_VERSION + the message handler let the settings page verify which
  *    worker is actually alive on the device (zombie-worker detector).
+ *  - v7: reply on the transferred MessageChannel PORT (event.ports[0]) —
+ *    v5/v6 answered via event.source, which lands on a channel the page
+ *    never listened to, so the version check ALWAYS timed out and the
+ *    "old worker" warning could never clear. Port first, source fallback.
  */
-const SW_VERSION = "6";
+const SW_VERSION = "7";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -20,16 +24,19 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (
-    event.data === "mcwv-version?" &&
-    event.source &&
-    "postMessage" in event.source
-  ) {
-    try {
-      event.source.postMessage({ type: "mcwv-version", version: SW_VERSION });
-    } catch {
-      /* diagnostics are best-effort */
+  if (event.data !== "mcwv-version?") return;
+  const reply = { type: "mcwv-version", version: SW_VERSION };
+  try {
+    const port = event.ports && event.ports.length > 0 ? event.ports[0] : null;
+    if (port) {
+      port.postMessage(reply); // page is waiting on its MessageChannel
+      return;
     }
+    if (event.source && "postMessage" in event.source) {
+      event.source.postMessage(reply); // legacy caller, page-side fallback listens here too
+    }
+  } catch {
+    /* diagnostics are best-effort */
   }
 });
 
