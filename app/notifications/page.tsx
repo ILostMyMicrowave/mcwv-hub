@@ -35,6 +35,9 @@ export default function NotificationsPage() {
   const [lastReadId, setLastReadId] = useState(0);
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  // Distinct from "empty": a failed load must NEVER look like an empty inbox
+  // (that confusion was the heart of the "push arrived, inbox empty" bug).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [marking, setMarking] = useState(false);
   const [officer, setOfficer] = useState(false);
   const [editingImage, setEditingImage] = useState(false);
@@ -42,10 +45,15 @@ export default function NotificationsPage() {
   const [imageBusy, setImageBusy] = useState(false);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (res.status === 401) {
         window.location.href = "/login";
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(`Hub error ${res.status} — the inbox couldn't load.`);
         return;
       }
       const data = (await res.json()) as {
@@ -62,7 +70,7 @@ export default function NotificationsPage() {
         setHighlightId(param);
       }
     } catch {
-      // Empty inbox state renders below.
+      setLoadError("Couldn't reach the hub — check your connection, then retry.");
     } finally {
       setLoading(false);
     }
@@ -289,6 +297,27 @@ export default function NotificationsPage() {
             <p className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center text-sm text-zinc-500">
               Loading alerts…
             </p>
+          ) : loadError ? (
+            <div className="rounded-3xl border border-rose-400/30 bg-rose-500/[0.08] p-10 text-center">
+              <p className="text-4xl">📡</p>
+              <p className="mt-3 text-sm font-bold text-rose-200">
+                Inbox failed to load
+              </p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-rose-200/70">
+                {loadError} Your alerts aren&apos;t gone — this is a hiccup,
+                not an empty inbox.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true);
+                  void load();
+                }}
+                className="mt-4 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
+              >
+                ↻ Retry
+              </button>
+            </div>
           ) : listItems.length === 0 && !hero ? (
             <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-10 text-center">
               <p className="text-4xl">📭</p>
