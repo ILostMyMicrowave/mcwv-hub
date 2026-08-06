@@ -379,7 +379,6 @@ export default function Navbar() {
             { href: "/hall-of-fame", label: "Hall of Fame", icon: "👑", description: "Top members and legends" },
           ],
         },
-        { type: "link", id: "inbox", href: "/notifications", label: "Inbox", icon: "🔔" },
         {
           type: "group",
           id: "staff",
@@ -397,6 +396,7 @@ export default function Navbar() {
             { href: "/admin", label: "Admin Overview", icon: "🧭", description: "Control panel overview" },
           ],
         },
+        { type: "link", id: "inbox", href: "/notifications", label: "Inbox", icon: "🔔" },
         { type: "link", id: "settings", href: "/settings", label: "Settings", icon: "⚙" },
       ] as NavGroup[]).filter((item) => !item.officerOnly || isOfficer),
     [isOfficer]
