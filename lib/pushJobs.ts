@@ -125,7 +125,8 @@ export async function sweepWarPresence(): Promise<{ alerted: number }> {
 
   if (leavers.length === 0) return { alerted: 0 };
 
-  // One personal nudge per leaver — only their own devices get it.
+  // One personal nudge per leaver — only their own devices get it, and the
+  // inbox copy is visible to them alone.
   for (const leaver of leavers) {
     try {
       await sendPushToUser(
@@ -136,7 +137,7 @@ export async function sweepWarPresence(): Promise<{ alerted: number }> {
           url: "/leaderboard",
           tag: "presence-nudge",
         },
-        { type: "presence" }
+        { type: "presence", audience: "user", userId: leaver.id }
       );
     } catch {
       // One member's delivery failure must not stop the others.
@@ -152,6 +153,16 @@ export async function sweepWarPresence(): Promise<{ alerted: number }> {
  * very first run just marks the cursor so history never back-floods.
  */
 export async function sweepBroadcasts(): Promise<{ pushed: number }> {
+  // 30-day inbox retention, pruned at most once per day.
+  const today = new Date().toISOString().slice(0, 10);
+  const lastPrune = await getStateText("notif_prune_day").catch(() => null);
+  if (lastPrune !== today) {
+    await pool
+      .query(`DELETE FROM notifications WHERE created_at < NOW() - INTERVAL '30 days'`)
+      .catch(() => null);
+    await setStateText("notif_prune_day", today).catch(() => null);
+  }
+
   const enabled = await getStateText("alert_broadcasts_enabled");
   if (enabled === "false") return { pushed: 0 };
 
