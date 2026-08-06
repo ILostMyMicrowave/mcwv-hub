@@ -2,113 +2,16 @@
 
 import Navbar from "@/components/Navbar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type HubNotification = {
-  id: number;
-  type: string;
-  title: string;
-  body: string | null;
-  url: string | null;
-  imageUrl: string | null;
-  createdAt: string;
-};
-
-type FilterId = "all" | "unread" | "war" | "broadcast" | "presence";
-
-// Per-type personality: icon, chip label + colours, icon tile, and a soft
-// glow for unread rows. Class strings stay literal so Tailwind keeps them.
-const TYPE_META: Record<
-  string,
-  { icon: string; label: string; chip: string; iconTile: string; glow: string }
-> = {
-  war: {
-    icon: "⚔️",
-    label: "War",
-    chip: "border-rose-400/30 bg-rose-400/10 text-rose-200",
-    iconTile: "border-rose-400/30 bg-rose-500/15",
-    glow: "shadow-[0_0_28px_rgba(251,113,133,0.14)]",
-  },
-  broadcast: {
-    icon: "📢",
-    label: "Broadcast",
-    chip: "border-violet-400/30 bg-violet-400/10 text-violet-200",
-    iconTile: "border-violet-400/30 bg-violet-500/15",
-    glow: "shadow-[0_0_28px_rgba(167,139,250,0.14)]",
-  },
-  presence: {
-    icon: "🎮",
-    label: "Nudge",
-    chip: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    iconTile: "border-emerald-400/30 bg-emerald-500/15",
-    glow: "shadow-[0_0_28px_rgba(52,211,153,0.12)]",
-  },
-  test: {
-    icon: "🔔",
-    label: "Test",
-    chip: "border-sky-400/30 bg-sky-400/10 text-sky-200",
-    iconTile: "border-sky-400/30 bg-sky-500/15",
-    glow: "shadow-[0_0_28px_rgba(56,189,248,0.10)]",
-  },
-};
-
-const FALLBACK_META = {
-  icon: "🔔",
-  label: "Alert",
-  chip: "border-zinc-400/30 bg-zinc-400/10 text-zinc-300",
-  iconTile: "border-white/10 bg-black/40",
-  glow: "",
-};
-
-function metaFor(type: string) {
-  return TYPE_META[type] ?? FALLBACK_META;
-}
-
-function formatWhen(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-function relTime(iso: string) {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "";
-  const diff = Date.now() - t;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  return new Date(t).toLocaleDateString(undefined, { dateStyle: "medium" });
-}
-
-function dayLabelOf(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Earlier";
-  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const today = startOf(new Date());
-  const thatDay = startOf(date);
-  if (thatDay === today) return "Today";
-  if (thatDay === today - 86_400_000) return "Yesterday";
-  return date.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-// The notification row stores the REAL destination page — give the CTA a
-// label that matches where it goes instead of a generic "Open page".
-function ctaFor(url: string | null): { href: string; label: string } | null {
-  if (!url || url.startsWith("/notifications")) return null;
-  if (url.startsWith("/war")) return { href: url, label: "⚔️ Open War Room" };
-  if (url.startsWith("/leaderboard")) return { href: url, label: "🏆 Open Leaderboard" };
-  if (url.startsWith("/dashboard")) return { href: url, label: "📊 Open Dashboard" };
-  if (url.startsWith("/settings")) return { href: url, label: "⚙️ Open Settings" };
-  return { href: url, label: "Open page →" };
-}
+import {
+  ctaFor,
+  formatWhen,
+  groupByDay,
+  insertByRecency,
+  metaFor,
+  relTime,
+  sortByRecency,
+} from "@/lib/inboxUtils";
+import type { FilterId, HubNotification } from "@/lib/inboxUtils";
 
 const FILTERS: { id: FilterId; label: string }[] = [
   { id: "all", label: "📬 All" },
@@ -223,9 +126,10 @@ export default function NotificationsPage() {
     items.find((item) => item.id === highlightId) ?? null;
 
   // Deep-linked to an alert that's not in the latest page (old or personal):
-  // fetch it directly and show it alone on top.
+  // fetch it directly. Waits for the first load to finish (not just for ANY
+  // items — a fresh inbox can legitimately be empty and still have a hero).
   useEffect(() => {
-    if (!highlightId || hero || items.length === 0) return;
+    if (!highlightId || hero || loading) return;
     let dead = false;
     fetch(`/api/notifications/${highlightId}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
@@ -233,7 +137,9 @@ export default function NotificationsPage() {
         if (dead || !data) return;
         const notification = (data as { notification?: HubNotification }).notification;
         if (notification) {
-          setItems((prev) => [notification, ...prev]);
+          // Insert by recency — an OLD alert must land in its date group,
+          // never bubble to the top of the inbox.
+          setItems((prev) => insertByRecency(prev, notification));
         } else {
           setHighlightId(null); // deleted/foreign — drop the highlight cleanly
         }
@@ -242,7 +148,7 @@ export default function NotificationsPage() {
     return () => {
       dead = true;
     };
-  }, [highlightId, hero, items.length]);
+  }, [highlightId, hero, loading]);
 
   const counts = useMemo(
     () => ({
@@ -255,14 +161,17 @@ export default function NotificationsPage() {
     [items, lastReadId]
   );
 
+  // ALWAYS sorted newest-first — no render path may trust insertion order.
   const visible = useMemo(
     () =>
-      items.filter((item) => {
-        if (hero && item.id === hero.id) return false; // hero lives in its own card
-        if (filter === "unread") return item.id > lastReadId;
-        if (filter === "all") return true;
-        return item.type === filter;
-      }),
+      sortByRecency(
+        items.filter((item) => {
+          if (hero && item.id === hero.id) return false; // hero lives in its own card
+          if (filter === "unread") return item.id > lastReadId;
+          if (filter === "all") return true;
+          return item.type === filter;
+        })
+      ),
     [items, hero, filter, lastReadId]
   );
 
@@ -272,18 +181,8 @@ export default function NotificationsPage() {
     [visible, lastReadId]
   );
 
-  // Earlier alerts grouped Today / Yesterday / date — items arrive id-desc,
-  // so consecutive grouping just works.
-  const dayGroups = useMemo(() => {
-    const groups: { label: string; rows: HubNotification[] }[] = [];
-    for (const item of earlierItems) {
-      const label = dayLabelOf(item.createdAt);
-      const lastGroup = groups[groups.length - 1];
-      if (lastGroup && lastGroup.label === label) lastGroup.rows.push(item);
-      else groups.push({ label, rows: [item] });
-    }
-    return groups;
-  }, [earlierItems]);
+  // Earlier alerts grouped Today / Yesterday / date (grouping is order-proof).
+  const dayGroups = useMemo(() => groupByDay(earlierItems), [earlierItems]);
 
   const unreadCount = counts.unread;
   const maxId = items.reduce((max, item) => Math.max(max, item.id), 0);
@@ -351,7 +250,7 @@ export default function NotificationsPage() {
           animation: "mcwv-row-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both",
           animationDelay: `${Math.min(index, 12) * 35}ms`,
         }}
-        className={`flex w-full items-center gap-4 rounded-3xl border p-4 text-left transition hover:-translate-y-0.5 ${
+        className={`group flex w-full items-center gap-4 rounded-3xl border p-4 text-left transition hover:-translate-y-0.5 ${
           isNew
             ? `border-violet-400/30 bg-violet-400/[0.08] hover:bg-violet-400/[0.13] ${meta.glow}`
             : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
@@ -685,16 +584,20 @@ export default function NotificationsPage() {
                   <div className="space-y-2">{newItems.map((item, i) => renderRow(item, i))}</div>
                 </>
               ) : null}
-              {dayGroups.map((group, gi) => (
-                <div key={`${group.label}-${gi}`} className="space-y-2">
-                  {sectionHeader(group.label)}
-                  <div className="space-y-2">
-                    {group.rows.map((item, i) =>
-                      renderRow(item, newItems.length + gi * 3 + i)
-                    )}
+              {dayGroups.map((group, gi) => {
+                // Running index so the entrance cascade flows across sections.
+                const base =
+                  newItems.length +
+                  dayGroups.slice(0, gi).reduce((sum, g) => sum + g.rows.length, 0);
+                return (
+                  <div key={`${group.label}-${gi}`} className="space-y-2">
+                    {sectionHeader(group.label)}
+                    <div className="space-y-2">
+                      {group.rows.map((item, i) => renderRow(item, base + i))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {!hero && visible.length > 0 ? (
                 <p className="px-1 pt-4 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-700">
                   Alerts keep for 30 days · newest {visible.length} shown
