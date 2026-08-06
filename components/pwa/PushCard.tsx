@@ -209,12 +209,18 @@ export default function PushCard() {
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         sent?: number;
+        notifId?: number | null;
+        inboxLogged?: boolean;
       };
       setNote(
         res.ok
-          ? `Test sent ✅ (${data.sent ?? 0} device${
-              (data.sent ?? 0) === 1 ? "" : "s"
-            }) — watch your notifications!`
+          ? data.inboxLogged === false
+            ? `Push sent ✅ but ⚠️ the inbox copy failed to save — inbox would look EMPTY. Owner: check Vercel logs for "inbox log failed".`
+            : `Test sent ✅ (${data.sent ?? 0} device${
+                (data.sent ?? 0) === 1 ? "" : "s"
+              }) — inbox copy${
+                data.notifId ? ` #${data.notifId}` : ""
+              } saved ✓ Tap the notification to open it!`
           : data.error ?? "Test failed."
       );
     } catch {
