@@ -7,6 +7,7 @@ import WarReturnRecap from "@/components/WarReturnRecap";
 import BootIntroGate from "@/components/BootIntroGate";
 import GlobalAssistant from "@/components/GlobalAssistant";
 import AppBadgeSync from "@/components/AppBadgeSync";
+import NotificationCenter from "@/components/NotificationCenter";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -155,6 +156,7 @@ export default function RootLayout({
         <BootIntroGate />
         <UserSync />
         <AppBadgeSync />
+        <NotificationCenter />
         {children}
         <GlobalAssistant />
         <OnboardingTour />
