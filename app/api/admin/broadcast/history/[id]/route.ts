@@ -1,20 +1,30 @@
 import { NextResponse } from "next/server"
 import { requireBroadcastUser } from "@/lib/broadcastAccess"
 import { pool } from "@/lib/db"
-import { broadcastTablesExist, mapSendRow, missingTablesResponse } from "@/lib/broadcastDb"
+import {
+  broadcastImageColumnsReady,
+  broadcastTablesExist,
+  mapSendRow,
+  missingTablesResponse,
+} from "@/lib/broadcastDb"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-const SEND_COLUMNS = `id, actor, source, template_id, audience, value, delivery, style, message,
+function sendColumns(hasImage: boolean) {
+  return `id, actor, source, template_id, audience, value, delivery, style, message,
   battle_key, matched_count, sent_count, failed_count, status, sent_at,
-  conversion_checked_at, conversion_zero_at_send, conversion_scorers, conversion_points`
+  conversion_checked_at, conversion_zero_at_send, conversion_scorers, conversion_points${
+    hasImage ? ", image_url" : ""
+  }`
+}
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireBroadcastUser()
   if (!auth.ok) return auth.response
 
   if (!(await broadcastTablesExist())) return missingTablesResponse()
+  const hasImage = await broadcastImageColumnsReady()
 
   const { id: rawId } = await params
   const id = Number(rawId)
@@ -24,7 +34,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const [sendResult, recipientResult] = await Promise.all([
-      pool.query(`SELECT ${SEND_COLUMNS} FROM broadcast_sends WHERE id = $1 LIMIT 1`, [id]),
+      pool.query(`SELECT ${sendColumns(hasImage)} FROM broadcast_sends WHERE id = $1 LIMIT 1`, [id]),
       pool.query(
         `SELECT roblox_id, discord_id, username, points_at_send, delivered, error
          FROM broadcast_recipients
