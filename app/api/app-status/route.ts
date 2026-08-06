@@ -39,12 +39,15 @@ export async function GET() {
         [`war-push:${battleId}`]
       );
       if (rows.length > 0) {
+        const site =
+          process.env.NEXT_PUBLIC_SITE_URL ?? "https://mcwv-hub.vercel.app";
         const result = await sendPushToAll(
           {
             title: "⚔️ WAR DECLARED",
             body: `${battleId} is live — MCWV, to arms!`,
             url: "/war-info",
             tag: `war-${battleId}`.slice(0, 48),
+            image: `${site}/og-card.png`,
           },
           { type: "war" }
         );
