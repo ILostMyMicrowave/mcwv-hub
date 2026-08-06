@@ -12,6 +12,7 @@ type Row = {
   title: string;
   body: string | null;
   url: string | null;
+  image_url: string | null;
   created_at: Date | string;
 };
 
@@ -22,6 +23,7 @@ function mapRow(row: Row) {
     title: row.title,
     body: row.body,
     url: row.url,
+    imageUrl: row.image_url,
     createdAt:
       row.created_at instanceof Date
         ? row.created_at.toISOString()
@@ -38,7 +40,7 @@ export async function GET() {
   await ensurePushTables();
   const [{ rows }, marker] = await Promise.all([
     pool.query<Row>(
-      `SELECT id::text AS id, type, title, body, url, created_at
+      `SELECT id::text AS id, type, title, body, url, image_url, created_at
        FROM notifications
        WHERE audience <> 'user' OR user_id = $1
        ORDER BY id DESC
@@ -63,5 +65,6 @@ export async function GET() {
     notifications,
     lastReadId,
     unreadCount,
+    officer: auth.user.role === "officer" || auth.user.role === "owner",
   });
 }
