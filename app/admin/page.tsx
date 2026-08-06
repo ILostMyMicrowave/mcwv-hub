@@ -158,6 +158,7 @@ type BroadcastTemplate = {
   delivery: string;
   style: string;
   message: string;
+  imageUrl?: string;
   createdBy?: string | null;
   updatedBy?: string | null;
   updatedAt?: string | null;
@@ -191,6 +192,7 @@ type BroadcastSend = {
   delivery?: string | null;
   style?: string | null;
   message: string;
+  imageUrl?: string;
   battleKey?: string | null;
   matchedCount: number;
   sentCount: number;
@@ -2677,6 +2679,7 @@ function BroadcastSection({
   const [value, setValue] = useState("");
   const [roleId, setRoleId] = useState("");
   const [message, setMessage] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [preview, setPreview] = useState<BroadcastPreview | null>(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -2704,8 +2707,9 @@ function BroadcastSection({
       value,
       role_id: roleId,
       message,
+      image_url: imageUrl.trim(),
     }),
-    [audience, delivery, message, roleId, style, value]
+    [audience, delivery, imageUrl, message, roleId, style, value]
   );
 
   async function requestBroadcast(endpoint: string) {
@@ -2813,6 +2817,8 @@ function BroadcastSection({
     delivery?: string | null;
     style?: string | null;
     message?: string | null;
+    imageUrl?: string | null;
+    image_url?: string | null;
   }) {
     const allowedAudiences = new Set([
       "everyone",
@@ -2831,6 +2837,7 @@ function BroadcastSection({
     if (source.style === "plain" || source.style === "embed") setStyle(source.style);
     setValue(source.value ?? "");
     setMessage(source.message ?? "");
+    setImageUrl(source.imageUrl ?? source.image_url ?? "");
     setPreview(null);
     setTemplateSaveOpen(false);
     setTab("send");
@@ -2859,7 +2866,7 @@ function BroadcastSection({
       const res = await fetch("/api/admin/broadcast/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, audience, delivery, style, value, message }),
+        body: JSON.stringify({ name, audience, delivery, style, value, message, imageUrl }),
       });
       const data = (await res.json().catch(() => ({}))) as UnknownRecord;
       if (!res.ok) throw new Error(String(data.error ?? "Failed to save template"));
@@ -3094,6 +3101,29 @@ function BroadcastSection({
             <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}, {"{roblox_id}"}, {"{discord_id}"}, {"{role}"}, {"{ticket}"}</span>
           </label>
 
+          <div className="space-y-2">
+            <LabeledInput
+              label="🖼️ Image URL (optional)"
+              value={imageUrl}
+              onChange={(next) => { setImageUrl(next); setPreview(null); }}
+              placeholder="https://… direct image link (Discord CDN, imgur…)"
+            />
+            {imageUrl.trim() ? (
+              <img
+                key={imageUrl.trim()}
+                src={imageUrl.trim()}
+                alt="Broadcast artwork preview"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+                className="max-h-40 rounded-2xl border border-white/10 object-cover"
+              />
+            ) : null}
+            <span className="admin-label text-xs">
+              Shows inside embed broadcasts, attaches under plain ones, and becomes the artwork on the app push + inbox copy.
+            </span>
+          </div>
+
           {status && (
             <div className="rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
               {status}
@@ -3162,6 +3192,17 @@ function BroadcastSection({
               >
                 {style === "embed" && <div className="mb-2 font-semibold">📢 MCWV Broadcast</div>}
                 {renderBroadcastPreviewMessage(message, preview.sampleRecipients[0])}
+                {imageUrl.trim() ? (
+                  <img
+                    key={imageUrl.trim()}
+                    src={imageUrl.trim()}
+                    alt="Broadcast artwork"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                    className="mt-3 max-h-48 w-full rounded-xl border border-white/10 object-cover"
+                  />
+                ) : null}
               </div>
             </div>
 
@@ -3253,6 +3294,7 @@ function BroadcastTemplatesPanel({
   const [delivery, setDelivery] = useState("dm");
   const [style, setStyle] = useState("plain");
   const [message, setMessage] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -3268,6 +3310,7 @@ function BroadcastTemplatesPanel({
     setDelivery("dm");
     setStyle("plain");
     setMessage("");
+    setImageUrl("");
   }
 
   function startEdit(template: BroadcastTemplate) {
@@ -3279,6 +3322,7 @@ function BroadcastTemplatesPanel({
     setDelivery(template.delivery);
     setStyle(template.style);
     setMessage(template.message);
+    setImageUrl(template.imageUrl ?? "");
   }
 
   function closeEditor() {
@@ -3298,7 +3342,7 @@ function BroadcastTemplatesPanel({
         {
           method: editing ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, audience, value, delivery, style, message }),
+          body: JSON.stringify({ name, audience, value, delivery, style, message, imageUrl }),
         }
       );
       const data = (await res.json().catch(() => ({}))) as UnknownRecord;
@@ -3394,6 +3438,28 @@ function BroadcastTemplatesPanel({
               />
               <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}</span>
             </label>
+            <div className="space-y-2">
+              <LabeledInput
+                label="🖼️ Image URL (optional)"
+                value={imageUrl}
+                onChange={setImageUrl}
+                placeholder="https://… direct image link (Discord CDN, imgur…)"
+              />
+              {imageUrl.trim() ? (
+                <img
+                  key={imageUrl.trim()}
+                  src={imageUrl.trim()}
+                  alt="Template artwork preview"
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                  }}
+                  className="max-h-36 rounded-2xl border border-white/10 object-cover"
+                />
+              ) : null}
+              <span className="admin-label text-xs">
+                Artwork sent with the broadcast — embed image, app push picture, and inbox banner.
+              </span>
+            </div>
             <div className="flex flex-wrap justify-end gap-2">
               <button className="admin-button" type="button" onClick={closeEditor}>Cancel</button>
               <button className="admin-button" type="button" disabled={saving} onClick={() => void saveTemplate()}>
@@ -3421,6 +3487,11 @@ function BroadcastTemplatesPanel({
                       <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-300">
                         {template.style}
                       </span>
+                      {template.imageUrl ? (
+                        <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2.5 py-0.5 text-[11px] text-violet-200">
+                          🖼️ image
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -3964,6 +4035,7 @@ function BroadcastHistoryPanel({
                         {send.actor ?? "Unknown sender"} · {formatTime(send.sentAt)} · {send.matchedCount} matched ·{" "}
                         <span className="text-emerald-300">{send.sentCount} sent</span>
                         {send.failedCount > 0 && <span className="text-red-300"> · {send.failedCount} failed</span>}
+                        {send.imageUrl ? <span className="text-violet-300"> · 🖼️ artwork</span> : null}
                       </div>
                       <div className="text-xs">
                         {send.conversionCheckedAt ? (
