@@ -194,3 +194,139 @@ export function buildSummary(rows: ScoutRow[], enchantRows: EnchantRow[]): Scout
     clanStats: clanStats(rows, enchantRows),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Enchant Builder (in-game-style layout + stack/threshold math)
+// ---------------------------------------------------------------------------
+
+export type BuilderEnchantTier = {
+  displayName: string; // "Lucky Eggs IV"
+  power: number;
+  desc: string;
+  icon: string; // rbxassetid://…
+  rarity: string;
+};
+
+export type BuilderEnchantFamily = {
+  id: string; // "Enchant | Lucky Eggs"
+  name: string; // "Lucky Eggs"
+  icon: string; // best-known icon (top tier)
+  diminishPowerThreshold: number | null;
+  tiers: BuilderEnchantTier[];
+};
+
+type RawObj = Record<string, unknown>;
+
+function asObjSlim(v: unknown): RawObj {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as RawObj) : {};
+}
+
+function asArrSlim(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function asStrSlim(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  return typeof v === "string" ? v : String(v);
+}
+
+function asNumSlim(v: unknown, fallback = 0): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Slim an official "Enchant | X" config entry for the builder. Pure. */
+export function slimEnchantFamily(id: string, configData: unknown): BuilderEnchantFamily {
+  const cd = asObjSlim(configData);
+  const nameRaw = asObjSlim(cd).DisplayName; // unused but kept harmless
+  void nameRaw;
+  const name = (id.includes("|") ? id.split("|")[1]! : id).trim();
+  const tiers: BuilderEnchantTier[] = asArrSlim(cd.Tiers).map((raw, i) => {
+    const t = asObjSlim(raw);
+    return {
+      displayName: asStrSlim(t.DisplayName) || `${name} ${i + 1}`,
+      power: asNumSlim(t.Power),
+      desc: asStrSlim(t.Desc),
+      icon: asStrSlim(t.Icon),
+      rarity: asStrSlim(asObjSlim(t.Rarity).DisplayName) || asStrSlim(asObjSlim(t.Rarity)._id),
+    };
+  });
+  const threshold = asNumSlim(cd.DiminishPowerThreshold);
+  return {
+    id,
+    name,
+    icon: tiers[tiers.length - 1]?.icon ?? asStrSlim(cd.Icon),
+    diminishPowerThreshold: threshold > 0 ? threshold : null,
+    tiers,
+  };
+}
+
+/** rbxassetid://123 -> servable image URL on the official host. */
+export function rbxIconUrl(icon: string | null | undefined): string | null {
+  if (!icon) return null;
+  const m = /rbxassetid:\/\/(\d+)/.exec(icon);
+  return m ? `https://ps99.biggamesapi.io/image/${m[1]}` : null;
+}
+
+export type BuilderSlot = { familyId: string; tierIndex: number; tierPower: number };
+
+export type BuildFamilyRow = {
+  familyId: string;
+  name: string;
+  copies: number;
+  combined: number;
+  threshold: number | null;
+  overBy: number;
+  status: "under" | "cap" | "over";
+};
+
+export type BuildSummary = {
+  rows: BuildFamilyRow[];
+  totalPower: number;
+  usedSlots: number;
+};
+
+/** Group a slot build into per-family stack stats + diminishing-return flags. */
+export function summarizeBuild(
+  slots: BuilderSlot[],
+  families: Array<Pick<BuilderEnchantFamily, "id" | "name" | "diminishPowerThreshold">>
+): BuildSummary {
+  const famById = new Map(families.map((f) => [f.id, f] as const));
+  const acc = new Map<string, { copies: number; combined: number }>();
+  for (const slot of slots) {
+    const cur = acc.get(slot.familyId) ?? { copies: 0, combined: 0 };
+    cur.copies += 1;
+    cur.combined += slot.tierPower;
+    acc.set(slot.familyId, cur);
+  }
+  const rows: BuildFamilyRow[] = Array.from(acc.entries())
+    .map(([familyId, s]) => {
+      const fam = famById.get(familyId);
+      const threshold = fam?.diminishPowerThreshold ?? null;
+      const overBy = threshold !== null ? Math.max(0, s.combined - threshold) : 0;
+      const status: BuildFamilyRow["status"] = threshold !== null && s.combined === threshold ? "cap" : overBy > 0 ? "over" : "under";
+      return { familyId, name: fam?.name ?? familyId, copies: s.copies, combined: s.combined, threshold, overBy, status };
+    })
+    .sort((a, b) => b.combined - a.combined || a.name.localeCompare(b.name));
+  return {
+    rows,
+    totalPower: rows.reduce((t, r) => t + r.combined, 0),
+    usedSlots: slots.length,
+  };
+}
+
+/** Fuzzy-ish match of an equipped-enchant display name to a family. */
+export function matchFamilyId(
+  name: string,
+  families: Array<Pick<BuilderEnchantFamily, "id" | "name">>
+): string | null {
+  const target = name.trim().toLowerCase();
+  if (!target) return null;
+  const exact = families.find((f) => f.name.toLowerCase() === target);
+  if (exact) return exact.id;
+  const partial = families.find((f) => {
+    const n = f.name.toLowerCase();
+    return n.startsWith(target) || target.startsWith(n);
+  });
+  return partial?.id ?? null;
+}
