@@ -9,6 +9,7 @@ import {
   type ScoutRow,
   type ScoutSummary,
 } from "@/lib/scoutAnalysis";
+import EnchantBuilder from "@/components/scout/EnchantBuilder";
 
 // Client-mirrored state shape (the full server type lives server-only).
 type ScoutBattle = { id: string; state: string; startTime: number | null; finishTime: number | null; participants: number | null };
@@ -256,6 +257,8 @@ export default function ScoutPage() {
           </div>
         )}
       </section>
+
+      <EnchantBuilder rivals={state?.enchantRows ?? []} />
 
       {!hasData && !syncing && (
         <p className="mt-8 text-center text-sm text-zinc-500">No intel yet — run your first scan to raid the top clans&apos; loadouts 🗡</p>
