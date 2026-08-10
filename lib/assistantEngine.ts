@@ -294,13 +294,29 @@ function statusAnswer(shared: SharedWarContext): string {
   let out = parts.join("")
 
   const idx = usIndex(shared)
+  const ourRate = shared.hourlyRate
   if (idx > 0) {
     const above = shared.standings[idx - 1]
     out += `\n\nThe clan above us is **${above.name}**, ${fmt(above.points - (shared.clanPoints ?? 0))} pts ahead.`
+    if (above.pph !== null && ourRate !== null) {
+      const net = ourRate - above.pph
+      if (net > 0) out += ` We're out-pacing them (~${fmt(net)}/h net) — closing the gap.`
+      else if (net < 0) out += ` They're pulling away (~${fmt(-net)}/h net) — we need more pace.`
+      else out += ` Dead even on pace (~${fmt(ourRate)}/h each).`
+    } else if (above.pph !== null && above.pph > 0) {
+      out += ` They're gaining ~${fmt(above.pph)}/h.`
+    }
   }
   if (idx >= 0 && idx < shared.standings.length - 1) {
     const below = shared.standings[idx + 1]
     out += ` **${below.name}** is ${fmt((shared.clanPoints ?? 0) - below.points)} pts behind us.`
+    if (below.pph !== null && ourRate !== null) {
+      const net = below.pph - ourRate
+      if (net > 0) out += ` They're gaining on us (~${fmt(net)}/h net) — watch our back.`
+      else if (net < 0) out += ` We're pulling away (~${fmt(-net)}/h net).`
+    } else if (below.pph !== null && below.pph > 0) {
+      out += ` They're gaining ~${fmt(below.pph)}/h.`
+    }
   }
   out += `\n\n⏳ **${fmtDuration(shared.timeLeftMs)}** left on the clock.`
   return out
@@ -320,19 +336,64 @@ function chaseAnswer(shared: SharedWarContext, target: number): string {
     return `I can only see the top ${shared.standings.length} clans and we're #${shared.clanRank} — top ${target} isn't in my data.`
   }
   const gap = targetRow.points - shared.clanPoints
-  const rate = shared.hourlyRate
-  const eta = rate && rate > 0 ? gap / rate : null
+  const ourRate = shared.hourlyRate
+  const theirPph = targetRow.pph // null when we have no rival pace data yet
   const hoursLeft = shared.timeLeftMs !== null ? shared.timeLeftMs / 3_600_000 : null
 
   let out = `Top ${target} is **${targetRow.name}** on ${fmt(targetRow.points)} pts — we're **${fmt(gap)}** behind.`
-  if (eta !== null && hoursLeft !== null) {
+  if (theirPph !== null && theirPph > 0) {
+    out += ` They're gaining ~${fmt(theirPph)}/h.`
+  }
+
+  // True closing rate = our pace minus the rival's pace. When we have no rival
+  // pace data, fall back to treating them as static (the old behaviour).
+  const rivalPace = theirPph ?? 0
+  const netRate = ourRate !== null ? ourRate - rivalPace : null
+  const eta = netRate !== null && netRate > 0 ? gap / netRate : null
+
+  if (ourRate === null) {
+    out += `\n\nI don't have a solid pace reading yet — check back after the bot's next snapshots land.`
+  } else if (netRate !== null && netRate <= 0) {
+    const rivalLine = theirPph !== null && theirPph > 0
+      ? `matching/beating that at ~${fmt(theirPph)}/h`
+      : "holding steady"
+    out += `\n\nWe're ~${fmt(ourRate)}/h but ${targetRow.name} is ${rivalLine} — we're **not closing the gap** at this pace. We need to step it up. 😤`
+  } else if (eta !== null && hoursLeft !== null) {
+    const paceDetail = theirPph !== null
+      ? `Net pace ~${fmt(netRate)}/h (${fmt(ourRate)}/h vs their ${fmt(theirPph)}/h)`
+      : `At our current pace (~${fmt(ourRate)}/h)`
     out += eta <= hoursLeft
-      ? `\n\nAt our current pace (~${fmt(rate)}/h) we'd catch them in **~${Math.ceil(eta)}h** with ${fmtDuration(shared.timeLeftMs)} to go — **yes, it's on.** 🔥`
-      : `\n\nAt our current pace (~${fmt(rate)}/h) that's **~${Math.ceil(eta)}h** of grinding with only ${fmtDuration(shared.timeLeftMs)} left — we need to speed up. Wake the zeros up 😅`
+      ? `\n\n${paceDetail} we'd catch them in **~${Math.ceil(eta)}h** with ${fmtDuration(shared.timeLeftMs)} to go — **yes, it's on.** 🔥`
+      : `\n\n${paceDetail} that's **~${Math.ceil(eta)}h** of grinding with only ${fmtDuration(shared.timeLeftMs)} left — we need to speed up. Wake the zeros up 😅`
   } else {
     out += `\n\nI don't have a solid pace reading yet — check back after the bot's next snapshots land.`
   }
   return out
+}
+
+// Project final rank accounting for rival pace: rivals with a known PPH are
+// extrapolated to the war's end (current + pph * hoursLeft), then we count how
+// many finish ahead of our projected total. Rivals without PPH keep their
+// current points. Falls back to the static projectedRankIfPaceHolds when no
+// rival has pace data (same answer the old code gave).
+function projectedRankRivalAware(shared: SharedWarContext): number | null {
+  if (shared.projectedFinalPoints === null) return null
+  if (shared.timeLeftMs === null) return shared.projectedRankIfPaceHolds
+  const ourIdx = usIndex(shared)
+  const hoursLeft = shared.timeLeftMs / 3_600_000
+  const hasRivalPace = shared.standings.some(
+    (row, i) => i !== ourIdx && row.pph !== null && row.pph > 0
+  )
+  if (!hasRivalPace) return shared.projectedRankIfPaceHolds
+  const ourFinal = shared.projectedFinalPoints
+  const ahead = shared.standings.filter((row, i) => {
+    if (i === ourIdx) return false
+    const rivalFinal = row.pph !== null && row.pph > 0
+      ? row.points + row.pph * hoursLeft
+      : row.points
+    return rivalFinal > ourFinal
+  })
+  return 1 + ahead.length
 }
 
 function projectionAnswer(shared: SharedWarContext): string {
@@ -340,15 +401,18 @@ function projectionAnswer(shared: SharedWarContext): string {
   if (shared.projectedFinalPoints === null) {
     return "Too early to call — I need a bit more pace data. Ask me after the next hourly snapshot."
   }
+  const projRank = projectedRankRivalAware(shared)
+  const hasRivalPace = shared.standings.some((row) => row.pph !== null && row.pph > 0)
   let out = `If everyone holds pace: we finish on roughly **${fmt(shared.projectedFinalPoints)}** pts`
-  if (shared.projectedRankIfPaceHolds !== null) {
-    out += `, good for about **${ordinal(shared.projectedRankIfPaceHolds)} place**`
+  if (projRank !== null) {
+    out += `, good for about **${ordinal(projRank)} place**`
   }
-  out += `.\n\n_Caveat: pace isn't destiny — other clans push hard in the final hours too. Treat it as a vibe-check, not a prophecy 🔮_`
+  out += `.\n\n`
+  out += hasRivalPace
+    ? `_That accounts for rival pace too — clans charging hard are extrapolated to the war's end. Still a vibe-check, not a prophecy 🔮_`
+    : `_Caveat: pace isn't destiny — other clans push hard in the final hours too. Treat it as a vibe-check, not a prophecy 🔮_`
 
-  const rewards = shared.projectedRankIfPaceHolds
-    ? rewardsAtRank(shared, shared.projectedRankIfPaceHolds)
-    : []
+  const rewards = projRank ? rewardsAtRank(shared, projRank) : []
   if (rewards.length) out += `\n\n💎 That placement currently means: **${rewards.join(" + ")}**.`
   return out
 }
@@ -357,7 +421,7 @@ function rewardsAnswer(shared: SharedWarContext): string {
   if (!shared.rewards.length) {
     return "The game hasn't exposed this war's reward table to me — usually it's huge/titanic pets for the top ranks and a clan gift for the top 500."
   }
-  const rank = shared.projectedRankIfPaceHolds ?? shared.clanRank
+  const rank = projectedRankRivalAware(shared) ?? shared.clanRank
   if (rank === null) {
     return "I can't see our placement yet, so I can't say which tier we're in. Ask me once the war's underway."
   }
@@ -436,7 +500,7 @@ function standingsCard(shared: SharedWarContext): AssistantCardData | undefined 
     type: "bars" as const,
     title: "Standings around us",
     rows: picks.map((row) => ({
-      label: `#${row.rank} ${row.name}`,
+      label: `#${row.rank} ${row.name}${row.pph ? ` · ${fmt(row.pph)}/h` : ""}`,
       value: row.points,
       highlight: row.name.toUpperCase() === "MCWV",
     })),
@@ -444,7 +508,7 @@ function standingsCard(shared: SharedWarContext): AssistantCardData | undefined 
 }
 
 function tiersCard(shared: SharedWarContext): AssistantCardData | undefined {
-  const rank = shared.projectedRankIfPaceHolds ?? shared.clanRank
+  const rank = projectedRankRivalAware(shared) ?? shared.clanRank
   if (!shared.rewards.length || rank === null) return undefined
   const better = nextTierUp(shared, rank)
   const boundaryRow = better ? standingAt(shared, better.worst) : null
