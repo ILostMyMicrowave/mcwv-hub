@@ -16,7 +16,7 @@ const CLANS_LEADERBOARD_API = `${PS99_API}/api/clans?page=1&pageSize=100&sort=Po
 const SHARED_CACHE_MS = 90_000
 
 export type RewardTier = { best: number; worst: number; label: string }
-export type StandingRow = { rank: number; name: string; points: number }
+export type StandingRow = { rank: number; name: string; points: number; pph: number | null }
 export type MemberLine = {
   robloxId: string
   username: string
@@ -110,6 +110,98 @@ function toEpochSeconds(value: unknown): number | null {
 
 function normalizeBattleKey(raw: string) {
   return raw.toLowerCase().replace(/[^a-z0-9]+/g, "")
+}
+
+function normalizeClanName(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "")
+}
+
+// Interpolate a clan's points at an exact timestamp from its captured history.
+// Mirrors the bot's hourly-card baseline math: returns null when the target
+// time is before the oldest snapshot (no full 60-minute baseline yet).
+function pointsAtTime(
+  rows: Array<{ capturedAt: number; points: number }>,
+  targetMs: number
+): number | null {
+  if (!rows.length) return null
+  const sorted = [...rows].sort((a, b) => a.capturedAt - b.capturedAt)
+  if (targetMs < sorted[0].capturedAt) return null
+  for (let i = 0; i < sorted.length; i++) {
+    const cur = sorted[i]
+    if (cur.capturedAt === targetMs) return cur.points
+    const nxt = sorted[i + 1]
+    if (!nxt) return cur.points
+    if (cur.capturedAt <= targetMs && targetMs <= nxt.capturedAt) {
+      const span = Math.max(nxt.capturedAt - cur.capturedAt, 1)
+      const ratio = (targetMs - cur.capturedAt) / span
+      return cur.points + (nxt.points - cur.points) * ratio
+    }
+  }
+  return sorted[sorted.length - 1].points
+}
+
+// Per-clan PPH from clan_history (populated every minute by the war collector).
+// Returns a map keyed by normalized clan name -> points gained in the last 60min.
+// Falls back to the latest stored battle if the live battleId doesn't match a
+// stored row yet (e.g. a war that just started). Fails soft: empty map on any
+// error / missing table, so the assistant just says less.
+async function getClanPphMap(battleId: string | null): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  if (!battleId) return map
+  try {
+    let result = await pool.query<{ clan_name: string; points: number | string; captured_at: Date | string }>(
+      `SELECT clan_name, points, captured_at
+       FROM clan_history
+       WHERE battle_id = $1
+         AND captured_at >= NOW() - INTERVAL '3 hours'
+       ORDER BY clan_name ASC, captured_at ASC`,
+      [battleId]
+    )
+
+    // Live battleId may not match a stored row yet (fresh war, or id text
+    // differs). Use the most recent stored battle as a fallback so rival pace
+    // is still available.
+    if (!result.rows.length) {
+      result = await pool.query<{ clan_name: string; points: number | string; captured_at: Date | string }>(
+        `SELECT ch.clan_name, ch.points, ch.captured_at
+         FROM clan_history ch
+         JOIN LATERAL (
+           SELECT battle_id
+           FROM battles
+           ORDER BY COALESCE(end_time, start_time, created_at, NOW()) DESC
+           LIMIT 1
+         ) b ON true
+         WHERE ch.captured_at >= NOW() - INTERVAL '3 hours'
+         ORDER BY ch.clan_name ASC, ch.captured_at ASC`
+      )
+    }
+
+    if (!result.rows.length) return map
+
+    const grouped = new Map<string, Array<{ capturedAt: number; points: number }>>()
+    for (const row of result.rows) {
+      const key = normalizeClanName(row.clan_name)
+      if (!key) continue
+      const d = row.captured_at instanceof Date ? row.captured_at : new Date(String(row.captured_at))
+      if (Number.isNaN(d.getTime())) continue
+      const list = grouped.get(key) ?? []
+      list.push({ capturedAt: d.getTime(), points: asNumber(row.points) ?? 0 })
+      grouped.set(key, list)
+    }
+
+    for (const [key, history] of grouped.entries()) {
+      if (history.length < 2) continue
+      const sorted = history.sort((a, b) => a.capturedAt - b.capturedAt)
+      const latest = sorted[sorted.length - 1]
+      const baseline = pointsAtTime(sorted, latest.capturedAt - 60 * 60 * 1000)
+      if (baseline === null) continue
+      const pph = Math.max(0, Math.round(latest.points - baseline))
+      if (pph > 0) map.set(key, pph)
+    }
+  } catch (err) {
+    console.warn("[warContext] clan pph map unavailable:", err)
+  }
+  return map
 }
 
 function tierLabel(item: Json | undefined): string | null {
@@ -358,19 +450,29 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     for (const row of standingsPayload.data as Json[]) {
       const name = String(row.Name ?? row.name ?? "")
       const points = asNumber(row.Points ?? row.points) ?? 0
-      if (name) standings.push({ rank: standings.length + 1, name, points })
+      if (name) standings.push({ rank: standings.length + 1, name, points, pph: null })
     }
   }
 
   const battleKey = battleId ? normalizeBattleKey(battleId) : ""
-  const [latest, hourAgo, dayAgo, memberRows] = battleKey
+  const [latest, hourAgo, dayAgo, memberRows, clanPphMap] = battleKey
     ? await Promise.all([
         latestSnapshot(battleKey),
         snapshotNear(battleKey, nowSec - 3600),
         snapshotNear(battleKey, nowSec - 86400),
         memberLines(battleKey),
+        getClanPphMap(battleId),
       ])
-    : [null, null, null, []]
+    : [null, null, null, [], new Map<string, number>()]
+
+  // Attach each rival clan's live PPH (from clan_history) to its standing row,
+  // so the assistant can reason about rival pace, not just static point gaps.
+  if (clanPphMap.size > 0) {
+    for (const row of standings) {
+      const pph = clanPphMap.get(normalizeClanName(row.name))
+      if (pph !== undefined) row.pph = pph
+    }
+  }
 
   const snapshotPoints = latest ? asNumber(latest.battle_points) : null
   const snapshotRank = latest ? asNumber(latest.rank) : null
