@@ -874,6 +874,11 @@ export default function Navbar() {
       <header
         className="sticky top-0 z-50 border-b backdrop-blur animate-fade-in"
       style={{
+        // viewport-fit: cover lets content slide under the notch when installed.
+        // Pad the header itself by the top safe-area inset so the logo / links /
+        // hamburger sit BELOW the notch, while the header's dark blurred
+        // background fills the notch region (native iOS nav-bar behaviour).
+        paddingTop: "env(safe-area-inset-top)",
         background: isScrolled ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.42)",
         borderColor: "var(--border)",
         boxShadow: isScrolled ? "0 12px 34px rgba(0,0,0,0.24)" : "none",
@@ -1063,7 +1068,15 @@ export default function Navbar() {
               }}
             />
 
-            <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+            <div
+              className="flex items-center justify-between border-b px-5 py-4"
+              style={{
+                borderColor: "var(--border)",
+                // Drop the brand + close button below the notch when installed;
+                // the drawer's gradient background already covers the notch area.
+                paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+              }}
+            >
               <span className="nav-brand-text text-base font-black tracking-[0.22em]">MCWV</span>
               <button
                 onClick={closeDrawer}
@@ -1204,6 +1217,8 @@ export default function Navbar() {
               className="border-t px-5 py-4"
               style={{
                 borderColor: "var(--border)",
+                // Keep the footer label above the iPhone home indicator when installed.
+                paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)",
                 opacity: open ? 1 : 0,
                 transform: open ? "translateY(0)" : "translateY(8px)",
                 transition: `opacity 260ms ease 260ms, transform 380ms ${SPRING} 260ms`,
