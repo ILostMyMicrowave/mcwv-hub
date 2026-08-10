@@ -44,12 +44,6 @@ async function ensureSignupVerificationTable() {
 
 export async function POST(req: Request) {
   try {
-    const clientIP = getClientIP(req)
-    const rateLimitResult = signupRateLimiter.check(clientIP)
-    if (!rateLimitResult.success) {
-      return rateLimitResponse(rateLimitResult)
-    }
-
     const body = await req.json().catch(() => null)
 
     const result = signupSchema.safeParse({
@@ -67,6 +61,18 @@ export async function POST(req: Request) {
     }
 
     const { username, password, verificationCode } = result.data
+
+    // Rate limit on BOTH the client IP and the target username. IP alone was
+    // bypassable via a spoofed X-Forwarded-For header; the username bucket
+    // can't be spoofed, so repeated signup attempts for one account stay
+    // throttled even when the attacker rotates IPs.
+    const rateLimitResult = signupRateLimiter.checkMulti([
+      getClientIP(req),
+      `signup-user:${username.toLowerCase()}`,
+    ])
+    if (!rateLimitResult.success) {
+      return rateLimitResponse(rateLimitResult)
+    }
 
     const existing = await pool.query<{
       id: number
