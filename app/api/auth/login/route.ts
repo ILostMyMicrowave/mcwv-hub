@@ -26,13 +26,6 @@ const DUMMY_PASSWORD_HASH = "$2a$10$IcxHJrnJo1Q72QLmb0PFA.JX1jOGqBHjqlzZe3c.TJPd
 
 export async function POST(req: Request) {
   try {
-    // Rate limiting
-    const clientIP = getClientIP(req)
-    const rateLimitResult = loginRateLimiter.check(clientIP)
-    if (!rateLimitResult.success) {
-      return rateLimitResponse(rateLimitResult)
-    }
-
     const body = await req.json().catch(() => null)
 
     const result = loginSchema.safeParse({
@@ -50,6 +43,18 @@ export async function POST(req: Request) {
     }
 
     const { username, password } = result.data
+
+    // Rate limit on BOTH the client IP and the target username. IP alone was
+    // bypassable via a spoofed X-Forwarded-For header; the username bucket
+    // can't be spoofed, so a targeted brute-force on one account stays
+    // throttled even when the attacker rotates IPs.
+    const rateLimitResult = loginRateLimiter.checkMulti([
+      getClientIP(req),
+      `login-user:${username.toLowerCase()}`,
+    ])
+    if (!rateLimitResult.success) {
+      return rateLimitResponse(rateLimitResult)
+    }
 
     const userRes = await pool.query(
       `
