@@ -13,13 +13,6 @@ type ChangePasswordBody = {
 
 export async function POST(req: Request) {
   try {
-    // Rate limiting
-    const clientIP = getClientIP(req)
-    const rateLimitResult = changePasswordRateLimiter.check(clientIP)
-    if (!rateLimitResult.success) {
-      return rateLimitResponse(rateLimitResult)
-    }
-
     const cookieStore = await cookies()
 
     const session = await getIronSession<SessionData>(
@@ -29,6 +22,20 @@ export async function POST(req: Request) {
 
     if (!session.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Rate limit on BOTH the client IP and the authenticated user id. IP alone
+    // was bypassable via a spoofed X-Forwarded-For header; the user-id bucket
+    // can't be spoofed, so repeated password-change attempts for one account
+    // stay throttled even when the attacker rotates IPs. (Unauthenticated
+    // attempts are rejected above and deliberately not rate-limited — they
+    // can't accomplish anything and would only pollute shared buckets.)
+    const rateLimitResult = changePasswordRateLimiter.checkMulti([
+      getClientIP(req),
+      `pw-user:${session.user.id}`,
+    ])
+    if (!rateLimitResult.success) {
+      return rateLimitResponse(rateLimitResult)
     }
 
     const body = (await req.json().catch(() => null)) as ChangePasswordBody | null
