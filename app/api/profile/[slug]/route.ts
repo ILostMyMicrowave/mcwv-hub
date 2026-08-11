@@ -191,11 +191,18 @@ function masteryCumulativeXpForLevel(level: number): number {
 
   let total = 0;
 
-  for (let i = 1; i <= safeLevel; i++) {
+  // Sum XP for levels 1..L-1 — this is the cumulative XP required to BE level L
+  // (matching the OSRS XP table the PS99 mastery curve mirrors). Summing to L
+  // inclusive gave XP for level L+1, which made xpToMasteryLevel report every
+  // level one too low (e.g. a true level 98 displayed as 97, and 98 was
+  // unreachable because the cap early-returned 99).
+  for (let i = 1; i < safeLevel; i++) {
     total += Math.floor(0.25 * Math.floor(i + 300 * Math.pow(2, i / 7)));
   }
 
-  if (safeLevel === 98) {
+  // Level 99 (max) = sum 1..98 = 13,034,431. The raw formula drifts by a few
+  // dozen XP from the canonical OSRS value, so force the exact cap.
+  if (safeLevel >= 99) {
     total = MASTERY_98_XP_CAP;
   }
 
