@@ -481,7 +481,6 @@ export default function HomePage() {
 
   const hasDiscordLink = useMemo(() => /^https?:\/\//i.test(discordLink.trim()), [discordLink]);
   const discordHref = hasDiscordLink ? discordLink.trim() : "/settings";
-  const discordLabel = hasDiscordLink ? "Join Discord" : "Set Discord link in Settings";
   const livePlayers = players.length;
   const statusLabel = active ? "LIVE" : "IDLE";
   const trackingLabel = active ? "ACTIVE" : "PAUSED";
@@ -576,9 +575,24 @@ export default function HomePage() {
             </InfoPanel>
           </div>
           <div className="space-y-4">
-            <InfoPanel title="Join MCWV Discord" delay="0.3s">
-              <a href={discordHref} className="inline-flex items-center justify-center rounded-2xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--primary)", color: "#000" }}>{discordLabel}</a>
-              {!hasDiscordLink && <Animated delay="0.35s"><p className="mt-3 text-xs text-zinc-400">Add your Discord invite link in Settings.</p></Animated>}
+            <InfoPanel title="MCWV Discord" delay="0.3s">
+              <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                <iframe
+                  src="https://discord.com/widget?id=1501608673250640055&theme=dark"
+                  width="100%"
+                  height="500"
+                  allowTransparency
+                  frameBorder={0}
+                  sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+                  title="MCWV Discord server"
+                  className="block w-full"
+                />
+              </div>
+              {hasDiscordLink && (
+                <a href={discordHref} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-zinc-400 underline transition hover:text-zinc-200">
+                  Or open Discord in a new tab →
+                </a>
+              )}
             </InfoPanel>
             <InfoPanel title="Clan Requirements" delay="0.35s"><RequirementRenderer text={requirementsText} /></InfoPanel>
           </div>
