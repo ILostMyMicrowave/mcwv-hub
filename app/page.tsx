@@ -12,6 +12,7 @@ import AnimatedBackground from "@/components/AnimatedBackground";
 import Podium from "@/components/Podium";
 import HallOfFamePreview from "@/components/HallOfFamePreview";
 import AchievementsPreview from "@/components/AchievementsPreview";
+import DiscordWidget from "@/components/DiscordWidget";
 
 type LeaderboardEntry = {
   user_id: number;
@@ -576,18 +577,7 @@ export default function HomePage() {
           </div>
           <div className="space-y-4">
             <InfoPanel title="MCWV Discord" delay="0.3s">
-              <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
-                <iframe
-                  src="https://discord.com/widget?id=1501608673250640055&theme=dark"
-                  width="100%"
-                  height="500"
-                  allowTransparency
-                  frameBorder={0}
-                  sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
-                  title="MCWV Discord server"
-                  className="block w-full"
-                />
-              </div>
+              <DiscordWidget />
               {hasDiscordLink && (
                 <a href={discordHref} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-zinc-400 underline transition hover:text-zinc-200">
                   Or open Discord in a new tab →
