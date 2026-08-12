@@ -84,7 +84,8 @@ export default function NotificationsPage() {
     knownMaxRef.current = items.reduce((max, item) => Math.max(max, item.id), 0);
   }, [items]);
 
-  // Silent poll: every 30s + whenever the app comes back to the foreground.
+  // Silent poll: every 10s + whenever the app comes back to the foreground.
+  // Faster polling so notifications feel near-instant.
   // Never mutates the list directly — just raises the "new alerts" pill.
   useEffect(() => {
     const tick = async () => {
@@ -105,7 +106,7 @@ export default function NotificationsPage() {
         // Polling is silent — only explicit loads surface the error panel.
       }
     };
-    const interval = setInterval(() => void tick(), 30_000);
+    const interval = setInterval(() => void tick(), 10_000);
     const onVisible = () => {
       if (document.visibilityState === "visible") void tick();
     };
