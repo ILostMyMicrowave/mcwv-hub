@@ -802,7 +802,19 @@ function matchOne(
 
   if (/help|what can (i|you)|how do you work|what do you know|commands/.test(msg)) {
     return ok(
-      `I live inside the war data 📊 Things I answer instantly:\n• "How are we doing?" — rank, gaps, pace\n• "Can we make top 10?" — chase maths\n• "What do we win?" — rewards by placement 💎\n• "Who's carrying?" / "Top scorers" / "Who's surging?"\n• "How is <name> doing?" / "My stats"\n• "When does the war end?" / "When's the next war?"\n• "Record book" / "Compare wars" / "My best war" — history brain 📚\n• "How did we do last war?" / "War history"\n• "Tips to score more" — grind smarter\n• "Who's on zero?" (officers get names)\n\nYou can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos are totally fine 🧠`,
+      `I live inside the war data. Things I answer instantly:
+- "How are we doing?" - rank, gaps, pace
+- "Can we make top 10?" - chase maths with rival pace
+- "What do we win?" - rewards by placement
+- "Who's carrying?" / "Top scorers" / "Who's surging?"
+- "How is <name> doing?" / "My stats" - then ask "their rank?"
+- "How is <clan> doing?" / "Biggest threat?" - rival intel
+- "When does the war end?" / "When's the next war?"
+- "Record book" / "Compare wars" / "My best war" - history
+- "Tips to score more" - personalised to your pace
+- "Who's on zero?" (officers get names)
+
+You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos are totally fine`,
       ["How are we doing?", "Who's surging?", "When does the war end?"]
     )
   }
@@ -826,11 +838,28 @@ function matchOne(
     )
   }
 
-  // Follow-up: bare name after a player/carrying/movers conversation ("and sarah?")
+  // Follow-up: bare name after a player/carrying/movers/topscorers conversation ("and sarah?")
   if (topic && /^(player:|carrying|movers|topscorers|zeros)/.test(topic)) {
     const followUp = msg.match(/^(?:and |what about |how about |and what about )?([a-z0-9_.]{3,20})$/)
     if (followUp && !STOP_WORDS.has(followUp[1])) {
       return playerResponse(shared, followUp[1], ["Who's carrying?", "My stats", "How are we doing?"])
+    }
+  }
+
+  // Conversation memory: resolve pronouns to the last-mentioned player.
+  // Topic format: "player:Username" — set by playerResponse / myStatsAnswer.
+  if (topic && topic.startsWith("player:")) {
+    const lastName = topic.slice("player:".length).toLowerCase()
+    const member = shared.members.find(
+      (m) => m.username.toLowerCase() === lastName || m.robloxId === lastName
+    )
+    if (member) {
+      // "their rank", "their points", "how are they", "what about them", "and them"
+      if (/\b(their|them|they|he|she|his|her|that guy|that girl)\b/.test(msg)) {
+        const resolved = `how is ${member.username.toLowerCase()} doing`
+        const result = matchOne(resolved, shared, asker, officer, `player:${member.username}`)
+        if (result.handled) return result
+      }
     }
   }
 
@@ -848,10 +877,36 @@ function matchOne(
     )
   }
 
-  // Tips / how to help the clan score
+  // Tips / how to help the clan score (personalised if we know the asker's stats)
   if (/how (can|do) i (help|score|contribute|grind|get points)|tips|advice|score (more|faster|quickly)|grind (faster|more|harder)|how do (clan )?wars? work|what should i (do|grind|focus)/.test(msg)) {
+    // Personalised: if we know the asker's PPH, give them a concrete target.
+    const selfRow = shared.members.find(
+      (row) =>
+        (asker.robloxId !== null && row.robloxId === String(asker.robloxId)) ||
+        row.username.toLowerCase() === asker.username.toLowerCase()
+    )
+    const myPph = selfRow?.gain24h !== null && selfRow?.gain24h !== undefined ? Math.round(selfRow.gain24h / 24) : null
+    const myPoints = selfRow?.points ?? null
+    const topPph = shared.topScorers[0]?.gain24h ? Math.round(shared.topScorers[0].gain24h / 24) : null
+    const clanPph = shared.hourlyRate ?? null
+
+    let personal = ""
+    if (selfRow && myPph !== null) {
+      if (myPph === 0) {
+        personal = `\n\n**You're on 0 PPH right now** — even a few hundred pts/hour helps. Find your fastest zone and lock in.`
+      } else if (topPph && myPph < topPph * 0.3) {
+        personal = `\n\n**Your pace: ~${fmt(myPph)}/h** — top grinders are doing ~${fmt(topPph)}/h. You've got room to push. Check your team/enchants and find a faster zone.`
+      } else if (topPph && myPph < topPph * 0.7) {
+        personal = `\n\n**Your pace: ~${fmt(myPph)}/h** — decent, but top is ~${fmt(topPph)}/h. Tighten the rotation and you'll close the gap.`
+      } else {
+        personal = `\n\n**Your pace: ~${fmt(myPph)}/h** — you're carrying. Keep it up and push others to match your pace.`
+      }
+    } else if (selfRow && myPoints !== null && myPoints === 0) {
+      personal = `\n\n**You haven't scored yet this war** — get in there and start grinding. Every point counts.`
+    }
+
     return ok(
-      `Every clan battle scores on its **own gimmick** — the in-game Clan Battle page shows exactly what counts this time 🎯 Universal cheat codes:\n\n• **Highest zone you melt fast** — speed beats ego\n• **Best team + enchants on**, always\n• **Day-one points snowball** — start early\n• **Final 24h is when ranks flip** — that's push time 😤\n\n${shared.active ? `Clock check: **${fmtDuration(shared.timeLeftMs)}** left — go go go ⚔️` : "Between wars right now, so stock the prep: potions, upgrades, dream team."}`,
+      `Every clan battle scores on its **own gimmick** — the in-game Clan Battle page shows exactly what counts this time. Universal cheat codes:\n\n• **Highest zone you melt fast** — speed beats ego\n• **Best team + enchants on**, always\n• **Day-one points snowball** — start early\n• **Final 24h is when ranks flip** — that's push time${personal}\n\n${shared.active ? `Clock check: **${fmtDuration(shared.timeLeftMs)}** left — go go go` : "Between wars right now, so stock the prep: potions, upgrades, dream team."}`,
       ["How are we doing?", "My stats", "Top scorers"]
     )
   }
@@ -982,6 +1037,62 @@ function matchOne(
     if (!STOP_WORDS.has(name)) {
       return playerResponse(shared, name, ["Who's carrying?", "My stats", "How are we doing?"])
     }
+  }
+
+  // Rival clan lookup: "how is XYZ clan doing?", "XYZ clan points"
+  const clanMatch = msg.match(/(?:how is|how's|what about|check|lookup)\s+(?:clan\s+)?([a-z0-9]{2,8})(?:\s+clan)?\s*(?:doing|going|points|rank)?/i)
+  if (clanMatch && !STOP_WORDS.has(clanMatch[1])) {
+    const clanName = clanMatch[1].toUpperCase()
+    const rival = shared.standings.find(
+      (s) => s.name.toUpperCase().replace(/[^A-Z0-9]/g, "") === clanName.replace(/[^A-Z0-9]/g, "")
+    )
+    if (rival) {
+      const usIdx = usIndex(shared)
+      const ourPoints = shared.clanPoints ?? 0
+      const gap = rival.points - ourPoints
+      const pphBit = rival.pph !== null ? `, gaining ~${fmt(rival.pph)}/h` : ""
+      const gapBit = gap > 0 ? ` - ${fmt(gap)} pts ahead of us` : gap < 0 ? ` - ${fmt(-gap)} pts behind us` : " - level with us"
+      const positionBit = usIdx >= 0 && rival.rank < usIdx + 1 ? " (above us)" : usIdx >= 0 && rival.rank > usIdx + 1 ? " (below us)" : ""
+      return ok(
+        `**${rival.name}** is #${rival.rank} on **${fmt(rival.points)}** pts${pphBit}${gapBit}${positionBit}.`,
+        ["Who's above us?", "Can we make top 10?", "How are we doing?"],
+        `clan:${rival.name}`
+      )
+    }
+  }
+
+  // Biggest threat: which clan behind us is gaining fastest
+  if (/biggest threat|who.*chasing us|who.*gaining on us|fastest.*clan|most dangerous|biggest rival/.test(msg)) {
+    const usIdx = usIndex(shared)
+    if (usIdx < 0) return ok("I can't see us in the live standings right now - probably between wars", DEFAULT_CHIPS)
+    const below = shared.standings.slice(usIdx + 1).filter((s) => s.pph !== null && s.pph > 0)
+    if (below.length === 0) return ok("Nobody below us has pace data yet - check back after the next hourly snapshot.", DEFAULT_CHIPS)
+    below.sort((a, b) => (b.pph ?? 0) - (a.pph ?? 0))
+    const threat = below[0]
+    const ourPph = shared.hourlyRate ?? 0
+    const theirPph = threat.pph ?? 0
+    const net = theirPph - ourPph
+    const gap = (shared.clanPoints ?? 0) - threat.points
+    const eta = net > 0 && gap > 0 ? Math.ceil(gap / net) : null
+    let out = `**${threat.name}** (#${threat.rank}) is our biggest threat - gaining ~${fmt(theirPph)}/h`
+    if (net > 0) out += ` vs our ~${fmt(ourPph)}/h. They're closing the gap at ~${fmt(net)}/h net`
+    else out += ` vs our ~${fmt(ourPph)}/h. We're out-pacing them`
+    if (eta !== null) out += ` - they'd overtake us in ~${eta}h if pace holds`
+    out += `.`
+    return ok(out, ["How are we doing?", "Can we make top 10?", "Who's above us?"])
+  }
+
+  // Fastest gaining clans overall
+  if (/fastest.*gaining|top.*pph|which.*gaining.*most|fastest clans|biggest gainers/.test(msg)) {
+    const withPace = shared.standings.filter((s) => s.pph !== null && s.pph > 0)
+    if (withPace.length === 0) return ok("No clan pace data yet - check back after the next hourly snapshot.", DEFAULT_CHIPS)
+    withPace.sort((a, b) => (b.pph ?? 0) - (a.pph ?? 0))
+    const top5 = withPace.slice(0, 5)
+    const lines = top5.map((s, i) => `${i + 1}. **${s.name}** - ${fmt(s.pph ?? 0)}/h (#${s.rank}, ${fmt(s.points)} pts)`)
+    return ok(
+      `Fastest-gaining clans right now:\n\n${lines.join("\n")}`,
+      ["How are we doing?", "Biggest threat?", "Can we make top 10?"]
+    )
   }
 
   if (/who.*(winning|first|leading|#?1\b)|who('s| is) (first|top|leading)|leader of|best clan/.test(msg)) {
@@ -1117,7 +1228,7 @@ export function answerWithEngine(
 export function fallbackAnswer(shared: SharedWarContext, asker: AskerContext): EngineResult {
   return {
     handled: true,
-    text: `Hmm, that one's outside my playbook — but here's the current state:\n\n${statusAnswer(shared)}\n\nOr try one of these 👇`,
-    chips: ["How are we doing?", "Can we make top 10?", "What do we win?", "Who's carrying?"],
+    text: `Not sure I caught that one — but here's where things stand:\n\n${statusAnswer(shared)}\n\nI can also answer:\n• "How is <clan> doing?" — rival check\n• "Biggest threat?" — who's chasing us\n• "Tips to score more" — personalised advice\n• "How is <player> doing?" — member lookup`,
+    chips: ["How are we doing?", "Can we make top 10?", "Biggest threat?", "Who's carrying?"],
   }
 }
