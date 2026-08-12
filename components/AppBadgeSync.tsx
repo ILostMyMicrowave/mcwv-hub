@@ -8,12 +8,12 @@ type BadgeNavigator = Navigator & {
   clearAppBadge?: () => Promise<void>;
 };
 
-const POLL_MS = 5 * 60 * 1000;
+const POLL_MS = 2 * 60 * 1000;
 
 /**
  * Renders nothing. While the app is open it keeps the home-screen icon badge
  * honest: 🔴 dot whenever a clan battle is live, clear when it isn't.
- * Polls /api/app-status every 5 min and whenever the tab regains focus.
+ * Polls /api/app-status every 2 min and whenever the tab regains focus.
  * Silently no-ops on browsers without the Badging API.
  */
 export default function AppBadgeSync() {
