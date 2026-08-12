@@ -617,7 +617,7 @@ export default function NotificationsPage() {
             animation: "mcwv-row-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both",
             paddingBottom: "env(safe-area-inset-bottom)",
           }}
-          className="fixed inset-x-0 bottom-24 z-40 mx-auto w-fit rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-3 text-sm font-bold text-white shadow-[0_10px_40px_rgba(139,92,246,0.55)] transition hover:-translate-y-0.5 hover:opacity-95"
+          className="fixed inset-x-0 bottom-24 z-[55] mx-auto w-fit max-w-[calc(100vw-6rem)] rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-3 text-sm font-bold text-white shadow-[0_10px_40px_rgba(139,92,246,0.55)] transition hover:-translate-y-0.5 hover:opacity-95"
         >
           {refreshing
             ? "Loading new alerts…"
