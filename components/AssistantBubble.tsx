@@ -121,7 +121,7 @@ export default function AssistantBubble() {
         type="button"
         aria-label="Open MCWV war assistant"
         onClick={() => setOpen((value) => !value)}
-        className="fixed right-5 z-40 grid h-14 w-14 place-items-center rounded-full border text-2xl transition hover:scale-105 active:scale-95"
+        className="fixed right-5 z-[60] grid h-14 w-14 place-items-center rounded-full border text-2xl transition hover:scale-105 active:scale-95"
         style={{
           bottom: "max(1.25rem, env(safe-area-inset-bottom))",
           background: "linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 55%, #7c3aed))",
@@ -134,7 +134,7 @@ export default function AssistantBubble() {
 
       {open && (
         <div
-          className="assistant-pop-in fixed right-5 z-40 flex h-[min(64dvh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border backdrop-blur-xl"
+          className="assistant-pop-in fixed right-5 z-[60] flex h-[min(64dvh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border backdrop-blur-xl"
           style={{
             bottom: "calc(max(1.25rem, env(safe-area-inset-bottom)) + 4.5rem)",
             background: "color-mix(in srgb, #09090b 82%, var(--primary))",
