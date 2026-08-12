@@ -197,7 +197,7 @@ export default function InstallBanner() {
             }}
           />
 
-          <div className="flex items-center gap-4 p-5">
+          <div className="flex flex-col items-start gap-4 p-5 sm:flex-row sm:items-center">
             {/* Icon */}
             <div
               className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl"
@@ -220,12 +220,12 @@ export default function InstallBanner() {
             </div>
 
             {/* Buttons */}
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
               <button
                 type="button"
                 onClick={() => void install()}
                 disabled={busy}
-                className="rounded-xl px-4 py-2.5 text-sm font-bold transition hover:scale-[1.03] active:scale-95 disabled:opacity-60"
+                className="flex-1 rounded-xl px-4 py-2.5 text-center text-sm font-bold transition hover:scale-[1.03] active:scale-95 disabled:opacity-60 sm:flex-none"
                 style={{
                   background: urgency
                     ? "linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 55%, #7c3aed))"
