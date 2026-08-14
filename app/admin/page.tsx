@@ -70,6 +70,7 @@ type Player = {
   clanRank?: string | number | null;
   clan_rank?: string | number | null;
   points?: number;
+  onLoa?: boolean;
 };
 
 type LinkRow = {
@@ -5156,7 +5157,17 @@ function PlayersSection({
                     )}
                   </td>
                   <td className="px-3 py-4 font-medium">
-                    <div className="max-w-[13rem] truncate" title={String(username)}>{username}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="max-w-[13rem] truncate" title={String(username)}>{username}</div>
+                      {Boolean(player.onLoa) && (
+                        <span
+                          className="whitespace-nowrap rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-[11px] text-sky-300"
+                          title="Leave of Absence — excused from wars and tracking"
+                        >
+                          🏝️ LOA
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-4 font-mono text-xs text-zinc-400" title={discordText || undefined}>
                     {shortenMiddle(discordText)}
@@ -5361,7 +5372,295 @@ function WarSection({ overview }: { overview: UnknownRecord | undefined }) {
           </div>
         </div>
       </Panel>
+      <WarSchedulePanel />
     </div>
+  );
+}
+
+function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function WarSchedulePanel() {
+  type WarScheduleBattle = {
+    battleId: string;
+    battleName: string | null;
+    startTime: string | null;
+    endTime: string | null;
+    manuallyEdited: boolean;
+    editedBy: string | null;
+    editedAt: string | null;
+  };
+
+  const [battles, setBattles] = useState<WarScheduleBattle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, { start: string; end: string }>>({});
+  const [newBattle, setNewBattle] = useState({ battleId: "", start: "", end: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/wars", { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as { battles?: WarScheduleBattle[] } | null;
+      setBattles(json?.battles ?? []);
+    } catch {
+      setBattles([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const draftFor = (b: WarScheduleBattle) => ({
+    start: drafts[b.battleId]?.start ?? toLocalInput(b.startTime),
+    end: drafts[b.battleId]?.end ?? toLocalInput(b.endTime),
+  });
+
+  const save = async (battleId: string) => {
+    const d = drafts[battleId];
+    if (!d) return;
+    setBusyId(battleId);
+    setError("");
+    setNotice("");
+    try {
+      const payload = {
+        startTime: d.start ? new Date(d.start).toISOString() : null,
+        endTime: d.end ? new Date(d.end).toISOString() : null,
+      };
+      const res = await fetch(`/api/admin/wars/${encodeURIComponent(battleId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Save failed");
+      setNotice(`Saved ${battleId} (manual override active — the API can't overwrite it).`);
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[battleId];
+        return next;
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const reset = async (battleId: string) => {
+    setBusyId(battleId);
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch(`/api/admin/wars/${encodeURIComponent(battleId)}`, { method: "POST" });
+      const json = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Reset failed");
+      setNotice(`${battleId} back under API control.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const remove = async (battleId: string) => {
+    if (!window.confirm(`Delete ${battleId} from the schedule?`)) return;
+    setBusyId(battleId);
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch(`/api/admin/wars/${encodeURIComponent(battleId)}`, { method: "DELETE" });
+      const json = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Delete failed");
+      setNotice(`${battleId} deleted.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const create = async () => {
+    if (!newBattle.battleId.trim()) {
+      setError("Battle ID is required (e.g. NinjaBattle2026).");
+      return;
+    }
+    setBusyId("__new__");
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch("/api/admin/wars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          battleId: newBattle.battleId.trim(),
+          startTime: newBattle.start ? new Date(newBattle.start).toISOString() : null,
+          endTime: newBattle.end ? new Date(newBattle.end).toISOString() : null,
+        }),
+      });
+      const json = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Create failed");
+      setNotice(`${newBattle.battleId} added to the schedule.`);
+      setNewBattle({ battleId: "", start: "", end: "" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Create failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <Panel
+      title="War Schedule — Date Editor"
+      right={
+        <span className="text-xs text-zinc-500">
+          Manual dates override the PS99 API everywhere (reports, projections, broadcast triggers)
+        </span>
+      }
+    >
+      {error && (
+        <div className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          {notice}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="py-6 text-center text-sm text-zinc-500">Loading war schedule…</p>
+      ) : battles.length === 0 ? (
+        <p className="py-6 text-center text-sm text-zinc-500">
+          No battles recorded yet. Add an upcoming war below so the Hub knows its dates before the API does.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {battles.map((b) => {
+            const d = draftFor(b);
+            const isBusy = busyId === b.battleId;
+            return (
+              <div
+                key={b.battleId}
+                className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 lg:grid-cols-[1.1fr_1fr_1fr_auto] lg:items-end"
+              >
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-zinc-100">{b.battleId}</span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                        b.manuallyEdited
+                          ? "border-sky-400/40 bg-sky-400/10 text-sky-300"
+                          : "border-zinc-600 bg-zinc-800/60 text-zinc-400"
+                      }`}
+                    >
+                      {b.manuallyEdited ? "✋ manual override" : "auto (API)"}
+                    </span>
+                  </div>
+                  {b.editedAt && b.manuallyEdited && (
+                    <div className="text-[11px] text-zinc-500">last edited {new Date(b.editedAt).toLocaleString()}</div>
+                  )}
+                </div>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] uppercase tracking-wider text-zinc-500">Start (local)</span>
+                  <input
+                    type="datetime-local"
+                    value={d.start}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({ ...prev, [b.battleId]: { ...d, start: e.target.value } }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-400/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] uppercase tracking-wider text-zinc-500">End (local)</span>
+                  <input
+                    type="datetime-local"
+                    value={d.end}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({ ...prev, [b.battleId]: { ...d, end: e.target.value } }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-400/60"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void save(b.battleId)}
+                    disabled={isBusy}
+                    className="rounded-xl bg-sky-500/90 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:opacity-50"
+                  >
+                    {isBusy ? "…" : "Save"}
+                  </button>
+                  {b.manuallyEdited && (
+                    <button
+                      onClick={() => void reset(b.battleId)}
+                      disabled={isBusy}
+                      className="rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10 disabled:opacity-50"
+                    >
+                      Reset
+                    </button>
+                  )}
+                  <button
+                    onClick={() => void remove(b.battleId)}
+                    disabled={isBusy}
+                    className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-6 rounded-2xl border border-dashed border-white/15 bg-black/20 p-4">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Add upcoming war</div>
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+          <input
+            type="text"
+            placeholder="Battle ID (e.g. NinjaBattle2026)"
+            value={newBattle.battleId}
+            onChange={(e) => setNewBattle((prev) => ({ ...prev, battleId: e.target.value }))}
+            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-sky-400/60"
+          />
+          <input
+            type="datetime-local"
+            value={newBattle.start}
+            onChange={(e) => setNewBattle((prev) => ({ ...prev, start: e.target.value }))}
+            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-400/60"
+          />
+          <input
+            type="datetime-local"
+            value={newBattle.end}
+            onChange={(e) => setNewBattle((prev) => ({ ...prev, end: e.target.value }))}
+            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-400/60"
+          />
+          <button
+            onClick={() => void create()}
+            disabled={busyId === "__new__"}
+            className="rounded-xl bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {busyId === "__new__" ? "…" : "Add battle"}
+          </button>
+        </div>
+      </div>
+    </Panel>
   );
 }
 
