@@ -97,7 +97,12 @@ async function getRoster() {
        NULL::text AS owner_roblox_id
      FROM users
      WHERE roblox_id IS NOT NULL
-       AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+       AND TRIM(CAST(roblox_id AS TEXT)) <> ''
+       AND NOT EXISTS (
+         SELECT 1 FROM mcwv_loa_records l
+         WHERE l.active = TRUE
+           AND l.roblox_id = TRIM(CAST(users.roblox_id AS TEXT))
+       )`
   );
   rows.push(...main.rows);
 
@@ -113,7 +118,12 @@ async function getRoster() {
        FROM user_alts a
        LEFT JOIN users u ON u.discord_id::text = a.discord_id::text
        WHERE a.roblox_id IS NOT NULL
-         AND TRIM(CAST(a.roblox_id AS TEXT)) <> ''`
+         AND TRIM(CAST(a.roblox_id AS TEXT)) <> ''
+         AND NOT EXISTS (
+           SELECT 1 FROM mcwv_loa_records l
+           WHERE l.active = TRUE
+             AND l.roblox_id = TRIM(CAST(a.roblox_id AS TEXT))
+         )`
     );
     rows.push(...alts.rows);
   }
