@@ -434,15 +434,31 @@ async function fetchStoredStatusMap(userIds: number[]) {
   return map
 }
 
+async function fetchLoaMap(robloxIds: number[]) {
+  const ids = robloxIds.map(String)
+  try {
+    const res = await pool.query<{ roblox_id: string }>(
+      `SELECT TRIM(roblox_id) AS roblox_id
+       FROM mcwv_loa_records
+       WHERE active = TRUE AND roblox_id = ANY($1::text[])`,
+      [ids]
+    )
+    return new Set(res.rows.map((r) => r.roblox_id))
+  } catch {
+    return new Set<string>()
+  }
+}
+
 async function enrichPlayers(players: NormalizedPlayer[]) {
   const resolvedPlayers = await attachResolvedRobloxIds(players)
   const userIds = uniqueRobloxIds(resolvedPlayers)
   if (!userIds.length) return resolvedPlayers
 
-  const [presenceMap, avatarMap, storedStatusMap] = await Promise.all([
+  const [presenceMap, avatarMap, storedStatusMap, loaMap] = await Promise.all([
     fetchPresenceMap(userIds),
     fetchAvatarMap(userIds),
     fetchStoredStatusMap(userIds),
+    fetchLoaMap(userIds),
   ])
 
   return resolvedPlayers.map((player) => {
@@ -461,6 +477,7 @@ async function enrichPlayers(players: NormalizedPlayer[]) {
         ...player,
         status,
         avatar,
+        onLoa: loaMap.has(String(robloxId)),
       }
     }
 
@@ -479,6 +496,7 @@ async function enrichPlayers(players: NormalizedPlayer[]) {
       lastSeen: lastSeen ?? player.lastSeen ?? null,
       last_seen: lastSeen ?? player.last_seen ?? null,
       avatar,
+      onLoa: loaMap.has(String(robloxId)),
     }
   })
 }
