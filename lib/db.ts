@@ -13,8 +13,11 @@ function getPool() {
 
   return new Pool({
     connectionString,
-    max: 10,
-    idleTimeoutMillis: 30000,
+    // Supabase session pooler caps at 15 total connections (EMAXCONNSESSION).
+    // Keep this small: the bot holds ~1, and Vercel may run several warm lambdas.
+    max: 3,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 15000,
     ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
   })
 }
