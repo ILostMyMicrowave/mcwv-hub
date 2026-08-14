@@ -1205,7 +1205,12 @@ async function buildInactiveRoster(title = "MCWV Roster"): Promise<LeaderboardRe
             false AS is_alt
      FROM users
      WHERE roblox_id IS NOT NULL
-       AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+       AND TRIM(CAST(roblox_id AS TEXT)) <> ''
+       AND NOT EXISTS (
+         SELECT 1 FROM mcwv_loa_records l
+         WHERE l.active = TRUE
+           AND l.roblox_id = TRIM(CAST(users.roblox_id AS TEXT))
+       )`
   );
 
   rows.push(...mainRes.rows);
@@ -1222,7 +1227,12 @@ async function buildInactiveRoster(title = "MCWV Roster"): Promise<LeaderboardRe
               true AS is_alt
        FROM user_alts
        WHERE roblox_id IS NOT NULL
-         AND TRIM(CAST(roblox_id AS TEXT)) <> ''`
+         AND TRIM(CAST(roblox_id AS TEXT)) <> ''
+         AND NOT EXISTS (
+           SELECT 1 FROM mcwv_loa_records l
+           WHERE l.active = TRUE
+             AND l.roblox_id = TRIM(CAST(user_alts.roblox_id AS TEXT))
+         )`
     );
 
     rows.push(...altRes.rows);
