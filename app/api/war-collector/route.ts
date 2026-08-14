@@ -357,7 +357,8 @@ async function saveCollectorSnapshot(params: {
        DO UPDATE SET
          battle_name = COALESCE(EXCLUDED.battle_name, battles.battle_name),
          start_time = COALESCE(EXCLUDED.start_time, battles.start_time),
-         end_time = COALESCE(EXCLUDED.end_time, battles.end_time)`,
+         end_time = COALESCE(EXCLUDED.end_time, battles.end_time)
+       WHERE battles.manually_edited IS NOT TRUE`,
       [params.battleId, params.battleName, params.startTime, params.endTime]
     );
 
