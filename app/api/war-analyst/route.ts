@@ -644,9 +644,21 @@ async function getDisconnectStats() {
 
     const result = await pool.query<{ events_24h: string; players_24h: string; events_1h: string }>(
       `WITH roster AS (
-         SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id FROM users WHERE roblox_id IS NOT NULL
+         SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id
+         FROM users
+         WHERE roblox_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM mcwv_loa_records l
+             WHERE l.active = TRUE AND l.roblox_id = TRIM(CAST(users.roblox_id AS TEXT))
+           )
          UNION
-         SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id FROM user_alts WHERE roblox_id IS NOT NULL
+         SELECT TRIM(CAST(roblox_id AS TEXT)) AS roblox_id
+         FROM user_alts
+         WHERE roblox_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM mcwv_loa_records l
+             WHERE l.active = TRUE AND l.roblox_id = TRIM(CAST(user_alts.roblox_id AS TEXT))
+           )
        ), drops AS (
          SELECT p.roblox_id::text AS roblox_id, p.created_at
          FROM player_presence_events p
@@ -838,7 +850,8 @@ async function saveLiveAnalyticsSnapshot(params: {
        DO UPDATE SET
          battle_name = COALESCE(EXCLUDED.battle_name, battles.battle_name),
          start_time = COALESCE(EXCLUDED.start_time, battles.start_time),
-         end_time = COALESCE(EXCLUDED.end_time, battles.end_time)`,
+         end_time = COALESCE(EXCLUDED.end_time, battles.end_time)
+       WHERE battles.manually_edited IS NOT TRUE`,
       [
         params.active.battleId,
         params.active.title,
