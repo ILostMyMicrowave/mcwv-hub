@@ -307,17 +307,17 @@ export async function GET() {
            (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
          FROM (
            SELECT
-             regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') AS battle_key,
+             lower(battle_id) AS battle_key,
              battle_id,
              roblox_id::text AS roblox_id,
              username,
              points,
              captured_at,
              MAX(captured_at) OVER (
-               PARTITION BY regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g')
+               PARTITION BY lower(battle_id)
              ) AS last_ts
            FROM player_leaderboard_history
-           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+           WHERE battle_id = ANY($1)
              AND points IS NOT NULL
          ) rows
          ORDER BY battle_key, roblox_id, captured_at DESC`,
