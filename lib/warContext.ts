@@ -235,7 +235,7 @@ async function latestSnapshot(battleKey: string) {
       `SELECT battle_points, rank, participants, total_clans, captured_at
        FROM war_snapshots
        WHERE clan_name = $1
-         AND regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $2
+         AND lower(battle_id) = $2
        ORDER BY captured_at DESC
        LIMIT 1`,
       [CLAN_NAME, battleKey]
@@ -252,7 +252,7 @@ async function snapshotNear(battleKey: string, epochSeconds: number) {
       `SELECT battle_points, captured_at
        FROM war_snapshots
        WHERE clan_name = $1
-         AND regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $2
+         AND lower(battle_id) = $2
        ORDER BY ABS(EXTRACT(EPOCH FROM captured_at) - $3) ASC
        LIMIT 1`,
       [CLAN_NAME, battleKey, epochSeconds]
@@ -266,21 +266,33 @@ async function snapshotNear(battleKey: string, epochSeconds: number) {
 async function memberLines(battleKey: string): Promise<MemberLine[]> {
   try {
     const latest = await pool.query(
-      `SELECT DISTINCT ON (roblox_id)
-         roblox_id, username, points, rank, captured_at
-       FROM player_leaderboard_history
-       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
-       ORDER BY roblox_id, captured_at DESC`,
+      `SELECT h.roblox_id, h.username, h.points, h.rank, h.captured_at
+       FROM users u
+       JOIN LATERAL (
+         SELECT roblox_id, username, points, rank, captured_at
+         FROM player_leaderboard_history
+         WHERE battle_id = $1
+           AND roblox_id = TRIM(u.roblox_id)
+         ORDER BY captured_at DESC
+         LIMIT 1
+       ) h ON TRUE
+       WHERE u.roblox_id IS NOT NULL`,
       [battleKey]
     )
 
     const dayAgo = await pool.query(
-      `SELECT DISTINCT ON (roblox_id)
-         roblox_id, points
-       FROM player_leaderboard_history
-       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
-         AND captured_at <= NOW() - INTERVAL '24 hours'
-       ORDER BY roblox_id, captured_at DESC`,
+      `SELECT h.roblox_id, h.points
+       FROM users u
+       JOIN LATERAL (
+         SELECT roblox_id, points
+         FROM player_leaderboard_history
+         WHERE battle_id = $1
+           AND roblox_id = TRIM(u.roblox_id)
+           AND captured_at <= NOW() - INTERVAL '24 hours'
+         ORDER BY captured_at DESC
+         LIMIT 1
+       ) h ON TRUE
+       WHERE u.roblox_id IS NOT NULL`,
       [battleKey]
     )
 
@@ -327,35 +339,41 @@ const HISTORY_SQL = `
     WHERE end_time IS NOT NULL AND end_time <= NOW()
     ORDER BY end_time DESC
     LIMIT $1
-  ),
-  finals AS (
-    SELECT DISTINCT ON (rb.battle_id, h.roblox_id)
-      rb.battle_id, h.roblox_id, h.username, h.points
-    FROM player_leaderboard_history h
-    JOIN recent rb
-      ON regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') =
-         regexp_replace(lower(rb.battle_id), '[^a-z0-9]+', '', 'g')
-    WHERE h.points IS NOT NULL
-      AND h.captured_at <= rb.end_time + INTERVAL '12 hours'
-    ORDER BY rb.battle_id, h.roblox_id, h.captured_at DESC
-  ),
-  agg AS (
-    SELECT battle_id,
-           COUNT(*) FILTER (WHERE points > 0)::int AS scorers,
-           COALESCE(SUM(points), 0)::float8 AS clan_points
-    FROM finals
-    GROUP BY battle_id
-  ),
-  tops AS (
-    SELECT DISTINCT ON (battle_id) battle_id, username, points
-    FROM finals
-    ORDER BY battle_id, points DESC
   )
   SELECT rb.battle_id, rb.battle_name, rb.end_time,
-         agg.scorers, agg.clan_points, tops.username AS top_username, tops.points AS top_points
+         a.scorers, a.clan_points, t.top_username, t.top_points
   FROM recent rb
-  LEFT JOIN agg ON agg.battle_id = rb.battle_id
-  LEFT JOIN tops ON tops.battle_id = rb.battle_id
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*) FILTER (WHERE h.points > 0)::int AS scorers,
+           COALESCE(SUM(h.points), 0)::float8 AS clan_points
+    FROM users u
+    JOIN LATERAL (
+      SELECT hh.points
+      FROM player_leaderboard_history hh
+      WHERE hh.battle_id = lower(rb.battle_id)
+        AND hh.roblox_id = TRIM(u.roblox_id)
+        AND hh.captured_at <= rb.end_time + INTERVAL '12 hours'
+      ORDER BY hh.captured_at DESC
+      LIMIT 1
+    ) h ON TRUE
+    WHERE u.roblox_id IS NOT NULL
+  ) a ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT hh.username AS top_username, hh.points AS top_points
+    FROM users u
+    JOIN LATERAL (
+      SELECT hh2.username, hh2.points
+      FROM player_leaderboard_history hh2
+      WHERE hh2.battle_id = lower(rb.battle_id)
+        AND hh2.roblox_id = TRIM(u.roblox_id)
+        AND hh2.captured_at <= rb.end_time + INTERVAL '12 hours'
+      ORDER BY hh2.captured_at DESC
+      LIMIT 1
+    ) hh ON TRUE
+    WHERE u.roblox_id IS NOT NULL
+    ORDER BY hh.points DESC NULLS LAST
+    LIMIT 1
+  ) t ON TRUE
   ORDER BY rb.end_time DESC`
 
 const prettyWarTitle = (battleId: string, battleName: unknown): string => {
@@ -396,8 +414,7 @@ export async function loadAskerWars(robloxId: string | null, limit = 8): Promise
            rb.battle_id, rb.battle_name, rb.end_time, h.points
          FROM player_leaderboard_history h
          JOIN recent rb
-           ON regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') =
-              regexp_replace(lower(rb.battle_id), '[^a-z0-9]+', '', 'g')
+           ON h.battle_id = lower(rb.battle_id)
          WHERE h.roblox_id::text = $1
            AND h.points IS NOT NULL
            AND h.captured_at <= rb.end_time + INTERVAL '12 hours'
