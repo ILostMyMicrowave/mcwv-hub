@@ -652,7 +652,7 @@ async function appendMissingScoredMembers(
       `WITH latest AS (
          SELECT MAX(captured_at) AS ts
          FROM player_leaderboard_history
-         WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = ANY($1)
+         WHERE battle_id = ANY($1)
        )
        SELECT DISTINCT ON (player_leaderboard_history.roblox_id)
          roblox_id::text AS roblox_id,
@@ -987,7 +987,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   const snapshotRes = await pool.query(
     `SELECT rank, battle_points, captured_at
      FROM war_snapshots
-     WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+     WHERE lower(battle_id) = $1
      ORDER BY captured_at DESC
      LIMIT 1`,
     [canonicalBattleKey]
@@ -1020,7 +1020,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
           u.discord_id
        FROM player_leaderboard_history h
        LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(h.roblox_id AS TEXT))
-       WHERE regexp_replace(lower(h.battle_id), '[^a-z0-9]+', '', 'g') = $1
+       WHERE h.battle_id = $1
          AND h.points IS NOT NULL
        ORDER BY h.roblox_id, h.captured_at DESC`,
       [canonicalBattleKey]
@@ -1041,7 +1041,7 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
                   u.roblox_id, u.discord_id
            FROM battle_user_contributions buc
            LEFT JOIN users u ON TRIM(CAST(u.roblox_id AS TEXT)) = TRIM(CAST(buc.user_id AS TEXT))
-           WHERE regexp_replace(lower(buc.battle_id), '[^a-z0-9]+', '', 'g') = $1
+           WHERE lower(buc.battle_id) = $1
            ORDER BY buc.points DESC, buc.captured_at DESC`,
           [canonicalBattleKey]
         );
