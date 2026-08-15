@@ -14,7 +14,7 @@ export type AssistantCardData =
       rows: { label: string; value: number; sub?: string; medal?: string; highlight?: boolean }[]
     }
   | { type: "progress"; title: string; current: number; target: number; sub?: string }
-  | { type: "tiers"; title: string; currentRank: number; rows: { best: number; worst: number; label: string }[]; sub?: string }
+  | { type: "tiers"; title: string; currentRank: number; rows: { best: number; worst: number; label: string }[]; headline?: string; sub?: string }
 
 export type EngineResult = {
   handled: boolean
@@ -418,24 +418,41 @@ function projectionAnswer(shared: SharedWarContext): string {
 }
 
 function rewardsAnswer(shared: SharedWarContext): string {
-  if (!shared.rewards.length) {
+  const hasRewards =
+    shared.rewards.length > 0 ||
+    Boolean(shared.headlineReward) ||
+    shared.contributorRewards.length > 0
+  if (!hasRewards) {
     return "The game hasn't exposed this war's reward table to me — usually it's huge/titanic pets for the top ranks and a clan gift for the top 500."
   }
+
+  const parts: string[] = []
+  if (shared.headlineReward) {
+    parts.push(`🏆 **Headline prize:** ${shared.headlineReward} — goes to the winning clan's top contributor.`)
+  }
+
   const rank = projectedRankRivalAware(shared) ?? shared.clanRank
   if (rank === null) {
-    return "I can't see our placement yet, so I can't say which tier we're in. Ask me once the war's underway."
+    parts.push("I can't see our placement yet, so I can't say which tier we're in. Ask me once the war's underway.")
+    return parts.join("\n\n")
   }
+
   const current = rewardsAtRank(shared, rank)
-  let out = `At **#${rank}** we'd take home: **${current.join(" + ") || "nothing 😅"}** 💎`
+  parts.push(`At **#${rank}** we'd take home: **${current.join(" + ") || "nothing 😅"}** 💎`)
   const better = nextTierUp(shared, rank)
   if (better) {
     const boundaryRow = standingAt(shared, better.worst)
     const gap = boundaryRow && shared.clanPoints !== null ? boundaryRow.points - shared.clanPoints : null
-    out += `\n\nOne tier up (${ordinal(better.best)}–${ordinal(better.worst)}): **${rewardsAtRank(shared, better.best).join(" + ")}**`
-    if (gap !== null && gap > 0) out += ` — that's ${fmt(gap)} pts away 👀`
-    else out += `.`
+    parts.push(`One tier up (${ordinal(better.best)}–${ordinal(better.worst)}): **${rewardsAtRank(shared, better.best).join(" + ")}**${gap !== null && gap > 0 ? ` — that's ${fmt(gap)} pts away 👀` : "."}`)
   }
-  return out
+
+  if (shared.contributorRewards.length) {
+    const bands = shared.contributorRewards
+      .map((band) => `**${band.best === band.worst ? `rank ${band.best}` : `top ${band.worst}`} → ${band.label}**`)
+      .join(" · ")
+    parts.push(`Members also earn by contributor rank: ${bands}.`)
+  }
+  return parts.join("\n\n")
 }
 
 function carryingAnswer(shared: SharedWarContext): string {
@@ -513,12 +530,22 @@ function tiersCard(shared: SharedWarContext): AssistantCardData | undefined {
   const better = nextTierUp(shared, rank)
   const boundaryRow = better ? standingAt(shared, better.worst) : null
   const gap = boundaryRow && shared.clanPoints !== null ? boundaryRow.points - shared.clanPoints : null
+  const contributorNote = shared.contributorRewards.length
+    ? shared.contributorRewards
+        .map((band) => `top ${band.worst} → ${band.label}`)
+        .join(" · ")
+    : null
+  const subParts = [
+    gap !== null && gap > 0 ? `${fmt(gap)} pts to the next tier 👀` : null,
+    contributorNote,
+  ].filter((p): p is string => Boolean(p))
   return {
     type: "tiers" as const,
     title: "Reward tiers",
     currentRank: rank,
     rows: shared.rewards.slice(0, 6).map((tier) => ({ best: tier.best, worst: tier.worst, label: tier.label })),
-    ...(gap !== null && gap > 0 ? { sub: `${fmt(gap)} pts to the next tier 👀` } : {}),
+    ...(shared.headlineReward ? { headline: `🏆 ${shared.headlineReward}` } : {}),
+    ...(subParts.length ? { sub: subParts.join(" · ") } : {}),
   }
 }
 
