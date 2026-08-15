@@ -57,6 +57,14 @@ function formatDateRange(report: WarReportSummary) {
   return `${start} → ${end}`;
 }
 
+const HISTORY_ACCURATE_SINCE_MS = Date.parse("2026-08-16T00:00:00Z");
+
+function isPartialReport(report: WarReportSummary) {
+  if (!report.endTime) return true;
+  const t = new Date(report.endTime).getTime();
+  return Number.isFinite(t) && t < HISTORY_ACCURATE_SINCE_MS;
+}
+
 function rankMeta(rank: number | null) {
   if (!rank) {
     return {
@@ -215,6 +223,14 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
                   Warming Up
                 </span>
               )}
+              {!report.isActive && isPartialReport(report) && (
+                <span
+                  className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100"
+                  title="This war was captured after the game API began removing contributors — member lists, ranks and totals are best-effort."
+                >
+                  ⚠ Partial data
+                </span>
+              )}
               {report.finalRank ? (
                 <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${rank.chip}`}>{rank.tier}</span>
               ) : null}
@@ -371,6 +387,17 @@ export default function WarReportsPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
+        </div>
+
+        {/* Data accuracy notice */}
+        <div className="wr-rise mb-8 flex items-start gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3 text-[13px] leading-5 text-amber-200/90">
+          <span className="mt-0.5 shrink-0">⚠️</span>
+          <p>
+            <span className="font-semibold">War data before 16 Aug 2026 may be incomplete.</span>{" "}
+            Full live capture began with the next battle — earlier wars were partially recovered after
+            the game API started removing contributors, so member lists, ranks and totals for those wars
+            are best-effort and can differ from the true final numbers.
+          </p>
         </div>
 
         {/* Season strip */}
