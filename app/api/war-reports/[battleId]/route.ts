@@ -209,9 +209,35 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
     ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
     : new Set(contributionIds);
 
+  // Ended wars: use the EXACT war roster captured at war end when available —
+  // only people who were actually in the clan for that war. The API prunes
+  // PointContributions after award processing, so it undercounts (e.g. 66 of
+  // 75), while AwardUserIDs (captured into cross_clan_participants) is the
+  // official 75-member war roster.
+  if (!includeCurrentRoster) {
+    try {
+      const partRes = await pool.query<{ battle_id: string; roblox_id: string }>(
+        `SELECT battle_id, roblox_id
+         FROM cross_clan_participants
+         WHERE clan_name = $1`,
+        [CLAN_NAME]
+      );
+      const rosterRows = partRes.rows.filter(
+        (row) => normalizeBattleKey(row.battle_id) === targetKey
+      );
+      if (rosterRows.length) {
+        memberIds.clear();
+        for (const row of rosterRows) memberIds.add(String(row.roblox_id).trim());
+      }
+    } catch {
+      // cross_clan_participants may not exist yet — keep the API-based roster.
+    }
+  }
+
   // The Big Games Members array does not include the clan owner, so explicitly
-  // keep them in both live and historical reports when we have battle data.
-  if (ownerId && (includeCurrentRoster || memberIds.size > 0)) {
+  // keep them for LIVE reports. Ended wars use the captured war roster, which
+  // already contains every member who participated (owner included).
+  if (ownerId && includeCurrentRoster) {
     memberIds.add(ownerId);
   }
 
@@ -518,6 +544,29 @@ export async function GET(
     const linkedAccounts = await getLinkedAccounts();
     let playerRows: PlayerSnapshotRow[] = [];
 
+    // Ended wars: the API prunes PointContributions after award processing, but
+    // our war-end capture (cross_clan_player_history) has every scorer — use it
+    // as the points fallback so pruned members keep their captured points.
+    const crossClanPoints = new Map<string, number>();
+    if (!battle.is_active) {
+      try {
+        const ccRes = await pool.query<{ roblox_id: string; points: number | string }>(
+          `SELECT roblox_id, points
+           FROM cross_clan_player_history
+           WHERE battle_id = $1 AND clan_name = $2`,
+          [battle.battle_id, CLAN_NAME]
+        );
+        for (const row of ccRes.rows) {
+          const pts = asNumber(row.points);
+          if (pts !== null && pts > 0) {
+            crossClanPoints.set(String(row.roblox_id).trim(), pts);
+          }
+        }
+      } catch {
+        // fall back to API-only data
+      }
+    }
+
     if (await tableExists("player_leaderboard_history")) {
       const players = await pool.query<PlayerSnapshotRow>(
         `SELECT DISTINCT ON (roblox_id)
@@ -558,24 +607,18 @@ export async function GET(
           roblox_id: robloxId,
           username: existing?.username ?? linked?.username ?? reportNames.get(robloxId) ?? robloxId,
           rank: existing?.rank ?? null,
-          points: clanBattleData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+          points:
+            crossClanPoints.get(robloxId) ??
+            clanBattleData.contributionPoints.get(robloxId) ??
+            asNumber(existing?.points) ??
+            0,
           captured_at: existing?.captured_at ?? null,
           in_final: existing?.in_final ?? false,
         };
       });
-      // Ended wars: restore contributors who SCORED in the war but were
-      // kicked/left afterwards — Big Games rewrites the ledger when players
-      // leave, our snapshots still have their points. Zero-point players
-      // are never listed on historic wars.
-      const restoredScorers = battle.is_active
-        ? []
-        : [...rowsById.values()].filter(
-            (row) =>
-              !rosterIdSet.has(String(row.roblox_id)) &&
-              row.in_final &&
-              asNumber(row.points) > 0
-          );
-      playerRows = [...mappedRows, ...restoredScorers];
+      // Roster-only: the member list is exactly the captured war roster —
+      // no kicked/left extras, no post-war joiners.
+      playerRows = mappedRows;
     }
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
