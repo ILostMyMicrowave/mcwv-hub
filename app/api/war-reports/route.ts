@@ -186,9 +186,35 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
     ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
     : new Set(contributionIds);
 
-  // Big Games omits the clan owner from Members, so force include owner when
-  // there is a live roster or historical battle contribution data.
-  if (ownerId && (includeCurrentRoster || memberIds.size > 0)) memberIds.add(ownerId);
+  // Ended wars: use the EXACT war roster captured at war end when available —
+  // only people who were actually in the clan for that war. The API prunes
+  // PointContributions after award processing, so it undercounts (e.g. 66 of
+  // 75), while AwardUserIDs (captured into cross_clan_participants) is the
+  // official 75-member war roster.
+  if (!includeCurrentRoster) {
+    try {
+      const partRes = await pool.query<{ battle_id: string; roblox_id: string }>(
+        `SELECT battle_id, roblox_id
+         FROM cross_clan_participants
+         WHERE clan_name = $1`,
+        [CLAN_NAME]
+      );
+      const rosterRows = partRes.rows.filter(
+        (row) => normalizeBattleKey(row.battle_id) === targetKey
+      );
+      if (rosterRows.length) {
+        memberIds.clear();
+        for (const row of rosterRows) memberIds.add(String(row.roblox_id).trim());
+      }
+    } catch {
+      // cross_clan_participants may not exist yet — keep the API-based roster.
+    }
+  }
+
+  // Big Games omits the clan owner from Members, so force include owner for
+  // LIVE reports. Ended wars use the captured war roster, which already
+  // contains every member who participated (owner included).
+  if (ownerId && includeCurrentRoster) memberIds.add(ownerId);
 
   return {
     memberIds,
@@ -333,6 +359,30 @@ export async function GET() {
 
     const clanDataByBattle = new Map<string, Awaited<ReturnType<typeof getClanBattleReportData>>>();
     const namesByBattle = new Map<string, Map<string, string>>();
+
+    // Ended wars: war-end capture points for members the API has pruned.
+    const crossClanByBattle = new Map<string, Map<string, number>>();
+    try {
+      const ccRes = await pool.query<{ battle_id: string; roblox_id: string; points: number | string }>(
+        `SELECT battle_id, roblox_id, points
+         FROM cross_clan_player_history
+         WHERE clan_name = $1
+           AND battle_id = ANY($2::text[])`,
+        [CLAN_NAME, battleRows.map((row) => row.battle_id)]
+      );
+      for (const row of ccRes.rows) {
+        const pts = asNumber(row.points);
+        if (pts === null || pts <= 0) continue;
+        const key = normalizeBattleKey(row.battle_id);
+        if (!key) continue;
+        const map = crossClanByBattle.get(key) ?? new Map<string, number>();
+        map.set(String(row.roblox_id).trim(), pts);
+        crossClanByBattle.set(key, map);
+      }
+    } catch {
+      // cross_clan_player_history may not exist — reports stay API-based.
+    }
+
     for (const battle of battleRows) {
       const key = normalizeBattleKey(battle.battle_id);
       const clanData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
@@ -353,6 +403,7 @@ export async function GET() {
           const names = namesByBattle.get(battleKey) ?? new Map<string, string>();
           const rowsById = new Map(rows.map((row) => [String(row.roblox_id), row]));
           const reportIdSet = new Set(reportIds.map((id) => String(id)));
+          const crossClanPoints = crossClanByBattle.get(battleKey) ?? new Map<string, number>();
           const mappedRows = reportIds.map((robloxId) => {
             const existing = rowsById.get(robloxId);
             return {
@@ -360,23 +411,17 @@ export async function GET() {
               battle_id: battle.battle_id,
               roblox_id: robloxId,
               username: existing?.username ?? names.get(robloxId) ?? robloxId,
-              points: clanData.contributionPoints.get(robloxId) ?? asNumber(existing?.points),
+              points:
+                crossClanPoints.get(robloxId) ??
+                clanData.contributionPoints.get(robloxId) ??
+                asNumber(existing?.points) ??
+                0,
               in_final: existing?.in_final ?? false,
             };
           });
-          // Ended wars: restore contributors who SCORED in the war but were
-          // kicked/left afterwards — Big Games rewrites the ledger when
-          // players leave, our snapshots still have their points. Zero-point
-          // players are never listed on historic wars.
-          const restoredScorers = battle.is_active
-            ? []
-            : rows.filter(
-                (row) =>
-                  !reportIdSet.has(String(row.roblox_id)) &&
-                  row.in_final &&
-                  asNumber(row.points) > 0
-              );
-          rows = [...mappedRows, ...restoredScorers];
+          // Roster-only: the member list is exactly the captured war roster —
+          // no kicked/left extras, no post-war joiners.
+          rows = mappedRows;
         }
 
         const points = rows.map((row) => asNumber(row.points));
