@@ -88,6 +88,9 @@ function TiersCard({ card }: { card: Extract<AssistantCardData, { type: "tiers" 
   return (
     <div className="pb-2">
       <CardTitle>{card.title}</CardTitle>
+      {card.headline ? (
+        <div className="mt-1.5 px-2.5 text-[10.5px] font-semibold text-amber-200/90">{card.headline}</div>
+      ) : null}
       <div className="mt-1 space-y-1 px-2.5">
         {card.rows.map((row, index) => {
           const ours = card.currentRank >= row.best && card.currentRank <= row.worst;
