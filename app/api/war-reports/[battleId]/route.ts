@@ -245,9 +245,9 @@ async function getFallbackBattleFromHistory(requestedBattleId: string): Promise<
     const result = await pool.query<{ battle_id: string; captured_at: Date | string | null }>(
       `SELECT battle_id, MAX(captured_at) AS captured_at
        FROM player_leaderboard_history
-       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
-          OR regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') LIKE ($1 || '%')
-          OR $1 LIKE (regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') || '%')
+       WHERE battle_id = $1
+          OR battle_id LIKE ($1 || '%')
+          OR $1 LIKE (battle_id || '%')
        GROUP BY battle_id
        ORDER BY MAX(captured_at) DESC
        LIMIT 1`,
@@ -270,9 +270,9 @@ async function getFallbackBattleFromHistory(requestedBattleId: string): Promise<
     const result = await pool.query<{ battle_id: string; captured_at: Date | string | null }>(
       `SELECT battle_id, MAX(captured_at) AS captured_at
        FROM war_snapshots
-       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
-          OR regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') LIKE ($1 || '%')
-          OR $1 LIKE (regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') || '%')
+       WHERE lower(battle_id) = $1
+          OR lower(battle_id) LIKE ($1 || '%')
+          OR $1 LIKE (lower(battle_id) || '%')
        GROUP BY battle_id
        ORDER BY MAX(captured_at) DESC
        LIMIT 1`,
@@ -507,7 +507,7 @@ export async function GET(
     const snapshotResult = await pool.query<WarSnapshotRow>(
       `SELECT rank, battle_points, captured_at
        FROM war_snapshots
-       WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+       WHERE lower(battle_id) = $1
          AND LOWER(clan_name) = LOWER($2)
        ORDER BY captured_at DESC
        LIMIT 1`,
@@ -536,7 +536,7 @@ export async function GET(
              captured_at,
              MAX(captured_at) OVER () AS last_ts
            FROM player_leaderboard_history
-           WHERE regexp_replace(lower(battle_id), '[^a-z0-9]+', '', 'g') = $1
+           WHERE battle_id = $1
              AND points IS NOT NULL
          ) rows
          ORDER BY roblox_id, captured_at DESC`,
