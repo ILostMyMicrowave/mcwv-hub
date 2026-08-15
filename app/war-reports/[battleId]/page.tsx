@@ -353,6 +353,19 @@ export default function WarReportDetailPage() {
                         Current War
                       </span>
                     )}
+                    {!data.battle.isActive &&
+                      (() => {
+                        const end = data.battle.endTime ? new Date(data.battle.endTime).getTime() : NaN;
+                        const partial = !Number.isFinite(end) || end < Date.parse("2026-08-16T00:00:00Z");
+                        return partial ? (
+                          <span
+                            className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100"
+                            title="Captured after the game API began removing contributors — member lists, ranks and totals are best-effort."
+                          >
+                            ⚠ Partial data
+                          </span>
+                        ) : null;
+                      })()}
                   </div>
                   <h1 className="mt-2 bg-gradient-to-r from-white via-white to-[var(--foreground)]/40 bg-clip-text text-4xl font-black text-transparent sm:text-6xl">
                     {data.battle.battleName}
