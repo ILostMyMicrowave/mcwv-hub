@@ -67,6 +67,8 @@ export type SharedWarContext = {
   projectedRankIfPaceHolds: number | null
   standings: StandingRow[]
   rewards: RewardTier[]
+  headlineReward: string | null /* the marquee reward (Titanic etc.) */
+  contributorRewards: RewardTier[] /* what members win by contributor rank */
   topScorers: MemberLine[]
   movers: MemberLine[]
   members: MemberLine[]
@@ -204,29 +206,101 @@ async function getClanPphMap(battleId: string | null): Promise<Map<string, numbe
   return map
 }
 
-function tierLabel(item: Json | undefined): string | null {
-  const data = (item?._data ?? {}) as Json
-  const id = typeof data.id === "string" ? data.id : null
+function rewardItemLabel(item: Json | null): string | null {
+  if (!item) return null
+  // v1 API returns plain items {id, variant, particleTier}; the legacy
+  // configData wraps them as {_data: {id, pt}}.
+  const data = (item._data ?? item) as Json
+  const id = typeof data.id === "string" && data.id ? data.id : null
   if (!id) return null
-  const pt = asNumber(data.pt)
-  if (pt === 2) return `Rainbow ${id}`
-  if (pt === 1) return `Golden ${id}`
+  const variant = typeof data.variant === "string" ? data.variant.toLowerCase() : ""
+  const pt = asNumber(data.pt ?? data.particleTier)
+  if (variant === "shinyrainbow" || pt === 2) return `Rainbow ${id}`
+  if (variant === "shinygold" || pt === 1) return `Golden ${id}`
   return id
 }
 
-function parseRewardTiers(configData: Json | null): RewardTier[] {
-  const raw = configData?.PlacementRewards
-  if (!Array.isArray(raw)) return []
+function itemsLabel(items: Json | null): string | null {
+  if (!Array.isArray(items)) return null
+  const labels = (items as Json[])
+    .map((i) => rewardItemLabel(i as Json))
+    .filter((l): l is string => Boolean(l))
+  return labels.length ? labels.join(" + ") : null
+}
+
+type ParsedWarRewards = {
+  tiers: RewardTier[] // clan-placement tiers (what the CLAN wins)
+  contributor: RewardTier[] // contributor bands (what members win by rank)
+  headline: string | null // the marquee Titanic/etc. reward
+}
+
+function dedupeContributorBands(bands: RewardTier[]): RewardTier[] {
+  // Bands like 1–30 "Ninja" and 1–50 "Ninja" overlap — keep the tightest band
+  // per distinct label so the summary reads clean.
+  const sorted = [...bands].sort((a, b) => a.worst - b.worst)
+  const seen = new Set<string>()
+  const out: RewardTier[] = []
+  for (const band of sorted) {
+    if (seen.has(band.label)) continue
+    seen.add(band.label)
+    out.push(band)
+  }
+  return out
+}
+
+function parseV1Rewards(meta: Json | null): ParsedWarRewards {
   const tiers: RewardTier[] = []
-  for (const entry of raw as Json[]) {
-    const best = asNumber(entry.Best)
-    const worst = asNumber(entry.Worst)
-    const label = tierLabel(entry.Item as Json | undefined)
-    if (best === null || worst === null || !label) continue
-    tiers.push({ best, worst, label })
+  const contributor: RewardTier[] = []
+  const headline = rewardItemLabel((meta?.headlineReward ?? null) as Json | null)
+  const raw = meta?.placementRewards
+  if (Array.isArray(raw)) {
+    for (const entry of raw as Json[]) {
+      const best = asNumber(entry.best ?? entry.Best)
+      const worst = asNumber(entry.worst ?? entry.Worst)
+      if (best === null || worst === null) continue
+      const label = itemsLabel((entry.items ?? null) as Json | null) ?? rewardItemLabel((entry.Item ?? null) as Json | null)
+      if (!label) continue
+      const placement = String(entry.placement ?? "")
+      const isTopTier = placement === "1st" || typeof entry.contributorPlacement === "string"
+      // Contributor bands all start at rank 1 and are not the top tier entry.
+      if (best === 1 && worst > 1 && !isTopTier) {
+        contributor.push({ best, worst, label })
+      } else {
+        tiers.push({ best, worst, label })
+      }
+    }
   }
   tiers.sort((a, b) => a.best - b.best || a.worst - b.worst)
-  return tiers
+  return { tiers, contributor: dedupeContributorBands(contributor), headline }
+}
+
+function parseLegacyRewards(configData: Json | null): ParsedWarRewards {
+  const raw = configData?.PlacementRewards
+  const tiers: RewardTier[] = []
+  const contributor: RewardTier[] = []
+  if (Array.isArray(raw)) {
+    for (const entry of raw as Json[]) {
+      const best = asNumber(entry.Best)
+      const worst = asNumber(entry.Worst)
+      if (best === null || worst === null) continue
+      const label = rewardItemLabel((entry.Item ?? null) as Json | null)
+      if (!label) continue
+      const hasContribField = asNumber(entry.BestContributor) !== null
+      if (best === 1 && worst > 1 && !hasContribField) {
+        contributor.push({ best, worst, label })
+      } else {
+        tiers.push({ best, worst, label })
+      }
+    }
+  }
+  tiers.sort((a, b) => a.best - b.best || a.worst - b.worst)
+  return { tiers, contributor: dedupeContributorBands(contributor), headline: null }
+}
+
+function parseBattleRewards(v1Meta: Json | null, configData: Json | null): ParsedWarRewards {
+  const v1 = parseV1Rewards(v1Meta)
+  if (v1.tiers.length || v1.contributor.length || v1.headline) return v1
+  return parseLegacyRewards(configData)
 }
 
 async function latestSnapshot(battleKey: string) {
@@ -453,6 +527,14 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
   const active = Boolean(finishSec && nowSec < finishSec && startSec && nowSec >= startSec)
   const timeLeftMs = active && finishSec ? (finishSec - nowSec) * 1000 : null
 
+  // The v1 battle endpoint carries the full reward table (headline reward,
+  // placement tiers, contributor bands). Parse it when we know the battle id;
+  // fall back to the legacy configData format otherwise.
+  const v1Meta = battleId
+    ? (((await fetchJson(`${PS99_API}/v1/clans/battles/${encodeURIComponent(battleId)}`))?.data as Json | undefined)?.meta ?? null) as Json | null
+    : null
+  const parsedRewards = parseBattleRewards(v1Meta, configData)
+
   const clanData = (clanPayload?.data ?? {}) as Json
   const members = Array.isArray(clanData.Members) ? clanData.Members.length : null
   const battles = (clanData.Battles ?? {}) as Json
@@ -559,7 +641,9 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     projectedFinalPoints,
     projectedRankIfPaceHolds,
     standings,
-    rewards: parseRewardTiers(configData),
+    rewards: parsedRewards.tiers,
+    headlineReward: parsedRewards.headline,
+    contributorRewards: parsedRewards.contributor,
     topScorers,
     movers,
     members: memberRows,
