@@ -185,7 +185,7 @@ export async function GET(
           `SELECT battle_id, points, rank, pph, change_5m, captured_at
            FROM player_leaderboard_history
            WHERE roblox_id::text = $1
-             AND regexp_replace(lower(COALESCE(battle_id, '')), '[^a-z0-9]+', '', 'g') = $2
+             AND lower(COALESCE(battle_id, '')) = $2
              AND points IS NOT NULL
            ORDER BY captured_at ASC
            LIMIT 500`,
