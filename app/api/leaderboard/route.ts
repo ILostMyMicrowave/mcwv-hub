@@ -975,6 +975,124 @@ async function buildHistoricalLeaderboard(battleId: string): Promise<Leaderboard
   const titleSource = battle ? (isGenericBattleName(battle.battle_name) ? battle.battle_id : battle.battle_name) : battleId;
   const title = formatBattleTitle(titleSource || canonicalBattleId || "Historical War");
 
+  // War-end roster capture: the exact members of that war (official
+  // AwardUserIDs saved before the API prunes contributors). Only actual war
+  // members — no kicked/left extras, no post-war joiners, no current roster
+  // leaking in.
+  try {
+    const partRes = await pool.query<{ roblox_id: string }>(
+      `SELECT roblox_id
+       FROM cross_clan_participants
+       WHERE clan_name = $1 AND battle_id = $2`,
+      [CLAN_NAME, canonicalBattleId]
+    );
+
+    if (partRes.rows.length) {
+      const rosterIds = partRes.rows.map((row) => String(row.roblox_id).trim());
+
+      // Points from the war-end capture — zero for non-scoring members.
+      const ccRes = await pool.query<{ roblox_id: string; points: number | string }>(
+        `SELECT roblox_id, points
+         FROM cross_clan_player_history
+         WHERE clan_name = $1 AND battle_id = $2`,
+        [CLAN_NAME, canonicalBattleId]
+      );
+      const pointsById = new Map(
+        ccRes.rows.map((row) => [String(row.roblox_id).trim(), Number(row.points || 0)])
+      );
+
+      // Names from our war snapshots where available (fallback: Roblox API).
+      let historyRows: Array<{ roblox_id: string; username: string | null }> = [];
+      try {
+        const histRes = await pool.query<{ roblox_id: string; username: string | null }>(
+          `SELECT DISTINCT ON (roblox_id) roblox_id, username
+           FROM player_leaderboard_history
+           WHERE battle_id = $1
+           ORDER BY roblox_id, captured_at DESC`,
+          [canonicalBattleKey]
+        );
+        historyRows = histRes.rows;
+      } catch {
+        historyRows = [];
+      }
+      const histNameById = new Map(
+        historyRows.map((row) => [String(row.roblox_id).trim(), row.username])
+      );
+
+      const numericIds = rosterIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+      const [nameMap, avatarMap] = await Promise.all([
+        getNames(numericIds),
+        getAvatars(numericIds),
+      ]);
+
+      const rosterUsersRes = await pool.query<{
+        roblox_id: string | number;
+        discord_id: string | number | null;
+      }>(
+        `SELECT roblox_id, discord_id FROM users WHERE roblox_id = ANY($1)`,
+        [rosterIds]
+      );
+      const discordMap = new Map(
+        rosterUsersRes.rows.map((u) => [String(u.roblox_id).trim(), u.discord_id])
+      );
+      const discordIds = Array.from(discordMap.values()).filter(Boolean);
+      let altSet = new Set<string>();
+      if (discordIds.length) {
+        try {
+          const altRes = await pool.query(
+            `SELECT roblox_id FROM user_alts WHERE discord_id = ANY($1)`,
+            [discordIds]
+          );
+          altSet = new Set(altRes.rows.map((r) => String(r.roblox_id)));
+        } catch {
+          altSet = new Set<string>();
+        }
+      }
+
+      const entries: LeaderboardEntry[] = rosterIds
+        .map((id) => {
+          const userId = Number(id);
+          const discordId = discordMap.get(id);
+          return {
+            rank: 0, // re-ranked below
+            user_id: userId,
+            name: histNameById.get(id) || nameMap.get(userId) || `Unknown (${userId})`,
+            points: pointsById.get(id) ?? 0,
+            avatar: avatarMap.get(userId) ?? null,
+            discord_id: discordId === null || discordId === undefined ? null : String(discordId),
+            is_alt: altSet.has(id),
+          };
+        })
+        .sort((a, b) => (b.points ?? 0) - (a.points ?? 0))
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+      if (entries.length) {
+        const snapshotRes2 = await pool.query<{ battle_points: number | string | null }>(
+          `SELECT battle_points
+           FROM war_snapshots
+           WHERE lower(battle_id) = $1 AND LOWER(clan_name) = LOWER($2)
+           ORDER BY captured_at DESC
+           LIMIT 1`,
+          [canonicalBattleKey, CLAN_NAME]
+        );
+        const totalPoints =
+          Number(snapshotRes2.rows[0]?.battle_points) ||
+          entries.reduce((sum, entry) => sum + Number(entry.points ?? 0), 0);
+
+        return {
+          success: true,
+          active: false,
+          title: `${title} - Historical War`,
+          total_points: totalPoints,
+          updatedAt: new Date().toISOString(),
+          data: await attachProfileStyles(entries),
+        };
+      }
+    }
+  } catch {
+    // cross_clan_participants may not exist — fall through to the API path.
+  }
+
   // For historical battles, the PS99 clan battle contribution list is the source
   // of truth for who was actually in/contributed to the clan battle at that time.
   // Prefer it when available so newer members added after the war do not appear.
