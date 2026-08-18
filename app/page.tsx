@@ -13,6 +13,7 @@ import Podium from "@/components/Podium";
 import HallOfFamePreview from "@/components/HallOfFamePreview";
 import AchievementsPreview from "@/components/AchievementsPreview";
 import DiscordWidget from "@/components/DiscordWidget";
+import FlowNumber from "@/components/FlowNumber";
 
 type LeaderboardEntry = {
   user_id: number;
@@ -263,32 +264,6 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
   return events;
 }
 
-// CountUp - uses ref to avoid infinite re-renders
-function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
-  const [displayValue, setDisplayValue] = useState(0);
-  const previous = useRef(0);
-
-  useEffect(() => {
-    const start = previous.current;
-    const end = value;
-    previous.current = value;
-
-    const duration = 1500;
-    const startTime = performance.now();
-
-    const animate = (time: number) => {
-      const progress = Math.min((time - startTime) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 4);
-      setDisplayValue(Math.floor(start + (end - start) * eased));
-      if (progress < 1) requestAnimationFrame(animate);
-    };
-
-    requestAnimationFrame(animate);
-  }, [value]);
-
-  return <span>{formatter(displayValue)}</span>;
-}
-
 // Animated wrapper - single source of truth
 function Animated({ children, delay = "0ms" }: { children: React.ReactNode; delay?: string }) {
   return (
@@ -334,7 +309,9 @@ function StatCard({
         <div className="absolute inset-x-0 top-0 h-1" style={{ background: accent ?? "var(--primary)" }} />
         <p className="text-xs uppercase tracking-[0.25em] text-zinc-400">{label}</p>
         <p className="mt-3 text-3xl font-bold text-white">
-          {animate && numericValue !== undefined ? <CountUp value={numericValue} formatter={formatNumber} /> : value}
+          {animate && numericValue !== undefined ? (
+            <FlowNumber value={numericValue} />
+          ) : value}
         </p>
         {sub && <p className="mt-2 text-sm text-zinc-400">{sub}</p>}
       </div>
