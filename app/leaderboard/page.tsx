@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import FlowNumber from "@/components/FlowNumber";
 import WarHistoryDropdown from "@/components/WarHistoryDropdown";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -332,31 +333,6 @@ function Animated({ children, delay = "0ms" }: { children: ReactNode; delay?: st
       {children}
     </div>
   );
-}
-
-function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
-  const [displayValue, setDisplayValue] = useState(0);
-  const previous = useRef(0);
-
-  useEffect(() => {
-    const start = previous.current;
-    const end = value;
-    previous.current = value;
-
-    const duration = 1200;
-    const startTime = performance.now();
-
-    const animate = (time: number) => {
-      const progress = Math.min((time - startTime) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 4);
-      setDisplayValue(Math.floor(start + (end - start) * eased));
-      if (progress < 1) requestAnimationFrame(animate);
-    };
-
-    requestAnimationFrame(animate);
-  }, [value]);
-
-  return <span>{formatter(displayValue)}</span>;
 }
 
 function InitialAvatar({ name }: { name: string }) {
@@ -1765,7 +1741,7 @@ export default function LeaderboardPage() {
                   <div>
                     Total points:{" "}
                     <span className="font-semibold text-white">
-                      <CountUp value={totalPoints} formatter={formatNumber} />
+                      <FlowNumber value={totalPoints} />
                     </span>
                   </div>
                 </div>
