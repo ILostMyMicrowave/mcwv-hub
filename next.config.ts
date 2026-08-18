@@ -20,6 +20,9 @@ const SECURITY_HEADERS = [
 // which negates most of the value. Revisit with a nonce-based policy later.
 
 const nextConfig: NextConfig = {
+  // R3F/Three ship modern ESM; explicit transpilation keeps the private lab
+  // consistent across Next's dev and production bundlers.
+  transpilePackages: ["three"],
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
