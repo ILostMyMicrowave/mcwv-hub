@@ -292,7 +292,7 @@ function CountUp({ value, formatter }: { value: number; formatter: (v: number) =
 // Animated wrapper - single source of truth
 function Animated({ children, delay = "0ms" }: { children: React.ReactNode; delay?: string }) {
   return (
-    <div className="animate-fade-in" style={{ animationDelay: delay }}>
+    <div className="min-w-0 animate-fade-in" style={{ animationDelay: delay }}>
       {children}
     </div>
   );
@@ -374,7 +374,7 @@ function CurrentStatusPill({ presence }: { presence: PresenceState }) {
 function InfoPanel({ title, children, action, delay = "0ms" }: { title: string; children: React.ReactNode; action?: React.ReactNode; delay?: string }) {
   return (
     <Animated delay={delay}>
-      <section className="rounded-3xl border p-6 backdrop-blur" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+      <section className="min-w-0 overflow-hidden rounded-3xl border p-4 backdrop-blur sm:p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-bold text-white">{title}</h2>
           {action}
@@ -535,8 +535,8 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-        <section className="mx-auto grid max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[1.35fr_0.65fr] lg:px-10 lg:py-10">
-          <div className="space-y-6">
+        <section className="mx-auto grid min-w-0 max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)] lg:px-10 lg:py-10">
+          <div className="min-w-0 space-y-6">
             <Animated delay="0.05s">
               <div className="rounded-3xl border p-6 backdrop-blur sm:p-8" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))", borderColor: "var(--border)" }}>
                 <div className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--primary)" }} />{active ? "Tracking active" : "Waiting for the next battle"}</div>
@@ -575,7 +575,7 @@ export default function HomePage() {
               </div>
             </InfoPanel>
           </div>
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <InfoPanel title="MCWV Discord" delay="0.3s">
               <DiscordWidget />
               {hasDiscordLink && (
