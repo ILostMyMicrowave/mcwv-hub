@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
+import FlowNumber from "@/components/FlowNumber";
 
 type BattleHqResponse = {
   success: boolean;
@@ -157,44 +158,6 @@ function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
   }
 }
 
-// CountUp component - matches contributions page
-function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
-  const [displayValue, setDisplayValue] = useState(0);
-  const ref = useRef<HTMLSpanElement | null>(null);
-  const hasAnimated = useRef(false);
-
-  useEffect(() => {
-    if (hasAnimated.current) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !hasAnimated.current) {
-            hasAnimated.current = true;
-            const start = 0;
-            const end = value;
-            const duration = 1500;
-            const startTime = performance.now();
-            const updateValue = (currentTime: number) => {
-              const elapsed = currentTime - startTime;
-              const progress = Math.min(elapsed / duration, 1);
-              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
-              if (progress < 1) requestAnimationFrame(updateValue);
-            };
-            requestAnimationFrame(updateValue);
-            observer.disconnect();
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [value]);
-
-  return <span ref={ref}>{formatter(displayValue)}</span>;
-}
-
 // Panel component - matches contributions page
 function Panel({ title, children, right, delay = "0ms" }: { title: string; children: React.ReactNode; right?: React.ReactNode; delay?: string }) {
   return (
@@ -240,7 +203,7 @@ function KpiCard({
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">{title}</div>
       <div className="mt-2 text-2xl font-bold text-white">
         {animate && numericValue !== undefined ? (
-          <CountUp value={numericValue} formatter={formatNumber} />
+          <FlowNumber value={numericValue} />
         ) : (
           value
         )}
@@ -277,11 +240,17 @@ function Card({
   title,
   value,
   sub,
+  numericValue,
+  numericPrefix,
+  numericSuffix,
   delay = "0ms",
 }: {
   title: string;
   value: string;
   sub?: string;
+  numericValue?: number | null;
+  numericPrefix?: string;
+  numericSuffix?: string;
   delay?: string;
 }) {
   return (
@@ -296,7 +265,11 @@ function Card({
       }}
     >
       <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">{title}</p>
-      <p className="mt-1 text-xl font-bold text-white">{value}</p>
+      <p className="mt-1 text-xl font-bold text-white">
+        {numericValue !== null && numericValue !== undefined ? (
+          <FlowNumber value={numericValue} prefix={numericPrefix} suffix={numericSuffix} />
+        ) : value}
+      </p>
       {sub ? <p className="mt-1 text-xs text-zinc-400">{sub}</p> : null}
     </div>
   );
@@ -364,8 +337,13 @@ function ClanMiniProfile({
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <Card title="Rank" value={clan.rank === null ? "—" : `#${clan.rank}`} />
-            <Card title="Battle points" value={formatNumber(clan.points)} />
-            <Card title="Last hour" value={clanPph > 0 ? `+${formatNumber(Math.round(clanPph))}` : "—"} />
+            <Card title="Battle points" value={formatNumber(clan.points)} numericValue={clan.points} />
+            <Card
+              title="Last hour"
+              value={clanPph > 0 ? `+${formatNumber(Math.round(clanPph))}` : "—"}
+              numericValue={clanPph > 0 ? Math.round(clanPph) : null}
+              numericPrefix="+"
+            />
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -614,7 +592,13 @@ function ProjectionSection({ data }: { data: BattleHqResponse }) {
       right={<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[var(--foreground)]/60">Race model</span>}
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Live rank" value={currentRank} sub={`${formatNumber(data.current.points)} pts`} />
+        <Card
+          title="Live rank"
+          value={currentRank}
+          numericValue={data.current.rank}
+          numericPrefix="#"
+          sub={`${formatNumber(data.current.points)} pts`}
+        />
         <Card title="Projected finish" value={projectedRank} sub={projectedPoints ? `${formatNumber(projectedPoints)} projected` : data.finishOutlook?.reason ?? "Warming up"} />
         <Card title="To catch" value={above ? above.name : "—"} sub={extraNeeded !== null ? `Need +${formatNumber(extraNeeded)}/hr` : data.summary.target} />
         <Card title="Our pace" value={ourPace !== null ? `${compactNumber(ourPace)}/hr` : "—"} sub={`Last 5m context in nearby table`} />
@@ -793,10 +777,17 @@ export default function BattleHQPage() {
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Card title="Current rank" value={rank === null ? "—" : `#${rank}`} delay="0.1s" />
+                    <Card
+                      title="Current rank"
+                      value={rank === null ? "—" : `#${rank}`}
+                      numericValue={rank}
+                      numericPrefix="#"
+                      delay="0.1s"
+                    />
                     <Card
                       title="Battle points"
                       value={formatNumber(currentPoints)}
+                      numericValue={currentPoints}
                       sub={data.stats.gain24h ? `+${formatNumber(data.stats.gain24h)} in 24h` : "24h gain pending"}
                       delay="0.15s"
                     />
