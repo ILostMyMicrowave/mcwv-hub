@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pool } from "@/lib/db";
 import { botAdminFetch } from "@/lib/botAdminApi";
 import {
@@ -12,17 +13,17 @@ import {
 /**
  * Badge ⇄ Discord-role sync.
  *
- * Read-only on Discord's side: the bot's admin API already exposes
- *   GET  /admin/roles               -> role catalogue (picker)
- *   POST /admin/broadcast/access    -> a member's role ids (per-user lookup)
- * No bot code changes, no Discord roles edited, no hub roles touched.
+ * Read-only on Discord's side:
+ *   GET  /admin/roles          -> role catalogue (picker)
+ *   POST /admin/members/roles  -> one cache-backed snapshot for all linked users
+ * No Discord roles are edited and no broadcast permission checks are reused.
  */
 
 const LOCK_KEY = "role_sync_lock";
 const LAST_KEY = "role_sync_last";
 const LOCK_TTL_MS = 90_000;
 export const ROLE_SYNC_STALE_MS = 20 * 60 * 1000;
-const CHUNK = 4;
+const MAX_BATCH_USERS = 500;
 
 export type DiscordRoleSummary = {
   id: string;
@@ -44,25 +45,11 @@ export type LinkedPreset = {
 };
 
 export async function ensureBadgeRoleColumns() {
-  await pool.query(
-    `ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_id TEXT`
-  );
-  await pool.query(
-    `ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_name TEXT`
-  );
-  await pool.query(
-    `ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS exclusive_tier BOOLEAN NOT NULL DEFAULT FALSE`
-  );
-  await pool.query(
-    `ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS auto_badges JSONB NOT NULL DEFAULT '[]'::jsonb`
-  );
-  await pool.query(
-    `CREATE TABLE IF NOT EXISTS leaderboard_badge_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`
-  );
+  // Schema changes are deployment work, not request work. Run
+  // db/migrations/2026-08-18-stability-hardening.sql before deploying this
+  // release. Keeping this exported no-op avoids churn in the existing routes
+  // while eliminating repeated ALTER/CREATE locks from normal traffic.
+  return;
 }
 
 export async function fetchDiscordRoleCatalog(): Promise<DiscordRoleSummary[]> {
@@ -81,17 +68,46 @@ export async function fetchDiscordRoleCatalog(): Promise<DiscordRoleSummary[]> {
   })).filter((role) => role.id && role.name);
 }
 
-async function fetchMemberRoleIds(discordId: string): Promise<Set<string> | null> {
-  try {
-    const data = await botAdminFetch<{ roles?: unknown }>("/admin/broadcast/access", {
-      method: "POST",
-      body: JSON.stringify({ discord_id: discordId }),
-    });
-    const roles = Array.isArray(data?.roles) ? data.roles.map(String) : [];
-    return new Set(roles);
-  } catch {
-    return null; // bot hiccup for this user — skip, never strip badges on uncertainty
+type BatchMemberRoles = {
+  found?: boolean;
+  certain?: boolean;
+  roles?: unknown;
+};
+
+async function fetchMemberRoleMap(
+  discordIds: string[]
+): Promise<Map<string, Set<string> | null>> {
+  const ids = [...new Set(discordIds.map(String).filter(Boolean))];
+  if (ids.length > MAX_BATCH_USERS) {
+    throw new Error(`Role sync batch exceeds ${MAX_BATCH_USERS} users`);
   }
+
+  const data = await botAdminFetch<{
+    success?: boolean;
+    members?: Record<string, BatchMemberRoles>;
+  }>("/admin/members/roles", {
+    method: "POST",
+    body: JSON.stringify({ discord_ids: ids }),
+  });
+
+  const members = data?.members;
+  if (!data?.success || !members || typeof members !== "object") {
+    throw new Error("Bot returned an invalid member-role snapshot");
+  }
+
+  const result = new Map<string, Set<string> | null>();
+  for (const id of ids) {
+    const member = members[id];
+    if (!member || typeof member !== "object" || member.certain === false) {
+      result.set(id, null); // uncertain response: preserve this user's badges
+      continue;
+    }
+    const roles = Array.isArray(member.roles) ? member.roles.map(String) : [];
+    // A known non-member has no guild roles, so role-linked badges should be
+    // removed. null is reserved for an uncertain lookup and preserves badges.
+    result.set(id, new Set(roles));
+  }
+  return result;
 }
 
 async function getMetaValue(key: string): Promise<string | null> {
@@ -136,22 +152,32 @@ export async function getRoleSyncMeta(): Promise<RoleSyncMeta | null> {
   }
 }
 
-async function acquireLock(): Promise<boolean> {
-  const raw = await getMetaValue(LOCK_KEY);
-  if (raw) {
-    try {
-      const at = new Date((JSON.parse(raw) as { at?: string }).at ?? 0).getTime();
-      if (Number.isFinite(at) && Date.now() - at < LOCK_TTL_MS) return false;
-    } catch {
-      // broken lock value — take it
-    }
-  }
-  await setMetaValue(LOCK_KEY, JSON.stringify({ at: new Date().toISOString() }));
-  return true;
+type RoleSyncLease = {
+  value: string;
+};
+
+async function acquireLock(): Promise<RoleSyncLease | null> {
+  const owner = randomUUID();
+  const value = JSON.stringify({ owner, at: new Date().toISOString() });
+  const result = await pool.query<{ value: string }>(
+    `INSERT INTO leaderboard_badge_meta (key, value, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (key)
+     DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+     WHERE leaderboard_badge_meta.updated_at < NOW() - ($3::double precision * INTERVAL '1 millisecond')
+     RETURNING value`,
+    [LOCK_KEY, value, LOCK_TTL_MS]
+  );
+  return result.rows.length ? { value } : null;
 }
 
-async function releaseLock() {
-  await setMetaValue(LOCK_KEY, JSON.stringify({ at: new Date(0).toISOString() }));
+async function releaseLock(lease: RoleSyncLease) {
+  // Match the exact lease value: an expired worker can never release the lock
+  // currently held by a newer invocation.
+  await pool.query(
+    `DELETE FROM leaderboard_badge_meta WHERE key = $1 AND value = $2`,
+    [LOCK_KEY, lease.value]
+  );
 }
 
 export type RoleSyncStats = {
@@ -187,7 +213,8 @@ export async function syncBadgeRoles(opts?: {
 
   await ensureBadgeRoleColumns();
 
-  if (!(await acquireLock())) {
+  const lease = await acquireLock();
+  if (!lease) {
     return { ...base, skippedRun: true, error: "A sync is already running" };
   }
 
@@ -214,7 +241,7 @@ export async function syncBadgeRoles(opts?: {
       // meta is informational only
     }
     try {
-      await releaseLock();
+      await releaseLock(lease);
     } catch {
       // lock self-expires
     }
@@ -285,36 +312,44 @@ export async function syncBadgeRoles(opts?: {
 
     if (!usersRes.rows.length) return finish(base);
 
-    // Fetch each user's Discord roles, a few at a time, within budget.
-    const rolesByRoblox = new Map<string, Set<string> | null>();
-    let hitDeadline = false;
-    for (let i = 0; i < usersRes.rows.length; i += CHUNK) {
-      if (Date.now() > deadline) {
-        hitDeadline = true;
-        break;
-      }
-      const chunk = usersRes.rows.slice(i, i + CHUNK);
-      const results = await Promise.allSettled(
-        chunk.map(async (user) => {
-          const roles = await fetchMemberRoleIds(String(user.discord_id));
-          rolesByRoblox.set(String(user.roblox_id), roles);
-        })
+    if (Date.now() > deadline) {
+      return finish({ ...base, ok: false, error: "Budget reached before the role snapshot" });
+    }
+
+    // One protected request returns a cache-backed guild role snapshot for all
+    // linked users. This replaces the old N-user /broadcast/access fan-out and
+    // eliminates the corresponding Discord REST member lookups.
+    let rolesByDiscord: Map<string, Set<string> | null>;
+    try {
+      rolesByDiscord = await fetchMemberRoleMap(
+        usersRes.rows.map((user) => String(user.discord_id))
       );
-      results.forEach((result, idx) => {
-        if (result.status === "rejected") {
-          rolesByRoblox.set(String(chunk[idx].roblox_id), null);
-        }
+    } catch (snapshotErr) {
+      return finish({
+        ...base,
+        ok: false,
+        usersSkipped: usersRes.rows.length,
+        error: snapshotErr instanceof Error
+          ? snapshotErr.message
+          : "Bot member-role snapshot failed",
       });
     }
-    const unchecked = usersRes.rows.filter((u) => !rolesByRoblox.has(String(u.roblox_id)));
-    base.usersSkipped = unchecked.length + [...rolesByRoblox.values()].filter((r) => r === null).length;
 
-    const reachable = [...rolesByRoblox.values()].filter((r) => r !== null).length;
+    const rolesByRoblox = new Map<string, Set<string> | null>();
+    for (const user of usersRes.rows) {
+      rolesByRoblox.set(
+        String(user.roblox_id),
+        rolesByDiscord.get(String(user.discord_id)) ?? null
+      );
+    }
+    base.usersSkipped = [...rolesByRoblox.values()].filter((roles) => roles === null).length;
+
+    const reachable = [...rolesByRoblox.values()].filter((roles) => roles !== null).length;
     if (reachable === 0 && rolesByRoblox.size > 0) {
       return finish({
         ...base,
         ok: false,
-        error: "Bot admin API unreachable — nothing changed (badges preserved)",
+        error: "Bot member-role snapshot was empty — nothing changed (badges preserved)",
       });
     }
 
@@ -371,10 +406,7 @@ export async function syncBadgeRoles(opts?: {
       );
     }
 
-    return finish({
-      ...base,
-      error: hitDeadline ? `Budget reached — ${unchecked.length} users land next run` : undefined,
-    });
+    return finish(base);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Role sync failed";
     return finish({ ...base, ok: false, error: message });
@@ -434,7 +466,6 @@ export async function stripBadgeEverywhere(key: string) {
 
 /** Strip a badge key from the MANUAL subset only (badge became role-linked). */
 export async function stripManualBadgeEverywhere(key: string) {
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS auto_badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(
     `UPDATE user_profile_styles
      SET badges = COALESCE((
