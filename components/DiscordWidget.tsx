@@ -52,7 +52,7 @@ export default function DiscordWidget() {
   if (loading) {
     return (
       <div
-        className="overflow-hidden rounded-2xl border p-5"
+        className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border p-4 sm:p-5"
         style={{ background: "var(--card)", borderColor: "var(--border)" }}
       >
         <div className="flex items-center gap-4">
@@ -75,7 +75,7 @@ export default function DiscordWidget() {
   if (!data?.success) {
     return (
       <div
-        className="overflow-hidden rounded-2xl border p-5 text-center"
+        className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border p-4 text-center sm:p-5"
         style={{ background: "var(--card)", borderColor: "var(--border)" }}
       >
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl"
@@ -99,7 +99,7 @@ export default function DiscordWidget() {
   // ---------- Main compact card ----------
   return (
     <div
-      className="overflow-hidden rounded-2xl border"
+      className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border"
       style={{
         background: "color-mix(in srgb, var(--card) 88%, #5865F2 5%)",
         borderColor: "color-mix(in srgb, var(--border) 65%, rgba(88,101,242,0.2))",
@@ -111,10 +111,10 @@ export default function DiscordWidget() {
         style={{ background: "linear-gradient(90deg, #5865F2, var(--accent), #5865F2)" }}
       />
 
-      <div className="flex items-center gap-4 px-5 py-5">
+      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-3 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-4 sm:px-5 sm:py-5">
         {/* Logo badge */}
         <div
-          className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-2xl font-black"
+          className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-xl font-black sm:h-14 sm:w-14 sm:text-2xl"
           style={{
             background: "linear-gradient(135deg, #5865F2, #7c3aed)",
             boxShadow: "0 0 20px rgba(88,101,242,0.35)",
@@ -124,15 +124,15 @@ export default function DiscordWidget() {
         </div>
 
         {/* Server info */}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-bold text-white">{name}</div>
-          <div className="mt-1 flex items-center gap-3 text-xs text-zinc-400">
-            <span className="inline-flex items-center gap-1.5">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-bold text-white sm:text-base">{name}</div>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
+            <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               {formatCount(online) ?? "—"} online
             </span>
             {total !== null && (
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
                 <span className="h-2 w-2 rounded-full" style={{ background: "var(--accent)" }} />
                 {formatCount(total)} members
               </span>
@@ -140,13 +140,13 @@ export default function DiscordWidget() {
           </div>
         </div>
 
-        {/* Join button */}
+        {/* Join button: full-width second row on phones, inline on larger screens. */}
         {invite && (
           <a
             href={invite}
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition hover:scale-[1.04] active:scale-95"
+            className="col-span-2 w-full rounded-xl px-4 py-2.5 text-center text-sm font-bold transition hover:scale-[1.02] active:scale-95 sm:col-span-1 sm:w-auto sm:shrink-0 sm:hover:scale-[1.04]"
             style={{
               background: "linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 55%, #5865F2))",
               color: "#000",
