@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Big Games payloads are third-party and schema-unstable. */
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -98,7 +100,17 @@ function makeHeaders() {
   return headers;
 }
 
-async function fetchJson<T>(url: string, timeoutMs = 12_000): Promise<T | null> {
+class CollectorUpstreamError extends Error {
+  status: number;
+
+  constructor(message: string, status = 502) {
+    super(message);
+    this.name = "CollectorUpstreamError";
+    this.status = status;
+  }
+}
+
+async function fetchJson<T>(url: string, timeoutMs = 12_000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -108,8 +120,29 @@ async function fetchJson<T>(url: string, timeoutMs = 12_000): Promise<T | null> 
       signal: controller.signal,
     });
 
-    if (!res.ok) return null;
-    return (await res.json().catch(() => null)) as T | null;
+    if (!res.ok) {
+      throw new CollectorUpstreamError(
+        `Big Games API returned HTTP ${res.status} for ${new URL(url).pathname}`,
+        502
+      );
+    }
+    const data = await res.json().catch(() => null);
+    if (data === null) {
+      throw new CollectorUpstreamError(
+        `Big Games API returned invalid JSON for ${new URL(url).pathname}`,
+        502
+      );
+    }
+    return data as T;
+  } catch (error) {
+    if (error instanceof CollectorUpstreamError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new CollectorUpstreamError(
+        `Big Games API timed out after ${timeoutMs}ms for ${new URL(url).pathname}`,
+        504
+      );
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -166,11 +199,24 @@ function buildClanFromLegacyDetail(raw: any, fallbackName: string): {
   };
 }
 
-async function getActiveBattleId() {
+async function getActiveBattle() {
   const json = await fetchJson<any>(`${BASE}/api/activeClanBattle`);
+  const data = json?.data ?? {};
+  const config = data?.configData ?? {};
+  const startTime = toDate(config?.StartTime ?? data?.startTime);
+  const endTime = toDate(config?.FinishTime ?? data?.finishTime ?? data?.endTime);
+  const battleId = data?.configName ?? config?.configName ?? null;
+  const now = Date.now();
+
   return {
-    battleId: json?.data?.configName ?? null,
-    raw: json,
+    battleId: battleId ? String(battleId) : null,
+    startTime,
+    endTime,
+    isLive: Boolean(
+      battleId &&
+      (!startTime || startTime.getTime() <= now) &&
+      (!endTime || endTime.getTime() > now)
+    ),
   };
 }
 
@@ -434,22 +480,43 @@ export async function GET(request: Request) {
       }
     }
 
-    const active = await getActiveBattleId();
+    const active = await getActiveBattle();
     const battleId = active.battleId;
 
-    if (!battleId) {
+    if (!battleId || !active.isLive) {
       return NextResponse.json(
         {
           success: true,
           active: false,
-          message: "No active battle found.",
+          battleId,
+          endedAt: active.endTime?.toISOString() ?? null,
+          message: battleId ? "The latest battle has ended." : "No active battle found.",
         },
         { headers: makeHeaders() }
       );
     }
 
-    const [battleMeta, clanDetails, leaderboard] = await Promise.all([
-      getBattleMeta(battleId),
+    // Check authoritative metadata before downloading the clan and paginated
+    // leaderboard payloads. activeClanBattle can retain the last ended battle.
+    const battleMeta = await getBattleMeta(battleId);
+    const now = Date.now();
+    if (
+      (battleMeta.startTime && battleMeta.startTime.getTime() > now) ||
+      (battleMeta.endTime && battleMeta.endTime.getTime() <= now)
+    ) {
+      return NextResponse.json(
+        {
+          success: true,
+          active: false,
+          battleId,
+          endedAt: battleMeta.endTime?.toISOString() ?? null,
+          message: "The latest battle is outside its live window.",
+        },
+        { headers: makeHeaders() }
+      );
+    }
+
+    const [clanDetails, leaderboard] = await Promise.all([
       getClanDetails(CLAN_NAME),
       getFullLeaderboardSnapshot(CLAN_NAME),
     ]);
@@ -535,13 +602,17 @@ export async function GET(request: Request) {
       },
       { headers: makeHeaders() }
     );
-  } catch {
+  } catch (error) {
+    const requestId = randomUUID();
+    const status = error instanceof CollectorUpstreamError ? error.status : 500;
+    console.error(`[war-collector] ${requestId} failed`, error);
     return NextResponse.json(
       {
         success: false,
-        error: "Collector failed",
+        error: status === 504 ? "War data provider timed out" : "Collector failed",
+        requestId,
       },
-      { status: 500, headers: makeHeaders() }
+      { status, headers: makeHeaders() }
     );
   }
 }
