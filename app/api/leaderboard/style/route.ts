@@ -86,24 +86,9 @@ const styleSchema = z.object({
 });
 
 async function ensureBadgePresetTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS leaderboard_badge_presets (
-      id BIGSERIAL PRIMARY KEY,
-      badge_key TEXT NOT NULL UNIQUE,
-      label TEXT NOT NULL,
-      emoji TEXT,
-      color TEXT NOT NULL DEFAULT '#34d399',
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      sort_order INTEGER NOT NULL DEFAULT 100,
-      created_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS leaderboard_badge_presets_key_idx ON leaderboard_badge_presets (badge_key)`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_id TEXT`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_name TEXT`);
+  // Badge preset schema is applied once by
+  // db/migrations/2026-08-18-stability-hardening.sql.
+  return;
 }
 
 async function normalizeAssignableBadges(badges: string[]) {
@@ -132,41 +117,9 @@ async function normalizeAssignableBadges(badges: string[]) {
 }
 
 async function ensureProfileStylesTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS user_profile_styles (
-      roblox_id TEXT PRIMARY KEY,
-      user_id INTEGER,
-      background_url TEXT,
-      background_type TEXT,
-      background_preset TEXT NOT NULL DEFAULT 'default',
-      accent_color TEXT NOT NULL DEFAULT '#34d399',
-      frame_preset TEXT NOT NULL DEFAULT 'none',
-      frame_primary_color TEXT NOT NULL DEFAULT '#34d399',
-      frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8',
-      frame_emoji TEXT NOT NULL DEFAULT '',
-      font_preset TEXT NOT NULL DEFAULT 'default',
-      bio TEXT,
-      badges JSONB NOT NULL DEFAULT '[]'::jsonb,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS roblox_id TEXT`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS user_id INTEGER`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_url TEXT`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_type TEXT`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS background_preset TEXT NOT NULL DEFAULT 'default'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS accent_color TEXT NOT NULL DEFAULT '#34d399'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_preset TEXT NOT NULL DEFAULT 'none'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_primary_color TEXT NOT NULL DEFAULT '#34d399'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_secondary_color TEXT NOT NULL DEFAULT '#38bdf8'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS frame_emoji TEXT NOT NULL DEFAULT ''`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS font_preset TEXT NOT NULL DEFAULT 'default'`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS bio TEXT`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS auto_badges JSONB NOT NULL DEFAULT '[]'::jsonb`);
-  await pool.query(`ALTER TABLE user_profile_styles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_styles_roblox_id_key ON user_profile_styles (roblox_id)`);
+  // Profile style schema is applied once by
+  // db/migrations/2026-08-18-stability-hardening.sql.
+  return;
 }
 
 function isOfficerRole(role: unknown) {
