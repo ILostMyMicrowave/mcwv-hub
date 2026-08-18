@@ -9,11 +9,6 @@ const AUTH_PAGES = new Set(["/login", "/signup"])
 // cookie. The route itself still enforces WAR_COLLECT_SECRET when set.
 const MACHINE_API_PATHS = new Set(["/api/war-collector"])
 
-// Stealth pages perform their own fresh database-role check and intentionally
-// return 404 (even when no session cookie exists) instead of revealing the
-// route through the normal login redirect.
-const STEALTH_PAGE_PATHS = new Set(["/visual-lab"])
-
 function isAuthPage(pathname: string) {
   return AUTH_PAGES.has(pathname)
 }
@@ -44,10 +39,6 @@ export function proxy(request: NextRequest) {
     isAuthApi(pathname) ||
     MACHINE_API_PATHS.has(pathname)
   ) {
-    return NextResponse.next()
-  }
-
-  if (STEALTH_PAGE_PATHS.has(pathname)) {
     return NextResponse.next()
   }
 
