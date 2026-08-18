@@ -110,60 +110,9 @@ function normalizePreset(row: BadgePresetRow) {
 }
 
 async function ensureBadgeTables() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS leaderboard_badge_presets (
-      id BIGSERIAL PRIMARY KEY,
-      badge_key TEXT NOT NULL UNIQUE,
-      label TEXT NOT NULL,
-      emoji TEXT,
-      color TEXT NOT NULL DEFAULT '#34d399',
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      sort_order INTEGER NOT NULL DEFAULT 100,
-      created_by INTEGER,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS badge_key TEXT`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS label TEXT`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS emoji TEXT`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#34d399'`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 100`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS created_by INTEGER`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS leaderboard_badge_presets_key_idx ON leaderboard_badge_presets (badge_key)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS leaderboard_badge_presets_enabled_order_idx ON leaderboard_badge_presets (enabled, sort_order, label)`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_id TEXT`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS linked_discord_role_name TEXT`);
-  await pool.query(`ALTER TABLE leaderboard_badge_presets ADD COLUMN IF NOT EXISTS exclusive_tier BOOLEAN NOT NULL DEFAULT FALSE`);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS leaderboard_badge_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  const migration = await pool.query<{ key: string }>(
-    `INSERT INTO leaderboard_badge_meta (key, value, updated_at)
-     VALUES ('legacy_badges_cleared', 'true', NOW())
-     ON CONFLICT (key) DO NOTHING
-     RETURNING key`
-  );
-
-  if (migration.rows.length > 0) {
-    const stylesTable = await pool.query<{ exists: boolean }>(
-      `SELECT to_regclass('public.user_profile_styles') IS NOT NULL AS exists`
-    );
-
-    if (stylesTable.rows[0]?.exists) {
-      await pool.query(`UPDATE user_profile_styles SET badges = '[]'::jsonb`);
-    }
-  }
+  // Badge schema and the one-time legacy marker are deployment migrations.
+  // Request handlers must not run CREATE/ALTER statements or take schema locks.
+  return;
 }
 
 async function getCurrentUser(): Promise<CurrentUser | null> {
