@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
+import FlowNumber from "@/components/FlowNumber";
 
 type ClanStanding = {
   rank: number | null;
@@ -90,54 +91,6 @@ function stateLabel(state: WarApiData["state"]) {
     default:
       return "Inactive";
   }
-}
-
-// CountUp component - matches contributions page
-function CountUp({
-  value,
-  formatter,
-}: {
-  value: number;
-  formatter: (v: number) => string;
-}) {
-  const [displayValue, setDisplayValue] = useState(0);
-  const ref = useRef<HTMLSpanElement | null>(null);
-  const hasAnimated = useRef(false);
-
-  useEffect(() => {
-    if (hasAnimated.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !hasAnimated.current) {
-            hasAnimated.current = true;
-            const start = 0;
-            const end = value;
-            const duration = 1500;
-            const startTime = performance.now();
-
-            const updateValue = (currentTime: number) => {
-              const elapsed = currentTime - startTime;
-              const progress = Math.min(elapsed / duration, 1);
-              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
-              if (progress < 1) requestAnimationFrame(updateValue);
-            };
-
-            requestAnimationFrame(updateValue);
-            observer.disconnect();
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [value]);
-
-  return <span ref={ref}>{formatter(displayValue)}</span>;
 }
 
 function StateChip({ state, refreshing }: { state: string; refreshing: boolean }) {
@@ -513,10 +466,18 @@ export default function WarInfoPage() {
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
                 <MetricTile
                   label="Total Points"
-                  value={<CountUp value={Number(war.totalPoints)} formatter={formatNumber} />}
+                  value={<FlowNumber value={Number(war.totalPoints)} />}
                 />
-                <MetricTile label="Placement" value={placement} sub={war.clanRank === null ? "Not provided by API" : undefined} />
-                <MetricTile label="Participants" value={formatNumber(war.participants)} sub="MCWV members with points" />
+                <MetricTile
+                  label="Placement"
+                  value={war.clanRank === null ? placement : <FlowNumber value={war.clanRank} prefix="#" />}
+                  sub={war.clanRank === null ? "Not provided by API" : undefined}
+                />
+                <MetricTile
+                  label="Participants"
+                  value={<FlowNumber value={war.participants} />}
+                  sub="MCWV members with points"
+                />
               </div>
             </div>
           </section>
