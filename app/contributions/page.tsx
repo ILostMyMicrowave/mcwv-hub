@@ -1,8 +1,9 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import FlowNumber from "@/components/FlowNumber";
 import ReactECharts from "echarts-for-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type AnalyticsResponse = {
   success: boolean;
@@ -170,54 +171,6 @@ function useThemeColors() {
   return theme;
 }
 
-// Animated number counter component
-function CountUp({ value, formatter }: { value: number; formatter: (v: number) => string }) {
-  const [displayValue, setDisplayValue] = useState(0);
-  const ref = useRef<HTMLSpanElement | null>(null);
-  const hasAnimated = useRef(false);
-
-  useEffect(() => {
-    if (hasAnimated.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !hasAnimated.current) {
-            hasAnimated.current = true;
-            const start = 0;
-            const end = value;
-            const duration = 1500;
-            const startTime = performance.now();
-
-            const updateValue = (currentTime: number) => {
-              const elapsed = currentTime - startTime;
-              const progress = Math.min(elapsed / duration, 1);
-              const easeOutQuart = 1 - Math.pow(1 - progress, 4);
-              setDisplayValue(Math.floor(start + (end - start) * easeOutQuart));
-
-              if (progress < 1) {
-                requestAnimationFrame(updateValue);
-              }
-            };
-
-            requestAnimationFrame(updateValue);
-            observer.disconnect();
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-
-    return () => observer.disconnect();
-  }, [value]);
-
-  return <span ref={ref}>{formatter(displayValue)}</span>;
-}
-
 function Panel({
   title,
   children,
@@ -280,7 +233,7 @@ function KpiCard({
       </div>
       <div className="mt-2 text-2xl font-bold text-white">
         {animate && numericValue !== undefined ? (
-          <CountUp value={numericValue} formatter={formatNumber} />
+          <FlowNumber value={numericValue} />
         ) : (
           value
         )}
