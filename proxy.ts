@@ -4,10 +4,14 @@ const SESSION_COOKIE_NAME = "mcwv_session"
 
 const AUTH_PAGES = new Set(["/login", "/signup"])
 
-// Machine-to-hub endpoints that authenticate with their own secret
-// (e.g. the Discord bot's war collector loop) instead of a session
-// cookie. The route itself still enforces WAR_COLLECT_SECRET when set.
-const MACHINE_API_PATHS = new Set(["/api/war-collector"])
+// Machine-to-hub endpoints that authenticate with their own server-to-server
+// secret instead of a browser session cookie. Each route still validates its
+// own WAR_COLLECT_SECRET or BOT_ADMIN_API_KEY after middleware passes it.
+const MACHINE_API_PATHS = new Set([
+  "/api/war-collector",
+  "/api/internal/badge-role-sync",
+  "/api/push/trigger",
+])
 
 function isAuthPage(pathname: string) {
   return AUTH_PAGES.has(pathname)
