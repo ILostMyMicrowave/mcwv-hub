@@ -1324,8 +1324,7 @@ export default function AdminPage() {
     <>
       <Navbar />
       <main className="min-h-screen px-4 py-6 text-white sm:py-8">
-        <div className={`mx-auto flex flex-col gap-6 ${section === "tickets" ? "max-w-[94rem]" : "max-w-7xl lg:flex-row"}`}>
-          {section !== "tickets" && (
+        <div className={`mx-auto flex flex-col gap-6 lg:flex-row ${section === "tickets" ? "max-w-[94rem]" : "max-w-7xl"}`}>
           <aside className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:w-64 lg:shrink-0">
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
               <div className="admin-stripe pointer-events-none absolute inset-x-0 top-0 h-px" />
@@ -1401,7 +1400,6 @@ export default function AdminPage() {
               </nav>
             </div>
           </aside>
-          )}
 
           <section key={section} className="admin-section-in min-w-0 flex-1 space-y-6">
             {section !== "tickets" && (
