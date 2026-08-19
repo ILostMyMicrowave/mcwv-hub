@@ -2,12 +2,14 @@
 
 import Navbar from "@/components/Navbar";
 import DiscordMarkdown from "@/components/DiscordMarkdown";
+import EmojiPicker from "@/components/EmojiPicker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -2682,6 +2684,31 @@ function BroadcastSection({
   const [imageUrl, setImageUrl] = useState("");
   const [preview, setPreview] = useState<BroadcastPreview | null>(null);
   const [status, setStatus] = useState("");
+  const messageRef = useRef<HTMLTextAreaElement>(null);
+
+  function insertEmoji(key: string) {
+    const token = `{emoji:${key}}`;
+    const el = messageRef.current;
+    if (!el) {
+      setMessage((prev) => (prev ? `${prev} ${token}` : token));
+      return;
+    }
+    const start = el.selectionStart ?? message.length;
+    const end = el.selectionEnd ?? message.length;
+    const next = message.slice(0, start) + token + message.slice(end);
+    setMessage(next);
+    setPreview(null);
+    // restore focus + cursor just after the inserted token
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      try {
+        el.setSelectionRange(pos, pos);
+      } catch {
+        /* noop */
+      }
+    });
+  }
   const [loading, setLoading] = useState(false);
   const [allowedUserIds, setAllowedUserIds] = useState("");
   const [allowedStatus, setAllowedStatus] = useState("");
@@ -3093,12 +3120,14 @@ function BroadcastSection({
           <label className="block space-y-2">
             <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Message</span>
             <textarea
+              ref={messageRef}
               className="admin-input min-h-36 resize-y"
               value={message}
               onChange={(event) => { setMessage(event.target.value); setPreview(null); }}
               placeholder="Clan war starts soon, {ping}. Please prepare, {username}."
             />
             <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}, {"{roblox_id}"}, {"{discord_id}"}, {"{role}"}, {"{ticket}"}</span>
+            <EmojiPicker onPick={insertEmoji} />
           </label>
 
           <div className="space-y-2">
