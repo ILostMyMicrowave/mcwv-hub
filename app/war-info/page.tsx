@@ -51,18 +51,6 @@ function toMs(value: number | string | null): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function formatDuration(ms: number | null) {
-  if (ms === null) return "—";
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const d = Math.floor(total / 86400);
-  const h = Math.floor((total % 86400) / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (d > 0) return `${d}d ${h}h ${m}m ${s}s`;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  return `${m}m ${s}s`;
-}
-
 function formatDateTime(value: number | string | null) {
   const ms = toMs(value);
   if (ms === null) return "—";
@@ -113,49 +101,6 @@ function StateChip({ state, refreshing }: { state: string; refreshing: boolean }
       />
       {refreshing ? "Updating" : stateLabel(state as WarApiData["state"])}
     </span>
-  );
-}
-
-function ProgressBar({ value, label = "Progress" }: { value: number | null; label?: string }) {
-  const safe = Math.max(0, Math.min(100, value ?? 0));
-
-  return (
-    <div className="transition-opacity duration-500">
-      <div className="mb-2 flex items-center justify-between text-xs text-[var(--foreground)]/60">
-        <span>{label}</span>
-        <span>{value === null ? "—" : `${safe.toFixed(1)}%`}</span>
-      </div>
-      <div className="h-3 overflow-hidden rounded-full bg-black/30">
-        <div
-          className="h-full rounded-full transition-all duration-700 animate-gradientMove gradient-bar"
-          style={{
-            width: `${safe}%`,
-            background: "linear-gradient(90deg, var(--primary), var(--accent), var(--primary))",
-            boxShadow: "0 0 20px var(--glow)",
-            backgroundSize: "200% 200%",
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function MetricTile({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/45">{label}</div>
-      <div className="mt-2 text-2xl font-black text-white">{value}</div>
-      {sub && <div className="mt-1 text-xs text-[var(--foreground)]/45">{sub}</div>}
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/10 py-3 last:border-b-0">
-      <span className="text-sm text-[var(--foreground)]/55">{label}</span>
-      <span className="text-right text-sm font-semibold text-white">{value}</span>
-    </div>
   );
 }
 
@@ -303,7 +248,6 @@ export default function WarInfoPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     let alive = true;
@@ -345,20 +289,7 @@ export default function WarInfoPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const startMs = toMs(war?.startTime ?? null);
-  const endMs = toMs(war?.endTime ?? null);
-  const valid = startMs !== null && endMs !== null && endMs > startMs;
-  const progressFromTime = valid ? Math.min(100, ((now - startMs) / (endMs - startMs)) * 100) : null;
-  const progress = war?.progressPct ?? progressFromTime;
-  const timeLeftMs = valid ? Math.max(0, endMs - now) : null;
-  const durationText = valid ? formatDuration(endMs - startMs) : "—";
   const placement = placementLabel(war?.clanRank ?? null);
-  const status = war ? stateLabel(war.state) : "Inactive";
 
   if (loading && !war) {
     return (
@@ -438,7 +369,7 @@ export default function WarInfoPage() {
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
         <div className="space-y-5" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
           <section
-            className="relative overflow-hidden rounded-[2rem] border p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-7"
+            className="relative overflow-hidden rounded-[2rem] border p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
             style={{
               borderColor: "var(--border)",
               background:
@@ -446,38 +377,50 @@ export default function WarInfoPage() {
             }}
           >
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(52,211,153,0.13),transparent_34%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.12),transparent_36%)]" />
-            <div className="relative grid gap-7 lg:grid-cols-[1.25fr_0.75fr] lg:items-center">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/70">
-                    War Info
-                  </span>
-                  <StateChip state={war.state} refreshing={refreshing} />
-                </div>
-
-                <h1 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-5xl">{warTitle}</h1>
-                <p className="mt-3 text-sm text-[var(--foreground)]/65">{dateRange}</p>
-
-                <div className="mt-7 max-w-3xl">
-                  <ProgressBar value={progress} label={war.state === "past" ? "Final progress" : "Battle progress"} />
-                </div>
+            <div className="relative mx-auto max-w-3xl text-center">
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--foreground)]/70">
+                  War Info
+                </span>
+                <StateChip state={war.state} refreshing={refreshing} />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <MetricTile
-                  label="Total Points"
-                  value={<FlowNumber value={Number(war.totalPoints)} />}
-                />
-                <MetricTile
-                  label="Placement"
-                  value={war.clanRank === null ? placement : <FlowNumber value={war.clanRank} prefix="#" />}
-                  sub={war.clanRank === null ? "Not provided by API" : undefined}
-                />
-                <MetricTile
-                  label="Participants"
-                  value={<FlowNumber value={war.participants} />}
-                  sub="MCWV members with points"
-                />
+              <h1 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">{warTitle}</h1>
+              <p className="mt-3 text-sm text-[var(--foreground)]/65">{dateRange}</p>
+
+              {/* Live points — the hero */}
+              <div className="mt-10">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[var(--foreground)]/50">
+                  Current battle points
+                </div>
+                <div
+                  className="mt-3 text-6xl font-black tracking-tight text-white sm:text-8xl"
+                  style={{ textShadow: "0 0 40px var(--glow)" }}
+                >
+                  <FlowNumber value={Number(war.totalPoints)} />
+                </div>
+                <div className="mx-auto mt-4 h-px w-32 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+              </div>
+
+              {/* Placement + participants — secondary */}
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-5 py-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground)]/50">
+                    Placement
+                  </span>
+                  <span className="text-xl font-black text-white">
+                    {war.clanRank === null ? placement : <FlowNumber value={war.clanRank} prefix="#" />}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-5 py-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground)]/50">
+                    Players
+                  </span>
+                  <span className="text-xl font-black text-white">
+                    <FlowNumber value={war.participants} />
+                  </span>
+                  <span className="text-xs text-[var(--foreground)]/45">with points</span>
+                </div>
               </div>
             </div>
           </section>
