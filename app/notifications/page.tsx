@@ -262,14 +262,19 @@ export default function NotificationsPage() {
           animation: "mcwv-row-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both",
           animationDelay: `${Math.min(index, 12) * 35}ms`,
         }}
-        className={`group flex w-full items-center gap-4 rounded-3xl border p-4 text-left transition hover:-translate-y-0.5 ${
+        className={`group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border p-4 pl-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 ${
           isNew
-            ? `border-violet-400/30 bg-violet-400/[0.08] hover:bg-violet-400/[0.13] ${meta.glow}`
-            : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+            ? `border-violet-400/30 bg-violet-400/[0.08] hover:border-violet-400/50 hover:bg-violet-400/[0.13] ${meta.glow}`
+            : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]"
         }`}
       >
+        {/* Unread accent bar */}
+        {isNew ? (
+          <span className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-violet-400 to-fuchsia-400" />
+        ) : null}
+
         <span
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-xl ${meta.iconTile}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-xl transition-transform duration-200 group-hover:scale-105 ${meta.iconTile}`}
         >
           {meta.icon}
         </span>
@@ -281,12 +286,6 @@ export default function NotificationsPage() {
             >
               {meta.label}
             </span>
-            {isNew ? (
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.9)]" />
-              </span>
-            ) : null}
           </span>
           {item.body ? (
             <span
@@ -298,10 +297,11 @@ export default function NotificationsPage() {
                 overflow: "hidden",
               }}
             >
-              <InboxPreview text={item.body} />
+              <InboxPreview text={item.body} query={query} />
             </span>
           ) : null}
-          <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+          <span className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+            {isNew ? <span className="h-1.5 w-1.5 rounded-full bg-violet-400" /> : null}
             {relTime(item.createdAt)}
           </span>
         </span>
@@ -316,14 +316,21 @@ export default function NotificationsPage() {
             className="h-11 w-11 shrink-0 rounded-xl border border-white/10 object-cover"
           />
         ) : null}
-        <span className="shrink-0 text-zinc-600 transition group-hover:text-zinc-300">›</span>
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-500 transition-all duration-200 ${
+            isNew ? "bg-violet-400/20 text-violet-200" : "bg-white/5 group-hover:bg-white/10"
+          } group-hover:text-zinc-200`}
+        >
+          ›
+        </span>
       </button>
     );
   }
 
   const sectionHeader = (label: string) => (
-    <div className="flex items-center gap-3 px-1 pt-4">
-      <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-500">
+    <div className="flex items-center gap-3 px-1 pt-5">
+      <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-r from-violet-400 to-fuchsia-400" />
         {label}
       </span>
       <span className="h-px flex-1 bg-white/[0.07]" />
@@ -394,40 +401,42 @@ export default function NotificationsPage() {
           </div>
         </div>
 
-        {/* ------------------------------------------------------ filter pills */}
-        <div className="mt-5 flex flex-wrap gap-2">
-          {FILTERS.map((f) => {
-            const count = counts[f.id];
-            const active = filter === f.id;
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 ${
-                  active
-                    ? "bg-gradient-to-r from-violet-500 to-fuchsia-400 text-white shadow-[0_6px_24px_rgba(139,92,246,0.4)]"
-                    : "border border-white/10 bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200"
-                }`}
-              >
-                <span>{f.label}</span>
-                {count > 0 ? (
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
-                      active ? "bg-black/25 text-white" : "bg-white/10 text-zinc-400"
-                    }`}
-                  >
-                    {count}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+        {/* ----------------------------------------------- sticky filters/search */}
+        <div
+          className="sticky top-[68px] z-30 -mx-2 mt-5 rounded-2xl bg-[#0a0a0a]/85 px-2 py-3 backdrop-blur-md"
+          style={{ boxShadow: "0 8px 30px rgba(0,0,0,0.35)" }}
+        >
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map((f) => {
+              const count = counts[f.id];
+              const active = filter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilter(f.id)}
+                  className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 ${
+                    active
+                      ? "bg-gradient-to-r from-violet-500 to-fuchsia-400 text-white shadow-[0_6px_24px_rgba(139,92,246,0.4)]"
+                      : "border border-white/10 bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200"
+                  }`}
+                >
+                  <span>{f.label}</span>
+                  {count > 0 ? (
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
+                        active ? "bg-black/25 text-white" : "bg-white/10 text-zinc-400"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
 
-        {/* --------------------------------------------------------- search */}
-        <div className="mt-4">
-          <div className="relative">
+          <div className="relative mt-2.5">
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-500">
               🔍
             </span>
@@ -473,13 +482,14 @@ export default function NotificationsPage() {
               </p>
               <button
                 type="button"
+                aria-label="Close alert"
                 onClick={() => {
                   setHighlightId(null);
                   history.replaceState(null, "", "/notifications");
                 }}
-                className="text-xs font-semibold text-zinc-400 transition hover:text-white"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:bg-white/15 hover:text-white"
               >
-                close ✕
+                ✕
               </button>
             </div>
             {hero.imageUrl ? (
@@ -597,10 +607,12 @@ export default function NotificationsPage() {
               </button>
             </div>
           ) : visible.length === 0 && !hero ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-10 text-center">
-              <p className="text-4xl">{emptyCopy.icon}</p>
-              <p className="mt-3 text-sm font-semibold text-zinc-300">{emptyCopy.title}</p>
-              <p className="mt-1 text-sm text-zinc-500">{emptyCopy.sub}</p>
+            <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-10 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] text-3xl">
+                {emptyCopy.icon}
+              </div>
+              <p className="mt-4 text-base font-semibold text-zinc-200">{emptyCopy.title}</p>
+              <p className="mt-1.5 text-sm text-zinc-500">{emptyCopy.sub}</p>
               {filter === "all" ? (
                 <a
                   href="/settings"
