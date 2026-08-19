@@ -22,7 +22,8 @@ export type MdSegment =
   | { kind: "code"; text: string }
   | { kind: "spoiler"; text: string }
   | { kind: "link"; text: string; href: string }
-  | { kind: "mention"; label: string };
+  | { kind: "mention"; label: string }
+  | { kind: "emoji"; name: string; id: string; animated: boolean };
 
 export type MdBlock =
   | { kind: "heading"; level: number; segments: MdSegment[] }
@@ -51,6 +52,7 @@ const INLINE_RE = new RegExp(
     String.raw`<@!(\d+)>`, // 13 user (bang form)
     String.raw`<@(\d+)>`, // 14 user
     String.raw`<#(\d+)>`, // 15 channel
+    String.raw`<(a)?:([A-Za-z0-9_]{1,32}):(\d{15,})>`, // 16 custom emoji (animated?, name, id)
   ].join("|"),
   "g"
 );
@@ -67,7 +69,7 @@ export function parseInline(line: string): MdSegment[] {
 
   while ((m = INLINE_RE.exec(line))) {
     pushText(line.slice(last, m.index));
-    const [full, bi, b, u, s, sp, code, itStar, itUnder, label, href, url, role, bangUser, user, channel] = m;
+    const [full, bi, b, u, s, sp, code, itStar, itUnder, label, href, url, role, bangUser, user, channel, anim, eName, eId] = m;
     if (bi !== undefined) out.push({ kind: "boldItalic", text: bi });
     else if (b !== undefined) out.push({ kind: "bold", text: b });
     else if (u !== undefined) out.push({ kind: "underline", text: u });
@@ -81,6 +83,8 @@ export function parseInline(line: string): MdSegment[] {
     else if (role !== undefined) out.push({ kind: "mention", label: "@role" });
     else if (bangUser !== undefined || user !== undefined) out.push({ kind: "mention", label: "@member" });
     else if (channel !== undefined) out.push({ kind: "mention", label: "#channel" });
+    else if (eName !== undefined && eId !== undefined)
+      out.push({ kind: "emoji", name: eName, id: eId, animated: anim === "a" });
     else pushText(full);
     last = m.index + full.length;
   }
@@ -214,6 +218,10 @@ export function stripDiscordMarkdown(input: string): string {
 
   // mentions out entirely
   text = text.replace(/<@[!&]?\d+>/g, "").replace(/<#\d+>/g, "");
+
+  // custom emoji <:name:id> / <a:name:id> → its name (can't show an image in
+  // plain text; the name still conveys meaning on a lock screen)
+  text = text.replace(/<(a)?:([A-Za-z0-9_]{1,32}):(\d{15,})>/g, (_m, _anim: string, name: string) => name);
 
   // [masked](link) → label
   text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1");
