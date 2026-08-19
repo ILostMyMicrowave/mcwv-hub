@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Battle = {
   battle_id: string;
@@ -25,11 +26,16 @@ function isEnded(battle: Battle): boolean {
   return typeof battle.end_time === "string" && new Date(battle.end_time) < new Date();
 }
 
+const PANEL_WIDTH = 380;
+const GAP = 8;
+
 export default function WarHistoryDropdown({ selectedBattleId, onSelect }: WarHistoryDropdownProps) {
   const [battles, setBattles] = useState<Battle[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     async function fetchHistory() {
@@ -49,15 +55,50 @@ export default function WarHistoryDropdown({ selectedBattleId, onSelect }: WarHi
     fetchHistory();
   }, []);
 
+  const updatePos = () => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const viewportW = document.documentElement.clientWidth;
+    // Right-align the panel to the trigger, but keep it inside the viewport.
+    let left = Math.min(rect.right - PANEL_WIDTH, viewportW - PANEL_WIDTH - 12);
+    left = Math.max(12, left);
+    setPos({ top: rect.bottom + GAP, left });
+  };
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    updatePos();
+    const onScroll = () => updatePos();
+    const onResize = () => updatePos();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [isOpen]);
+
+  // Close when clicking/touching outside the trigger or panel
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+    if (!isOpen) return;
+    function handleOutside(event: MouseEvent | TouchEvent) {
+      const target = event.target as Node;
+      if (
+        triggerRef.current?.contains(target) ||
+        panelRef.current?.contains(target)
+      ) {
+        return;
       }
+      setIsOpen(false);
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [isOpen]);
 
   const selectId = (id: string | null, name: string | null) => {
     onSelect(id, name);
@@ -79,20 +120,18 @@ export default function WarHistoryDropdown({ selectedBattleId, onSelect }: WarHi
   const isLive = !selectedBattleId;
 
   return (
-    <div className="relative z-[90] inline-block w-full overflow-visible sm:w-auto" ref={dropdownRef}>
+    <>
       {/* Trigger Button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setIsOpen((v) => !v)}
         disabled={loading}
         className="group relative inline-flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] py-2.5 pl-3 pr-4 text-left shadow-lg shadow-black/10 transition-all duration-300 hover:border-[var(--primary)]/50 hover:shadow-[0_0_24px_var(--glow)] sm:w-72"
       >
-        {/* Leading icon */}
         <span
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg transition-colors duration-300 ${
-            isLive
-              ? "bg-[color-mix(in_srgb,var(--primary)_18%,transparent)]"
-              : "bg-white/5"
+            isLive ? "bg-[color-mix(in_srgb,var(--primary)_18%,transparent)]" : "bg-white/5"
           }`}
         >
           {isLive ? "⚔️" : "🏆"}
@@ -133,150 +172,153 @@ export default function WarHistoryDropdown({ selectedBattleId, onSelect }: WarHi
         </svg>
       </button>
 
-      {/* Dropdown Panel */}
-      {isOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-[80] bg-black/25 backdrop-blur-sm sm:hidden"
-            onClick={() => setIsOpen(false)}
-            style={{ animation: "fadeIn 0.2s ease-out" }}
-          />
+      {/* Panel rendered in a portal so no ancestor stacking context / overflow
+          (backdrop-blur, transform animations) can clip it or bury it under
+          the leaderboard. Positioned from the trigger's screen coords. */}
+      {isOpen && pos && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              <div
+                className="fixed inset-0 z-[90] bg-black/25 backdrop-blur-sm sm:hidden"
+                onClick={() => setIsOpen(false)}
+                style={{ animation: "mcwv-fadeIn 0.2s ease-out" }}
+              />
 
-          <div
-            className="absolute left-0 right-0 top-full z-[100] mt-2 w-full min-w-[300px] origin-top overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:left-0 sm:right-auto sm:w-[380px]"
-            style={{
-              boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 0 30px var(--glow)",
-              animation: "scaleIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)",
-            }}
-          >
-            {/* Panel header */}
-            <div className="flex items-center justify-between border-b border-[var(--border)] bg-white/[0.02] px-4 py-3">
-              <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--foreground)]/60">
-                <span className="text-[var(--primary)]">⚔️</span> War history
-              </span>
-              <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
-                {battles.length} cached
-              </span>
-            </div>
-
-            {/* Current War */}
-            <button
-              type="button"
-              onClick={() => selectId(null, null)}
-              className={`group/current flex w-full items-center gap-3 px-4 py-3.5 text-left transition-all duration-200 ${
-                isLive
-                  ? "bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))]"
-                  : "hover:bg-[color-mix(in_srgb,var(--primary)_8%,var(--card))]"
-              }`}
-            >
-              <span
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg ${
-                  isLive ? "bg-[color-mix(in_srgb,var(--primary)_20%,transparent)]" : "bg-white/5"
-                }`}
+              <div
+                ref={panelRef}
+                className="fixed z-[100] origin-top overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl"
+                style={{
+                  top: pos.top,
+                  left: pos.left,
+                  width: Math.min(PANEL_WIDTH, document.documentElement.clientWidth - 24),
+                  boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 0 30px var(--glow)",
+                  animation: "mcwv-scaleIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)",
+                }}
               >
-                ⚔️
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-bold text-[var(--foreground)]">Current War</span>
-                <span className="block text-xs text-zinc-400">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    Live leaderboard
+                {/* Panel header */}
+                <div className="flex items-center justify-between border-b border-[var(--border)] bg-white/[0.02] px-4 py-3">
+                  <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--foreground)]/60">
+                    <span className="text-[var(--primary)]">⚔️</span> War history
                   </span>
-                </span>
-              </span>
-              {isLive && (
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/25 text-[11px] font-black text-[var(--primary)]">
-                  ✓
-                </span>
-              )}
-            </button>
-
-            <div className="mx-4 h-px bg-[var(--border)]" />
-
-            {/* Scrollable list */}
-            <div className="max-h-[55vh] overflow-y-auto p-1.5">
-              {battles.length === 0 ? (
-                <div className="px-4 py-10 text-center">
-                  <div className="text-3xl">🗂️</div>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    {loading ? "Loading wars…" : "No historical wars cached yet"}
-                  </p>
+                  <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                    {battles.length} cached
+                  </span>
                 </div>
-              ) : (
-                battles.map((battle) => {
-                  const active = selectedBattleId === battle.battle_id;
-                  const ended = isEnded(battle);
-                  return (
-                    <button
-                      key={battle.battle_id}
-                      type="button"
-                      onClick={() => selectId(battle.battle_id, battle.battle_name || battle.battle_id)}
-                      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${
-                        active
-                          ? "bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ring-1 ring-[var(--primary)]/25"
-                          : "hover:bg-[color-mix(in_srgb,var(--primary)_7%,var(--card))]"
-                      }`}
-                    >
-                      <span
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base transition-colors ${
-                          active ? "bg-[color-mix(in_srgb,var(--primary)_18%,transparent)]" : "bg-white/[0.04]"
-                        }`}
-                      >
-                        🏆
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-[var(--foreground)]">
-                            {battle.battle_name || `War #${battle.battle_id.slice(0, 8)}`}
+
+                {/* Current War */}
+                <button
+                  type="button"
+                  onClick={() => selectId(null, null)}
+                  className={`group/current flex w-full items-center gap-3 px-4 py-3.5 text-left transition-all duration-200 ${
+                    isLive
+                      ? "bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))]"
+                      : "hover:bg-[color-mix(in_srgb,var(--primary)_8%,var(--card))]"
+                  }`}
+                >
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg ${
+                      isLive ? "bg-[color-mix(in_srgb,var(--primary)_20%,transparent)]" : "bg-white/5"
+                    }`}
+                  >
+                    ⚔️
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold text-[var(--foreground)]">Current War</span>
+                    <span className="flex items-center gap-1.5 text-xs text-zinc-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      Live leaderboard
+                    </span>
+                  </span>
+                  {isLive && (
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/25 text-[11px] font-black text-[var(--primary)]">
+                      ✓
+                    </span>
+                  )}
+                </button>
+
+                <div className="mx-4 h-px bg-[var(--border)]" />
+
+                {/* Scrollable list */}
+                <div className="max-h-[55vh] overflow-y-auto p-1.5">
+                  {battles.length === 0 ? (
+                    <div className="px-4 py-10 text-center">
+                      <div className="text-3xl">🗂️</div>
+                      <p className="mt-2 text-sm text-zinc-400">
+                        {loading ? "Loading wars…" : "No historical wars cached yet"}
+                      </p>
+                    </div>
+                  ) : (
+                    battles.map((battle) => {
+                      const active = selectedBattleId === battle.battle_id;
+                      const ended = isEnded(battle);
+                      return (
+                        <button
+                          key={battle.battle_id}
+                          type="button"
+                          onClick={() => selectId(battle.battle_id, battle.battle_name || battle.battle_id)}
+                          className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${
+                            active
+                              ? "bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] ring-1 ring-[var(--primary)]/25"
+                              : "hover:bg-[color-mix(in_srgb,var(--primary)_7%,var(--card))]"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base transition-colors ${
+                              active ? "bg-[color-mix(in_srgb,var(--primary)_18%,transparent)]" : "bg-white/[0.04]"
+                            }`}
+                          >
+                            🏆
                           </span>
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
-                          {ended ? (
-                            <>
-                              <span>Ended {formatDate(battle.end_time)}</span>
-                            </>
-                          ) : (
-                            <span className="inline-flex items-center gap-1">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              Active
+                          <span className="min-w-0 flex-1">
+                            <span className="truncate text-sm font-semibold text-[var(--foreground)]">
+                              {battle.battle_name || `War #${battle.battle_id.slice(0, 8)}`}
                             </span>
-                          )}
-                        </span>
-                      </span>
-                      <span
-                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black transition-all duration-200 ${
-                          active
-                            ? "bg-[var(--primary)]/25 text-[var(--primary)] scale-100 opacity-100"
-                            : "scale-50 opacity-0"
-                        }`}
-                      >
-                        ✓
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+                            <span className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
+                              {ended ? (
+                                <>Ended {formatDate(battle.end_time)}</>
+                              ) : (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                  Active
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black transition-all duration-200 ${
+                              active
+                                ? "scale-100 bg-[var(--primary)]/25 text-[var(--primary)] opacity-100"
+                                : "scale-50 opacity-0"
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
 
-            {/* Footer */}
-            <div className="border-t border-[var(--border)] bg-white/[0.02] px-4 py-2.5 text-center text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-              Cached war leaderboards
-            </div>
-          </div>
-        </>
-      )}
+                {/* Footer */}
+                <div className="border-t border-[var(--border)] bg-white/[0.02] px-4 py-2.5 text-center text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                  Cached war leaderboards
+                </div>
+              </div>
+            </>,
+            document.body
+          )
+        : null}
 
-      <style jsx>{`
-        @keyframes fadeIn {
+      <style>{`
+        @keyframes mcwv-fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        @keyframes scaleIn {
+        @keyframes mcwv-scaleIn {
           from { opacity: 0; transform: scale(0.96) translateY(-0.3rem); }
           to { opacity: 1; transform: scale(1) translateY(0); }
         }
       `}</style>
-    </div>
+    </>
   );
 }
