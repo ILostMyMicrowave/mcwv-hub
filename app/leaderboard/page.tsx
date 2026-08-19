@@ -1128,8 +1128,13 @@ function StyleEditorModal({
 
   useEffect(() => {
     if (!linkedBadgeKeys.size) return;
-    setSelectedBadges((current) => current.filter((key) => !linkedBadgeKeys.has(key)));
-  }, [linkedBadgeKeys]);
+    // Strip Discord-role-linked (auto) badges from the editable selection.
+    // Returns the SAME reference when nothing changed so this never loops.
+    setSelectedBadges((current) => {
+      const filtered = current.filter((key) => !linkedBadgeKeys.has(key));
+      return filtered.length === current.length ? current : filtered;
+    });
+  }, [linkedBadgeKeys, selectedBadges]);
 
   useEffect(() => {
     if (!open) return;
@@ -1210,6 +1215,11 @@ function StyleEditorModal({
     setSaving(true);
     setStatus("Saving...");
     try {
+      // Linked (auto) badges can never be pinned by hand — always exclude them
+      // so saving the card (even without touching badges) never re-submits them.
+      const editableBadges = canEditBadges
+        ? selectedBadges.filter((key) => !linkedBadgeKeys.has(key))
+        : [];
       const res = await fetch("/api/leaderboard/style", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1224,7 +1234,7 @@ function StyleEditorModal({
           frameEmoji: frameEmoji.trim() || null,
           fontPreset,
           bio: bio.trim() || null,
-          badges: canEditBadges ? selectedBadges : [],
+          badges: editableBadges,
         }),
       });
       const data = await res.json().catch(() => ({}));
