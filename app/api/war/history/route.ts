@@ -12,6 +12,11 @@ type Battle = {
   end_time: Date | null;
 };
 
+// War data before this date may be incomplete — we only list wars with
+// accurate tracking. Mirrors the "accurate since" convention used across the
+// hub (MCWV_HISTORY_ACCURATE_SINCE in the bot, and war-reports).
+const HISTORY_ACCURATE_SINCE_MS = Date.parse("2026-08-16T00:00:00Z");
+
 export async function GET() {
   const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
@@ -30,6 +35,7 @@ export async function GET() {
        FROM battles b
        WHERE b.end_time IS NOT NULL
          AND b.end_time <= NOW()
+         AND b.end_time >= $1
          AND EXISTS (
            SELECT 1
            FROM player_leaderboard_history h
@@ -39,7 +45,8 @@ export async function GET() {
            LIMIT 1
          )
        ORDER BY b.start_time DESC NULLS LAST, b.created_at DESC
-       LIMIT 50`
+       LIMIT 50`,
+      [new Date(HISTORY_ACCURATE_SINCE_MS)]
     );
 
     const battles = result.rows.map((row) => ({
