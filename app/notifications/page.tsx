@@ -2,6 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import DiscordMarkdown from "@/components/DiscordMarkdown";
+import InboxPreview from "@/components/InboxPreview";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatWhen,
@@ -11,7 +12,7 @@ import {
   relTime,
   sortByRecency,
 } from "@/lib/inboxUtils";
-import { stripDiscordMarkdown } from "@/lib/discordFormat";
+import { resolvePlaceholders } from "@/lib/discordFormat";
 import type { FilterId, HubNotification } from "@/lib/inboxUtils";
 
 const FILTERS: { id: FilterId; label: string }[] = [
@@ -245,8 +246,6 @@ export default function NotificationsPage() {
   function renderRow(item: HubNotification, index: number) {
     const meta = metaFor(item.type);
     const isNew = item.id > lastReadId;
-    // Previews are plain: markers stripped so "**War**" previews as "War".
-    const preview = item.body ? stripDiscordMarkdown(item.body) : "";
     return (
       <button
         key={item.id}
@@ -282,7 +281,7 @@ export default function NotificationsPage() {
               </span>
             ) : null}
           </span>
-          {preview ? (
+          {item.body ? (
             <span
               className="mt-0.5 block text-xs leading-relaxed text-zinc-500"
               style={{
@@ -292,7 +291,7 @@ export default function NotificationsPage() {
                 overflow: "hidden",
               }}
             >
-              {preview}
+              <InboxPreview text={item.body} />
             </span>
           ) : null}
           <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
@@ -475,7 +474,7 @@ export default function NotificationsPage() {
               </div>
               {hero.body ? (
                 <div className="mt-4 break-words text-sm leading-relaxed text-zinc-300">
-                  <DiscordMarkdown text={hero.body} />
+                  <DiscordMarkdown text={resolvePlaceholders(hero.body)} />
                 </div>
               ) : null}
               {officer ? (
