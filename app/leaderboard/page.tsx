@@ -129,6 +129,21 @@ function formatAgo(timestamp: string | null, nowMs: number) {
   return `${hours}h ago`;
 }
 
+function formatChartTime(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatGap(prevMs: number, nextMs: number) {
+  const diff = Math.max(0, nextMs - prevMs);
+  const hours = Math.floor(diff / 3_600_000);
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${Math.max(0, Math.floor(diff / 1000))}s`;
+}
+
 const DEFAULT_STYLE: ProfileStyle = {
   backgroundUrl: null,
   backgroundType: null,
@@ -867,6 +882,8 @@ function MiniLineChart({
   accentColor: string;
   emptyLabel?: string;
 }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
   if (points.length < 1) {
     return (
       <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
@@ -899,43 +916,139 @@ function MiniLineChart({
   const firstVal = values[0];
   const lastVal = values[values.length - 1];
 
+  // Map a pointer x-position (relative to the SVG element) to the nearest index.
+  function handlePointer(event: React.MouseEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width) return;
+    const px = event.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, px / rect.width));
+    const targetX = padding + ratio * (width - padding * 2);
+    let nearest = 0;
+    let best = Infinity;
+    coords.forEach((coord, i) => {
+      const x = Number(coord.split(",")[0]);
+      const dist = Math.abs(x - targetX);
+      if (dist < best) {
+        best = dist;
+        nearest = i;
+      }
+    });
+    setHoverIndex(nearest);
+  }
+
+  const hoverPoint = hoverIndex !== null ? chartSeries[hoverIndex] : null;
+
   return (
     <div className="rounded-2xl border border-white/10 bg-black/35 p-3 sm:p-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-52 w-full overflow-visible sm:h-60">
-        <defs>
-          <linearGradient id="playerChartFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={accentColor} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={accentColor} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {/* Horizontal gridlines */}
-        {[0.25, 0.5, 0.75].map((f) => {
-          const y = height - padding - f * (height - padding * 2);
-          return (
-            <line
-              key={f}
-              x1={padding}
-              y1={y}
-              x2={width - padding}
-              y2={y}
-              stroke="rgba(255,255,255,0.06)"
-              strokeWidth="1"
-            />
-          );
-        })}
-        <polyline
-          className="chart-fade"
-          points={`${padding},${height - padding} ${coords.join(" ")} ${width - padding},${height - padding}`}
-          fill="url(#playerChartFill)"
-          stroke="none"
-        />
-        <polyline className="chart-draw" points={coords.join(" ")} fill="none" stroke={accentColor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        {coords.map((coord, index) => {
-          if (index !== coords.length - 1 && index !== 0) return null;
-          const [x, y] = coord.split(",").map(Number);
-          return <circle key={coord} className="chart-fade" cx={x} cy={y} r="5" fill={accentColor} stroke="rgba(0,0,0,0.5)" strokeWidth="2" />;
-        })}
-      </svg>
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="h-52 w-full overflow-visible sm:h-60"
+          onMouseMove={handlePointer}
+          onMouseLeave={() => setHoverIndex(null)}
+        >
+          <defs>
+            <linearGradient id="playerChartFill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={accentColor} stopOpacity="0.35" />
+              <stop offset="100%" stopColor={accentColor} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {/* Horizontal gridlines */}
+          {[0.25, 0.5, 0.75].map((f) => {
+            const y = height - padding - f * (height - padding * 2);
+            return (
+              <line
+                key={f}
+                x1={padding}
+                y1={y}
+                x2={width - padding}
+                y2={y}
+                stroke="rgba(255,255,255,0.06)"
+                strokeWidth="1"
+              />
+            );
+          })}
+          <polyline
+            className="chart-fade"
+            points={`${padding},${height - padding} ${coords.join(" ")} ${width - padding},${height - padding}`}
+            fill="url(#playerChartFill)"
+            stroke="none"
+          />
+          <polyline className="chart-draw" points={coords.join(" ")} fill="none" stroke={accentColor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+
+          {/* All points — interactive */}
+          {coords.map((coord, index) => {
+            const [x, y] = coord.split(",").map(Number);
+            const isActive = hoverIndex === index;
+            return (
+              <g key={index}>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={isActive ? 12 : 10}
+                  fill="transparent"
+                  style={{ cursor: "pointer" }}
+                />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="5"
+                  fill={isActive ? accentColor : "transparent"}
+                  stroke={isActive ? "#000" : "rgba(0,0,0,0.5)"}
+                  strokeWidth="2"
+                  strokeDasharray={isActive ? "0" : "3 3"}
+                />
+              </g>
+            );
+          })}
+
+          {/* Hover guide line */}
+          {hoverIndex !== null && hoverPoint ? (
+            <g>
+              <line
+                x1={Number(coords[hoverIndex].split(",")[0])}
+                y1={padding}
+                x2={Number(coords[hoverIndex].split(",")[0])}
+                y2={height - padding}
+                stroke={accentColor}
+                strokeWidth="1.5"
+                strokeDasharray="4 4"
+                opacity="0.7"
+              />
+              <line
+                x1={Number(coords[hoverIndex].split(",")[0])}
+                y1={Number(coords[hoverIndex].split(",")[1])}
+                x2={Number(coords[hoverIndex].split(",")[0]) + 60}
+                y2={Number(coords[hoverIndex].split(",")[1])}
+                stroke={accentColor}
+                strokeWidth="3"
+                strokeLinecap="round"
+              />
+            </g>
+          )}
+        </svg>
+
+        {/* Tooltip */}
+        {hoverIndex !== null && hoverPoint && (
+          <div
+            className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-xl border px-3 py-2 text-center shadow-xl"
+            style={{
+              left: `${(Number(coords[hoverIndex].split(",")[0]) / width) * 100}%`,
+              top: `${(Number(coords[hoverIndex].split(",")[1]) / height) * 100}%`,
+              transform: "translate(-50%, -130%)",
+              borderColor: `${accentColor}66`,
+              background: "rgba(10,10,14,0.95)",
+            }}
+          >
+            <div className="whitespace-nowrap text-sm font-black" style={{ color: accentColor }}>
+              {formatNumber(hoverPoint.value)}
+            </div>
+            <div className="whitespace-nowrap text-[10px] uppercase tracking-[0.14em] text-zinc-400">
+              {formatChartTime(hoverPoint.time)}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Summary strip */}
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
@@ -963,6 +1076,70 @@ function MiniLineChart({
       <div className="mt-2 flex justify-between text-xs text-zinc-500">
         <span>{new Date(chartSeries[0].time).toLocaleDateString()}</span>
         <span>{points.length === 1 ? "First snapshot" : new Date(chartSeries[chartSeries.length - 1].time).toLocaleDateString()}</span>
+      </div>
+    </div>
+  );
+}
+
+function DisconnectTimeline({
+  points,
+  disconnects24h,
+}: {
+  points: PlayerHistoryPoint[];
+  disconnects24h: number;
+}) {
+  if (points.length < 1) {
+    return (
+      <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
+        No disconnect events recorded in the last 7 days.
+      </div>
+    );
+  }
+
+  // Show most recent first; compute the gap since the previous disconnect.
+  const rows = [...points].reverse().map((point, index, arr) => {
+    const next = arr[index + 1]; // the one AFTER in reversed = previous chronologically
+    const gap = next ? formatGap(new Date(next.time).getTime(), new Date(point.time).getTime()) : null;
+    return { point, gap };
+  });
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+        <span className="text-base">⚠️</span>
+        <span>
+          <span className="font-bold">{disconnects24h}</span> disconnect{disconnects24h === 1 ? "" : "s"} in the last 24h
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map(({ point, gap }, index) => (
+          <div
+            key={`${point.time}-${index}`}
+            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500/15 text-[11px]">
+                ⚠️
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-white">
+                  Disconnect #{points.length - index}
+                </div>
+                <div className="truncate text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+                  {formatChartTime(point.time)}
+                </div>
+              </div>
+            </div>
+            {gap ? (
+              <span className="shrink-0 rounded-full border border-white/10 bg-black/30 px-2 py-1 text-[11px] font-semibold text-zinc-300">
+                {index === 0 ? "last one" : `+${gap} after`}
+              </span>
+            ) : (
+              <span className="shrink-0 text-[11px] text-zinc-500">most recent</span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1166,6 +1343,8 @@ function PlayerMiniProfile({
               <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
                 Loading history...
               </div>
+            ) : historyTab === "disconnects" ? (
+              <DisconnectTimeline points={chartPoints} disconnects24h={disconnects24h} />
             ) : (
               <MiniLineChart
                 points={chartPoints}
