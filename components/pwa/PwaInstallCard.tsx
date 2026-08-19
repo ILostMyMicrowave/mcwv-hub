@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-// Minimal type for the non-standard beforeinstallprompt event (Chromium).
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+import {
+  APP_INSTALLED_EVENT,
+  INSTALL_READY_EVENT,
+  clearDeferredInstallPrompt,
+  getDeferredInstallPrompt,
+  type BeforeInstallPromptEvent,
+} from "@/lib/pwaInstall";
 
 // iOS Safari exposes window.navigator.standalone.
 type IosNavigator = Navigator & { standalone?: boolean };
@@ -23,39 +24,47 @@ export default function PwaInstallCard() {
     const standalone =
       window.matchMedia?.("(display-mode: standalone)")?.matches === true ||
       window.matchMedia?.("(display-mode: minimal-ui)")?.matches === true ||
-      nav.standalone === true;
+      nav.standalone === true ||
+      window.__mcwvAppInstalled === true;
     setInstalled(standalone);
     setIsIos(/iphone|ipad|ipod/i.test(navigator.userAgent));
 
-    const onBeforeInstall = (event: Event) => {
-      // Stop the mini-infobar and stash the event so our own button can
-      // trigger the native prompt whenever the user is ready.
-      event.preventDefault();
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
+    const onInstallReady = () => {
+      setDeferredPrompt(getDeferredInstallPrompt());
     };
     const onInstalled = () => {
+      clearDeferredInstallPrompt();
       setInstalled(true);
       setDeferredPrompt(null);
     };
 
-    window.addEventListener("beforeinstallprompt", onBeforeInstall);
-    window.addEventListener("appinstalled", onInstalled);
+    // The root layout has already captured the one-shot Chromium event, even
+    // when this Settings card mounts later during client-side navigation.
+    window.addEventListener(INSTALL_READY_EVENT, onInstallReady);
+    window.addEventListener(APP_INSTALLED_EVENT, onInstalled);
+    setDeferredPrompt(getDeferredInstallPrompt());
+
     return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
-      window.removeEventListener("appinstalled", onInstalled);
+      window.removeEventListener(INSTALL_READY_EVENT, onInstallReady);
+      window.removeEventListener(APP_INSTALLED_EVENT, onInstalled);
     };
   }, []);
 
   async function install() {
-    if (!deferredPrompt) return;
+    const prompt = deferredPrompt ?? getDeferredInstallPrompt();
+    if (!prompt) return;
+
     setBusy(true);
     try {
-      await deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice.outcome === "accepted") {
-        setDeferredPrompt(null);
-      }
+      await prompt.prompt();
+      await prompt.userChoice;
+    } catch {
+      // Fall through to the always-visible manual instructions below.
     } finally {
+      // A deferred prompt is single-use whether accepted, dismissed, or
+      // rejected by the browser.
+      clearDeferredInstallPrompt(prompt);
+      setDeferredPrompt(null);
       setBusy(false);
     }
   }
@@ -101,13 +110,18 @@ export default function PwaInstallCard() {
             📲 How to install
           </button>
         ) : (
-          <p className="shrink-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-400">
-            Browser menu →{" "}
-            <span className="font-semibold text-zinc-200">Install app</span> /{" "}
-            <span className="font-semibold text-zinc-200">
-              Add to Home Screen
-            </span>
-          </p>
+          <div className="max-w-sm shrink-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-400">
+            <p>
+              Browser menu →{" "}
+              <span className="font-semibold text-zinc-200">Install app</span>,{" "}
+              <span className="font-semibold text-zinc-200">Add to Home Screen</span>, or{" "}
+              <span className="font-semibold text-zinc-200">Add to Dock</span>
+            </p>
+            <p className="mt-1.5 text-zinc-500">
+              No install option? Open MCWV Hub in Chrome or Edge on desktop/Android,
+              or Safari on an Apple device.
+            </p>
+          </div>
         )}
       </div>
 
