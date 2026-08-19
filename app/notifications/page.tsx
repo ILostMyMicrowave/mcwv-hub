@@ -37,6 +37,9 @@ export default function NotificationsPage() {
   const [imageInput, setImageInput] = useState("");
   const [imageBusy, setImageBusy] = useState(false);
   const [filter, setFilter] = useState<FilterId>("all");
+  // Free-text search over alert titles + bodies (matches against the rendered
+  // plain text, so emojis/timestamps don't pollute the match).
+  const [query, setQuery] = useState("");
   // New alerts that arrived while the page sat open — surfaced as a floating
   // pill instead of clobbering whatever the member is reading.
   const [pendingNew, setPendingNew] = useState(0);
@@ -165,18 +168,22 @@ export default function NotificationsPage() {
   );
 
   // ALWAYS sorted newest-first — no render path may trust insertion order.
-  const visible = useMemo(
-    () =>
-      sortByRecency(
-        items.filter((item) => {
-          if (hero && item.id === hero.id) return false; // hero lives in its own card
-          if (filter === "unread") return item.id > lastReadId;
-          if (filter === "all") return true;
-          return item.type === filter;
-        })
-      ),
-    [items, hero, filter, lastReadId]
-  );
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const haystack = (item: HubNotification) =>
+      q
+        ? `${String(item.title ?? "")} ${String(item.body ?? "")}`.toLowerCase().includes(q)
+        : true;
+    return sortByRecency(
+      items.filter((item) => {
+        if (hero && item.id === hero.id) return false; // hero lives in its own card
+        if (!haystack(item)) return false;
+        if (filter === "unread") return item.id > lastReadId;
+        if (filter === "all") return true;
+        return item.type === filter;
+      })
+    );
+  }, [items, hero, filter, lastReadId, query]);
 
   const newItems = useMemo(() => visible.filter((item) => item.id > lastReadId), [visible, lastReadId]);
   const earlierItems = useMemo(
@@ -416,6 +423,37 @@ export default function NotificationsPage() {
               </button>
             );
           })}
+        </div>
+
+        {/* --------------------------------------------------------- search */}
+        <div className="mt-4">
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-500">
+              🔍
+            </span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search alerts…"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-violet-400/50 focus:outline-none"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute inset-y-0 right-3 flex items-center text-zinc-500 transition hover:text-zinc-200"
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          {query ? (
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              {visible.length} result{visible.length === 1 ? "" : "s"} for “{query}”
+            </p>
+          ) : null}
         </div>
 
         {/* ------------------------------------------------------------- hero */}
