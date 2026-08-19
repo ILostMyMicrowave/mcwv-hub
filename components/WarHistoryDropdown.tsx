@@ -22,7 +22,7 @@ function formatDate(dateStr: string | null): string | null {
 }
 
 function isEnded(battle: Battle): boolean {
-  return Boolean(battle.end_time) && new Date(battle.end_time) < new Date();
+  return typeof battle.end_time === "string" && new Date(battle.end_time) < new Date();
 }
 
 export default function WarHistoryDropdown({ selectedBattleId, onSelect }: WarHistoryDropdownProps) {
