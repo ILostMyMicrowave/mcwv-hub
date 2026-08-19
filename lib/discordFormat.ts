@@ -25,7 +25,8 @@ export type MdSegment =
   | { kind: "spoiler"; text: string }
   | { kind: "link"; text: string; href: string }
   | { kind: "mention"; label: string }
-  | { kind: "emoji"; name: string; id: string; animated: boolean };
+  | { kind: "emoji"; name: string; id: string; animated: boolean }
+  | { kind: "timestamp"; seconds: number; style: string };
 
 export type MdBlock =
   | { kind: "heading"; level: number; segments: MdSegment[] }
@@ -55,6 +56,7 @@ const INLINE_RE = new RegExp(
     String.raw`<@(\d+)>`, // 14 user
     String.raw`<#(\d+)>`, // 15 channel
     String.raw`<(a)?:([A-Za-z0-9_]{1,32}):(\d{15,})>`, // 16 custom emoji (animated?, name, id)
+    String.raw`<t:(\d{1,20})(?::([tTdDfFR]))?>`, // 17-18 Discord timestamp (seconds, optional style)
   ].join("|"),
   "g"
 );
@@ -71,8 +73,10 @@ export function parseInline(line: string): MdSegment[] {
 
   while ((m = INLINE_RE.exec(line))) {
     pushText(line.slice(last, m.index));
-    const [full, bi, b, u, s, sp, code, itStar, itUnder, label, href, url, role, bangUser, user, channel, anim, eName, eId] = m;
-    if (bi !== undefined) out.push({ kind: "boldItalic", text: bi });
+    const [full, bi, b, u, s, sp, code, itStar, itUnder, label, href, url, role, bangUser, user, channel, anim, eName, eId, tSeconds, tStyle] = m;
+    if (tSeconds !== undefined)
+      out.push({ kind: "timestamp", seconds: Number(tSeconds), style: (tStyle || "f").toLowerCase() });
+    else if (bi !== undefined) out.push({ kind: "boldItalic", text: bi });
     else if (b !== undefined) out.push({ kind: "bold", text: b });
     else if (u !== undefined) out.push({ kind: "underline", text: u });
     else if (s !== undefined) out.push({ kind: "strike", text: s });
@@ -221,6 +225,11 @@ export function stripDiscordMarkdown(input: string): string {
   // mentions out entirely
   text = text.replace(/<@[!&]?\d+>/g, "").replace(/<#\d+>/g, "");
 
+  // Discord timestamps <t:secs:style> -> readable text (best-effort)
+  text = text.replace(/<t:(\d{1,20})(?::([tTdDfFR]))?>/g, (_m, secs: string, style?: string) => {
+    return formatTimestamp(Number(secs), style || "f") || _m;
+  });
+
   // custom emoji <:name:id> / <a:name:id> → its name (can't show an image in
   // plain text; the name still conveys meaning on a lock screen)
   text = text.replace(/<(a)?:([A-Za-z0-9_]{1,32}):(\d{15,})>/g, (_m, _anim: string, name: string) => name);
@@ -267,6 +276,76 @@ const PLACEHOLDER_SAMPLE: Record<string, string> = {
   role: "member",
   ticket: "#ticket",
 };
+
+// Format a Discord <t:seconds:style> timestamp for web display. Style letters
+// mirror Discord's (t/T short/long time, d/D short/long date, f/F short/long
+// date+time, R relative). R produces a static human relative string.
+export function formatTimestamp(seconds: number, style: string): string {
+  const ms = seconds * 1000;
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return "";
+  const d = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+  const t = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  const ts = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+  const full = `${d} ${t}`;
+  const fullLong = `${d}, ${t}`;
+  switch ((style || "f").toLowerCase()) {
+    case "t":
+      return t;
+    case "T":
+      return ts;
+    case "d":
+      return d;
+    case "D":
+      return new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(date);
+    case "f":
+      return full;
+    case "F":
+      return fullLong;
+    case "r":
+      return relativeTime(ms);
+    default:
+      return full;
+  }
+}
+
+function relativeTime(ms: number): string {
+  const diffSec = Math.round((ms - Date.now()) / 1000);
+  const abs = Math.abs(diffSec);
+  const parts: Array<[number, string]> = [
+    [31536000, "year"],
+    [2592000, "month"],
+    [86400, "day"],
+    [3600, "hour"],
+    [60, "minute"],
+    [1, "second"],
+  ];
+  for (const [secs, unit] of parts) {
+    if (abs >= secs) {
+      const n = Math.round(abs / secs);
+      const plural = n === 1 ? "" : "s";
+      return diffSec > 0 ? `in ${n} ${unit}${plural}` : `${n} ${unit}${plural} ago`;
+    }
+  }
+  return "just now";
+}
 
 // Replace "{name}" placeholder tokens with representative sample values for
 // preview contexts (admin preview, inbox rows, hero). Unknown tokens are left
