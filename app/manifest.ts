@@ -66,24 +66,6 @@ export default function manifest(): MetadataRoute.Manifest {
         icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }],
       },
     ],
-    // Richer install UI (Chrome Android/desktop shows these in the prompt).
-    // Stylized previews — swap for real app screenshots any time.
-    screenshots: [
-      {
-        src: "/screenshots/hub-wide.png",
-        sizes: "1280x720",
-        type: "image/png",
-        form_factor: "wide",
-        label: "MCWV Hub — clan HQ",
-      },
-      {
-        src: "/screenshots/hub-mobile.png",
-        sizes: "1170x2532",
-        type: "image/png",
-        form_factor: "narrow",
-        label: "Leaderboard on the go",
-      },
-    ],
     // THE admin-redirect killer: when the installed app is already open and a
     // deep link (notification tap, shortcut) targets it, NAVIGATE the existing
     // window to the new URL. Default WebAPK behaviour is "restore last
