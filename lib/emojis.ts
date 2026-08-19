@@ -1,4 +1,4 @@
-// MCWV Hub emoji registry — mirrors MCWV-BOT main.py MCWV_CUSTOM_EMOJI.
+// MCWV Hub emoji registry which mirrors MCWV-BOT main.py MCWV_CUSTOM_EMOJI.
 // Each entry maps a semantic key -> (emoji_name, emoji_id). These are
 // application-owned Discord custom emojis, rendered in the hub as images via
 // Discord's emoji CDN so broadcast previews + the inbox look like Discord.
