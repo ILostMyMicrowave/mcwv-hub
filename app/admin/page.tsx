@@ -3206,23 +3206,22 @@ function BroadcastSection({
       </Panel>
 
       <Panel title="Preview">
-        {preview ? (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <MiniStat label="Matched" value={preview.recipientCount} />
-              <MiniStat label="Will Attempt" value={preview.deliverableCount} />
-              <MiniStat label="No Ticket" value={preview.missingTicketCount} />
-            </div>
+        {/* Live message render — updates on every keystroke, no button needed.
+            Emojis + timestamps render exactly like the real DM will. */}
+        <div className="space-y-4">
+          {message.trim() ? (
             <div>
-              <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Message Preview</div>
+              <div className="admin-label mb-2 text-xs uppercase tracking-[0.2em]">Live message preview</div>
               <div
                 className="rounded-2xl border p-4 text-sm"
                 style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--foreground)" }}
               >
                 {style === "embed" && <div className="mb-2 font-semibold">📢 MCWV Broadcast</div>}
-                {/* Renders Discord formatting exactly like the DMs will */}
                 <DiscordMarkdown
-                  text={renderBroadcastPreviewMessage(message, preview.sampleRecipients[0])}
+                  text={renderBroadcastPreviewMessage(
+                    message,
+                    preview?.sampleRecipients[0] ?? undefined
+                  )}
                 />
                 {imageUrl.trim() ? (
                   <img
@@ -3236,6 +3235,18 @@ function BroadcastSection({
                   />
                 ) : null}
               </div>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">Start typing a message to see it rendered live here.</p>
+          )}
+        </div>
+
+        {preview ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <MiniStat label="Matched" value={preview.recipientCount} />
+              <MiniStat label="Will Attempt" value={preview.deliverableCount} />
+              <MiniStat label="No Ticket" value={preview.missingTicketCount} />
             </div>
 
             <div>
