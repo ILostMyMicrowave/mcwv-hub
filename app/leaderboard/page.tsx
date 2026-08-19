@@ -3,6 +3,7 @@
 import Navbar from "@/components/Navbar";
 import FlowNumber from "@/components/FlowNumber";
 import WarHistoryDropdown from "@/components/WarHistoryDropdown";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
@@ -755,11 +756,13 @@ function AvatarWithFrame({ entry, size = "md" }: { entry: LeaderboardEntry; size
 function LeaderboardRow({
   entry,
   change,
+  gained,
   badgePresets,
   onOpen,
 }: {
   entry: LeaderboardEntry;
   change: number;
+  gained?: number;
   badgePresets: BadgePreset[];
   onOpen: () => void;
 }) {
@@ -820,7 +823,27 @@ function LeaderboardRow({
 
         <div className="hidden text-right sm:block">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Points</div>
-          <div className="mt-1 text-xl font-bold text-white">{formatPoints(entry.points)}</div>
+          <div className="relative mt-1 text-xl font-bold text-white">
+            {typeof entry.points === "number" ? (
+              <FlowNumber value={entry.points} />
+            ) : (
+              formatPoints(entry.points)
+            )}
+            {gained ? (
+              <AnimatePresence>
+                <motion.span
+                  key={`gain-${entry.user_id}-${entry.points}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.5 }}
+                  className="absolute -right-8 top-0 text-sm font-black text-emerald-300"
+                >
+                  +{formatNumber(gained)}
+                </motion.span>
+              </AnimatePresence>
+            ) : null}
+          </div>
         </div>
         <div className="hidden text-right sm:block">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">5m Change</div>
@@ -1460,6 +1483,8 @@ export default function LeaderboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
   const [rankChange, setRankChange] = useState<Record<number, number>>({});
+  // user_id -> number of points gained since the previous poll (for flash).
+  const [pointsGained, setPointsGained] = useState<Record<number, number>>({});
   const [now, setNow] = useState(0);
   const [selectedBattleId, setSelectedBattleId] = useState<string | null>(null);
   const [selectedBattleName, setSelectedBattleName] = useState<string | null>(null);
@@ -1547,6 +1572,11 @@ export default function LeaderboardPage() {
 
       const nextRanks: Record<number, number> = {};
       const changes: Record<number, number> = {};
+      const gains: Record<number, number> = {};
+      const prevPoints: Record<number, number> = {};
+      prevDataRef.current.forEach((entry) => {
+        if (typeof entry.points === "number") prevPoints[entry.user_id] = entry.points;
+      });
 
       nextData.forEach((entry) => {
         const oldRank = prevRanksRef.current[entry.user_id];
@@ -1554,6 +1584,11 @@ export default function LeaderboardPage() {
 
         if (oldRank !== undefined) {
           changes[entry.user_id] = oldRank - newRank;
+        }
+
+        if (typeof entry.points === "number" && prevPoints[entry.user_id] !== undefined) {
+          const gained = entry.points - prevPoints[entry.user_id];
+          if (gained > 0) gains[entry.user_id] = gained;
         }
 
         nextRanks[entry.user_id] = newRank;
@@ -1580,6 +1615,7 @@ export default function LeaderboardPage() {
       prevDataRef.current = nextData;
 
       setRankChange(changes);
+      setPointsGained(gains);
       setData(nextData);
       setTitle(historicalTitle ?? json.title ?? "MCWV Leaderboard");
       setActive(Boolean(json.active));
@@ -1721,6 +1757,7 @@ export default function LeaderboardPage() {
                         prevRanksRef.current = {};
                         prevDataRef.current = [];
                         setRankChange({});
+                        setPointsGained({});
                         setActivity([]);
                         setSelectedEntry(null);
                         setSelectedBattleId(battleId);
@@ -1780,23 +1817,20 @@ export default function LeaderboardPage() {
                   </Animated>
 
                   <div className="grid gap-4 md:grid-cols-3 md:items-end">
-                    <Animated delay="0.15s">
-                      <div className="md:order-1 md:translate-y-8">
-                        <PodiumCard entry={podium[1]} place={2} />
-                      </div>
-                    </Animated>
-
-                    <Animated delay="0.2s">
-                      <div className="md:order-2 md:-translate-y-2">
-                        <PodiumCard entry={podium[0]} place={1} className="md:scale-[1.04]" />
-                      </div>
-                    </Animated>
-
-                    <Animated delay="0.25s">
-                      <div className="md:order-3 md:translate-y-12">
-                        <PodiumCard entry={podium[2]} place={3} />
-                      </div>
-                    </Animated>
+                    {[
+                      { entry: podium[1], place: 2 as const, wrap: "md:order-1 md:translate-y-8" },
+                      { entry: podium[0], place: 1 as const, wrap: "md:order-2 md:-translate-y-2" },
+                      { entry: podium[2], place: 3 as const, wrap: "md:order-3 md:translate-y-12" },
+                    ].map(({ entry, place, wrap }) => (
+                      <motion.div
+                        key={entry?.user_id ?? `empty-${place}`}
+                        layout
+                        transition={{ type: "spring", stiffness: 260, damping: 28 }}
+                        className={wrap}
+                      >
+                        <PodiumCard entry={entry} place={place} className={place === 1 ? "md:scale-[1.04]" : ""} />
+                      </motion.div>
+                    ))}
                   </div>
                 </section>
               )}
@@ -1810,17 +1844,40 @@ export default function LeaderboardPage() {
                     </span>
                   </div>
 
-                  <div className="space-y-3">
-                    {data.map((entry) => {
-                      const change = rankChange[entry.user_id] ?? 0;
+                  <LayoutGroup>
+                    <div className="flex flex-col gap-3">
+                      <AnimatePresence initial={false}>
+                        {data.map((entry) => {
+                          const change = rankChange[entry.user_id] ?? 0;
+                          const gained = pointsGained[entry.user_id] ?? 0;
 
-                      return (
-                        <Animated key={entry.user_id} delay="0s">
-                          <LeaderboardRow entry={entry} change={change} badgePresets={badgePresets} onOpen={() => setSelectedEntry(entry)} />
-                        </Animated>
-                      );
-                    })}
-                  </div>
+                          return (
+                            <motion.div
+                              key={entry.user_id}
+                              layout
+                              initial={{ opacity: 0, y: 12 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0 }}
+                              transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 28,
+                                opacity: { duration: 0.25 },
+                              }}
+                            >
+                              <LeaderboardRow
+                                entry={entry}
+                                change={change}
+                                gained={gained}
+                                badgePresets={badgePresets}
+                                onOpen={() => setSelectedEntry(entry)}
+                              />
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+                  </LayoutGroup>
                 </section>
               </Animated>
 
