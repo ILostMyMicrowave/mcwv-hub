@@ -465,7 +465,7 @@ export default function Settings() {
           </div>
 
           {/* App & Alerts (installed PWA) */}
-          <div className="mt-6">
+          <div id="install" className="mt-6 scroll-mt-24">
             <Section icon="📲" eyebrow="Installed App" title="App & Alerts" delay={0.12}>
               <div className="space-y-3">
                 <PwaInstallCard />
