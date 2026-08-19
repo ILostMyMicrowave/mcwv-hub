@@ -19,8 +19,11 @@ type SnapshotRow = {
   captured_at: Date | string;
 };
 
-type DisconnectRow = {
-  created_at: Date | string;
+type DisconnectSession = {
+  start: string;
+  end: string | null;
+  durationSeconds: number | null;
+  ongoing: boolean;
 };
 
 function toIso(value: Date | string) {
@@ -290,36 +293,82 @@ export async function GET(
 
     const presenceEventsExists = await tableExists("player_presence_events");
     let disconnects24h = 0;
-    const disconnects: Array<{ time: string; value: number }> = [];
+    const disconnects: DisconnectSession[] = [];
 
     if (!historicalMode && presenceEventsExists) {
-      const countResult = await pool.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count
+      // A "disconnect" is leaving in-game (status 2) for ANY other state
+      // (online / offline / studio) and not returning to in-game. We build
+      // sessions from the transition events so we get real start + end +
+      // duration (the cumulative graph was meaningless — it only went up).
+      const rows = await pool.query<{
+        previous_status: string | null;
+        next_status: string | null;
+        created_at: Date | string;
+      }>(
+        `SELECT previous_status, next_status, created_at
          FROM player_presence_events
          WHERE roblox_id::text = $1
-           AND created_at >= NOW() - INTERVAL '24 hours'
-           AND LOWER(COALESCE(previous_status::text, '')) IN ('in_game', 'ingame', '2')
-           AND LOWER(COALESCE(next_status::text, '')) IN ('offline', 'online', '0', '1')`,
-        [String(userId)]
-      );
-
-      disconnects24h = Number(countResult.rows[0]?.count ?? 0);
-
-      const rows = await pool.query<DisconnectRow>(
-        `SELECT created_at
-         FROM player_presence_events
-         WHERE roblox_id::text = $1
-           AND created_at >= NOW() - INTERVAL '7 days'
-           AND LOWER(COALESCE(previous_status::text, '')) IN ('in_game', 'ingame', '2')
-           AND LOWER(COALESCE(next_status::text, '')) IN ('offline', 'online', '0', '1')
+           AND created_at >= NOW() - INTERVAL '14 days'
          ORDER BY created_at ASC
-         LIMIT 500`,
+         LIMIT 2000`,
         [String(userId)]
       );
 
-      rows.rows.forEach((row, index) => {
-        disconnects.push({ time: toIso(row.created_at), value: index + 1 });
-      });
+      const isInGame = (s: string | null) =>
+        ["2", "in_game", "ingame", "in game", "in-game"].includes(
+          String(s ?? "").trim().toLowerCase()
+        );
+
+      const sessions: typeof disconnects = [];
+      let currentStart: string | null = null;
+
+      for (const row of rows.rows) {
+        const prevInGame = isInGame(row.previous_status);
+        const nextInGame = isInGame(row.next_status);
+
+        if (currentStart === null) {
+          // We only start a session when we SEE a departure from in-game.
+          if (prevInGame && !nextInGame) currentStart = toIso(row.created_at);
+        } else if (!prevInGame && nextInGame) {
+          // Returned to in-game — close the session.
+          sessions.push({
+            start: currentStart,
+            end: toIso(row.created_at),
+            durationSeconds: Math.max(
+              0,
+              Math.round(
+                (new Date(toIso(row.created_at)).getTime() -
+                  new Date(currentStart).getTime()) /
+                  1000
+              )
+            ),
+            ongoing: false,
+          });
+          currentStart = null;
+        }
+      }
+
+      // Still away from in-game at the end of the window.
+      if (currentStart !== null) {
+        const nowIso = new Date().toISOString();
+        sessions.push({
+          start: currentStart,
+          end: null,
+          durationSeconds: Math.max(
+            0,
+            Math.round((Date.now() - new Date(currentStart).getTime()) / 1000)
+          ),
+          ongoing: true,
+        });
+      }
+
+      // 24h count = sessions that started in the last 24 hours.
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      disconnects24h = sessions.filter(
+        (s) => new Date(s.start).getTime() >= cutoff
+      ).length;
+
+      disconnects.push(...sessions);
     }
 
     return NextResponse.json({
