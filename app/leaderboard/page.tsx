@@ -70,10 +70,17 @@ type PlayerHistoryPoint = {
   delta?: number;
 };
 
+type DisconnectSession = {
+  start: string;
+  end: string | null;
+  durationSeconds: number | null;
+  ongoing: boolean;
+};
+
 type PlayerHistory = {
   points: PlayerHistoryPoint[];
   rank: PlayerHistoryPoint[];
-  disconnects: PlayerHistoryPoint[];
+  disconnects: DisconnectSession[];
   disconnects24h: number;
   change5m: number;
   pph: number;
@@ -135,14 +142,7 @@ function formatChartTime(iso: string) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function formatGap(prevMs: number, nextMs: number) {
-  const diff = Math.max(0, nextMs - prevMs);
-  const hours = Math.floor(diff / 3_600_000);
-  const minutes = Math.floor((diff % 3_600_000) / 60_000);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m`;
-  return `${Math.max(0, Math.floor(diff / 1000))}s`;
-}
+
 
 const DEFAULT_STYLE: ProfileStyle = {
   backgroundUrl: null,
@@ -1081,65 +1081,92 @@ function MiniLineChart({
   );
 }
 
+function formatDurationHMS(totalSeconds: number | null) {
+  if (totalSeconds === null) return "—";
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
 function DisconnectTimeline({
   points,
   disconnects24h,
 }: {
-  points: PlayerHistoryPoint[];
+  points: DisconnectSession[];
   disconnects24h: number;
 }) {
   if (points.length < 1) {
     return (
       <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-400">
-        No disconnect events recorded in the last 7 days.
+        No disconnect events recorded in the last 14 days.
       </div>
     );
   }
 
-  // Show most recent first; compute the gap since the previous disconnect.
-  const rows = [...points].reverse().map((point, index, arr) => {
-    const next = arr[index + 1]; // the one AFTER in reversed = previous chronologically
-    const gap = next ? formatGap(new Date(next.time).getTime(), new Date(point.time).getTime()) : null;
-    return { point, gap };
-  });
+  const ongoingCount = points.filter((s) => s.ongoing).length;
+  const rows = [...points].reverse(); // most recent first
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-        <span className="text-base">⚠️</span>
-        <span>
-          <span className="font-bold">{disconnects24h}</span> disconnect{disconnects24h === 1 ? "" : "s"} in the last 24h
-        </span>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+          <span className="text-base">⚠️</span>
+          <span>
+            <span className="font-bold">{disconnects24h}</span> in last 24h
+          </span>
+        </div>
+        {ongoingCount > 0 && (
+          <div className="flex items-center gap-2 rounded-2xl border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
+            </span>
+            <span>
+              <span className="font-bold">{ongoingCount}</span> currently away from game
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2">
-        {rows.map(({ point, gap }, index) => (
-          <div
-            key={`${point.time}-${index}`}
-            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
-          >
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500/15 text-[11px]">
-                ⚠️
-              </span>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">
-                  Disconnect #{points.length - index}
-                </div>
-                <div className="truncate text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-                  {formatChartTime(point.time)}
+        {rows.map((session, index) => {
+          const durationLabel = session.ongoing
+            ? "still away"
+            : formatDurationHMS(session.durationSeconds);
+          const endLabel = session.end ? formatChartTime(session.end) : "ongoing";
+          return (
+            <div
+              key={`${session.start}-${index}`}
+              className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${
+                session.ongoing
+                  ? "border-rose-400/25 bg-rose-500/[0.06]"
+                  : "border-white/10 bg-white/[0.03]"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                    session.ongoing ? "bg-rose-500/20" : "bg-rose-500/15"
+                  }`}
+                >
+                  ⚠️
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-white">
+                    Away from game · <span className="text-rose-300">{durationLabel}</span>
+                  </div>
+                  <div className="truncate text-[11px] uppercase tracking-[0.12em] text-zinc-500">
+                    Left {formatChartTime(session.start)} → {endLabel}
+                  </div>
                 </div>
               </div>
             </div>
-            {gap ? (
-              <span className="shrink-0 rounded-full border border-white/10 bg-black/30 px-2 py-1 text-[11px] font-semibold text-zinc-300">
-                {index === 0 ? "last one" : `+${gap} after`}
-              </span>
-            ) : (
-              <span className="shrink-0 text-[11px] text-zinc-500">most recent</span>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
