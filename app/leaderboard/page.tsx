@@ -1245,7 +1245,10 @@ function PlayerMiniProfile({
   const disconnects24h = history?.disconnects24h ?? entry.disconnects24h ?? 0;
   const change5m = history?.change5m ?? entry.change5m ?? 0;
   const pph = history?.pph ?? entry.pph ?? 0;
-  const chartPoints = history?.[historyTab] ?? [];
+  const chartPoints: PlayerHistoryPoint[] =
+    historyTab !== "disconnects" ? (history?.[historyTab] ?? []) : [];
+  const disconnectSessions: DisconnectSession[] =
+    historyTab === "disconnects" && history?.disconnects ? history.disconnects : [];
   const historicalProfile = Boolean(battleId);
 
   return (
@@ -1371,7 +1374,7 @@ function PlayerMiniProfile({
                 Loading history...
               </div>
             ) : historyTab === "disconnects" ? (
-              <DisconnectTimeline points={chartPoints} disconnects24h={disconnects24h} />
+              <DisconnectTimeline points={disconnectSessions} disconnects24h={disconnects24h} />
             ) : (
               <MiniLineChart
                 points={chartPoints}
