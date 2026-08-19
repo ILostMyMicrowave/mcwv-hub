@@ -361,7 +361,6 @@ export default function WarInfoPage() {
   }
 
   const warTitle = war.warName ?? "War Info";
-  const dateRange = `${formatDateTime(war.startTime)} — ${formatDateTime(war.endTime)}`;
   return (
     <main className="min-h-screen text-white" style={{ background: "var(--background)" }}>
       <AnimatedBackground />
@@ -386,15 +385,14 @@ export default function WarInfoPage() {
               </div>
 
               <h1 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">{warTitle}</h1>
-              <p className="mt-3 text-sm text-[var(--foreground)]/65">{dateRange}</p>
 
               {/* Live points — the hero */}
-              <div className="mt-10">
+              <div className="mt-8 sm:mt-10">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[var(--foreground)]/50">
                   Current battle points
                 </div>
                 <div
-                  className="mt-3 text-6xl font-black tracking-tight text-white sm:text-8xl"
+                  className="mx-auto mt-3 max-w-full break-words text-5xl font-black tracking-tight text-white sm:text-8xl"
                   style={{ textShadow: "0 0 40px var(--glow)" }}
                 >
                   <FlowNumber value={Number(war.totalPoints)} />
@@ -403,8 +401,8 @@ export default function WarInfoPage() {
               </div>
 
               {/* Placement + participants — secondary */}
-              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-5 py-3">
+              <div className="mx-auto mt-8 flex max-w-md flex-col items-stretch justify-center gap-2.5 sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-5 py-3 sm:justify-start">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground)]/50">
                     Placement
                   </span>
@@ -412,7 +410,7 @@ export default function WarInfoPage() {
                     {war.clanRank === null ? placement : <FlowNumber value={war.clanRank} prefix="#" />}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-5 py-3">
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-5 py-3 sm:justify-start">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground)]/50">
                     Players
                   </span>
