@@ -1025,7 +1025,7 @@ function MiniLineChart({
                 strokeLinecap="round"
               />
             </g>
-          )}
+          ) : null}
         </svg>
 
         {/* Tooltip */}
