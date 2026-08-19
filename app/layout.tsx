@@ -120,6 +120,29 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        {/* Capture Chromium's one-shot install event before React hydrates. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (() => {
+                if (window.__mcwvInstallCaptureReady) return;
+                window.__mcwvInstallCaptureReady = true;
+
+                window.addEventListener("beforeinstallprompt", (event) => {
+                  event.preventDefault();
+                  window.__mcwvDeferredInstallPrompt = event;
+                  window.dispatchEvent(new Event("mcwv-install-ready"));
+                });
+
+                window.addEventListener("appinstalled", () => {
+                  window.__mcwvAppInstalled = true;
+                  window.__mcwvDeferredInstallPrompt = null;
+                  window.dispatchEvent(new Event("mcwv-app-installed"));
+                });
+              })();
+            `,
+          }}
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `
