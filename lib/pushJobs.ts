@@ -1,6 +1,7 @@
 import { pool } from "@/lib/db";
 import { broadcastImageColumnsReady, broadcastTablesExist } from "@/lib/broadcastDb";
 import { stripDiscordMarkdown } from "@/lib/discordFormat";
+import { expandEmojiTokens } from "@/lib/emojis";
 import {
   ensurePushTables,
   getStateText,
@@ -216,7 +217,7 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
     // Phones can't render markdown — "**War**" reads as "War" on lock screens.
     // (The inbox gets the raw text via fullBody and renders it properly.)
     const message = stripDiscordMarkdown(
-      rawMessage
+      expandEmojiTokens(rawMessage)
         .replace(/<@[!&]?\d+>/g, "")
         .replace(/<#\d+>/g, "")
     )
