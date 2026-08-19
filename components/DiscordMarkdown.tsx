@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { parseDiscordMarkdown } from "@/lib/discordFormat";
 import type { MdSegment } from "@/lib/discordFormat";
+import { expandEmojiTokens } from "@/lib/emojis";
 
 // Renders Discord-flavoured markdown the way Discord would — used by the
 // alert inbox hero and the admin broadcast composer preview. Built from
@@ -92,6 +93,19 @@ function Segments({ segments }: { segments: MdSegment[] }) {
             {seg.label}
           </span>
         );
+      case "emoji": {
+        const ext = seg.animated ? "gif" : "png";
+        return (
+          <img
+            key={i}
+            src={`https://cdn.discordapp.com/emojis/${seg.id}.${ext}?size=48`}
+            alt={`:${seg.name}:`}
+            title={`:${seg.name}:`}
+            className="inline-block h-[1.15em] w-[1.15em] align-[-0.2em]"
+            loading="lazy"
+          />
+        );
+      }
       default:
         return <span key={i}>{seg.text}</span>;
     }
@@ -125,7 +139,9 @@ export default function DiscordMarkdown({
   text: string;
   className?: string;
 }) {
-  const blocks = useMemo(() => parseDiscordMarkdown(text), [text]);
+  // Expand {emoji:key} tokens to canonical <:name:id> BEFORE parsing so the
+  // parser's custom-emoji rule can turn them into rendered images.
+  const blocks = useMemo(() => parseDiscordMarkdown(expandEmojiTokens(text)), [text]);
   return (
     <div className={`space-y-1.5 ${className}`}>
       {blocks.map((block, i) => {
