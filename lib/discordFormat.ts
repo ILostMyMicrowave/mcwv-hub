@@ -12,6 +12,8 @@
 // how real broadcasts are written, and keeps this parser tiny and testable.
 // Tests: scripts/test-discord-format.mjs.
 
+import { expandEmojiTokens } from "@/lib/emojis";
+
 export type MdSegment =
   | { kind: "text"; text: string }
   | { kind: "bold"; text: string }
@@ -243,4 +245,51 @@ export function stripDiscordMarkdown(input: string): string {
     .replace(/^[-*]\s+(?=\S)/gm, "");
 
   return text;
+}
+
+// Representative values for broadcast placeholders, so previews and inbox rows
+// show something readable instead of a literal "{ping}" token. Mirrors the
+// sample recipient values the admin composer preview uses.
+const PLACEHOLDER_SAMPLE: Record<string, string> = {
+  ping: "@Member",
+  mention: "@Member",
+  username: "Member",
+  points: "0",
+  pph: "0",
+  change5m: "0",
+  rank: "—",
+  clan_rank: "#12",
+  war_time_left: "2d 4h",
+  next_player: "NextPlayerUp",
+  next_rank_gap: "1,250",
+  roblox_id: "123456",
+  discord_id: "123456789012345678",
+  role: "member",
+  ticket: "#ticket",
+};
+
+// Replace "{name}" placeholder tokens with representative sample values for
+// preview contexts (admin preview, inbox rows, hero). Unknown tokens are left
+// intact so a typo is visible rather than silently swallowed.
+export function resolvePlaceholders(input: string): string {
+  return String(input ?? "").replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_m, key: string) => {
+    return PLACEHOLDER_SAMPLE[key] ?? `{${key}}`;
+  });
+}
+
+// A clean preview string with markdown markers stripped, emoji tokens expanded,
+// and placeholders resolved. Emojis are returned as their canonical
+// "<:name:id>" form so a caller can render them as images.
+export function buildInboxPreview(input: string): string {
+  let text = expandEmojiTokens(String(input ?? ""));
+  // Protect emoji tags while we strip markdown, so they survive as images
+  // instead of collapsing to just their name.
+  const emojiSlots: string[] = [];
+  text = text.replace(/<(a)?:([A-Za-z0-9_]{1,32}):(\d{15,})>/g, (full) => {
+    emojiSlots.push(full);
+    return `\u0000${emojiSlots.length - 1}\u0000`;
+  });
+  let clean = stripDiscordMarkdown(text).replace(/\s+/g, " ").trim();
+  clean = resolvePlaceholders(clean);
+  return clean.replace(/\u0000(\d+)\u0000/g, (_m, i) => emojiSlots[Number(i)] ?? "");
 }
