@@ -896,15 +896,33 @@ function MiniLineChart({
     return `${x},${y}`;
   });
 
+  const firstVal = values[0];
+  const lastVal = values[values.length - 1];
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-56 w-full overflow-visible">
+    <div className="rounded-2xl border border-white/10 bg-black/35 p-3 sm:p-4">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-52 w-full overflow-visible sm:h-60">
         <defs>
           <linearGradient id="playerChartFill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={accentColor} stopOpacity="0.35" />
             <stop offset="100%" stopColor={accentColor} stopOpacity="0" />
           </linearGradient>
         </defs>
+        {/* Horizontal gridlines */}
+        {[0.25, 0.5, 0.75].map((f) => {
+          const y = height - padding - f * (height - padding * 2);
+          return (
+            <line
+              key={f}
+              x1={padding}
+              y1={y}
+              x2={width - padding}
+              y2={y}
+              stroke="rgba(255,255,255,0.06)"
+              strokeWidth="1"
+            />
+          );
+        })}
         <polyline
           className="chart-fade"
           points={`${padding},${height - padding} ${coords.join(" ")} ${width - padding},${height - padding}`}
@@ -915,9 +933,33 @@ function MiniLineChart({
         {coords.map((coord, index) => {
           if (index !== coords.length - 1 && index !== 0) return null;
           const [x, y] = coord.split(",").map(Number);
-          return <circle key={coord} className="chart-fade" cx={x} cy={y} r="5" fill={accentColor} />;
+          return <circle key={coord} className="chart-fade" cx={x} cy={y} r="5" fill={accentColor} stroke="rgba(0,0,0,0.5)" strokeWidth="2" />;
         })}
       </svg>
+
+      {/* Summary strip */}
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Start</div>
+          <div className="mt-0.5 truncate text-sm font-bold text-zinc-200">{formatNumber(firstVal)}</div>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Now</div>
+          <div className="mt-0.5 truncate text-sm font-bold" style={{ color: accentColor }}>
+            {formatNumber(lastVal)}
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Δ</div>
+          <div
+            className={`mt-0.5 truncate text-sm font-bold ${lastVal >= firstVal ? "text-emerald-300" : "text-red-300"}`}
+          >
+            {lastVal >= firstVal ? "+" : ""}
+            {formatNumber(lastVal - firstVal)}
+          </div>
+        </div>
+      </div>
+
       <div className="mt-2 flex justify-between text-xs text-zinc-500">
         <span>{new Date(chartSeries[0].time).toLocaleDateString()}</span>
         <span>{points.length === 1 ? "First snapshot" : new Date(chartSeries[chartSeries.length - 1].time).toLocaleDateString()}</span>
@@ -1003,48 +1045,85 @@ function PlayerMiniProfile({
   const historicalProfile = Boolean(battleId);
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:px-4 sm:py-6">
       <button className="modal-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
-      <div className="modal-panel animate-scale-in relative z-10 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border shadow-2xl" style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}>
+      <div
+        className="modal-panel animate-scale-in relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border shadow-2xl sm:max-h-[90vh] sm:rounded-3xl sm:max-w-5xl"
+        style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}
+      >
         <BackgroundLayer style={style} />
         <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" />
-        <div className="relative p-6 sm:p-8">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-              <AvatarWithFrame entry={entry} size="lg" />
-              <div>
-                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.28em]" style={{ color: style.accentColor }}>
-                  <span>Rank #{entry.rank}</span>
-                  {historicalProfile && (
-                    <span className="rounded-full border border-sky-300/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.18em] text-sky-200">
-                      Frozen war snapshot
-                    </span>
-                  )}
-                </div>
-                <h2 className="mt-1 text-4xl font-bold text-white" style={fontStyle(style)}>{entry.name}</h2>
-                <p className="mt-2 max-w-xl text-sm italic text-zinc-300" style={fontStyle(style)}>{style.bio || "No bio yet. Customise your card to add one."}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {style.badges?.length ? (
-                    style.badges.map((badge) => <BadgePill key={badge} badgeKey={badge} presets={badgePresets} />)
-                  ) : (
-                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">
-                      {entry.discord_id ? "Discord linked" : "Roblox member"}
-                    </span>
-                  )}
-                </div>
+        <div className="relative overflow-y-auto p-5 pb-8 sm:p-8">
+          {/* Close button pinned top-right, always reachable on mobile */}
+          <button
+            className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/60 text-lg text-white shadow-lg transition hover:bg-black/80 hover:text-zinc-200"
+            onClick={onClose}
+            aria-label="Close profile"
+          >
+            ✕
+          </button>
+
+          <div className="flex flex-col items-center gap-4 pr-10 text-center sm:flex-row sm:items-start sm:gap-5 sm:pr-0 sm:text-left">
+            <AvatarWithFrame entry={entry} size="lg" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center justify-center gap-2 text-xs uppercase tracking-[0.28em] sm:justify-start" style={{ color: style.accentColor }}>
+                <span>Rank #{entry.rank}</span>
+                {historicalProfile && (
+                  <span className="rounded-full border border-sky-300/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.18em] text-sky-200">
+                    Frozen war snapshot
+                  </span>
+                )}
+              </div>
+              <h2 className="mt-1 text-3xl font-bold text-white sm:text-4xl" style={fontStyle(style)}>{entry.name}</h2>
+              <p className="mx-auto mt-2 max-w-xl text-sm italic text-zinc-300 sm:mx-0" style={fontStyle(style)}>{style.bio || "No bio yet. Customise your card to add one."}</p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
+                {style.badges?.length ? (
+                  style.badges.map((badge) => <BadgePill key={badge} badgeKey={badge} presets={badgePresets} />)
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-zinc-200">
+                    {entry.discord_id ? "Discord linked" : "Roblox member"}
+                  </span>
+                )}
               </div>
             </div>
-            <button className="admin-button" onClick={onClose}>×</button>
           </div>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-4">
-            <MiniProfileStat label="Battle Points" value={formatPoints(entry.points)} />
-            <MiniProfileStat label={historicalProfile ? "Final PPH" : "PPH"} value={pph > 0 ? formatNumber(pph) : "—"} />
-            <MiniProfileStat label={historicalProfile ? "Final 5m" : "5m Change"} value={change5m > 0 ? `+${formatNumber(change5m)}` : "—"} />
-            <MiniProfileStat label={historicalProfile ? "Live Disconnects" : "Disconnects 24h"} value={historicalProfile ? "—" : String(disconnects24h)} />
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            <MiniProfileStat
+              label="Battle Points"
+              icon="⚔️"
+              accent={style.accentColor}
+              value={
+                typeof entry.points === "number" ? (
+                  <FlowNumber value={entry.points} />
+                ) : (
+                  formatPoints(entry.points)
+                )
+              }
+            />
+            <MiniProfileStat
+              label={historicalProfile ? "Final PPH" : "PPH"}
+              icon="⚡"
+              accent={style.accentColor}
+              value={pph > 0 ? formatNumber(pph) : "—"}
+            />
+            <MiniProfileStat
+              label={historicalProfile ? "Final 5m" : "5m Change"}
+              icon="📈"
+              accent={change5m > 0 ? style.accentColor : undefined}
+              value={change5m > 0 ? `+${formatNumber(change5m)}` : "—"}
+              highlight={change5m > 0}
+            />
+            <MiniProfileStat
+              label={historicalProfile ? "Live Disconnects" : "Disconnects 24h"}
+              icon="⚠️"
+              accent={style.accentColor}
+              value={historicalProfile ? "—" : String(disconnects24h)}
+              highlight={(disconnects24h ?? 0) > 0}
+            />
           </div>
 
-          <div className="mt-6 rounded-3xl border border-white/10 bg-black/45 p-5">
+          <div className="mt-6 rounded-3xl border border-white/10 bg-black/45 p-4 sm:p-5">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Player History</h3>
@@ -1052,21 +1131,35 @@ function PlayerMiniProfile({
                   {historicalProfile ? "Frozen to the selected historical war" : "Points • Rank • Disconnects"}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {(["points", "rank", "disconnects"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    className="rounded-full border px-3 py-1 text-xs capitalize"
-                    style={{
-                      borderColor: historyTab === tab ? `${style.accentColor}88` : "rgba(255,255,255,0.12)",
-                      background: historyTab === tab ? `${style.accentColor}22` : "rgba(255,255,255,0.04)",
-                      color: historyTab === tab ? style.accentColor : "rgb(212 212 216)",
-                    }}
-                    onClick={() => setHistoryTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="flex w-full gap-1.5 rounded-full border border-white/10 bg-black/30 p-1 sm:w-auto">
+                {([
+                  { id: "points", label: "Points", icon: "⚔️" },
+                  { id: "rank", label: "Rank", icon: "#️⃣" },
+                  { id: "disconnects", label: "Disconnects", icon: "⚠️" },
+                ] as const).map((tab) => {
+                  const active = historyTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      className="relative flex-1 rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors sm:flex-none sm:px-3 sm:py-1"
+                      style={{ color: active ? "#000" : "rgb(212 212 216)" }}
+                      onClick={() => setHistoryTab(tab.id)}
+                    >
+                      {active && (
+                        <motion.span
+                          layoutId={`history-tab-${entry.user_id}`}
+                          className="absolute inset-0 rounded-full"
+                          style={{ background: style.accentColor }}
+                          transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-1.5">
+                        <span>{tab.icon}</span>
+                        <span>{tab.label}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             {historyLoading ? (
@@ -1082,11 +1175,11 @@ function PlayerMiniProfile({
             )}
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <a className="admin-button" href={`https://www.roblox.com/users/${entry.user_id}/profile`} target="_blank" rel="noreferrer">Open Roblox Profile ↗</a>
-            <a className="admin-button" href={`/profile/${entry.user_id}`}>Open MCWV Profile</a>
+          <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:gap-3">
+            <a className="admin-button w-full text-center sm:w-auto" href={`https://www.roblox.com/users/${entry.user_id}/profile`} target="_blank" rel="noreferrer">Open Roblox Profile ↗</a>
+            <a className="admin-button w-full text-center sm:w-auto" href={`/profile/${entry.user_id}`}>Open MCWV Profile</a>
             {officerTools && (
-              <button type="button" className="admin-button" onClick={() => onEditCard(entry)}>Officer Override Card</button>
+              <button type="button" className="admin-button w-full text-center sm:w-auto" onClick={() => onEditCard(entry)}>Officer Override Card</button>
             )}
           </div>
         </div>
@@ -1095,11 +1188,35 @@ function PlayerMiniProfile({
   );
 }
 
-function MiniProfileStat({ label, value }: { label: string; value: string }) {
+function MiniProfileStat({
+  label,
+  value,
+  icon,
+  accent,
+  highlight = false,
+}: {
+  label: string;
+  value: ReactNode;
+  icon?: string;
+  accent?: string;
+  highlight?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
-      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{label}</div>
-      <div className="mt-2 text-xl font-bold text-white">{value}</div>
+    <div
+      className={`rounded-2xl border bg-black/35 p-3.5 transition-all duration-300 hover:-translate-y-0.5 sm:p-4 ${
+        highlight ? "border-amber-400/30 shadow-[0_0_18px_rgba(251,191,36,0.12)]" : "border-white/10"
+      }`}
+    >
+      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+        {icon ? <span className="text-sm">{icon}</span> : null}
+        <span>{label}</span>
+      </div>
+      <div
+        className="mt-2 truncate text-xl font-bold text-white sm:text-2xl"
+        style={highlight && accent ? { color: accent } : undefined}
+      >
+        {value}
+      </div>
     </div>
   );
 }
