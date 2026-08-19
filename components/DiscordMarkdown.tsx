@@ -1,10 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { parseDiscordMarkdown } from "@/lib/discordFormat";
+import { parseDiscordMarkdown, formatTimestamp } from "@/lib/discordFormat";
 import type { MdSegment } from "@/lib/discordFormat";
 import { expandEmojiTokens } from "@/lib/emojis";
+
+// Renders a Discord timestamp; for relative (R) it re-renders every 30s so it
+// stays accurate like the Discord client.
+function LiveTimestamp({ seconds, style }: { seconds: number; style: string }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (style === "r") {
+      const id = setInterval(() => tick((v) => v + 1), 30_000);
+      return () => clearInterval(id);
+    }
+  }, [style]);
+  const text = formatTimestamp(seconds, style);
+  const title = formatTimestamp(seconds, "F");
+  return (
+    <time
+      dateTime={new Date(seconds * 1000).toISOString()}
+      title={title}
+      className="inline-block cursor-default rounded-md bg-white/10 px-1.5 py-0.5 text-[0.92em] font-medium text-zinc-200"
+    >
+      {text}
+    </time>
+  );
+}
 
 // Renders Discord-flavoured markdown the way Discord would — used by the
 // alert inbox hero and the admin broadcast composer preview. Built from
@@ -106,6 +129,8 @@ function Segments({ segments }: { segments: MdSegment[] }) {
           />
         );
       }
+      case "timestamp":
+        return <LiveTimestamp key={i} seconds={seg.seconds} style={seg.style} />;
       default:
         return <span key={i}>{seg.text}</span>;
     }
