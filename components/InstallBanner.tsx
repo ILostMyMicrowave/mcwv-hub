@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+import {
+  APP_INSTALLED_EVENT,
+  INSTALL_READY_EVENT,
+  clearDeferredInstallPrompt,
+  getDeferredInstallPrompt,
+  type BeforeInstallPromptEvent,
+} from "@/lib/pwaInstall";
 
 type IosNavigator = Navigator & { standalone?: boolean };
 
@@ -30,21 +32,18 @@ function isStandalone() {
 export default function InstallBanner() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
-  const [isIos, setIsIos] = useState(false);
   const [show, setShow] = useState(false);
   const [warActive, setWarActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const pathname = usePathname() ?? "";
 
   useEffect(() => {
-    if (isStandalone()) {
+    if (isStandalone() || window.__mcwvAppInstalled === true) {
       setInstalled(true);
       return;
     }
 
-    setIsIos(/iphone|ipad|ipod/i.test(navigator.userAgent));
-
-    // Track visit count
+    // Track visit count.
     let visits = 0;
     try {
       visits = parseInt(localStorage.getItem(VISIT_KEY) || "0", 10) + 1;
@@ -53,7 +52,7 @@ export default function InstallBanner() {
       visits = 99; // if localStorage fails, just show it
     }
 
-    // Check snooze
+    // Check snooze.
     let snoozed = false;
     try {
       const dismissedAt = localStorage.getItem(DISMISS_KEY);
@@ -65,32 +64,40 @@ export default function InstallBanner() {
       // if localStorage fails, don't snooze
     }
 
-    if (visits >= MIN_VISITS && !snoozed) {
-      // Small delay so it slides in after page load
-      const timer = setTimeout(() => setShow(true), 1500);
-      return () => clearTimeout(timer);
-    }
+    let showTimer: ReturnType<typeof setTimeout> | null = null;
+    const reveal = () => {
+      if (showTimer !== null) return;
+      // Small delay so the banner slides in after page load.
+      showTimer = setTimeout(() => setShow(true), 1500);
+    };
 
-    // Listen for the install prompt event (Chrome/Edge/Android)
-    const onBeforeInstall = (event: Event) => {
-      event.preventDefault();
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
-      // If we haven't shown yet but the browser is ready, show now
-      // (but still respect the snooze)
-      if (!snoozed && visits >= 1) {
-        setTimeout(() => setShow(true), 1500);
-      }
+    const onInstallReady = () => {
+      setDeferredPrompt(getDeferredInstallPrompt());
+      // The browser is ready, so the banner may appear from the first visit.
+      if (!snoozed && visits >= 1) reveal();
     };
     const onInstalled = () => {
+      clearDeferredInstallPrompt();
       setInstalled(true);
       setShow(false);
       setDeferredPrompt(null);
     };
-    window.addEventListener("beforeinstallprompt", onBeforeInstall);
-    window.addEventListener("appinstalled", onInstalled);
+
+    // The root-layout script captures beforeinstallprompt before hydration.
+    // Always register these listeners, including on the normal 3-visit path.
+    window.addEventListener(INSTALL_READY_EVENT, onInstallReady);
+    window.addEventListener(APP_INSTALLED_EVENT, onInstalled);
+
+    const capturedPrompt = getDeferredInstallPrompt();
+    setDeferredPrompt(capturedPrompt);
+    if (!snoozed && (visits >= MIN_VISITS || capturedPrompt !== null)) {
+      reveal();
+    }
+
     return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
-      window.removeEventListener("appinstalled", onInstalled);
+      if (showTimer !== null) clearTimeout(showTimer);
+      window.removeEventListener(INSTALL_READY_EVENT, onInstallReady);
+      window.removeEventListener(APP_INSTALLED_EVENT, onInstalled);
     };
   }, []);
 
@@ -122,23 +129,35 @@ export default function InstallBanner() {
   }
 
   async function install() {
-    if (deferredPrompt) {
-      setBusy(true);
-      try {
-        await deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
-        if (choice.outcome === "accepted") {
-          setDeferredPrompt(null);
-          setShow(false);
-        }
-      } finally {
-        setBusy(false);
-      }
-    } else if (isIos) {
-      // iOS doesn't support beforeinstallprompt — scroll to settings where
-      // the full iOS install instructions are
+    const prompt = deferredPrompt ?? getDeferredInstallPrompt();
+    if (!prompt) {
+      // There is no standards-based way to force the native dialog in browsers
+      // that do not expose beforeinstallprompt. Never leave a dead button:
+      // send the user to device-specific, actionable instructions instead.
       window.location.href = "/settings#install";
+      return;
     }
+
+    setBusy(true);
+    let promptFailed = false;
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+
+      // beforeinstallprompt objects can only be used once, including after a
+      // dismissal. Clear this exact object without clobbering a newer event.
+      clearDeferredInstallPrompt(prompt);
+      setDeferredPrompt(null);
+      if (choice.outcome === "accepted") setShow(false);
+    } catch {
+      clearDeferredInstallPrompt(prompt);
+      setDeferredPrompt(null);
+      promptFailed = true;
+    } finally {
+      setBusy(false);
+    }
+
+    if (promptFailed) window.location.href = "/settings#install";
   }
 
   if (installed || !show) return null;
@@ -233,7 +252,7 @@ export default function InstallBanner() {
                   color: "#000",
                 }}
               >
-                {busy ? "…" : "Install"}
+                {busy ? "…" : deferredPrompt ? "Install" : "How to install"}
               </button>
               <button
                 type="button"
