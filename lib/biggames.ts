@@ -71,6 +71,23 @@ async function ensureBigGamesTables() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Applicant tokens: keyed by Discord ID so an applicant who does NOT have a
+  // hub account (and shouldn't create one) can still authorise the app before
+  // applying. Stored separately so we never touch the hub-member token table.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS big_games_discord_tokens (
+      discord_id TEXT PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT '',
+      roblox_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  // Allow the no-login applicant OAuth flow: PKCE records can be keyed by
+  // discord_id instead of a hub user_id.
+  await pool.query(`ALTER TABLE big_games_pkce ADD COLUMN IF NOT EXISTS discord_id TEXT`);
+  await pool.query(`ALTER TABLE big_games_pkce ALTER COLUMN user_id DROP NOT NULL`);
 }
 
 export async function savePkce(state: string, userId: number, verifier: string) {
@@ -78,15 +95,25 @@ export async function savePkce(state: string, userId: number, verifier: string) 
   await pool.query(
     `INSERT INTO big_games_pkce (state, user_id, code_verifier)
      VALUES ($1, $2, $3)
-     ON CONFLICT (state) DO UPDATE SET user_id = EXCLUDED.user_id, code_verifier = EXCLUDED.code_verifier`,
+     ON CONFLICT (state) DO UPDATE SET user_id = EXCLUDED.user_id, discord_id = NULL, code_verifier = EXCLUDED.code_verifier`,
     [state, userId, verifier]
+  );
+}
+
+export async function savePkceByDiscord(state: string, discordId: string, verifier: string) {
+  await ensureBigGamesTables();
+  await pool.query(
+    `INSERT INTO big_games_pkce (state, discord_id, code_verifier)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (state) DO UPDATE SET discord_id = EXCLUDED.discord_id, user_id = NULL, code_verifier = EXCLUDED.code_verifier`,
+    [state, discordId, verifier]
   );
 }
 
 export async function consumePkce(state: string) {
   await ensureBigGamesTables();
   const { rows } = await pool.query(
-    `SELECT user_id, code_verifier FROM big_games_pkce WHERE state = $1 LIMIT 1`,
+    `SELECT user_id, discord_id, code_verifier FROM big_games_pkce WHERE state = $1 LIMIT 1`,
     [state]
   );
   if (rows[0]) {
@@ -142,6 +169,66 @@ export async function getTokenStatus(userId: number) {
 export async function deleteAccessToken(userId: number) {
   await ensureBigGamesTables();
   await pool.query(`DELETE FROM big_games_tokens WHERE user_id = $1`, [userId]);
+}
+
+// ---------------------------------------------------------------------------
+// Applicant tokens — keyed by Discord ID (no hub account needed).
+// ---------------------------------------------------------------------------
+
+export async function saveDiscordAccessToken(
+  discordId: string,
+  accessToken: string,
+  scope: string,
+  robloxId: string | null
+) {
+  await ensureBigGamesTables();
+  await pool.query(
+    `INSERT INTO big_games_discord_tokens (discord_id, access_token, scope, roblox_id, updated_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (discord_id) DO UPDATE SET
+       access_token = EXCLUDED.access_token,
+       scope = EXCLUDED.scope,
+       roblox_id = EXCLUDED.roblox_id,
+       updated_at = NOW()`,
+    [discordId, accessToken, scope, robloxId]
+  );
+}
+
+export async function getDiscordAccessToken(discordId: string): Promise<string | null> {
+  await ensureBigGamesTables();
+  const { rows } = await pool.query(
+    `SELECT access_token FROM big_games_discord_tokens WHERE discord_id = $1 LIMIT 1`,
+    [discordId]
+  );
+  return rows[0]?.access_token ?? null;
+}
+
+// Validated status for an applicant (token checked against BIG Games).
+export async function getTokenStatusByDiscord(discordId: string) {
+  await ensureBigGamesTables();
+  const { rows } = await pool.query(
+    `SELECT access_token, scope, roblox_id, updated_at
+     FROM big_games_discord_tokens WHERE discord_id = $1 LIMIT 1`,
+    [discordId]
+  );
+  if (!rows[0]) return null;
+
+  const check = await validateBigGamesToken(rows[0].access_token);
+  if (!check.valid) {
+    await pool.query(`DELETE FROM big_games_discord_tokens WHERE discord_id = $1`, [discordId]);
+    return null;
+  }
+  return {
+    connected: true,
+    robloxId: rows[0].roblox_id ?? null,
+    scope: rows[0].scope ?? "",
+    updatedAt: rows[0].updated_at instanceof Date ? rows[0].updated_at.toISOString() : String(rows[0].updated_at),
+  };
+}
+
+export async function deleteDiscordAccessToken(discordId: string) {
+  await ensureBigGamesTables();
+  await pool.query(`DELETE FROM big_games_discord_tokens WHERE discord_id = $1`, [discordId]);
 }
 
 // ---------------------------------------------------------------------------
