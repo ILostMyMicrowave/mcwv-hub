@@ -97,7 +97,7 @@ export default function WarProfilesPage() {
   const connected = members.filter((m) => m.connected);
   const avgGems = avg(connected.map((m) => m.gems));
   const avgMastery = avg(connected.map((m) => m.masteryAverage));
-  const avgRankStars = avg(connected.map((m) => m.rankStars));
+  const avgRankStars = avg(connected.map((m) => m.rank));
 
   // Gem leaderboard: connected members with gems, sorted desc.
   const gemBoard = useMemo(
@@ -320,7 +320,7 @@ function RosterTab(props: {
               <th className="px-3 py-2.5">Role</th>
               <th className="px-3 py-2.5">Gems</th>
               <th className="px-3 py-2.5">Mastery</th>
-              <th className="px-3 py-2.5">Stars</th>
+              <th className="px-3 py-2.5">Rank</th>
               <th className="px-3 py-2.5">Gamepass</th>
               <th className="px-3 py-2.5">Status</th>
             </tr>
@@ -338,7 +338,7 @@ function RosterTab(props: {
                   {m.connected ? fmt(m.gems) : "—"}
                 </td>
                 <td className="px-3 py-2 text-zinc-200">{m.connected ? fmt(m.masteryAverage) : "—"}</td>
-                <td className="px-3 py-2 text-zinc-200">{m.connected ? fmt(m.rankStars) : "—"}</td>
+                <td className="px-3 py-2 text-zinc-200">{m.connected ? (m.rank ?? "—") : "—"}</td>
                 <td className="px-3 py-2 text-xs text-zinc-400">{m.connected ? (m.gamepasses.length ? m.gamepasses.slice(0, 2).join(", ") : "—") : "—"}</td>
                 <td className="px-3 py-2">
                   {m.connected ? (
