@@ -652,6 +652,7 @@ export async function GET(
           {
             status: "error",
             error: { code: "player_not_found" },
+            viewerIsOwner,
           },
           {
             status: 404,
