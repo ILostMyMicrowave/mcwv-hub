@@ -2,6 +2,7 @@
 
 import Navbar from "@/components/Navbar";
 import FlowNumber from "@/components/FlowNumber";
+import BigGamesConnect from "@/components/BigGamesConnect";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -832,6 +833,10 @@ export default function ProfilePage() {
               <StatPill label="Sessions" value={formatNumber(summary?.totalSessions)} numericValue={summary?.totalSessions ?? 0} animate={true} />
               <StatPill label="Zones Unlocked" value={formatNumber(summary?.zonesUnlockedCount)} numericValue={summary?.zonesUnlockedCount ?? 0} animate={true} />
               <StatPill label="Achievements" value={formatNumber(summary?.achievementsCount)} numericValue={summary?.achievementsCount ?? 0} animate={true} />
+            </div>
+
+            <div className="mt-6">
+              <BigGamesConnect isMe={slug === "me"} />
             </div>
           </div>
 
