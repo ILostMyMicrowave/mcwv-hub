@@ -5,6 +5,7 @@ import UserSync from "@/components/UserSync";
 import OnboardingTour from "@/components/OnboardingTour";
 import WarReturnRecap from "@/components/WarReturnRecap";
 import BootIntroGate from "@/components/BootIntroGate";
+import BigGamesGate from "@/components/BigGamesGate";
 import GlobalAssistant from "@/components/GlobalAssistant";
 import AppBadgeSync from "@/components/AppBadgeSync";
 import InstallBanner from "@/components/InstallBanner";
@@ -179,6 +180,7 @@ export default function RootLayout({
         <BootIntroGate />
         <UserSync />
         <AppBadgeSync />
+        <BigGamesGate />
         {children}
         <GlobalAssistant />
         <InstallBanner />
