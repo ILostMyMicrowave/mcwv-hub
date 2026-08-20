@@ -15,9 +15,11 @@ import { usePathname } from "next/navigation";
 const EXEMPT_PATHS = ["/login", "/signup", "/profile/me", "/privacy", "/terms"];
 
 function isExempt(pathname: string) {
-  // login/signup are public; /profile/me is where you connect.
+  // login/signup are public; /profile/me is where you connect; legal pages
+  // must always be readable even if not connected.
   if (pathname === "/login" || pathname === "/signup") return true;
   if (pathname === "/profile/me") return true;
+  if (pathname === "/privacy" || pathname === "/terms") return true;
   return false;
 }
 
