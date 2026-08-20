@@ -51,7 +51,27 @@ export async function POST(request: Request) {
 
     let connected = false;
     let robloxIdConnected: string | null = null;
-    if (robloxIdForCheck) {
+
+    // 1) Applicant path: token keyed directly by Discord ID (no hub account).
+    if (discordId && !connected) {
+      const dToken = await pool.query(
+        `SELECT access_token, roblox_id FROM big_games_discord_tokens WHERE discord_id = $1 LIMIT 1`,
+        [discordId]
+      );
+      const dRow = dToken.rows[0];
+      if (dRow) {
+        const check = await validateBigGamesToken(dRow.access_token);
+        if (check.valid) {
+          connected = true;
+          robloxIdConnected = dRow.roblox_id ?? null;
+        } else {
+          await pool.query(`DELETE FROM big_games_discord_tokens WHERE discord_id = $1`, [discordId]);
+        }
+      }
+    }
+
+    // 2) Member path: token keyed by the user's linked Roblox id.
+    if (robloxIdForCheck && !connected) {
       const token = await pool.query(
         `SELECT roblox_id, access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
         [robloxIdForCheck]
