@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
-import { deleteAccessToken } from "@/lib/biggames";
+import { bigGamesConfigured, getTokenStatus } from "@/lib/biggames";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+// Tells the profile page whether the current user has authorized BIG Games.
+export async function GET() {
   const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
 
-  await deleteAccessToken(auth.user.id);
-  return NextResponse.json({ success: true });
+  const status = await getTokenStatus(auth.user.id);
+  return NextResponse.json({
+    success: true,
+    configured: bigGamesConfigured(),
+    connected: Boolean(status),
+    status,
+  });
 }
