@@ -11,6 +11,7 @@ export type MemberProfile = {
   // stats (null when not connected / not available)
   gems: number | null;
   masteryAverage: number | null;
+  rank: number | null;
   rankStars: number | null;
   // Change over the current war (most recent snapshot minus earliest in window).
   gemDelta: number | null;
@@ -76,6 +77,7 @@ export function parseProfileView(profileData: Record<string, any> | null) {
   return {
     gems: extractDiamonds(profileData),
     masteryAverage,
+    rank: toNumber(getNested(profileData, ["Rank"])),
     rankStars: toNumber(getNested(profileData, ["RankStars"])),
   };
 }
