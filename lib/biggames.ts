@@ -145,6 +145,67 @@ export async function deleteAccessToken(userId: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Token validation — detect revokes / expired tokens.
+// ---------------------------------------------------------------------------
+
+// Calls the BIG Games API with the stored token to confirm it is still valid.
+// BIG Games returns 401 when the user has revoked the app or the token has
+// expired (they last 30 days with no refresh). We must not trust the local
+// `big_games_tokens` row alone, otherwise someone who revokes the app (or whose
+// token lapses) keeps passing the application gate.
+//
+// Conservative on 5xx / network errors: we return `valid: true` so a transient
+// BIG Games outage never falsely locks a legitimately-connected user out.
+export async function validateBigGamesToken(
+  accessToken: string
+): Promise<{ valid: boolean; status?: number; reason?: string }> {
+  if (!accessToken) return { valid: false, reason: "no_token" };
+  try {
+    const res = await fetch(`${BIG_GAMES_API}/v1/account/profile`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 200) return { valid: true, status: res.status };
+    if (res.status === 401 || res.status === 403) {
+      return { valid: false, status: res.status, reason: "unauthorized" };
+    }
+    // 5xx or anything unexpected — do not false-lock.
+    return { valid: true, status: res.status, reason: "unexpected_status" };
+  } catch (err) {
+    // Network timeout / DNS failure — assume the stored token is still fine.
+    return { valid: true, reason: "unreachable" };
+  }
+}
+
+// Like getTokenStatus, but verifies the token against BIG Games first. If the
+// token is revoked/expired it clears the stale row and returns null, so the
+// site gate and the profile UI treat the user as "not connected".
+export async function getValidatedTokenStatus(userId: number) {
+  await ensureBigGamesTables();
+  const { rows } = await pool.query(
+    `SELECT access_token, scope, roblox_id, updated_at
+     FROM big_games_tokens WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  );
+  if (!rows[0]) return null;
+
+  const check = await validateBigGamesToken(rows[0].access_token);
+  if (!check.valid) {
+    await pool.query(`DELETE FROM big_games_tokens WHERE user_id = $1`, [userId]);
+    return null;
+  }
+
+  return {
+    connected: true,
+    robloxId: rows[0].roblox_id ?? null,
+    scope: rows[0].scope ?? "",
+    updatedAt: rows[0].updated_at instanceof Date ? rows[0].updated_at.toISOString() : String(rows[0].updated_at),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Exchange an authorization code for an access token (server-side).
 // ---------------------------------------------------------------------------
 
