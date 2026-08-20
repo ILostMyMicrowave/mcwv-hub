@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Navbar from "@/components/Navbar";
 import type { MemberProfile, WarTimelinePoint } from "@/lib/profiles";
 
 type Tab = "roster" | "gems" | "detail" | "gamepass" | "improved" | "timeline";
@@ -122,6 +123,18 @@ export default function WarProfilesPage() {
     }));
   }, [connected]);
 
+  // Fun/aggregate clan stats.
+  const clanStats = useMemo(() => {
+    const withGems = connected.filter((m) => m.gems !== null);
+    const totalGems = withGems.reduce((a, m) => a + (m.gems ?? 0), 0);
+    const totalRobux = connected.reduce((a, m) => a + (m.robuxSpent ?? 0), 0);
+    const totalEggs = connected.reduce((a, m) => a + (m.eggsHatched ?? 0), 0);
+    const totalSessions = connected.reduce((a, m) => a + (m.totalSessions ?? 0), 0);
+    const richest = [...withGems].sort((a, b) => (b.gems ?? 0) - (a.gems ?? 0))[0] ?? null;
+    const mostRebirths = [...connected].filter((m) => m.rebirths !== null).sort((a, b) => (b.rebirths ?? 0) - (a.rebirths ?? 0))[0] ?? null;
+    return { totalGems, totalRobux, totalEggs, totalSessions, richest, mostRebirths };
+  }, [connected]);
+
   const selectedMember = selected ? members.find((m) => m.robloxId === selected) ?? null : null;
 
   if (loading)
@@ -147,7 +160,9 @@ export default function WarProfilesPage() {
     );
 
   return (
-    <main className="min-h-screen bg-[#070b1a] px-3 py-5 text-zinc-200 sm:px-5">
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-[#070b1a] px-3 py-5 text-zinc-200 sm:px-5">
       <div className="mx-auto max-w-6xl">
         <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -171,9 +186,21 @@ export default function WarProfilesPage() {
         {/* Charts row */}
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <MiniHist label="Gems" values={connected.map((m) => m.gems)} color="bg-violet-500" />
-          <MiniHist label="Mastery" values={connected.map((m) => m.masteryAverage)} color="bg-sky-500" />
+          <MiniHist label="Mastery Avg" values={connected.map((m) => m.masteryAverage)} color="bg-sky-500" />
           <MiniHist label="Rank" values={connected.map((m) => m.rank)} color="bg-emerald-500" />
           <MiniHist label="Robux Spent" values={connected.map((m) => m.robuxSpent)} color="bg-amber-500" />
+        </div>
+
+        {/* Fun clan stats */}
+        <div className="mt-4 rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/10 to-transparent p-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-violet-300">Clan Stats</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <FunStat label="Total Gems" value={fmt(clanStats.totalGems)} icon="💎" />
+            <FunStat label="Total Robux Spent" value={fmt(clanStats.totalRobux)} icon="💰" />
+            <FunStat label="Total Eggs Hatched" value={fmt(clanStats.totalEggs)} icon="🥚" />
+            <FunStat label="Total Sessions" value={fmt(clanStats.totalSessions)} icon="🕹️" />
+            <FunStat label="Richest Member" value={clanStats.richest?.username ?? "—"} icon="👑" />
+          </div>
         </div>
 
         {/* Tabs */}
@@ -224,7 +251,8 @@ export default function WarProfilesPage() {
 
         {tab === "timeline" && <TimelineTab points={warTimeline} />}
       </div>
-    </main>
+      </main>
+    </>
   );
 }
 
@@ -233,6 +261,18 @@ function Card({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-white/10 bg-white/5 p-3.5">
       <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{label}</div>
       <div className="mt-1 text-xl font-black text-white">{value}</div>
+    </div>
+  );
+}
+
+function FunStat({ label, value, icon }: { label: string; value: string; icon: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+        <span>{icon}</span>
+        <span>{label}</span>
+      </div>
+      <div className="mt-1 truncate text-lg font-black text-white">{value}</div>
     </div>
   );
 }
