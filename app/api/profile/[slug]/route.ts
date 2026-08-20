@@ -557,16 +557,28 @@ function accountEnvelope(json: any): Ps99ViewEnvelope | null {
 // or discord_id in big_games_discord_tokens.
 async function getTargetAccessToken(
   robloxId: string | null,
-  discordId: string | number | null
+  discordId: string | number | null,
+  userId: number | null = null
 ): Promise<string | null> {
-  if (!robloxId && !discordId) return null;
+  if (!robloxId && !discordId && !userId) return null;
   try {
+    // 1) Member tokens: big_games_tokens keyed by hub user_id OR roblox_id.
     if (robloxId) {
       const r = await pool.query(
         `SELECT access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
         [robloxId]
       );
       if (r.rows[0]?.access_token) return String(r.rows[0].access_token);
+    }
+    if (userId) {
+      const r = await pool.query(
+        `SELECT access_token FROM big_games_tokens WHERE user_id = $1 LIMIT 1`,
+        [userId]
+      );
+      if (r.rows[0]?.access_token) return String(r.rows[0].access_token);
+    }
+    // 2) Applicant tokens: big_games_discord_tokens by roblox_id or discord_id.
+    if (robloxId) {
       const r2 = await pool.query(
         `SELECT access_token FROM big_games_discord_tokens WHERE roblox_id = $1 LIMIT 1`,
         [robloxId]
@@ -664,7 +676,8 @@ export async function GET(
       const targetRid = await resolveRobloxIdFromSlug(targetSlug);
       accessToken = await getTargetAccessToken(
         targetRid,
-        mcwvUser?.discord_id ?? null
+        mcwvUser?.discord_id ?? null,
+        mcwvUser ? Number(mcwvUser.id) : null
       );
     }
 
