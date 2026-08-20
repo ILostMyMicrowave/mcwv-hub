@@ -57,22 +57,85 @@ function getNested(data: Record<string, any> | null, path: string[]): unknown {
   return cur;
 }
 
+const MASTERY_MAX_LEVEL = 99;
+const MASTERY_98_XP_CAP = 13034431;
+
+function normalizeNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 function extractDiamonds(profileData: Record<string, any> | null): number | null {
   if (!profileData) return null;
-  const root = getNested(profileData, ["data"]);
-  const source: any = root && typeof root === "object" ? root : profileData;
-  const currency = (getNested(source, ["Currency"]) || {}) as any;
-  const diamonds = currency?.Diamonds ?? source?.Diamonds ?? source?.Gems;
-  const n = Number(diamonds);
-  return Number.isFinite(n) ? Math.floor(n) : null;
+  const diamonds = profileData.Currency?.Diamonds ?? profileData.Diamonds ?? profileData.Gems;
+  if (diamonds && typeof diamonds === "object") {
+    const d = diamonds as Record<string, unknown>;
+    return (
+      normalizeNumber(d._am) ??
+      normalizeNumber(d.amount) ??
+      normalizeNumber(d.Amount) ??
+      normalizeNumber(d.value) ??
+      normalizeNumber(d.Value) ??
+      normalizeNumber(d.count) ??
+      normalizeNumber(d.Count) ??
+      null
+    );
+  }
+  return normalizeNumber(diamonds);
+}
+
+function masteryCumulativeXpForLevel(level: number): number {
+  const safeLevel = Math.max(0, Math.floor(level));
+  if (safeLevel <= 0) return 0;
+  let total = 0;
+  for (let i = 1; i < safeLevel; i++) {
+    total += Math.floor(0.25 * Math.floor(i + 300 * Math.pow(2, i / 7)));
+  }
+  if (safeLevel >= 99) total = MASTERY_98_XP_CAP;
+  return total;
+}
+
+function xpToMasteryLevel(xp: number): number {
+  if (!Number.isFinite(xp) || xp <= 0) return 0;
+  if (xp >= MASTERY_98_XP_CAP) return MASTERY_MAX_LEVEL;
+  let low = 0;
+  let high = MASTERY_MAX_LEVEL;
+  while (low < high) {
+    const mid = Math.ceil((low + high + 1) / 2);
+    if (masteryCumulativeXpForLevel(mid) <= xp) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}
+
+function normalizeMasteryEntry(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value <= MASTERY_MAX_LEVEL) return Math.max(0, Math.round(value));
+    return xpToMasteryLevel(value);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    if (Number.isFinite(n)) {
+      if (n <= MASTERY_MAX_LEVEL) return Math.max(0, Math.round(n));
+      return xpToMasteryLevel(n);
+    }
+  }
+  if (!value || typeof value !== "object") return null;
+  const obj = value as Record<string, unknown>;
+  const amount = obj._am ?? obj.amount ?? obj.Amount ?? obj.value ?? obj.Value ?? obj.count ?? obj.Count;
+  return normalizeMasteryEntry(amount);
 }
 
 function normalizeMasteryMap(raw: unknown): Record<string, number> | null {
   if (!raw || typeof raw !== "object") return null;
   const out: Record<string, number> = {};
   for (const [k, v] of Object.entries(raw)) {
-    const n = Number(v);
-    if (Number.isFinite(n)) out[k] = n;
+    const level = normalizeMasteryEntry(v);
+    if (level !== null) out[k] = Math.max(0, Math.min(MASTERY_MAX_LEVEL, Math.round(level)));
   }
   return Object.keys(out).length ? out : null;
 }
