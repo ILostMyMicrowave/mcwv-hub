@@ -188,7 +188,17 @@ export async function GET() {
           const pv = parseProfileView(profileData);
           const iv = parseInventoryView(inventoryData);
           const gp = parseGamepasses(extendedData);
-          stats = { ...pv, ...iv, gamepasses: gp };
+          // Robux spent lives in extendedProfile (lifetime spend).
+          let robuxSpent: number | null = null;
+          if (extendedData) {
+            const n = Number(
+              (extendedData as any)?.RobuxSpent ??
+                (extendedData as any)?.LifetimeRobuxSpent ??
+                (extendedData as any)?.robuxSpent
+            );
+            if (Number.isFinite(n)) robuxSpent = n;
+          }
+          stats = { ...pv, ...iv, gamepasses: gp, robuxSpent };
           statsCache.set(cacheKey, { at: Date.now(), data: stats });
           await recordGemSnapshot(robloxId || id, pv?.gems ?? null);
         }
@@ -205,11 +215,23 @@ export async function GET() {
         masteryAverage: stats?.masteryAverage ?? null,
         rank: stats?.rank ?? null,
         rankStars: stats?.rankStars ?? null,
+        rebirths: stats?.rebirths ?? null,
+        eggsHatched: stats?.eggsHatched ?? null,
+        totalSessions: stats?.totalSessions ?? null,
+        zonesUnlocked: stats?.zonesUnlocked ?? null,
+        achievementsCount: stats?.achievementsCount ?? null,
+        goalsCompleted: stats?.goalsCompleted ?? null,
+        boothDiamondsEarned: stats?.boothDiamondsEarned ?? null,
+        robuxSpent: stats?.robuxSpent ?? null,
+        firstJoin: stats?.firstJoin ?? null,
+        lastJoin: stats?.lastJoin ?? null,
+        mastery: stats?.mastery ?? null,
         gemDelta: gemDeltas.get(robloxId) ?? null,
         gamepasses: stats?.gamepasses ?? [],
         equippedPets: stats?.equippedPets ?? [],
         ultimate: stats?.ultimate ?? null,
         hoverboard: stats?.hoverboard ?? null,
+        booth: stats?.booth ?? null,
       });
     }
 
