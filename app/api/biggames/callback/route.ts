@@ -8,14 +8,17 @@ import {
   consumePkce,
   exchangeCode,
   saveAccessToken,
+  saveDiscordAccessToken,
 } from "@/lib/biggames";
-import { pool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 // OAuth callback. BIG Games redirects here with ?code=...&state=...
-// We verify state (CSRF), exchange the code for an access token, store it
-// against the hub user, then send them back to their profile.
+// Two flows:
+//  1) Applicant flow: the PKCE record is keyed by a Discord ID (no hub account
+//     needed). We store the token keyed by Discord ID so the bot can see it.
+//  2) Member flow: the PKCE record is keyed by a hub user_id -> requires the
+//     hub session, and stores the token against the hub user.
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -26,18 +29,10 @@ export async function GET(req: Request) {
   const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
 
   if (error === "access_denied") {
-    return redirectToProfile("You declined access. Your profile will keep using public data.", true);
+    return redirectAfterConnect("You declined access. You can return to Discord and try again.", true);
   }
-
   if (!code || !state) {
-    return redirectToProfile("Missing OAuth parameters.", true);
-  }
-
-  if (!session.user?.id) {
-    // Not signed into the hub during the callback — just bounce to login.
-    return NextResponse.redirect(
-      new URL("/login", process.env.NEXT_PUBLIC_BASE_URL || "https://mcwv-hub.vercel.app")
-    );
+    return redirectAfterConnect("Missing OAuth parameters.", true);
   }
 
   try {
@@ -47,15 +42,12 @@ export async function GET(req: Request) {
 
     const record = await consumePkce(state);
     if (!record) {
-      return redirectToProfile("Invalid or expired OAuth state. Please try again.", true);
-    }
-    if (Number(record.user_id) !== Number(session.user.id)) {
-      return redirectToProfile("OAuth session mismatch. Please try again.", true);
+      return redirectAfterConnect("Invalid or expired OAuth link. Please get a fresh one from the bot.", true);
     }
 
     const token = await exchangeCode(code, record.code_verifier, bigGamesRedirectUri());
     if (!token.accessToken) {
-      return redirectToProfile("Failed to obtain access token.", true);
+      return redirectAfterConnect("Failed to obtain access token.", true);
     }
 
     // Optionally resolve the linked Roblox id from the account profile.
@@ -75,11 +67,27 @@ export async function GET(req: Request) {
       robloxId = null;
     }
 
+    // Applicant flow (keyed by Discord ID) — no hub session required.
+    if (record.discord_id) {
+      await saveDiscordAccessToken(record.discord_id, token.accessToken, token.scope, robloxId);
+      return redirectAfterConnect(
+        "Connected to BIG Games! You can now return to Discord and open your application.",
+        false
+      );
+    }
+
+    // Member flow (keyed by hub user_id) — requires the hub session.
+    if (!session.user?.id) {
+      return redirectToProfile("Please sign in to the hub, then connect again.", true);
+    }
+    if (Number(record.user_id) !== Number(session.user.id)) {
+      return redirectToProfile("OAuth session mismatch. Please try again.", true);
+    }
     await saveAccessToken(Number(session.user.id), token.accessToken, token.scope, robloxId);
     return redirectToProfile("Connected to BIG Games!", false);
   } catch (err) {
     console.error("[biggames/callback] error:", err);
-    return redirectToProfile(
+    return redirectAfterConnect(
       err instanceof Error ? err.message : "Failed to connect BIG Games.",
       true
     );
@@ -89,6 +97,15 @@ export async function GET(req: Request) {
 function redirectToProfile(msg: string, isError: boolean) {
   const base = process.env.NEXT_PUBLIC_BASE_URL || "https://mcwv-hub.vercel.app";
   const url = new URL("/profile/me", base);
+  url.searchParams.set(isError ? "bg_error" : "bg_success", msg);
+  return NextResponse.redirect(url);
+}
+
+// Applicant flow has no hub account, so land them on a small public page that
+// just confirms the connection (no login required).
+function redirectAfterConnect(msg: string, isError: boolean) {
+  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://mcwv-hub.vercel.app";
+  const url = new URL("/connect-success", base);
   url.searchParams.set(isError ? "bg_error" : "bg_success", msg);
   return NextResponse.redirect(url);
 }
