@@ -391,6 +391,7 @@ export default function Navbar() {
             { href: "/admin?section=bot", label: "Bot Controls", icon: "🤖", description: "Automation and bot health" },
             { href: "/admin?section=broadcast", label: "Broadcast", icon: "📣", description: "Send staff announcements" },
             { href: "/admin?section=players", label: "Players", icon: "👥", description: "Tracked members and presence" },
+            { href: "/war/profiles", label: "Profiles", icon: "👤", description: "Roster, gems, gamepasses, leaderboard" },
             { href: "/admin?section=events", label: "Events", icon: "🎁", description: "Giveaways and invite events" },
             { href: "/admin?section=logs", label: "Logs", icon: "📜", description: "Audit and bot logs" },
             { href: "/admin", label: "Admin Overview", icon: "🧭", description: "Control panel overview" },
