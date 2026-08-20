@@ -62,7 +62,25 @@ export default function BigGamesConnect({ isMe }: { isMe: boolean }) {
   }
 
   if (!status) return null;
-  if (!status.configured) return null; // server not configured — hide silently
+
+  // Not configured server-side — show a clear (admin-facing) note instead of
+  // silently hiding, so it's obvious why the connect button isn't there.
+  if (!status.configured) {
+    return (
+      <div className="rounded-2xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-semibold">🔒 BIG Games connect is not set up yet</p>
+            <p className="text-xs opacity-80">
+              The owner needs to set <code className="rounded bg-black/30 px-1">BIG_GAMES_CLIENT_ID</code> and{" "}
+              <code className="rounded bg-black/30 px-1">BIG_GAMES_CLIENT_SECRET</code> in the server environment to
+              enable profile authorization.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
