@@ -13,12 +13,24 @@ export type MemberProfile = {
   masteryAverage: number | null;
   rank: number | null;
   rankStars: number | null;
+  rebirths: number | null;
+  eggsHatched: number | null;
+  totalSessions: number | null;
+  zonesUnlocked: number | null;
+  achievementsCount: number | null;
+  goalsCompleted: number | null;
+  boothDiamondsEarned: number | null;
+  robuxSpent: number | null;
+  firstJoin: number | null;
+  lastJoin: number | null;
+  mastery: Record<string, number> | null;
   // Change over the current war (most recent snapshot minus earliest in window).
   gemDelta: number | null;
   gamepasses: string[];
   equippedPets: string[];
   ultimate: string | null;
   hoverboard: string | null;
+  booth: string | null;
 };
 
 export type WarTimelinePoint = {
@@ -65,6 +77,11 @@ function normalizeMasteryMap(raw: unknown): Record<string, number> | null {
   return Object.keys(out).length ? out : null;
 }
 
+function countObjectKeys(obj: unknown): number {
+  if (!obj || typeof obj !== "object") return 0;
+  return Object.keys(obj).length;
+}
+
 export function parseProfileView(profileData: Record<string, any> | null) {
   if (!profileData) return null;
   const masteryRaw = getNested(profileData, ["Mastery"]);
@@ -74,16 +91,28 @@ export function parseProfileView(profileData: Record<string, any> | null) {
     masteryValues.length > 0
       ? Math.round(masteryValues.reduce((a, b) => a + b, 0) / masteryValues.length)
       : null;
+  const achievements = getNested(profileData, ["Achievements"]);
+  const zones = getNested(profileData, ["UnlockedZones"]);
   return {
     gems: extractDiamonds(profileData),
     masteryAverage,
     rank: toNumber(getNested(profileData, ["Rank"])),
     rankStars: toNumber(getNested(profileData, ["RankStars"])),
+    rebirths: toNumber(getNested(profileData, ["Rebirths"])),
+    eggsHatched: toNumber(getNested(profileData, ["EggsHatched"])),
+    totalSessions: toNumber(getNested(profileData, ["TotalSessions"])),
+    zonesUnlocked: countObjectKeys(zones),
+    achievementsCount: countObjectKeys(achievements),
+    goalsCompleted: toNumber(getNested(profileData, ["GoalsCompleted"])),
+    boothDiamondsEarned: toNumber(getNested(profileData, ["BoothDiamondsEarned"])),
+    firstJoin: toNumber(getNested(profileData, ["FirstJoinTimestamp"])),
+    lastJoin: toNumber(getNested(profileData, ["LastJoinTimestamp"])),
+    mastery: masteryLevels,
   };
 }
 
 export function parseInventoryView(inventoryData: Record<string, any> | null) {
-  if (!inventoryData) return { equippedPets: [], ultimate: null, hoverboard: null };
+  if (!inventoryData) return { equippedPets: [], ultimate: null, hoverboard: null, booth: null };
   const equipped = (getNested(inventoryData, ["equipped"]) || {}) as any;
   const pets = (equipped?.pets || []) as any[];
   const equippedPets = Array.isArray(pets)
@@ -93,6 +122,7 @@ export function parseInventoryView(inventoryData: Record<string, any> | null) {
     equippedPets,
     ultimate: String(equipped?.ultimate?.displayName ?? "") || null,
     hoverboard: String(equipped?.hoverboard?.displayName ?? "") || null,
+    booth: String(equipped?.booth?.displayName ?? "") || null,
   };
 }
 
