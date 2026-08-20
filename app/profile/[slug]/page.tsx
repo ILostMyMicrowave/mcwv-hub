@@ -149,6 +149,7 @@ type ApiResponse =
         code: string;
         message?: string;
       };
+      viewerIsOwner?: boolean;
     };
 
 type SectionProps = {
@@ -699,6 +700,7 @@ export default function ProfilePage() {
 
   if (!data || data.status !== "ok") {
     const code = data && data.status === "error" ? data.error.code : "internal_error";
+    const viewerIsOwner = data && data.status === "error" ? Boolean(data.viewerIsOwner) : false;
 
     return (
       <>
@@ -714,6 +716,11 @@ export default function ProfilePage() {
                     ? "Please log in to view your profile."
                     : "Something went wrong loading this profile."}
               </p>
+              {code === "player_not_found" && (
+                <div className="mt-6 max-w-xl">
+                  <BigGamesConnect isMe={Boolean(viewerIsOwner)} />
+                </div>
+              )}
             </div>
           </div>
         </main>
