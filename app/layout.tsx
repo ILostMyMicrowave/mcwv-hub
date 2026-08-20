@@ -9,6 +9,7 @@ import BigGamesGate from "@/components/BigGamesGate";
 import GlobalAssistant from "@/components/GlobalAssistant";
 import AppBadgeSync from "@/components/AppBadgeSync";
 import InstallBanner from "@/components/InstallBanner";
+import SiteFooter from "@/components/SiteFooter";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -182,6 +183,7 @@ export default function RootLayout({
         <AppBadgeSync />
         <BigGamesGate />
         {children}
+        <SiteFooter />
         <GlobalAssistant />
         <InstallBanner />
         <OnboardingTour />
