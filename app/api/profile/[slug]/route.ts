@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type SessionData } from "@/lib/session";
 import { pool } from "@/lib/db";
+import { getAccessToken } from "@/lib/biggames";
 
 type McwvUser = {
   id: number;
@@ -18,7 +19,7 @@ type Ps99ViewEnvelope = {
   available: boolean;
   isStale?: boolean;
   fetchedAt?: string;
-  reason?: "not_public" | "no_recent_data" | "not_implemented";
+  reason?: "not_public" | "no_recent_data" | "not_implemented" | "auth_required";
   data?: unknown;
 };
 
@@ -514,6 +515,42 @@ async function fetchPs99Player(
   return { res, json };
 }
 
+// Fetch a single /v1/account/<view> with a bearer token.
+async function fetchAccountView(view: string, accessToken: string) {
+  const res = await fetch(`https://ps99.biggamesapi.io/v1/account/${view}`, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  return { res, json };
+}
+
+// Build an envelope for an authenticated view. Returns null on 401/403 so the
+// caller can fall back to public data.
+function accountEnvelope(json: any): Ps99ViewEnvelope | null {
+  if (!json) return null;
+  if (json.status === "error") {
+    // 401/403 from the resource server — token missing/invalid/revoked.
+    const code = json?.error?.message ?? "";
+    return {
+      available: false,
+      reason: code.toLowerCase().includes("bearer") || code.toLowerCase().includes("forbidden")
+        ? "auth_required"
+        : "no_recent_data",
+    };
+  }
+  if (json.data === null || json.data === undefined) {
+    return { available: false, reason: "no_recent_data" };
+  }
+  return { available: true, data: json.data };
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ slug: string }> }
@@ -551,9 +588,52 @@ export async function GET(
       }
     }
 
-    const { res, json } = await fetchPs99Player(targetSlug, include);
+    // Authenticated access: if the viewer is looking at THEIR OWN profile and
+    // has a BIG Games token, read /v1/account/* (bypasses publicViews).
+    const accessToken =
+      slug === "me" && auth.user
+        ? await getAccessToken(auth.user.id).catch(() => null)
+        : null;
 
-    if (!res.ok) {
+    let res: Response | null = null;
+    let json: any = null;
+
+    if (accessToken) {
+      const viewsRaw: Record<string, Ps99ViewEnvelope | null> = {};
+      const viewMap: Record<string, string> = {
+        profile: "profile",
+        inventory: "inventory",
+        extendedProfile: "extendedProfile",
+      };
+      for (const key of Object.keys(viewMap)) {
+        try {
+          const accountRes = await fetchAccountView(viewMap[key], accessToken);
+          viewsRaw[key] = accountEnvelope(accountRes.json);
+        } catch {
+          viewsRaw[key] = null;
+        }
+      }
+      // Model the response like the public player shape so the rest of the
+      // handler is unchanged. `account` is resolved from the hub link; the
+      // account envelope pulls the full (non-public) data.
+      json = {
+        data: {
+          account: {
+            robloxUserId: targetSlug,
+            username: targetSlug,
+            displayName: null,
+            publicViews: {},
+          },
+          views: viewsRaw,
+        },
+      };
+    } else {
+      const player = await fetchPs99Player(targetSlug, include);
+      res = player.res;
+      json = player.json;
+    }
+
+    if (res && !res.ok) {
       const code =
         json && typeof json === "object" && "error" in json
           ? (json as any)?.error?.code
