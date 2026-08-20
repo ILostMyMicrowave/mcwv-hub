@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { validateBigGamesToken } from "@/lib/biggames";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,11 +53,23 @@ export async function POST(request: Request) {
     let robloxIdConnected: string | null = null;
     if (robloxIdForCheck) {
       const token = await pool.query(
-        `SELECT roblox_id FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
+        `SELECT roblox_id, access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
         [robloxIdForCheck]
       );
-      connected = Boolean(token.rows[0]);
-      robloxIdConnected = token.rows[0]?.roblox_id ?? null;
+      const tokenRow = token.rows[0];
+      if (tokenRow) {
+        // Verify the stored token is still valid against BIG Games. Revoking
+        // the app (or an expired 30-day token) must count as "not connected",
+        // otherwise someone who revoked it keeps slipping through the gate.
+        const check = await validateBigGamesToken(tokenRow.access_token);
+        if (check.valid) {
+          connected = true;
+          robloxIdConnected = tokenRow.roblox_id ?? null;
+        } else {
+          // Revoked/expired — clear the stale row so it stops passing the gate.
+          await pool.query(`DELETE FROM big_games_tokens WHERE roblox_id = $1`, [robloxIdForCheck]);
+        }
+      }
     }
 
     return NextResponse.json({
