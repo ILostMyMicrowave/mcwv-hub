@@ -12,7 +12,7 @@ import { usePathname } from "next/navigation";
 // the gate stays OFF so the site never locks itself behind a misconfigured
 // feature.
 
-const EXEMPT_PATHS = ["/login", "/signup", "/profile/me"];
+const EXEMPT_PATHS = ["/login", "/signup", "/profile/me", "/privacy", "/terms"];
 
 function isExempt(pathname: string) {
   // login/signup are public; /profile/me is where you connect.
