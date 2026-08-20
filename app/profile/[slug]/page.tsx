@@ -33,6 +33,7 @@ type ApiResponse =
   | {
       status: "ok";
       data: {
+        viewerIsOwner?: boolean;
         account: {
           robloxUserId: string;
           username: string;
@@ -836,7 +837,7 @@ export default function ProfilePage() {
             </div>
 
             <div className="mt-6">
-              <BigGamesConnect isMe={slug === "me"} />
+              <BigGamesConnect isMe={Boolean(ok.viewerIsOwner)} />
             </div>
           </div>
 
