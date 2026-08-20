@@ -203,6 +203,7 @@ export async function GET() {
         avatarUrl: robloxAvatarUrl(robloxId),
         gems: stats?.gems ?? null,
         masteryAverage: stats?.masteryAverage ?? null,
+        rank: stats?.rank ?? null,
         rankStars: stats?.rankStars ?? null,
         gemDelta: gemDeltas.get(robloxId) ?? null,
         gamepasses: stats?.gamepasses ?? [],
