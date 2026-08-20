@@ -20,63 +20,97 @@ export default function TermsPage() {
           <div style={{ fontSize: 13, color: "#8d94b5" }}>Last updated: 20 August 2026</div>
         </header>
 
-        <Section title="Acceptance">
+        <Section num="1" title="Acceptance of Terms">
           <p>
-            By using the MCWV Discord bot, the MCWV website, or authorising the MCWV Bot app, you
-            agree to these terms. If you do not agree, do not use these services.
+            By accessing or using this website (the &quot;Service&quot;), you agree to comply with
+            and be bound by these Terms of Service and our Privacy Policy. If you do not agree,
+            please do not use the Service.
           </p>
         </Section>
 
-        <Section title="What MCWV is">
-          <p>
-            MCWV is an unofficial, community-run Discord bot and companion website for a Pet
-            Simulator 99 clan. It is <strong>not</strong> affiliated with Roblox Corporation, Big
-            Games, or Discord Inc. It is provided by volunteer clan members, not a company.
-          </p>
-        </Section>
-
-        <Section title="Acceptable use">
-          <p>Keep the clan fun and fair. Break these and officers step in.</p>
+        <Section num="2" title="Relationship to Roblox">
           <Bullet>
-            <strong>No impersonation</strong> — do not impersonate another member, officer, or
-            Roblox/Discord account.
+            <strong>Unofficial Service:</strong> This website is an independent third-party
+            platform.
           </Bullet>
           <Bullet>
-            <strong>No abuse</strong> — do not attempt to abuse, exploit, scrape, or overload the bot
-            or website.
+            <strong>No Endorsement:</strong> We are not affiliated with, endorsed by, sponsored by,
+            or otherwise associated with Roblox Corporation.
           </Bullet>
           <Bullet>
-            <strong>Platform terms first</strong> — follow Discord's, Roblox's, and Big Games' own
-            Terms of Service at all times. These terms do not override them.
+            <strong>Trademark Ownership:</strong> &quot;Roblox&quot; and all associated logos, names,
+            and assets are trademarks of Roblox Corporation.
           </Bullet>
         </Section>
 
-        <Section title="Account linking &amp; authorisation">
+        <Section num="3" title="Use of Roblox Data">
+          <Bullet>
+            <strong>API Usage:</strong> Our Service displays public data (such as player stats,
+            profiles, assets, or analytics) retrieved via official Roblox APIs.
+          </Bullet>
+          <Bullet>
+            <strong>Data Availability:</strong> We do not guarantee the accuracy, completeness, or
+            real-time availability of this data. Roblox may change or restrict data access at any
+            time, which may impact or disable features on our Service.
+          </Bullet>
+          <Bullet>
+            <strong>No Data Ownership:</strong> We do not claim ownership over any Roblox data or
+            intellectual property displayed on this site.
+          </Bullet>
+        </Section>
+
+        <Section num="4" title="User Accounts and Security">
+          <Bullet>
+            <strong>Public Data Only:</strong> We do not request, collect, or store your Roblox
+            account password.
+          </Bullet>
+          <Bullet>
+            <strong>Account Security:</strong> You are solely responsible for maintaining the
+            security of your own Roblox account. We are not liable for any losses or unauthorized
+            access to your Roblox account.
+          </Bullet>
+        </Section>
+
+        <Section num="5" title="Prohibited Conduct">
+          <p>When using our Service, you agree <strong>NOT</strong> to:</p>
+          <Bullet>
+            <strong>Scrape Data:</strong> Automated extraction of data from this website without
+            written permission is strictly prohibited.
+          </Bullet>
+          <Bullet>
+            <strong>Exploit Data:</strong> Sell, rent, or commercially exploit any Roblox-derived
+            data obtained through our platform.
+          </Bullet>
+          <Bullet>
+            <strong>Impersonate:</strong> Falsely claim affiliation with Roblox Corporation or its
+            staff.
+          </Bullet>
+          <Bullet>
+            <strong>Disrupt:</strong> Interfere with the security or operation of the website.
+          </Bullet>
+        </Section>
+
+        <Section num="6" title="Limitation of Liability">
           <p>
-            Some features require your Discord account to be linked to a Roblox account (verified by
-            an officer). To apply for MCWV, you must authorise the <strong>MCWV Bot</strong> app on
-            BIG Games so we can verify your profile. You can revoke this at any time.
+            The Service is provided on an &quot;as-is&quot; and &quot;as-available&quot; basis. To
+            the maximum extent permitted by law, we disclaim all warranties and shall not be liable
+            for any direct, indirect, incidental, or consequential damages resulting from your use
+            of, or inability to use, our website or the displayed Roblox data.
           </p>
         </Section>
 
-        <Section title="No warranty">
+        <Section num="7" title="Termination">
           <p>
-            MCWV is provided "as is," run by volunteers in their spare time. We do not guarantee
-            uptime, the accuracy of displayed statistics, or uninterrupted service.
+            We reserve the right to terminate or suspend your access to our Service immediately,
+            without prior notice, for any conduct that we believe violates these Terms or harms
+            other users.
           </p>
         </Section>
 
-        <Section title="Changes">
+        <Section num="8" title="Changes to Terms">
           <p>
-            We may change, suspend, or discontinue any part of the bot or website at any time.
-            Continued use after a terms update means you accept the update.
-          </p>
-        </Section>
-
-        <Section title="Termination">
-          <p>
-            Clan officers may remove your roles, revoke access, or remove customisation at their
-            discretion, consistent with clan rules and Discord's Terms of Service.
+            We may update these Terms from time to time. Your continued use of the website after
+            changes are posted constitutes your acceptance of the new Terms.
           </p>
         </Section>
 
@@ -86,7 +120,15 @@ export default function TermsPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  num,
+  title,
+  children,
+}: {
+  num?: string;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section style={{ marginBottom: 26 }}>
       <h2
@@ -99,6 +141,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
           paddingLeft: 12,
         }}
       >
+        {num ? `${num}. ` : ""}
         {title}
       </h2>
       <div style={{ fontSize: 15, lineHeight: 1.7, color: "#c7cde6" }}>{children}</div>
