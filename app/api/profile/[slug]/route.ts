@@ -551,11 +551,65 @@ function accountEnvelope(json: any): Ps99ViewEnvelope | null {
   return { available: true, data: json.data };
 }
 
+// Fetch a member's stored BIG Games token so officers/owners can view their
+// verified (non-public) data. Members store tokens keyed by roblox_id in
+// big_games_tokens; applicants (no hub account) store them keyed by roblox_id
+// or discord_id in big_games_discord_tokens.
+async function getTargetAccessToken(
+  robloxId: string | null,
+  discordId: string | number | null
+): Promise<string | null> {
+  if (!robloxId && !discordId) return null;
+  try {
+    if (robloxId) {
+      const r = await pool.query(
+        `SELECT access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
+        [robloxId]
+      );
+      if (r.rows[0]?.access_token) return String(r.rows[0].access_token);
+      const r2 = await pool.query(
+        `SELECT access_token FROM big_games_discord_tokens WHERE roblox_id = $1 LIMIT 1`,
+        [robloxId]
+      );
+      if (r2.rows[0]?.access_token) return String(r2.rows[0].access_token);
+    }
+    if (discordId) {
+      const r3 = await pool.query(
+        `SELECT access_token FROM big_games_discord_tokens WHERE discord_id = $1 LIMIT 1`,
+        [String(discordId)]
+      );
+      if (r3.rows[0]?.access_token) return String(r3.rows[0].access_token);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+// Resolve a profile slug to a numeric Roblox ID. Numeric slugs pass through;
+// usernames are resolved via the BIG Games public player endpoint so we can
+// look up an applicant's token even when they aren't a linked hub user.
+async function resolveRobloxIdFromSlug(slug: string): Promise<string | null> {
+  if (/^\d{1,20}$/.test(slug)) return slug;
+  try {
+    const res = await fetch(
+      `https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}`,
+      { cache: "no-store", signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    return json?.data?.robloxUserId
+      ? String(json.data.robloxUserId)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ slug: string }> }
-) {
-  const auth = await requireAuthenticatedUser();
+) {  const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
 
   try {
@@ -596,12 +650,23 @@ export async function GET(
           (auth.user.robloxId && String(auth.user.robloxId) === String(targetSlug)))
     );
 
-    // Authenticated access: if the viewer owns this profile and has a BIG Games
-    // token, read /v1/account/* (bypasses publicViews).
-    const accessToken =
-      viewerIsOwner && auth.user
-        ? await getAccessToken(auth.user.id).catch(() => null)
-        : null;
+    // Officers & owners may view any member's private (BIG Games) data, using
+    // the TARGET's stored token rather than the viewer's. Members (non-staff)
+    // can only read their own profile's private data.
+    const viewerIsOfficer = Boolean(
+      auth.user && (auth.user.role === "officer" || auth.user.role === "owner")
+    );
+
+    let accessToken: string | null = null;
+    if (viewerIsOwner && auth.user) {
+      accessToken = await getAccessToken(auth.user.id).catch(() => null);
+    } else if (viewerIsOfficer) {
+      const targetRid = await resolveRobloxIdFromSlug(targetSlug);
+      accessToken = await getTargetAccessToken(
+        targetRid,
+        mcwvUser?.discord_id ?? null
+      );
+    }
 
     let res: Response | null = null;
     let json: any = null;
