@@ -588,10 +588,18 @@ export async function GET(
       }
     }
 
-    // Authenticated access: if the viewer is looking at THEIR OWN profile and
-    // has a BIG Games token, read /v1/account/* (bypasses publicViews).
+    // The viewer "owns" this profile when it's /me or their linked Roblox id
+    // matches the target. Only the owner's token can read their account data.
+    const viewerIsOwner = Boolean(
+      auth.user &&
+        (slug === "me" ||
+          (auth.user.robloxId && String(auth.user.robloxId) === String(targetSlug)))
+    );
+
+    // Authenticated access: if the viewer owns this profile and has a BIG Games
+    // token, read /v1/account/* (bypasses publicViews).
     const accessToken =
-      slug === "me" && auth.user
+      viewerIsOwner && auth.user
         ? await getAccessToken(auth.user.id).catch(() => null)
         : null;
 
@@ -706,6 +714,7 @@ export async function GET(
       {
         status: "ok",
         data: {
+          viewerIsOwner,
           account: {
             robloxUserId: account?.robloxUserId ?? targetSlug,
             username: account?.username ?? targetSlug,
