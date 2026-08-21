@@ -19,7 +19,7 @@ interface RateLimitOptions {
   max: number // Max requests per window
 }
 
-class RateLimiter {
+export class RateLimiter {
   private store: Map<string, RateLimitEntry>
   private windowMs: number
   private max: number
