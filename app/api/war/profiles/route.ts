@@ -124,20 +124,62 @@ async function recordGemSnapshot(robloxId: string, gems: number | null) {
   }
 }
 
-// Compute each member's gem delta across the last 14 days (proxy for the war).
-async function loadGemDeltas(): Promise<Map<string, number>> {
+// Resolve the current/recent war window (battle_id + start + end) from the
+// battles table, falling back to the most recent war_snapshots battle.
+async function getWarWindow(): Promise<{ battleId: string | null; start: number; end: number } | null> {
+  try {
+    // Prefer a battle with start/end times from the battles table.
+    const b = await pool.query(
+      `SELECT battle_id, start_time, end_time
+       FROM battles
+       WHERE start_time IS NOT NULL
+       ORDER BY COALESCE(end_time, start_time) DESC
+       LIMIT 1`
+    );
+    if (b.rows[0]) {
+      const now = Date.now();
+      const start = b.rows[0].start_time ? new Date(b.rows[0].start_time).getTime() : now - 7 * 24 * 3600 * 1000;
+      const end = b.rows[0].end_time ? new Date(b.rows[0].end_time).getTime() : now;
+      return { battleId: String(b.rows[0].battle_id), start, end };
+    }
+    // Fallback: most recent battle in war_snapshots.
+    const s = await pool.query(
+      `SELECT battle_id, MIN(captured_at) AS start, MAX(captured_at) AS end
+       FROM war_snapshots
+       WHERE battle_id IS NOT NULL
+       GROUP BY battle_id
+       ORDER BY MAX(captured_at) DESC
+       LIMIT 1`
+    );
+    if (s.rows[0]) {
+      return {
+        battleId: String(s.rows[0].battle_id),
+        start: new Date(s.rows[0].start).getTime(),
+        end: new Date(s.rows[0].end).getTime(),
+      };
+    }
+  } catch {}
+  return null;
+}
+
+// Compute each member's gem delta across the CURRENT WAR window (from war start
+// to now / war end). "Most Improved" = who gained the most gems during the war.
+async function loadGemDeltas(startMs: number, endMs: number): Promise<Map<string, number>> {
   const deltas = new Map<string, number>();
+  const startTs = new Date(startMs);
+  const endTs = new Date(endMs);
   try {
     const rows = await pool.query(
       `SELECT roblox_id,
               (SELECT gems FROM ${SNAPSHOT_TABLE} s2
-               WHERE s2.roblox_id = g.roblox_id AND s2.captured_at > NOW() - INTERVAL '14 days'
+               WHERE s2.roblox_id = g.roblox_id AND s2.captured_at >= $1 AND s2.captured_at <= $2
                ORDER BY s2.captured_at ASC LIMIT 1) AS first_gems,
               (SELECT gems FROM ${SNAPSHOT_TABLE} s3
-               WHERE s3.roblox_id = g.roblox_id AND s3.captured_at > NOW() - INTERVAL '14 days'
+               WHERE s3.roblox_id = g.roblox_id AND s3.captured_at >= $1 AND s3.captured_at <= $2
                ORDER BY s3.captured_at DESC LIMIT 1) AS last_gems
        FROM (SELECT DISTINCT roblox_id FROM ${SNAPSHOT_TABLE}
-             WHERE captured_at > NOW() - INTERVAL '14 days') g`
+             WHERE captured_at >= $1 AND captured_at <= $2) g`,
+      [startTs, endTs]
     );
     for (const r of rows.rows) {
       const first = r.first_gems == null ? null : Number(r.first_gems);
@@ -195,7 +237,8 @@ export async function GET() {
       }
     } catch {}
 
-    // 3) War timeline (current war placement from snapshots).
+    // 3) Current/recent war window + timeline (recent war only).
+    const warWindow = await getWarWindow();
     let warTimeline: WarTimelinePoint[] = [];
     try {
       const snapExists = await pool.query(
@@ -207,7 +250,9 @@ export async function GET() {
            FROM war_snapshots
            WHERE LOWER(clan_name) = LOWER('MCWV')
              AND battle_points IS NOT NULL
-           ORDER BY captured_at ASC`
+             AND ($1::text IS NULL OR battle_id = $1)
+           ORDER BY captured_at ASC`,
+          [warWindow?.battleId ?? null]
         );
         warTimeline = snap.rows.map((r) => ({
           time: new Date(r.captured_at).getTime(),
@@ -217,10 +262,12 @@ export async function GET() {
       }
     } catch {}
 
-    // 4) Gem snapshot + DB stats-cache support.
+    // 4) Gem snapshot + DB stats-cache support. Delta = change across the war.
     await ensureSnapshotTable();
     await ensureStatsCacheTable();
-    const gemDeltas = await loadGemDeltas();
+    const warStart = warWindow?.start ?? Date.now() - 7 * 24 * 3600 * 1000;
+    const warEnd = warWindow?.end ?? Date.now();
+    const gemDeltas = await loadGemDeltas(warStart, warEnd);
 
     // 5) Per-member stats — PARALLEL so a roster of many members loads fast.
     const memberTasks = rows.map(async (row) => {
@@ -278,6 +325,9 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       generatedAt: new Date().toISOString(),
+      war: warWindow
+        ? { battleId: warWindow.battleId, start: new Date(warStart).toISOString(), end: new Date(warEnd).toISOString() }
+        : null,
       members,
       warTimeline,
     });
