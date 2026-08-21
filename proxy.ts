@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 const SESSION_COOKIE_NAME = "mcwv_session"
 
-const AUTH_PAGES = new Set(["/login", "/signup"])
+const AUTH_PAGES = new Set(["/login", "/signup", "/connect-success"])
 
 // Machine-to-hub endpoints that authenticate with their own server-to-server
 // secret instead of a browser session cookie. Each route still validates its
@@ -11,6 +11,18 @@ const MACHINE_API_PATHS = new Set([
   "/api/war-collector",
   "/api/internal/badge-role-sync",
   "/api/push/trigger",
+])
+
+// Public, no-session API paths. The BIG Games applicant flow MUST work for
+// someone who does NOT have a hub account (and shouldn't create one):
+//  - /api/biggames/connect  : the no-login link the bot DMs an applicant
+//  - /api/biggames/callback : BIG Games redirects the browser here after
+//    authorization (applicants have no session cookie)
+// Each route still enforces its own logic (rate limiting, PKCE, session check
+// for the member branch of the callback).
+const PUBLIC_API_PATHS = new Set([
+  "/api/biggames/connect",
+  "/api/biggames/callback",
 ])
 
 function isAuthPage(pathname: string) {
@@ -41,7 +53,8 @@ export function proxy(request: NextRequest) {
   if (
     isAuthPage(pathname) ||
     isAuthApi(pathname) ||
-    MACHINE_API_PATHS.has(pathname)
+    MACHINE_API_PATHS.has(pathname) ||
+    PUBLIC_API_PATHS.has(pathname)
   ) {
     return NextResponse.next()
   }
