@@ -164,6 +164,17 @@ export default function WarProfilesPage() {
     );
   }, [gemBoard, theme]);
 
+  // Scatter of gems vs mastery for connected members with both.
+  const gemsMasteryScatter = useMemo(() => {
+    const pts = connected
+      .filter((m) => m.gems !== null && m.masteryAverage !== null)
+      .map((m) => ({ gems: m.gems!, mastery: m.masteryAverage!, name: m.username }));
+    return scatterOption(pts, theme);
+  }, [connected, theme]);
+
+  const connPct = members.length ? Math.round((connected.length / members.length) * 100) : 0;
+  const totalGems = connected.reduce((a, m) => a + (m.gems ?? 0), 0);
+
   if (loading)
     return (
       <>
@@ -196,64 +207,78 @@ export default function WarProfilesPage() {
     <>
       <Navbar />
       <main className="min-h-screen text-white" style={{ background: "var(--background)" }}>
-        <div className="mx-auto max-w-6xl px-3 py-5 sm:px-5">
-          <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div className="mx-auto max-w-6xl px-3 py-5 sm:px-6">
+          {/* Header */}
+          <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>MCWV · Staff</div>
-              <h1 className="text-2xl font-black sm:text-3xl">Profiles</h1>
-              <p className="mt-1 text-sm opacity-60">{members.length} members · {connected.length} connected · all PS99 data in one place</p>
+              <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em]" style={{ color: "var(--accent)" }}>
+                <span className="h-px w-6" style={{ background: "var(--accent)" }} /> MCWV · Staff
+              </div>
+              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Profiles</h1>
+              <p className="mt-1.5 text-sm opacity-60">Roster, gem leaderboard &amp; full PS99 stats in one place</p>
             </div>
           </header>
 
-          {/* Averages */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <StatCard label="Avg Gems" value={avgGems === null ? "—" : fmt(avgGems)} accent="var(--primary)" />
-            <StatCard label="Avg Mastery" value={avgMastery === null ? "—" : fmt(avgMastery)} accent="var(--primary)" />
-            <StatCard label="Avg Rank" value={avgRank === null ? "—" : String(avgRank)} />
-            <StatCard label="Avg Robux" value={avgRobux === null ? "—" : fmt(avgRobux)} />
-            <StatCard label="Below 5B Gems" value={String(members.filter((m) => m.connected && m.gems !== null && m.gems < 5_000_000_000).length)} accent="var(--accent)" />
+          {/* Overview cards */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <StatCard label="Members" value={String(members.length)} icon="👥" />
+            <StatCard label="Connected" value={`${connected.length}`} sub={`${connPct}% of roster`} accent="var(--primary)" icon="🔗" />
+            <StatCard label="Avg Gems" value={avgGems === null ? "—" : fmt(avgGems)} accent="var(--primary)" icon="💎" />
+            <StatCard label="Avg Mastery" value={avgMastery === null ? "—" : fmt(avgMastery)} icon="🎓" />
+            <StatCard label="Avg Rank" value={avgRank === null ? "—" : String(avgRank)} icon="🏅" />
+            <StatCard label="Total Gems" value={fmt(totalGems)} accent="var(--accent)" icon="💰" />
           </div>
 
           {/* Charts */}
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <ChartPanel title="Gems distribution">
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <ChartPanel title="Gems distribution" icon="📊">
               <ReactECharts option={gemsChart} style={{ height: 220 }} notMerge />
             </ChartPanel>
-            <ChartPanel title="Mastery average distribution">
+            <ChartPanel title="Mastery average distribution" icon="🎯">
               <ReactECharts option={masteryChart} style={{ height: 220 }} notMerge />
             </ChartPanel>
-            <ChartPanel title="Connection status">
+            <ChartPanel title="Connection status" icon="🔗">
               <ReactECharts option={connDonut} style={{ height: 220 }} notMerge />
             </ChartPanel>
-            <ChartPanel title="Top gems">
+            <ChartPanel title="Top gems" icon="🏆">
               <ReactECharts option={topGemsChart} style={{ height: 220 }} notMerge />
+            </ChartPanel>
+            <ChartPanel title="Gems vs Mastery" icon="🔬">
+              <ReactECharts option={gemsMasteryScatter} style={{ height: 240 }} notMerge />
             </ChartPanel>
           </div>
 
           {/* Clan stats */}
-          <div className="mt-4 rounded-2xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>Clan Stats</div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mt-5 overflow-hidden rounded-2xl border" style={{ background: "color-mix(in srgb, var(--card) 60%, transparent)", borderColor: "var(--border)" }}>
+            <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+              <span className="text-base">⚔️</span>
+              <div className="text-sm font-bold uppercase tracking-[0.15em]">Clan Stats</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5">
               <FunStat label="Total Gems" value={fmt(clanStats.totalGems)} icon="💎" />
-              <FunStat label="Total Robux Spent" value={fmt(clanStats.totalRobux)} icon="💰" />
-              <FunStat label="Total Eggs Hatched" value={fmt(clanStats.totalEggs)} icon="🥚" />
+              <FunStat label="Robux Spent" value={fmt(clanStats.totalRobux)} icon="💰" />
+              <FunStat label="Eggs Hatched" value={fmt(clanStats.totalEggs)} icon="🥚" />
               <FunStat label="Richest" value={clanStats.richest?.username ?? "—"} icon="👑" />
               <FunStat label="Best Mastery" value={clanStats.highestMastery?.username ?? "—"} icon="🎓" />
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="mt-5 flex gap-1.5 overflow-x-auto pb-1 sm:flex-wrap">
+          <div className="mt-6 mb-3 flex gap-1.5 overflow-x-auto pb-1 sm:flex-wrap">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                  tab === t.id ? "text-white" : "opacity-60 hover:opacity-100"
+                className={`relative whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
+                  tab === t.id ? "text-white shadow-lg" : "opacity-60 hover:opacity-100"
                 }`}
-                style={tab === t.id ? { background: "var(--primary)" } : { background: "var(--card)" }}
+                style={
+                  tab === t.id
+                    ? { background: "linear-gradient(135deg, var(--primary), var(--accent))", boxShadow: "0 4px 14px rgba(0,0,0,0.3)" }
+                    : { background: "var(--card)" }
+                }
               >
-                <span className="mr-1">{t.icon}</span>
+                <span className="mr-1.5">{t.icon}</span>
                 {t.label}
               </button>
             ))}
@@ -280,29 +305,49 @@ export default function WarProfilesPage() {
   );
 }
 
-function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function StatCard({ label, value, accent, icon, sub }: { label: string; value: string; accent?: string; icon?: string; sub?: string }) {
   return (
-    <div className="rounded-2xl border p-3.5" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-      <div className="text-[11px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
-      <div className="mt-1 text-xl font-black" style={{ color: accent || "inherit" }}>{value}</div>
+    <div
+      className="group relative overflow-hidden rounded-2xl border p-4 transition-all duration-300 hover:-translate-y-0.5"
+      style={{
+        background: `linear-gradient(145deg, color-mix(in srgb, ${accent || "var(--card)"} 10%, var(--background)), var(--card))`,
+        borderColor: "var(--border)",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+      }}
+    >
+      <div className="absolute -right-3 -top-3 h-16 w-16 rounded-full opacity-20 blur-xl transition group-hover:opacity-40"
+        style={{ background: accent || "var(--accent)" }} />
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
+        {icon && <span className="text-base opacity-70">{icon}</span>}
+      </div>
+      <div className="mt-1.5 text-2xl font-black tracking-tight" style={{ color: accent || "inherit" }}>{value}</div>
+      {sub && <div className="mt-0.5 text-[11px] opacity-50">{sub}</div>}
     </div>
   );
 }
 
 function FunStat({ label, value, icon }: { label: string; value: string; icon: string }) {
   return (
-    <div className="rounded-xl border p-3" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider opacity-60"><span>{icon}</span><span>{label}</span></div>
-      <div className="mt-1 truncate text-lg font-black">{value}</div>
+    <div className="group flex items-center gap-3 rounded-xl border p-3 transition-all duration-200 hover:bg-white/5" style={{ background: "color-mix(in srgb, var(--card) 60%, transparent)", borderColor: "var(--border)" }}>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
+        style={{ background: "color-mix(in srgb, var(--primary) 15%, transparent)" }}>{icon}</div>
+      <div className="min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-wider opacity-50">{label}</div>
+        <div className="truncate text-base font-black">{value}</div>
+      </div>
     </div>
   );
 }
 
-function ChartPanel({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartPanel({ title, children, icon }: { title: string; children: React.ReactNode; icon?: string }) {
   return (
-    <div className="rounded-2xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-      <div className="mb-2 text-sm font-bold">{title}</div>
-      {children}
+    <div className="overflow-hidden rounded-2xl border transition-all duration-300 hover:border-white/20" style={{ background: "color-mix(in srgb, var(--card) 80%, transparent)", borderColor: "var(--border)" }}>
+      <div className="flex items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: "var(--border)" }}>
+        {icon && <span className="text-sm opacity-70">{icon}</span>}
+        <div className="text-sm font-bold">{title}</div>
+      </div>
+      <div className="p-3">{children}</div>
     </div>
   );
 }
@@ -344,8 +389,7 @@ function donutOption(data: { name: string; value: number }[], theme: ThemeColors
     series: [{ type: "pie", radius: ["45%", "70%"], center: ["50%", "45%"], data, label: { color: theme.foreground, formatter: "{b}: {c}" }, itemStyle: { borderRadius: 6, borderColor: theme.background, borderWidth: 2 } }],
   };
 }
-function horizontalBarOption(data: { name: string; value: number }[], theme: ThemeColors) {
-  const names = data.map((d) => d.name).reverse();
+function horizontalBarOption(data: { name: string; value: number }[], theme: ThemeColors) {  const names = data.map((d) => d.name).reverse();
   const values = data.map((d) => d.value).reverse();
   return {
     ...baseGrid(theme),
@@ -356,12 +400,66 @@ function horizontalBarOption(data: { name: string; value: number }[], theme: The
   };
 }
 
+// Scatter of gems (x) vs mastery avg (y) — shows the relationship between
+// wealth and progression across the roster.
+function scatterOption(points: { gems: number; mastery: number; name: string }[], theme: ThemeColors) {
+  return {
+    ...baseGrid(theme),
+    tooltip: { trigger: "item", backgroundColor: theme.card, borderColor: theme.border, textStyle: { color: theme.foreground }, formatter: (p: any) => `${p.data.name}<br/>Gems: ${fmt(p.data.gems)}<br/>Mastery: ${p.data.mastery}` },
+    xAxis: { type: "value", name: "Gems", nameTextStyle: { color: theme.muted, fontSize: 10 }, axisLabel: { color: theme.muted, formatter: (v: number) => fmt(v) }, splitLine: { lineStyle: { color: theme.border, type: "dashed" } } },
+    yAxis: { type: "value", name: "Mastery", nameTextStyle: { color: theme.muted, fontSize: 10 }, axisLabel: { color: theme.muted }, splitLine: { lineStyle: { color: theme.border, type: "dashed" } } },
+    series: [{
+      type: "scatter", symbolSize: 12,
+      data: points.map((p) => ({ value: [p.gems, p.mastery], name: p.name, gems: p.gems, mastery: p.mastery })),
+      itemStyle: { color: theme.accent, opacity: 0.8 },
+    }],
+  };
+}
+
+type SortKey = "name" | "gems" | "mastery" | "rank" | "role";
+
 function RosterTab(props: {
   filtered: MemberProfile[]; search: string; setSearch: (s: string) => void; role: string; setRole: (r: string) => void;
   conn: string; setConn: (c: string) => void; gemFilter: number | null; setGemFilter: (n: number | null) => void;
   gemCustom: string; setGemCustom: (s: string) => void; masteryFilter: number | null; setMasteryFilter: (n: number | null) => void;
   avgGems: number | null; avgMastery: number | null; onSelect: (id: string) => void;
 }) {
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+
+  const sorted = useMemo(() => {
+    const list = [...props.filtered];
+    const val = (m: MemberProfile): number | string => {
+      switch (sortKey) {
+        case "gems": return m.gems ?? -1;
+        case "mastery": return m.masteryAverage ?? -1;
+        case "rank": return m.rank ?? Number.MAX_SAFE_INTEGER;
+        case "role": return m.role;
+        default: return m.username.toLowerCase();
+      }
+    };
+    list.sort((a, b) => {
+      const av = val(a), bv = val(b);
+      if (typeof av === "string" && typeof bv === "string") return av.localeCompare(bv) * sortDir;
+      return ((av as number) - (bv as number)) * sortDir;
+    });
+    return list;
+  }, [props.filtered, sortKey, sortDir]);
+
+  const toggle = (k: SortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 1 ? -1 : 1));
+    else { setSortKey(k); setSortDir(1); }
+  };
+
+  const Th = ({ k, children, className }: { k: SortKey; children: React.ReactNode; className?: string }) => (
+    <th className={`px-3 py-2.5 cursor-pointer select-none hover:opacity-100 ${className ?? ""}`} onClick={() => toggle(k)}>
+      <span className="inline-flex items-center gap-1">
+        {children}
+        {sortKey === k && <span className="text-[9px]">{sortDir === 1 ? "▲" : "▼"}</span>}
+      </span>
+    </th>
+  );
+
   return (
     <div className="mt-4">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
@@ -387,25 +485,31 @@ function RosterTab(props: {
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wider opacity-50" style={{ borderColor: "var(--border)" }}>
-              <th className="px-3 py-2.5">Member</th><th className="px-3 py-2.5">Role</th><th className="px-3 py-2.5">Gems</th>
-              <th className="px-3 py-2.5">Mastery</th><th className="px-3 py-2.5">Rank</th><th className="px-3 py-2.5">Gamepass</th><th className="px-3 py-2.5">Status</th>
+              <Th k="name">Member</Th><Th k="role">Role</Th><Th k="gems">Gems</Th>
+              <Th k="mastery">Mastery</Th><Th k="rank">Rank</Th><th className="px-3 py-2.5">Gamepass</th><th className="px-3 py-2.5">Status</th>
             </tr>
           </thead>
           <tbody>
-            {props.filtered.map((m) => (
+            {sorted.map((m) => (
               <tr key={m.robloxId} className="cursor-pointer border-b transition hover:bg-white/5" style={{ borderColor: "var(--border)" }} onClick={() => props.onSelect(m.robloxId)}>
-                <td className="px-3 py-2 font-semibold" style={{ color: "var(--accent)" }}>{m.username}</td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2.5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={m.avatarUrl ?? ""} alt="" className="h-7 w-7 rounded-full ring-1 ring-white/10" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    <span className="font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
+                  </div>
+                </td>
                 <td className="px-3 py-2 capitalize opacity-70">{m.role}</td>
                 <td className="px-3 py-2">{m.connected ? fmt(m.gems) : "—"}</td>
                 <td className="px-3 py-2">{m.connected ? fmt(m.masteryAverage) : "—"}</td>
                 <td className="px-3 py-2">{m.connected ? (m.rank ?? "—") : "—"}</td>
                 <td className="px-3 py-2 text-xs opacity-60">{m.connected ? (m.gamepasses.length ? m.gamepasses.slice(0, 2).join(", ") : "—") : "—"}</td>
-                <td className="px-3 py-2">{m.connected ? <Badge color="var(--primary)">Connected</Badge> : <Badge color="var(--accent)">Not connected</Badge>}</td>
+                <td className="px-3 py-2">{m.connected ? <Badge color="var(--primary)" dot>Connected</Badge> : <Badge color="var(--accent)" dot>Not connected</Badge>}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!props.filtered.length && <div className="px-4 py-10 text-center text-sm opacity-50">No members match these filters.</div>}
+        {!sorted.length && <div className="px-4 py-10 text-center text-sm opacity-50">No members match these filters.</div>}
       </div>
     </div>
   );
@@ -413,8 +517,13 @@ function RosterTab(props: {
 
 
 
-function Badge({ color, children }: { color: string; children: React.ReactNode }) {
-  return <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}>{children}</span>;
+function Badge({ color, children, dot }: { color: string; children: React.ReactNode; dot?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}>
+      {dot && <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}
+      {children}
+    </span>
+  );
 }
 
 function Select(props: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
@@ -429,27 +538,34 @@ function Select(props: { value: string; onChange: (v: string) => void; options: 
 
 function GemTab({ members, onSelect }: { members: MemberProfile[]; onSelect: (id: string) => void }) {
   const max = members[0]?.gems ?? 1;
+  const total = members.reduce((a, m) => a + (m.gems ?? 0), 0);
   const medals = ["🥇", "🥈", "🥉"];
   return (
     <div className="mt-4 space-y-2">
-      {members.map((m, i) => (
-        <button key={m.robloxId} onClick={() => onSelect(m.robloxId)}
-          className="flex w-full items-center gap-3 rounded-xl border p-3 text-left transition hover:bg-white/5"
-          style={{ borderColor: "var(--border)", background: "var(--card)" }}>
-          <span className="w-8 text-center text-lg">{medals[i] ?? <span className="text-sm opacity-60">#{i + 1}</span>}</span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={m.avatarUrl ?? ""} alt="" className="h-9 w-9 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between">
-              <span className="truncate font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
-              <span className="font-bold" style={{ color: "var(--primary)" }}>{fmt(m.gems)}</span>
+      {members.map((m, i) => {
+        const share = total > 0 ? ((m.gems ?? 0) / total) * 100 : 0;
+        return (
+          <button key={m.robloxId} onClick={() => onSelect(m.robloxId)}
+            className="flex w-full items-center gap-3 rounded-xl border p-3 text-left transition hover:bg-white/5"
+            style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+            <span className="w-8 text-center text-lg">{medals[i] ?? <span className="text-sm opacity-60">#{i + 1}</span>}</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={m.avatarUrl ?? ""} alt="" className="h-9 w-9 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
+                <span className="whitespace-nowrap">
+                  <span className="mr-2 text-xs opacity-50">{share.toFixed(1)}%</span>
+                  <span className="font-bold" style={{ color: "var(--primary)" }}>{fmt(m.gems)}</span>
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 w-full rounded bg-white/5">
+                <div className="h-1.5 rounded" style={{ width: `${Math.max(((m.gems ?? 0) / max) * 100, 4)}%`, background: "var(--primary)" }} />
+              </div>
             </div>
-            <div className="mt-1 h-1.5 w-full rounded bg-white/5">
-              <div className="h-1.5 rounded" style={{ width: `${Math.max(((m.gems ?? 0) / max) * 100, 4)}%`, background: "var(--primary)" }} />
-            </div>
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
       {!members.length && <div className="py-10 text-center text-sm opacity-50">No connected members with gem data.</div>}
     </div>
   );
@@ -475,29 +591,37 @@ function MemberDetail({ members, selected, onSelect }: { members: MemberProfile[
         ))}
       </div>
       {selected ? (
-        <div className="mt-3 rounded-2xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-          <div className="flex flex-wrap items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={selected.avatarUrl ?? ""} alt="" className="h-14 w-14 rounded-full" />
-            <div className="min-w-0">
-              <Link href={`/profile/${selected.username}`} className="text-lg font-bold hover:underline" style={{ color: "var(--accent)" }}>{selected.username}</Link>
-              <div className="text-xs opacity-60">Role: {selected.role} · Gem delta: {(selected.gemDelta ?? 0) >= 0 ? "+" : ""}{fmt(selected.gemDelta)}</div>
+        <div className="mt-3 overflow-hidden rounded-2xl border" style={{ background: "color-mix(in srgb, var(--card) 70%, transparent)", borderColor: "var(--border)" }}>
+          <div className="flex flex-wrap items-center gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+            <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={selected.avatarUrl ?? ""} alt="" className="h-16 w-16 rounded-full ring-2" style={{ boxShadow: "0 0 0 3px color-mix(in srgb, var(--primary) 40%, transparent)" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href={`/profile/${selected.username}`} className="text-xl font-black hover:underline" style={{ color: "var(--accent)" }}>{selected.username}</Link>
+                <Badge color="var(--primary)">{selected.role}</Badge>
+              </div>
+              <div className="mt-1 text-xs opacity-60">
+                Gem delta during war: <span className={(selected.gemDelta ?? 0) >= 0 ? "text-green-400" : "text-red-400"}>{(selected.gemDelta ?? 0) >= 0 ? "+" : ""}{fmt(selected.gemDelta)}</span>
+              </div>
             </div>
           </div>
+          <div className="p-5">
 
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            <Stat label="Gems" value={fmt(selected.gems)} accent="var(--primary)" />
-            <Stat label="Rank" value={selected.rank === null ? "—" : String(selected.rank)} />
-            <Stat label="Rank Stars" value={selected.rankStars === null ? "—" : String(selected.rankStars)} />
-            <Stat label="Mastery Avg" value={fmt(selected.masteryAverage)} />
-            <Stat label="Rebirths" value={fmt(selected.rebirths)} />
-            <Stat label="Eggs Hatched" value={fmt(selected.eggsHatched)} />
-            <Stat label="Sessions" value={fmt(selected.totalSessions)} />
-            <Stat label="Zones" value={fmt(selected.zonesUnlocked)} />
-            <Stat label="Achievements" value={fmt(selected.achievementsCount)} />
-            <Stat label="Goals" value={fmt(selected.goalsCompleted)} />
-            <Stat label="Robux Spent" value={fmt(selected.robuxSpent)} />
-            <Stat label="Booth Gems" value={fmt(selected.boothDiamondsEarned)} />
+            <Stat label="Gems" value={fmt(selected.gems)} accent="var(--primary)" icon="💎" />
+            <Stat label="Rank" value={selected.rank === null ? "—" : String(selected.rank)} icon="🏅" />
+            <Stat label="Rank Stars" value={selected.rankStars === null ? "—" : String(selected.rankStars)} icon="⭐" />
+            <Stat label="Mastery Avg" value={fmt(selected.masteryAverage)} icon="🎓" />
+            <Stat label="Rebirths" value={fmt(selected.rebirths)} icon="🔄" />
+            <Stat label="Eggs Hatched" value={fmt(selected.eggsHatched)} icon="🥚" />
+            <Stat label="Sessions" value={fmt(selected.totalSessions)} icon="🕹️" />
+            <Stat label="Zones" value={fmt(selected.zonesUnlocked)} icon="🗺️" />
+            <Stat label="Achievements" value={fmt(selected.achievementsCount)} icon="🏆" />
+            <Stat label="Goals" value={fmt(selected.goalsCompleted)} icon="🎯" />
+            <Stat label="Robux Spent" value={fmt(selected.robuxSpent)} icon="💰" />
+            <Stat label="Booth Gems" value={fmt(selected.boothDiamondsEarned)} icon="🏪" />
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -538,6 +662,7 @@ function MemberDetail({ members, selected, onSelect }: { members: MemberProfile[
           </div>
 
           <div className="mt-4 text-xs opacity-50">First join {fmtDate(selected.firstJoin)} · Last join {fmtDate(selected.lastJoin)}</div>
+          </div>
         </div>
       ) : (
         <div className="mt-3 rounded-2xl border border-dashed py-10 text-center text-sm opacity-50" style={{ borderColor: "var(--border)" }}>Select a connected member to see their full stats.</div>
@@ -546,11 +671,14 @@ function MemberDetail({ members, selected, onSelect }: { members: MemberProfile[
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function Stat({ label, value, accent, icon }: { label: string; value: string; accent?: string; icon?: string }) {
   return (
-    <div className="rounded-xl border p-3" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-      <div className="text-[11px] uppercase tracking-wider opacity-50">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold" style={{ color: accent || "inherit" }}>{value}</div>
+    <div className="rounded-xl border px-3 py-2.5 transition-colors hover:bg-white/5" style={{ background: "color-mix(in srgb, var(--card) 50%, transparent)", borderColor: "var(--border)" }}>
+      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider opacity-50">
+        {icon && <span>{icon}</span>}
+        <span>{label}</span>
+      </div>
+      <div className="mt-0.5 text-sm font-bold" style={{ color: accent || "inherit" }}>{value}</div>
     </div>
   );
 }
