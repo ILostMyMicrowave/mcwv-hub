@@ -13,7 +13,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "gems", label: "Gem Leaderboard", icon: "💎" },
   { id: "detail", label: "Member Detail", icon: "🔍" },
   { id: "gamepass", label: "Gamepass", icon: "🎟" },
-  { id: "improved", label: "Most Improved", icon: "🚀" },
+  { id: "improved", label: "War Spending", icon: "💸" },
   { id: "timeline", label: "War Timeline", icon: "📈" },
 ];
 
@@ -124,8 +124,11 @@ export default function WarProfilesPage() {
     () => members.filter((m) => m.connected && m.gems !== null).sort((a, b) => (b.gems ?? 0) - (a.gems ?? 0)),
     [members]
   );
+  // War spending: net gem change during the war. A negative delta means they
+  // spent/burned more than they gained. Ranked so the biggest SPENDER (most
+  // negative) is first — that's the "who spent the most" view.
   const improved = useMemo(
-    () => members.filter((m) => m.connected && m.gemDelta !== null).sort((a, b) => (b.gemDelta ?? 0) - (a.gemDelta ?? 0)),
+    () => members.filter((m) => m.connected && m.gemDelta !== null).sort((a, b) => (a.gemDelta ?? 0) - (b.gemDelta ?? 0)),
     [members]
   );
   const gamepassStats = useMemo(() => {
@@ -721,19 +724,57 @@ function ImprovedTab({ members, warWindow }: { members: MemberProfile[]; warWind
     return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
   };
   const windowLabel = warWindow
-    ? `Gem change during the war (${fmtWindow(warWindow.start)} → ${fmtWindow(warWindow.end)}) — who gained the most`
-    : "Gem change — who gained the most";
+    ? `Net gem change during the war (${fmtWindow(warWindow.start)} → ${fmtWindow(warWindow.end)}) — who spent the most`
+    : "Net gem change during the war — who spent the most";
+
+  // The biggest spender = most negative delta. Rank so most negative is #1.
+  const spenders = members.filter((m) => (m.gemDelta ?? 0) < 0);
+  const gainers = members.filter((m) => (m.gemDelta ?? 0) >= 0);
+  const maxSpend = Math.max(...spenders.map((m) => Math.abs(m.gemDelta ?? 0)), 1);
+
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
       <div className="border-b px-4 py-2.5 text-xs opacity-50" style={{ borderColor: "var(--border)" }}>{windowLabel}</div>
       <div className="max-h-[60vh] divide-y overflow-y-auto" style={{ borderColor: "var(--border)" }}>
-        {members.map((m, i) => (
-          <div key={m.robloxId} className="flex items-center justify-between px-4 py-2">
-            <div className="flex items-center gap-2"><Rank value={i + 1} /><span className="font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span></div>
-            <span className={`font-bold ${(m.gemDelta ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>{(m.gemDelta ?? 0) >= 0 ? "+" : ""}{fmt(m.gemDelta)}</span>
-          </div>
-        ))}
-        {!members.length && <div className="py-10 text-center text-sm opacity-50">No gem snapshots yet — they accumulate as the Profiles page is viewed.</div>}
+        {spenders.length > 0 && (
+          <>
+            <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-400/70">Spent the most</div>
+            {spenders.map((m, i) => {
+              const spent = Math.abs(m.gemDelta ?? 0);
+              const pct = (spent / maxSpend) * 100;
+              return (
+                <div key={m.robloxId} className="flex items-center gap-3 px-4 py-2">
+                  <Rank value={i + 1} />
+                  <span className="w-32 truncate font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
+                  <div className="h-1.5 flex-1 rounded bg-white/5">
+                    <div className="h-1.5 rounded bg-red-400/80" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="w-16 text-right font-bold text-red-400">−{fmt(spent)}</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {gainers.length > 0 && (
+          <>
+            <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-green-400/70">Gained the most</div>
+            {gainers.map((m, i) => (
+              <div key={m.robloxId} className="flex items-center gap-3 px-4 py-2">
+                <Rank value={i + 1} />
+                <span className="w-32 truncate font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
+                <div className="h-1.5 flex-1 rounded bg-white/5">
+                  <div className="h-1.5 rounded bg-green-400/80" style={{ width: `${Math.min((m.gemDelta ?? 0) / maxSpend * 100, 100)}%` }} />
+                </div>
+                <span className="w-16 text-right font-bold text-green-400">+{fmt(m.gemDelta)}</span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {!spenders.length && !gainers.length && (
+          <div className="py-10 text-center text-sm opacity-50">No gem snapshots yet — they accumulate as the Profiles page is viewed.</div>
+        )}
       </div>
     </div>
   );
