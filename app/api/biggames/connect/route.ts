@@ -8,8 +8,22 @@ import {
   generateState,
   savePkceByDiscord,
 } from "@/lib/biggames";
+import { RateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
+
+// Rate-limit the no-login applicant connect endpoint so it can't be spammed to
+// burn BIG Games auth redirects or flood the PKCE table. We limit both per-IP
+// and per-discord-id to block automated abuse while letting legit applicants
+// through.
+const connectLimiter = new RateLimiter({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 10, // 10 connect attempts per 10 min per IP
+});
+const discordLimiter = new RateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 per hour per discord id
+});
 
 // No-login connect for APPLICANTS who don't have a hub account (and shouldn't
 // create one). The bot DMs this link to someone who needs to authorise the app
@@ -25,11 +39,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "BIG Games OAuth is not configured." }, { status: 503 });
   }
 
+  // Per-IP rate limit (blocks spam / automated abuse).
+  const ip = getClientIP(req);
+  const ipLimit = connectLimiter.check(ip);
+  if (!ipLimit.success) return rateLimitResponse(ipLimit);
+
   const url = new URL(req.url);
   const discordId = String(url.searchParams.get("discord") ?? "").trim();
   if (!/^\d{15,20}$/.test(discordId)) {
     return NextResponse.json({ error: "Invalid Discord ID." }, { status: 400 });
   }
+
+  // Per-discord rate limit (blocks repeat abuse against a specific ID).
+  const dLimit = discordLimiter.check(`discord:${discordId}`);
+  if (!dLimit.success) return rateLimitResponse(dLimit);
 
   const { verifier, challenge } = generatePkcePair();
   const state = generateState();
@@ -47,3 +70,5 @@ export async function GET(req: Request) {
 
   return NextResponse.redirect(`${BIG_GAMES_AUTHORIZE_URL}?${params.toString()}`);
 }
+
+
