@@ -154,11 +154,14 @@ export default function WarProfilesPage() {
     { name: "Connected", value: connected.length },
     { name: "Not connected", value: members.length - connected.length },
   ], theme), [connected.length, members.length, theme]);
-  const roleChart = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const m of members) counts.set(m.role, (counts.get(m.role) || 0) + 1);
-    return barOption([...counts.entries()].map(([name, value]) => ({ name, value })), theme);
-  }, [members, theme]);
+  // Top 8 by gems — the most useful "who's richest" view.
+  const topGemsChart = useMemo(() => {
+    const top = [...gemBoard].slice(0, 8);
+    return horizontalBarOption(
+      top.map((m) => ({ name: m.username, value: m.gems ?? 0 })),
+      theme
+    );
+  }, [gemBoard, theme]);
 
   if (loading)
     return (
@@ -221,8 +224,8 @@ export default function WarProfilesPage() {
             <ChartPanel title="Connection status">
               <ReactECharts option={connDonut} style={{ height: 220 }} notMerge />
             </ChartPanel>
-            <ChartPanel title="Role breakdown">
-              <ReactECharts option={roleChart} style={{ height: 220 }} notMerge />
+            <ChartPanel title="Top gems">
+              <ReactECharts option={topGemsChart} style={{ height: 220 }} notMerge />
             </ChartPanel>
           </div>
 
@@ -340,13 +343,15 @@ function donutOption(data: { name: string; value: number }[], theme: ThemeColors
     series: [{ type: "pie", radius: ["45%", "70%"], center: ["50%", "45%"], data, label: { color: theme.foreground, formatter: "{b}: {c}" }, itemStyle: { borderRadius: 6, borderColor: theme.background, borderWidth: 2 } }],
   };
 }
-function barOption(data: { name: string; value: number }[], theme: ThemeColors) {
+function horizontalBarOption(data: { name: string; value: number }[], theme: ThemeColors) {
+  const names = data.map((d) => d.name).reverse();
+  const values = data.map((d) => d.value).reverse();
   return {
     ...baseGrid(theme),
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: theme.card, borderColor: theme.border, textStyle: { color: theme.foreground } },
-    xAxis: { type: "category", data: data.map((d) => d.name), axisLabel: { color: theme.muted }, axisLine: { lineStyle: { color: theme.border } } },
-    yAxis: { type: "value", axisLabel: { color: theme.muted }, splitLine: { lineStyle: { color: theme.border, type: "dashed" } } },
-    series: [{ type: "bar", data: data.map((d) => d.value), itemStyle: { color: theme.accent, borderRadius: [3, 3, 0, 0] }, barMaxWidth: 40 }],
+    xAxis: { type: "value", axisLabel: { color: theme.muted, formatter: (v: number) => fmt(v) }, splitLine: { lineStyle: { color: theme.border, type: "dashed" } } },
+    yAxis: { type: "category", data: names, axisLabel: { color: theme.accent, fontSize: 10 }, axisLine: { lineStyle: { color: theme.border } } },
+    series: [{ type: "bar", data: values, itemStyle: { color: theme.primary, borderRadius: [0, 3, 3, 0] }, barMaxWidth: 18, label: { show: true, position: "right", color: theme.foreground, fontSize: 10, formatter: (p: any) => fmt(p.value) } }],
   };
 }
 
@@ -595,20 +600,51 @@ function ImprovedTab({ members }: { members: MemberProfile[] }) {
 function TimelineTab({ points, theme }: { points: WarTimelinePoint[]; theme: ThemeColors }) {
   const data = points.filter((p) => p.points !== null);
   if (!data.length) return <div className="mt-4 rounded-2xl border border-dashed py-14 text-center text-sm opacity-50" style={{ borderColor: "var(--border)" }}>No war timeline snapshots yet.</div>;
+
+  // Build a time axis and insert clear day-boundary separators.
+  const xLabels: string[] = [];
+  const yValues: number[] = [];
+  const markLines: { xAxis: number; label: { show: boolean; formatter: string; color: string } }[] = [];
+  let prevDay = "";
+  data.forEach((p, i) => {
+    const d = new Date(p.time);
+    const day = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    if (prevDay && day !== prevDay) {
+      // Put a day boundary markline at this index.
+      markLines.push({ xAxis: i, label: { show: false, formatter: "", color: theme.accent } });
+    }
+    prevDay = day;
+    const label = `${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}\n${day}`;
+    xLabels.push(label);
+    yValues.push(p.points ?? 0);
+  });
+
   const option = {
     ...baseGrid(theme),
     tooltip: { trigger: "axis", backgroundColor: theme.card, borderColor: theme.border, textStyle: { color: theme.foreground } },
-    xAxis: { type: "category", boundaryGap: false, data: data.map((p) => new Date(p.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), axisLabel: { color: theme.muted, fontSize: 10 }, axisLine: { lineStyle: { color: theme.border } } },
+    xAxis: {
+      type: "category", boundaryGap: false, data: xLabels,
+      axisLabel: { color: theme.muted, fontSize: 9, interval: "auto", formatter: (v: string) => v.split("\n")[0] },
+      axisLine: { lineStyle: { color: theme.border } },
+    },
     yAxis: { type: "value", axisLabel: { color: theme.muted, formatter: (v: number) => fmt(v) }, splitLine: { lineStyle: { color: theme.border, type: "dashed" } } },
+    dataZoom: [{ type: "inside", start: 0, end: 100 }, { type: "slider", height: 16, bottom: 0, borderColor: theme.border, textStyle: { color: theme.muted } }],
     series: [{
-      type: "line", data: data.map((p) => p.points), smooth: true, symbol: "none",
-      lineStyle: { color: theme.primary, width: 2 }, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${theme.primary}44` }, { offset: 1, color: `${theme.primary}00` }] } },
+      type: "line", data: yValues, smooth: true, symbol: "none",
+      lineStyle: { color: theme.primary, width: 2 },
+      areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${theme.primary}44` }, { offset: 1, color: `${theme.primary}00` }] } },
+      markLine: {
+        symbol: "none",
+        lineStyle: { color: theme.accent, width: 1, type: "dashed" },
+        label: { color: theme.accent, fontSize: 9, position: "insideEndTop" },
+        data: markLines.map((ml) => ({ xAxis: ml.xAxis, label: { formatter: "new day", show: true, color: theme.accent } })),
+      },
     }],
   };
   return (
     <div className="mt-4 rounded-2xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-      <h3 className="mb-3 text-sm font-bold">War points timeline</h3>
-      <ReactECharts option={option} style={{ height: 300 }} notMerge />
+      <h3 className="mb-3 text-sm font-bold">War points timeline <span className="text-xs font-normal opacity-50">(dashed = new day)</span></h3>
+      <ReactECharts option={option} style={{ height: 320 }} notMerge />
     </div>
   );
 }
