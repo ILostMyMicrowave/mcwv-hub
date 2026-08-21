@@ -39,14 +39,16 @@ export async function POST(request: Request) {
     }
 
     // If we have a discord id, first resolve the hub user by discord_id (which
-    // carries roblox_id). Otherwise match by roblox_id directly.
+    // carries roblox_id AND id). Otherwise match by roblox_id directly.
     let robloxIdForCheck = robloxId;
+    let userIdForCheck: string | null = null;
     if (!robloxIdForCheck && discordId) {
       const user = await pool.query(
-        `SELECT roblox_id FROM users WHERE discord_id = $1 LIMIT 1`,
+        `SELECT roblox_id, id FROM users WHERE discord_id = $1 LIMIT 1`,
         [discordId]
       );
       if (user.rows[0]?.roblox_id) robloxIdForCheck = String(user.rows[0].roblox_id);
+      if (user.rows[0]?.id) userIdForCheck = String(user.rows[0].id);
     }
 
     let connected = false;
@@ -70,13 +72,24 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2) Member path: token keyed by the user's linked Roblox id.
-    if (robloxIdForCheck && !connected) {
-      const token = await pool.query(
-        `SELECT roblox_id, access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
-        [robloxIdForCheck]
-      );
-      const tokenRow = token.rows[0];
+    // 2) Member path: token keyed by the user's linked Roblox id OR hub user_id
+    // (member tokens may be stored with a NULL roblox_id keyed by user_id).
+    if ((robloxIdForCheck || userIdForCheck) && !connected) {
+      let tokenRow: any = null;
+      if (robloxIdForCheck) {
+        const token = await pool.query(
+          `SELECT roblox_id, access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
+          [robloxIdForCheck]
+        );
+        tokenRow = token.rows[0];
+      }
+      if (!tokenRow && userIdForCheck) {
+        const token = await pool.query(
+          `SELECT roblox_id, access_token FROM big_games_tokens WHERE user_id = $1 LIMIT 1`,
+          [userIdForCheck]
+        );
+        tokenRow = token.rows[0];
+      }
       if (tokenRow) {
         // Verify the stored token is still valid against BIG Games. Revoking
         // the app (or an expired 30-day token) must count as "not connected",
@@ -87,7 +100,12 @@ export async function POST(request: Request) {
           robloxIdConnected = tokenRow.roblox_id ?? null;
         } else {
           // Revoked/expired — clear the stale row so it stops passing the gate.
-          await pool.query(`DELETE FROM big_games_tokens WHERE roblox_id = $1`, [robloxIdForCheck]);
+          if (robloxIdForCheck) {
+            await pool.query(`DELETE FROM big_games_tokens WHERE roblox_id = $1`, [robloxIdForCheck]);
+          }
+          if (userIdForCheck) {
+            await pool.query(`DELETE FROM big_games_tokens WHERE user_id = $1`, [userIdForCheck]);
+          }
         }
       }
     }
