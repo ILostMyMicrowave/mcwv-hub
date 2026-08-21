@@ -14,12 +14,74 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// In-memory cache for the expensive per-member BIG Games fetches. The roster +
-// connection status come straight from the DB on every request; only the live
-// PS99 views (gems/mastery/rank/gamepasses/pets) are cached ~15 min to avoid
-// hammering BIG Games rate limits.
-const statsCache = new Map<string, { at: number; data: any }>();
-const CACHE_TTL = 15 * 60 * 1000;
+// DB-backed stats cache so repeat page loads (and cold serverless isolates)
+// are fast instead of hitting BIG Games for every member each time. Stats are
+// stored as JSON keyed by roblox_id with a captured_at timestamp; anything
+// newer than CACHE_TTL is served straight from the DB.
+const CACHE_TTL = 10 * 60 * 1000; // 10 min
+const STATS_CACHE_TABLE = "profile_stats_cache";
+
+async function ensureStatsCacheTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${STATS_CACHE_TABLE} (
+      roblox_id TEXT PRIMARY KEY,
+      stats JSONB,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function readStatsCache(robloxId: string): Promise<any | null> {
+  try {
+    const r = await pool.query(
+      `SELECT stats, captured_at FROM ${STATS_CACHE_TABLE} WHERE roblox_id = $1`,
+      [robloxId]
+    );
+    const row = r.rows[0];
+    if (!row || !row.stats) return null;
+    const age = Date.now() - new Date(row.captured_at).getTime();
+    if (age > CACHE_TTL) return null;
+    return row.stats;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStatsCache(robloxId: string, stats: any) {
+  try {
+    await pool.query(
+      `INSERT INTO ${STATS_CACHE_TABLE} (roblox_id, stats, captured_at) VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (roblox_id) DO UPDATE SET stats = EXCLUDED.stats, captured_at = NOW()`,
+      [robloxId, JSON.stringify(stats)]
+    );
+  } catch {
+    // non-fatal
+  }
+}
+
+// Fetch + parse a single member's stats from BIG Games (used when cache misses).
+async function fetchMemberStats(token: string, robloxId: string) {
+  const [profileData, inventoryData, extendedData] = await Promise.all([
+    fetchAccountView("profile", token),
+    fetchAccountView("inventory", token),
+    fetchAccountView("extendedProfile", token),
+  ]);
+  const pv = parseProfileView(profileData);
+  const iv = parseInventoryView(inventoryData);
+  const gp = parseGamepasses(extendedData);
+  let robuxSpent: number | null = null;
+  if (extendedData) {
+    const n = Number(
+      (extendedData as any)?.RobuxSpent ??
+        (extendedData as any)?.LifetimeRobuxSpent ??
+        (extendedData as any)?.robuxSpent
+    );
+    if (Number.isFinite(n)) robuxSpent = n;
+  }
+  const stats = { ...pv, ...iv, gamepasses: gp, robuxSpent };
+  await recordGemSnapshot(robloxId, pv?.gems ?? null);
+  return stats;
+}
 
 // Track each member's gems over time so we can show "Most Improved" (delta
 // across the current war). We record a row whenever a member's gems are
@@ -155,19 +217,18 @@ export async function GET() {
       }
     } catch {}
 
-    // 4) Gem snapshot support for "Most Improved".
+    // 4) Gem snapshot + DB stats-cache support.
     await ensureSnapshotTable();
+    await ensureStatsCacheTable();
     const gemDeltas = await loadGemDeltas();
 
-    // 5) Per-member stats.
-    const members: MemberProfile[] = [];
-    for (const row of rows) {
+    // 5) Per-member stats — PARALLEL so a roster of many members loads fast.
+    const memberTasks = rows.map(async (row) => {
       const id = String(row.id);
       const robloxId = String(row.roblox_id).trim();
       const discordId = row.discord_id == null ? null : String(row.discord_id);
       const username = String(row.username || robloxId);
 
-      // Determine connection + token.
       let token: string | null = null;
       if (tokenByUserId.has(id)) token = tokenByUserId.get(id)!;
       else if (discordId && tokenByDiscord.has(discordId)) token = tokenByDiscord.get(discordId)!;
@@ -175,36 +236,14 @@ export async function GET() {
 
       let stats: any = null;
       if (connected && token) {
-        const cacheKey = robloxId || id;
-        const cached = statsCache.get(cacheKey);
-        if (cached && Date.now() - cached.at < CACHE_TTL) {
-          stats = cached.data;
-        } else {
-          const [profileData, inventoryData, extendedData] = await Promise.all([
-            fetchAccountView("profile", token),
-            fetchAccountView("inventory", token),
-            fetchAccountView("extendedProfile", token),
-          ]);
-          const pv = parseProfileView(profileData);
-          const iv = parseInventoryView(inventoryData);
-          const gp = parseGamepasses(extendedData);
-          // Robux spent lives in extendedProfile (lifetime spend).
-          let robuxSpent: number | null = null;
-          if (extendedData) {
-            const n = Number(
-              (extendedData as any)?.RobuxSpent ??
-                (extendedData as any)?.LifetimeRobuxSpent ??
-                (extendedData as any)?.robuxSpent
-            );
-            if (Number.isFinite(n)) robuxSpent = n;
-          }
-          stats = { ...pv, ...iv, gamepasses: gp, robuxSpent };
-          statsCache.set(cacheKey, { at: Date.now(), data: stats });
-          await recordGemSnapshot(robloxId || id, pv?.gems ?? null);
+        stats = await readStatsCache(robloxId || id);
+        if (!stats) {
+          stats = await fetchMemberStats(token, robloxId || id);
+          if (stats) await writeStatsCache(robloxId || id, stats);
         }
       }
 
-      members.push({
+      return {
         robloxId,
         username,
         discordId,
@@ -232,8 +271,9 @@ export async function GET() {
         ultimate: stats?.ultimate ?? null,
         hoverboard: stats?.hoverboard ?? null,
         booth: stats?.booth ?? null,
-      });
-    }
+      } as MemberProfile;
+    });
+    const members = await Promise.all(memberTasks);
 
     return NextResponse.json({
       success: true,
