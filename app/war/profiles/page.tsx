@@ -83,6 +83,7 @@ export default function WarProfilesPage() {
   const theme = useThemeColors();
   const [members, setMembers] = useState<MemberProfile[]>([]);
   const [warTimeline, setWarTimeline] = useState<WarTimelinePoint[]>([]);
+  const [warWindow, setWarWindow] = useState<{ start: string; end: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("roster");
@@ -97,7 +98,7 @@ export default function WarProfilesPage() {
   useEffect(() => {
     fetch("/api/war/profiles", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
-      .then((d) => { setMembers(d.members || []); setWarTimeline(d.warTimeline || []); setLoading(false); })
+      .then((d) => { setMembers(d.members || []); setWarTimeline(d.warTimeline || []); setWarWindow(d.war ?? null); setLoading(false); })
       .catch((e) => { setError(e.message || "Failed to load"); setLoading(false); });
   }, []);
 
@@ -271,7 +272,7 @@ export default function WarProfilesPage() {
           {tab === "gems" && <GemTab members={gemBoard} onSelect={(id) => { setSelected(id); setTab("detail"); }} />}
           {tab === "detail" && <MemberDetail members={connected} selected={selectedMember} onSelect={setSelected} />}
           {tab === "gamepass" && <GamepassTab stats={gamepassStats} members={connected} />}
-          {tab === "improved" && <ImprovedTab members={improved} />}
+          {tab === "improved" && <ImprovedTab members={improved} warWindow={warWindow} />}
           {tab === "timeline" && <TimelineTab points={warTimeline} theme={theme} />}
         </div>
       </main>
@@ -395,7 +396,7 @@ function RosterTab(props: {
               <tr key={m.robloxId} className="cursor-pointer border-b transition hover:bg-white/5" style={{ borderColor: "var(--border)" }} onClick={() => props.onSelect(m.robloxId)}>
                 <td className="px-3 py-2 font-semibold" style={{ color: "var(--accent)" }}>{m.username}</td>
                 <td className="px-3 py-2 capitalize opacity-70">{m.role}</td>
-                <td className={`px-3 py-2 ${belowThreshold(m.gems, props.avgGems) ? "font-bold text-red-400" : ""}`}>{m.connected ? fmt(m.gems) : "—"}</td>
+                <td className="px-3 py-2">{m.connected ? fmt(m.gems) : "—"}</td>
                 <td className="px-3 py-2">{m.connected ? fmt(m.masteryAverage) : "—"}</td>
                 <td className="px-3 py-2">{m.connected ? (m.rank ?? "—") : "—"}</td>
                 <td className="px-3 py-2 text-xs opacity-60">{m.connected ? (m.gamepasses.length ? m.gamepasses.slice(0, 2).join(", ") : "—") : "—"}</td>
@@ -410,10 +411,7 @@ function RosterTab(props: {
   );
 }
 
-function belowThreshold(gems: number | null, avgGems: number | null): boolean {
-  if (gems === null || avgGems === null) return false;
-  return gems < avgGems * 0.5;
-}
+
 
 function Badge({ color, children }: { color: string; children: React.ReactNode }) {
   return <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}>{children}</span>;
@@ -430,20 +428,29 @@ function Select(props: { value: string; onChange: (v: string) => void; options: 
 }
 
 function GemTab({ members, onSelect }: { members: MemberProfile[]; onSelect: (id: string) => void }) {
+  const max = members[0]?.gems ?? 1;
+  const medals = ["🥇", "🥈", "🥉"];
   return (
-    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div className="mt-4 space-y-2">
       {members.map((m, i) => (
         <button key={m.robloxId} onClick={() => onSelect(m.robloxId)}
-          className="flex items-center justify-between rounded-xl border p-3 text-left transition hover:bg-white/5"
+          className="flex w-full items-center gap-3 rounded-xl border p-3 text-left transition hover:bg-white/5"
           style={{ borderColor: "var(--border)", background: "var(--card)" }}>
-          <div className="flex items-center gap-2">
-            <Rank value={i + 1} />
-            <span className="font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
+          <span className="w-8 text-center text-lg">{medals[i] ?? <span className="text-sm opacity-60">#{i + 1}</span>}</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={m.avatarUrl ?? ""} alt="" className="h-9 w-9 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between">
+              <span className="truncate font-semibold" style={{ color: "var(--accent)" }}>{m.username}</span>
+              <span className="font-bold" style={{ color: "var(--primary)" }}>{fmt(m.gems)}</span>
+            </div>
+            <div className="mt-1 h-1.5 w-full rounded bg-white/5">
+              <div className="h-1.5 rounded" style={{ width: `${Math.max(((m.gems ?? 0) / max) * 100, 4)}%`, background: "var(--primary)" }} />
+            </div>
           </div>
-          <span className="font-bold" style={{ color: "var(--primary)" }}>{fmt(m.gems)}</span>
         </button>
       ))}
-      {!members.length && <div className="col-span-full py-10 text-center text-sm opacity-50">No connected members with gem data.</div>}
+      {!members.length && <div className="py-10 text-center text-sm opacity-50">No connected members with gem data.</div>}
     </div>
   );
 }
@@ -580,10 +587,17 @@ function GamepassTab({ stats, members }: { stats: { name: string; count: number;
   );
 }
 
-function ImprovedTab({ members }: { members: MemberProfile[] }) {
+function ImprovedTab({ members, warWindow }: { members: MemberProfile[]; warWindow: { start: string; end: string } | null }) {
+  const fmtWindow = (iso: string) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+  };
+  const windowLabel = warWindow
+    ? `Gem change during the war (${fmtWindow(warWindow.start)} → ${fmtWindow(warWindow.end)}) — who gained the most`
+    : "Gem change — who gained the most";
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-      <div className="border-b px-4 py-2.5 text-xs opacity-50" style={{ borderColor: "var(--border)" }}>Gem change over the last 14 days — most gained first</div>
+      <div className="border-b px-4 py-2.5 text-xs opacity-50" style={{ borderColor: "var(--border)" }}>{windowLabel}</div>
       <div className="max-h-[60vh] divide-y overflow-y-auto" style={{ borderColor: "var(--border)" }}>
         {members.map((m, i) => (
           <div key={m.robloxId} className="flex items-center justify-between px-4 py-2">
