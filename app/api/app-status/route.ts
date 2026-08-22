@@ -14,8 +14,8 @@ export const revalidate = 0;
 
 // Lightweight status polled by the installed app (AppBadgeSync):
 //   • warActive drives the 🔴 dot on the home-screen icon (Badging API)
-//   • a false→true war edge broadcasts "⚔️ WAR DECLARED" to all push
-//     subscribers, deduped per battle id via app_push_state.
+//   • a false→true war edge broadcasts "WAR STARTED" + battle name to all
+//     push subscribers, deduped per battle id via app_push_state.
 // War data comes from the cached shared context, so this stays cheap even
 // with every installed device polling it.
 export async function GET() {
@@ -43,8 +43,8 @@ export async function GET() {
           process.env.NEXT_PUBLIC_SITE_URL ?? "https://mcwv-hub.vercel.app";
         const result = await sendPushToAll(
           {
-            title: "⚔️ WAR DECLARED",
-            body: `${battleId} is live — MCWV, to arms!`,
+            title: "WAR STARTED",
+            body: String(battleId),
             url: "/war-info",
             tag: `war-${battleId}`.slice(0, 48),
             image: `${site}/og-card.png`,
