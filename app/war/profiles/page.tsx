@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import ReactECharts from "echarts-for-react";
@@ -94,13 +94,51 @@ export default function WarProfilesPage() {
   const [gemCustom, setGemCustom] = useState("");
   const [masteryFilter, setMasteryFilter] = useState<number | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Stats cache is ~10 min on the server, so auto-refresh periodically to keep
+  // the roster / war-spending fresh for staff.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const loadProfiles = useCallback(async (silent: boolean) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    try {
+      const r = await fetch("/api/war/profiles", { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      setMembers(d.members || []);
+      setWarTimeline(d.warTimeline || []);
+      setWarWindow(d.war ?? null);
+      setGeneratedAt(d.generatedAt ?? null);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || "Failed to load");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetch("/api/war/profiles", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
-      .then((d) => { setMembers(d.members || []); setWarTimeline(d.warTimeline || []); setWarWindow(d.war ?? null); setLoading(false); })
-      .catch((e) => { setError(e.message || "Failed to load"); setLoading(false); });
-  }, []);
+    loadProfiles(false);
+    const id = setInterval(() => loadProfiles(true), 60_000);
+    return () => clearInterval(id);
+  }, [loadProfiles]);
+
+  // Relative age of the last generated payload (drives the "stale" badge).
+  const staleSeconds = generatedAt ? Math.max(0, Math.floor((now - new Date(generatedAt).getTime()) / 1000)) : null;
+  const staleLabel =
+    staleSeconds === null ? "" :
+    staleSeconds < 90 ? "just now" :
+    staleSeconds < 3600 ? `${Math.floor(staleSeconds / 60)}m ago` :
+    staleSeconds < 86400 ? `${Math.floor(staleSeconds / 3600)}h ago` :
+    `${Math.floor(staleSeconds / 86400)}d ago`;
 
   const filtered = useMemo(() => {
     let list = members;
@@ -219,6 +257,24 @@ export default function WarProfilesPage() {
               </div>
               <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Profiles</h1>
               <p className="mt-1.5 text-sm opacity-60">Roster, gem leaderboard &amp; full PS99 stats in one place</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold"
+                style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--muted)" }}
+                title="Server-side stats are cached ~10 min"
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${refreshing ? "animate-pulse" : ""}`} style={{ background: refreshing ? "var(--accent)" : (staleSeconds !== null && staleSeconds > 900 ? "var(--danger, #f87171)" : "var(--primary)" ) }} />
+                {refreshing ? "Refreshing…" : staleLabel ? `Updated ${staleLabel}` : "Loading…"}
+              </span>
+              <button
+                onClick={() => loadProfiles(true)}
+                disabled={refreshing}
+                className="rounded-xl border px-3 py-1 text-xs font-bold transition hover:opacity-80 disabled:opacity-50"
+                style={{ borderColor: "var(--border)", background: "var(--card)" }}
+              >
+                ↻ Refresh
+              </button>
             </div>
           </header>
 
