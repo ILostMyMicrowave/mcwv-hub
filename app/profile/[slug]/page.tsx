@@ -34,6 +34,8 @@ type ApiResponse =
       status: "ok";
       data: {
         viewerIsOwner?: boolean;
+        viewerIsOfficer?: boolean;
+        authorizedViaApp?: boolean;
         account: {
           robloxUserId: string;
           username: string;
@@ -621,7 +623,8 @@ export default function ProfilePage() {
       setLoading(true);
 
       try {
-        const res = await fetch(`/api/profile/${encodeURIComponent(slug)}`, {
+        const qs = typeof window !== "undefined" ? window.location.search : "";
+        const res = await fetch(`/api/profile/${encodeURIComponent(slug)}${qs}`, {
           cache: "no-store",
         });
 
@@ -811,13 +814,13 @@ export default function ProfilePage() {
                       Roblox ID: {account.robloxUserId}
                     </span>
                     <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-                      Profile: {profilePublic ? "Public" : "Private"}
+                      Profile: {profilePublic ? "Public" : ok.authorizedViaApp ? "Private · app auth" : "Private"}
                     </span>
                     <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-                      Inventory: {inventoryPublic ? "Public" : "Private"}
+                      Inventory: {inventoryPublic ? "Public" : ok.authorizedViaApp ? "Private · app auth" : "Private"}
                     </span>
                     <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-                      Extended: {extendedPublic ? "Public" : "Private"}
+                      Extended: {extendedPublic ? "Public" : ok.authorizedViaApp ? "Private · app auth" : "Private"}
                     </span>
                   </div>
                 </div>
