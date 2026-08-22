@@ -134,8 +134,8 @@ export async function sweepWarPresence(): Promise<{ alerted: number }> {
       await sendPushToUser(
         leaver.id,
         {
-          title: "🎮 You left the game!",
-          body: "You went from in-game to online/offline mid-war — MCWV needs you back in there! ⚔️",
+          title: "You left the game",
+          body: "You're no longer in-game during war.",
           url: "/leaderboard",
           tag: "presence-nudge",
         },
@@ -227,7 +227,7 @@ export async function sweepBroadcasts(): Promise<{ pushed: number }> {
     try {
       await sendPushToAll(
         {
-          title: "📢 MCWV Broadcast",
+          title: "MCWV Broadcast",
           body: body || "New clan broadcast.",
           url: "/dashboard",
           image,
