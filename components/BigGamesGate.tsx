@@ -36,6 +36,12 @@ export default function BigGamesGate() {
     let alive = true;
     // Only gate logged-in users. If /api/biggames/status returns 401, the
     // user isn't authenticated and the page will redirect to /login itself.
+    //
+    // Keyed on `pathname` so navigating between pages re-validates auth /
+    // connection (e.g. after logging in or connecting on /profile/me). We
+    // deliberately do NOT flip back to `loading` on a re-run — the previous
+    // state stays visible until the fresh data arrives, which avoids the gate
+    // flashing over the screen during a client-side navigation.
     Promise.all([
       fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
       fetch("/api/biggames/status", { cache: "no-store" })
@@ -43,17 +49,17 @@ export default function BigGamesGate() {
         .catch(() => null),
     ]).then(([me, bg]) => {
       if (!alive) return;
-      setState({
+      setState((prev) => ({
         loading: false,
         authenticated: Boolean(me?.user?.id),
         connected: Boolean(bg?.connected),
         configured: Boolean(bg?.configured),
-      });
+      }));
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [pathname]);
 
   // Not a member page, or still loading, or server not configured, or the user
   // isn't logged in (login redirect handles it).
