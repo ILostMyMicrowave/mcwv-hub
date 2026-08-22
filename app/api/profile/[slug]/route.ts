@@ -5,6 +5,7 @@ import { getIronSession } from "iron-session";
 import { sessionOptions, type SessionData } from "@/lib/session";
 import { pool } from "@/lib/db";
 import { getAccessToken } from "@/lib/biggames";
+import { botAdminApiConfigured, botAdminFetch } from "@/lib/botAdminApi";
 
 type McwvUser = {
   id: number;
@@ -552,9 +553,10 @@ function accountEnvelope(json: any): Ps99ViewEnvelope | null {
 }
 
 // Fetch a member's stored BIG Games token so officers/owners can view their
-// verified (non-public) data. Members store tokens keyed by roblox_id in
-// big_games_tokens; applicants (no hub account) store them keyed by roblox_id
-// or discord_id in big_games_discord_tokens.
+// verified (non-public) data. Members store tokens keyed by roblox_id / user_id
+// in big_games_tokens; applicants (no hub account) store them keyed by
+// discord_id in big_games_discord_tokens. Applicant rows often have a NULL
+// roblox_id because /v1/account/profile does not return a user id.
 async function getTargetAccessToken(
   robloxId: string | null,
   discordId: string | number | null,
@@ -562,7 +564,23 @@ async function getTargetAccessToken(
 ): Promise<string | null> {
   if (!robloxId && !discordId && !userId) return null;
   try {
-    // 1) Member tokens: big_games_tokens keyed by hub user_id OR roblox_id.
+    // Applicant tokens first — this is how application reviews are meant to
+    // load private PS99 data. Discord id is the reliable key.
+    if (discordId) {
+      const r3 = await pool.query(
+        `SELECT access_token FROM big_games_discord_tokens WHERE discord_id = $1 LIMIT 1`,
+        [String(discordId)]
+      );
+      if (r3.rows[0]?.access_token) return String(r3.rows[0].access_token);
+    }
+    if (robloxId) {
+      const r2 = await pool.query(
+        `SELECT access_token FROM big_games_discord_tokens WHERE roblox_id = $1 LIMIT 1`,
+        [robloxId]
+      );
+      if (r2.rows[0]?.access_token) return String(r2.rows[0].access_token);
+    }
+    // Member tokens: big_games_tokens keyed by hub user_id OR roblox_id.
     if (robloxId) {
       const r = await pool.query(
         `SELECT access_token FROM big_games_tokens WHERE roblox_id = $1 LIMIT 1`,
@@ -577,32 +595,74 @@ async function getTargetAccessToken(
       );
       if (r.rows[0]?.access_token) return String(r.rows[0].access_token);
     }
-    // 2) Applicant tokens: big_games_discord_tokens by roblox_id or discord_id.
-    if (robloxId) {
-      const r2 = await pool.query(
-        `SELECT access_token FROM big_games_discord_tokens WHERE roblox_id = $1 LIMIT 1`,
-        [robloxId]
-      );
-      if (r2.rows[0]?.access_token) return String(r2.rows[0].access_token);
-    }
-    if (discordId) {
-      const r3 = await pool.query(
-        `SELECT access_token FROM big_games_discord_tokens WHERE discord_id = $1 LIMIT 1`,
-        [String(discordId)]
-      );
-      if (r3.rows[0]?.access_token) return String(r3.rows[0].access_token);
-    }
   } catch {
     return null;
   }
   return null;
 }
 
-// Resolve a profile slug to a numeric Roblox ID. Numeric slugs pass through;
-// usernames are resolved via the BIG Games public player endpoint so we can
-// look up an applicant's token even when they aren't a linked hub user.
+async function resolveRobloxUsername(username: string): Promise<{
+  id: string;
+  name: string;
+  displayName: string | null;
+} | null> {
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) return null;
+  try {
+    const res = await fetch("https://users.roblox.com/v1/usernames/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": "MCWV-Hub/1.0" },
+      body: JSON.stringify({ usernames: [username], excludeBannedUsers: false }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const row = Array.isArray(json?.data) ? json.data[0] : null;
+    const id = Number(row?.id);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    return {
+      id: String(id),
+      name: typeof row?.name === "string" && row.name ? row.name : username,
+      displayName: typeof row?.displayName === "string" ? row.displayName : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveRobloxUserById(robloxId: string): Promise<{
+  id: string;
+  name: string;
+  displayName: string | null;
+} | null> {
+  if (!/^\d{1,20}$/.test(robloxId)) return null;
+  try {
+    const res = await fetch(`https://users.roblox.com/v1/users/${encodeURIComponent(robloxId)}`, {
+      headers: { "User-Agent": "MCWV-Hub/1.0" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const id = Number(json?.id);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    return {
+      id: String(id),
+      name: typeof json?.name === "string" && json.name ? json.name : robloxId,
+      displayName: typeof json?.displayName === "string" ? json.displayName : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Resolve a profile slug to a numeric Roblox ID. Never depend on the public
+// PS99 player endpoint — private applicants 404 there even when they have
+// authorised the clan app.
 async function resolveRobloxIdFromSlug(slug: string): Promise<string | null> {
   if (/^\d{1,20}$/.test(slug)) return slug;
+  const viaRoblox = await resolveRobloxUsername(slug);
+  if (viaRoblox) return viaRoblox.id;
   try {
     const res = await fetch(
       `https://ps99.biggamesapi.io/v1/players/${encodeURIComponent(slug)}`,
@@ -610,11 +670,66 @@ async function resolveRobloxIdFromSlug(slug: string): Promise<string | null> {
     );
     if (!res.ok) return null;
     const json = await res.json().catch(() => null);
-    return json?.data?.robloxUserId
-      ? String(json.data.robloxUserId)
-      : null;
+    const id = json?.data?.account?.robloxUserId ?? json?.data?.robloxUserId;
+    return id ? String(id) : null;
   } catch {
     return null;
+  }
+}
+
+async function findApplicantDiscordId(
+  robloxId: string | null,
+  slug: string
+): Promise<string | null> {
+  try {
+    if (robloxId) {
+      const byRid = await pool.query(
+        `SELECT discord_id FROM big_games_discord_tokens WHERE roblox_id = $1 LIMIT 1`,
+        [robloxId]
+      );
+      if (byRid.rows[0]?.discord_id) return String(byRid.rows[0].discord_id);
+      const byUser = await pool.query(
+        `SELECT discord_id FROM users WHERE roblox_id = $1 LIMIT 1`,
+        [robloxId]
+      );
+      if (byUser.rows[0]?.discord_id) return String(byUser.rows[0].discord_id);
+    }
+  } catch {
+    // continue to ticket lookup
+  }
+
+  if (!botAdminApiConfigured()) return null;
+  try {
+    const data = await botAdminFetch<{
+      tickets?: Array<{
+        openerDiscordId?: string | null;
+        robloxId?: string | null;
+        robloxUsername?: string | null;
+        application?: { robloxId?: string | null; robloxUsername?: string | null } | null;
+      }>;
+    }>("/admin/tickets", { method: "GET" });
+    const slugLower = slug.toLowerCase();
+    const match = (data.tickets ?? []).find((ticket) => {
+      const rid = String(ticket.robloxId || ticket.application?.robloxId || "");
+      const uname = String(ticket.robloxUsername || ticket.application?.robloxUsername || "").toLowerCase();
+      return (robloxId && rid && rid === robloxId) || (uname && uname === slugLower);
+    });
+    return match?.openerDiscordId ? String(match.openerDiscordId) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function rememberApplicantRobloxId(discordId: string, robloxId: string) {
+  try {
+    await pool.query(
+      `UPDATE big_games_discord_tokens
+       SET roblox_id = $1
+       WHERE discord_id = $2 AND (roblox_id IS NULL OR roblox_id = '')`,
+      [robloxId, discordId]
+    );
+  } catch {
+    // non-fatal
   }
 }
 
@@ -731,6 +846,7 @@ export async function GET(
             status: "error",
             error: { code: "player_not_found" },
             viewerIsOwner,
+            viewerIsOfficer,
           },
           {
             status: 404,
@@ -794,6 +910,8 @@ export async function GET(
         status: "ok",
         data: {
           viewerIsOwner,
+          viewerIsOfficer,
+          authorizedViaApp: Boolean(accessToken),
           account: {
             robloxUserId: account?.robloxUserId ?? targetSlug,
             username: account?.username ?? targetSlug,
