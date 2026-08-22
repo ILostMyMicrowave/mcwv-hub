@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
+import { validateBigGamesToken } from "@/lib/biggames";
 import {
   MemberProfile,
   WarTimelinePoint,
@@ -44,6 +45,29 @@ async function readStatsCache(robloxId: string): Promise<any | null> {
     return row.stats;
   } catch {
     return null;
+  }
+}
+
+// A member token is stored keyed by hub user_id (often with a NULL roblox_id),
+// so on a confirmed revoke we must clear by user_id (and also by roblox_id for
+// safety). Applicant tokens live in a separate table keyed by discord_id.
+async function clearStaleToken(
+  userId: string,
+  robloxId: string,
+  discordId: string | null
+) {
+  try {
+    if (userId) {
+      await pool.query(`DELETE FROM big_games_tokens WHERE user_id = $1`, [userId]);
+    }
+    if (robloxId) {
+      await pool.query(`DELETE FROM big_games_tokens WHERE roblox_id = $1`, [robloxId]);
+    }
+    if (discordId) {
+      await pool.query(`DELETE FROM big_games_discord_tokens WHERE discord_id = $1`, [discordId]);
+    }
+  } catch {
+    // non-fatal — the roster badge is the priority
   }
 }
 
@@ -279,14 +303,26 @@ export async function GET() {
       let token: string | null = null;
       if (tokenByUserId.has(id)) token = tokenByUserId.get(id)!;
       else if (discordId && tokenByDiscord.has(discordId)) token = tokenByDiscord.get(discordId)!;
-      const connected = Boolean(token);
+      let connected = Boolean(token);
 
       let stats: any = null;
       if (connected && token) {
         stats = await readStatsCache(robloxId || id);
         if (!stats) {
           stats = await fetchMemberStats(token, robloxId || id);
-          if (stats) await writeStatsCache(robloxId || id, stats);
+          if (stats) {
+            await writeStatsCache(robloxId || id, stats);
+          } else {
+            // Stats fetch came back empty. Distinguish a genuinely revoked /
+            // expired token (401/403) from a transient BIG Games outage: only a
+            // confirmed invalid token should flip them to "not connected" and
+            // clear the stale row. A 5xx/network blip keeps them connected.
+            const check = await validateBigGamesToken(token);
+            if (!check.valid) {
+              connected = false;
+              await clearStaleToken(id, robloxId, discordId);
+            }
+          }
         }
       }
 
