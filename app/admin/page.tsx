@@ -5225,7 +5225,7 @@ function PlayersSection({
                   <td className="px-3 py-4 tabular-nums">{toDisplayValue(player.points ?? 0)}</td>
                   <td className="px-3 py-4 text-right">
                     <div className="flex justify-end gap-2 whitespace-nowrap">
-                      <Link className="admin-button" href={`/profile/${encodeURIComponent(String(username ?? id ?? ""))}`}>Profile</Link>
+                      <Link className="admin-button" href={`/profile/${encodeURIComponent(String(username ?? id ?? ""))}${discordText && /^\d{5,22}$/.test(String(discordText)) ? `?discord=${encodeURIComponent(String(discordText))}` : ""}`}>Profile</Link>
                       <button className="admin-button" type="button" onClick={() => void onAction("/api/admin/player/sync", { roblox_id: id })}>Sync</button>
                       <button
                         className="admin-button-danger disabled:cursor-not-allowed disabled:opacity-40"
