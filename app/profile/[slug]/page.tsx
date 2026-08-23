@@ -714,9 +714,9 @@ export default function ProfilePage() {
               <h1 className="text-3xl font-bold">Profile</h1>
               <p className="mt-3 text-zinc-400">
                 {code === "player_not_found"
-                  ? "This player has not made their PS99 profile public, or no linked account could be found."
+                  ? "This profile is private. Officers can still open it when the player authorised the clan app — if you came from a review card, use View Profile so we can match their Discord token."
                   : code === "unauthorized"
-                    ? "Please log in to view your profile."
+                    ? "Please log in to view this profile."
                     : "Something went wrong loading this profile."}
               </p>
               {code === "player_not_found" && (
