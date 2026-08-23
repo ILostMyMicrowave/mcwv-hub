@@ -15,10 +15,11 @@ import { usePathname } from "next/navigation";
 const EXEMPT_PATHS = ["/login", "/signup", "/profile/me", "/privacy", "/terms"];
 
 function isExempt(pathname: string) {
-  // login/signup are public; /profile/me is where you connect; legal pages
-  // must always be readable even if not connected.
+  // login/signup are public; profile pages are where you connect / review
+  // applicants (officers must be able to open /profile/Username without the
+  // site-wide connect overlay covering the stats). Legal pages stay readable.
   if (pathname === "/login" || pathname === "/signup") return true;
-  if (pathname === "/profile/me") return true;
+  if (pathname === "/profile" || pathname.startsWith("/profile/")) return true;
   if (pathname === "/privacy" || pathname === "/terms") return true;
   return false;
 }
