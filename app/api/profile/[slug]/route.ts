@@ -677,6 +677,48 @@ async function resolveRobloxIdFromSlug(slug: string): Promise<string | null> {
   }
 }
 
+function cleanDiscordId(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return /^\d{5,22}$/.test(text) ? text : null;
+}
+
+async function findApplicantDiscordIdFromTickets(
+  robloxId: string | null,
+  slug: string
+): Promise<string | null> {
+  try {
+    const { rows } = await pool.query<{ opener_discord_id: string | null }>(
+      `SELECT opener_discord_id
+       FROM mcwv_tickets
+       WHERE ($1::text IS NOT NULL AND roblox_id::text = $1)
+          OR LOWER(roblox_username) = LOWER($2)
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [robloxId, slug]
+    );
+    const fromTicket = cleanDiscordId(rows[0]?.opener_discord_id);
+    if (fromTicket) return fromTicket;
+  } catch {
+    // table may not exist in this environment
+  }
+
+  try {
+    const { rows } = await pool.query<{ opener_discord_id: string | null }>(
+      `SELECT t.opener_discord_id
+       FROM mcwv_ticket_applications a
+       JOIN mcwv_tickets t ON t.ticket_id = a.ticket_id
+       WHERE ($1::text IS NOT NULL AND a.roblox_id::text = $1)
+          OR LOWER(a.roblox_username) = LOWER($2)
+       ORDER BY a.submitted_at DESC NULLS LAST
+       LIMIT 1`,
+      [robloxId, slug]
+    );
+    return cleanDiscordId(rows[0]?.opener_discord_id);
+  } catch {
+    return null;
+  }
+}
+
 async function findApplicantDiscordId(
   robloxId: string | null,
   slug: string
@@ -687,16 +729,21 @@ async function findApplicantDiscordId(
         `SELECT discord_id FROM big_games_discord_tokens WHERE roblox_id = $1 LIMIT 1`,
         [robloxId]
       );
-      if (byRid.rows[0]?.discord_id) return String(byRid.rows[0].discord_id);
+      const fromToken = cleanDiscordId(byRid.rows[0]?.discord_id);
+      if (fromToken) return fromToken;
       const byUser = await pool.query(
         `SELECT discord_id FROM users WHERE roblox_id = $1 LIMIT 1`,
         [robloxId]
       );
-      if (byUser.rows[0]?.discord_id) return String(byUser.rows[0].discord_id);
+      const fromUser = cleanDiscordId(byUser.rows[0]?.discord_id);
+      if (fromUser) return fromUser;
     }
   } catch {
     // continue to ticket lookup
   }
+
+  const fromDbTickets = await findApplicantDiscordIdFromTickets(robloxId, slug);
+  if (fromDbTickets) return fromDbTickets;
 
   if (!botAdminApiConfigured()) return null;
   try {
@@ -714,7 +761,7 @@ async function findApplicantDiscordId(
       const uname = String(ticket.robloxUsername || ticket.application?.robloxUsername || "").toLowerCase();
       return (robloxId && rid && rid === robloxId) || (uname && uname === slugLower);
     });
-    return match?.openerDiscordId ? String(match.openerDiscordId) : null;
+    return cleanDiscordId(match?.openerDiscordId);
   } catch {
     return null;
   }
@@ -736,14 +783,17 @@ async function rememberApplicantRobloxId(discordId: string, robloxId: string) {
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ slug: string }> }
-) {  const auth = await requireAuthenticatedUser();
+) {
+  const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
 
   try {
     const { slug } = await params;
+    const requestUrl = new URL(req.url);
     const include =
-      new URL(req.url).searchParams.get("include") ||
+      requestUrl.searchParams.get("include") ||
       "profile,inventory,extendedProfile";
+    const queryDiscord = cleanDiscordId(requestUrl.searchParams.get("discord"));
 
     let mcwvUser: McwvUser = null;
     let targetSlug = slug;
@@ -785,15 +835,37 @@ export async function GET(
     );
 
     let accessToken: string | null = null;
+    let resolvedRid: string | null = mcwvUser?.roblox_id ? String(mcwvUser.roblox_id) : null;
+    let resolvedAccount: { id: string; name: string; displayName: string | null } | null = null;
+
     if (viewerIsOwner && auth.user) {
       accessToken = await getAccessToken(auth.user.id).catch(() => null);
+      resolvedRid = auth.user.robloxId ?? resolvedRid;
     } else if (viewerIsOfficer) {
-      const targetRid = await resolveRobloxIdFromSlug(targetSlug);
+      if (!resolvedRid) {
+        resolvedRid = await resolveRobloxIdFromSlug(targetSlug);
+      }
+      if (resolvedRid && /^\d{1,20}$/.test(resolvedRid)) {
+        resolvedAccount = await resolveRobloxUserById(resolvedRid);
+      } else if (!/^\d{1,20}$/.test(targetSlug)) {
+        resolvedAccount = await resolveRobloxUsername(targetSlug);
+        if (resolvedAccount) resolvedRid = resolvedAccount.id;
+      }
+
+      const discordId =
+        queryDiscord ||
+        cleanDiscordId(mcwvUser?.discord_id) ||
+        (await findApplicantDiscordId(resolvedRid, slug));
+
       accessToken = await getTargetAccessToken(
-        targetRid,
-        mcwvUser?.discord_id ?? null,
+        resolvedRid,
+        discordId,
         mcwvUser ? Number(mcwvUser.id) : null
       );
+
+      if (discordId && resolvedRid) {
+        await rememberApplicantRobloxId(discordId, resolvedRid);
+      }
     }
 
     let res: Response | null = null;
@@ -814,15 +886,13 @@ export async function GET(
           viewsRaw[key] = null;
         }
       }
-      // Model the response like the public player shape so the rest of the
-      // handler is unchanged. `account` is resolved from the hub link; the
-      // account envelope pulls the full (non-public) data.
+      const accountId = resolvedAccount?.id ?? resolvedRid ?? targetSlug;
       json = {
         data: {
           account: {
-            robloxUserId: targetSlug,
-            username: targetSlug,
-            displayName: null,
+            robloxUserId: accountId,
+            username: resolvedAccount?.name ?? (mcwvUser?.username || targetSlug),
+            displayName: resolvedAccount?.displayName ?? null,
             publicViews: {},
           },
           views: viewsRaw,
@@ -959,4 +1029,3 @@ export async function GET(
     );
   }
 }
-
