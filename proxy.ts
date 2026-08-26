@@ -1,3 +1,4 @@
+
 import { NextResponse, type NextRequest } from "next/server"
 
 const SESSION_COOKIE_NAME = "mcwv_session"
@@ -52,6 +53,7 @@ export function proxy(request: NextRequest) {
 
   if (
     isAuthPage(pathname) ||
+    PUBLIC_PAGES.has(pathname) ||
     isAuthApi(pathname) ||
     MACHINE_API_PATHS.has(pathname) ||
     PUBLIC_API_PATHS.has(pathname)
