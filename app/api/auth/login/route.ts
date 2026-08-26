@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { getIronSession } from "iron-session"
 import { sessionOptions, type SessionData } from "@/lib/session"
-import { pool } from "@/lib/db"
+import { isDbConnectTimeout, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { loginRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
@@ -115,6 +115,12 @@ export async function POST(req: Request) {
 
   } catch (err) {
     console.error("[auth/login] error:", err)
+    if (isDbConnectTimeout(err)) {
+      return NextResponse.json(
+        { error: "Database timed out. Wait a second and try again." },
+        { status: 503 }
+      )
+    }
     return NextResponse.json(
       { error: "Login error" },
       { status: 500 }
