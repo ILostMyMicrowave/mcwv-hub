@@ -27,7 +27,7 @@ export default function UserSync() {
         setUser(nextUser);
 
         if (!savedTheme) {
-          const theme = nextUser?.theme || "default";
+          const theme = safeTheme(nextUser?.theme);
 
           document.documentElement.setAttribute("data-theme", theme);
           localStorage.setItem("mcwv-theme", theme);
