@@ -120,7 +120,14 @@ body {
 }
 
 .animate-fade-in {
-  animation: fade-in 0.25s ease-out;
+  animation: fade-in 0.25s ease-out both;
+}
+
+/* Home dashboard entrance. Own name so it cannot fight globals/Tailwind
+   `.animate-fade-in`. `both` keeps the last keyframe (visible) even if a
+   reduced-motion rule shortens the duration. */
+.mcwv-home-enter {
+  animation: fade-in 0.5s ease-out both;
 }
 
 @keyframes slide-in {
@@ -589,6 +596,21 @@ body {
   }
   .stagger-in {
     opacity: 1;
+  }
+
+  .shimmer-text {
+    animation: none !important;
+    background: none;
+    color: var(--foreground);
+    -webkit-background-clip: unset;
+    background-clip: unset;
+  }
+
+  .mcwv-home-enter,
+  .animate-fade-in {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
   }
 }
 
