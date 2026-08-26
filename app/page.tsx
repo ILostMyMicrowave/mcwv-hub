@@ -171,10 +171,21 @@ function renderInlineFormatting(text: string): ReactNode[] {
   return nodes;
 }
 
+function eventId() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // insecure context / old webview
+  }
+  return `evt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function makeIdleActivity(active: boolean): EventItem[] {
   return [
     {
-      id: crypto.randomUUID(),
+      id: eventId(),
       type: "join",
       text: active
         ? "⏳ War is active. Waiting for the first live update..."
@@ -188,12 +199,12 @@ function buildSeedEvents(players: LeaderboardEntry[]): EventItem[] {
 
   const items: EventItem[] = [
     {
-      id: crypto.randomUUID(),
+      id: eventId(),
       type: "join",
       text: `✅ Tracking ${players.length} live players`,
     },
     {
-      id: crypto.randomUUID(),
+      id: eventId(),
       type: "crown",
       text: `👑 Current leader: ${players[0].name} with ${formatNumber(players[0].points)} points`,
     },
@@ -201,7 +212,7 @@ function buildSeedEvents(players: LeaderboardEntry[]): EventItem[] {
 
   players.slice(0, 3).forEach((player) => {
     items.push({
-      id: crypto.randomUUID(),
+      id: eventId(),
       type: "join",
       text: `• ${player.name} is currently ranked #${player.rank}`,
     });
@@ -219,7 +230,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (!old) {
       events.push({
-        id: crypto.randomUUID(),
+        id: eventId(),
         type: "join",
         text: `🎉 ${entry.name} joined the live roster`,
       });
@@ -230,7 +241,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (diff > 0) {
       events.push({
-        id: crypto.randomUUID(),
+        id: eventId(),
         type: "points",
         text: `🔥 ${entry.name} +${formatNumber(diff)} points`,
       });
@@ -238,7 +249,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (old.rank && entry.rank < old.rank) {
       events.push({
-        id: crypto.randomUUID(),
+        id: eventId(),
         type: "rankup",
         text: `📈 ${entry.name} moved to #${entry.rank}`,
       });
@@ -246,7 +257,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (old.rank && entry.rank > old.rank) {
       events.push({
-        id: crypto.randomUUID(),
+        id: eventId(),
         type: "rankdown",
         text: `📉 ${entry.name} dropped to #${entry.rank}`,
       });
@@ -254,7 +265,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 
     if (entry.rank === 1 && old.rank !== 1) {
       events.push({
-        id: crypto.randomUUID(),
+        id: eventId(),
         type: "crown",
         text: `👑 NEW LEADER: ${entry.name}`,
       });
@@ -267,7 +278,7 @@ function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
 // Animated wrapper - single source of truth
 function Animated({ children, delay = "0ms" }: { children: React.ReactNode; delay?: string }) {
   return (
-    <div className="min-w-0 animate-fade-in" style={{ animationDelay: delay }}>
+    <div className="mcwv-home-enter min-w-0" style={{ animationDelay: delay }}>
       {children}
     </div>
   );
@@ -505,7 +516,7 @@ export default function HomePage() {
       <div className="relative z-10">
         <Navbar />
         <section className="mx-auto max-w-6xl px-4 pt-4 sm:px-6 lg:px-10">
-          <div className="overflow-hidden rounded-2xl border" style={{ background: "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.07), rgba(255,255,255,0.03))", borderColor: "var(--border)", animation: "fadeInUp 0.5s ease-out forwards", opacity: 0 }}>
+          <div className="mcwv-home-enter overflow-hidden rounded-2xl border" style={{ background: "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.07), rgba(255,255,255,0.03))", borderColor: "var(--border)" }}>
             <div className="flex w-max items-center whitespace-nowrap py-2 text-xs font-semibold uppercase tracking-[0.25em]" style={{ color: "var(--primary)", animation: `mcwv-marquee ${bannerSpeed}s linear infinite` }}>
               <div className="flex shrink-0 items-center gap-8 pr-8"><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span></div>
               <div className="flex shrink-0 items-center gap-8 pr-8"><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span></div>
@@ -568,14 +579,12 @@ export default function HomePage() {
         <Animated delay="0.45s"><section className="mx-auto grid max-w-6xl gap-6 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-2 lg:px-10"><HallOfFamePreview /><AchievementsPreview /></section></Animated>
       </div>
       <style jsx global>{`
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes feedPop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
         @keyframes mcwv-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-        @keyframes gradientMove { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-        .animate-fade-in { opacity: 0; animation: fadeInUp .5s ease-out forwards; }
         .feed-pop { animation: feedPop .4s ease-out forwards; }
-        .animate-gradientMove { animation: gradientMove 3s ease infinite; }
-        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+        @media (prefers-reduced-motion: reduce) {
+          .feed-pop { animation: none !important; }
+        }
       `}</style>
     </main>
   );
