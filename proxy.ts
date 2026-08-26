@@ -5,6 +5,9 @@ const SESSION_COOKIE_NAME = "mcwv_session"
 
 const AUTH_PAGES = new Set(["/login", "/signup", "/connect-success"])
 
+// Legal pages must be reachable without a session (they 307'd to login).
+const PUBLIC_PAGES = new Set(["/privacy", "/terms"])
+
 // Machine-to-hub endpoints that authenticate with their own server-to-server
 // secret instead of a browser session cookie. Each route still validates its
 // own WAR_COLLECT_SECRET or BOT_ADMIN_API_KEY after middleware passes it.
