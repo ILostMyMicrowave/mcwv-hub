@@ -8,13 +8,20 @@ type User = {
   theme?: string | null;
 } | null;
 
+const THEMES = new Set(["default", "ice", "inferno"]);
+
+function safeTheme(value: string | null | undefined) {
+  return value && THEMES.has(value) ? value : "default";
+}
+
 export default function UserSync() {
   const [user, setUser] = useState<User>(null);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("mcwv-theme");
+    const rawSaved = localStorage.getItem("mcwv-theme");
+    const savedTheme = safeTheme(rawSaved);
 
-    if (savedTheme) {
+    if (rawSaved) {
       document.documentElement.setAttribute("data-theme", savedTheme);
     }
 
@@ -26,14 +33,14 @@ export default function UserSync() {
 
         setUser(nextUser);
 
-        if (!savedTheme) {
+        if (!rawSaved) {
           const theme = safeTheme(nextUser?.theme);
 
           document.documentElement.setAttribute("data-theme", theme);
           localStorage.setItem("mcwv-theme", theme);
         }
       } catch {
-        if (!savedTheme) {
+        if (!rawSaved) {
           document.documentElement.setAttribute("data-theme", "default");
           localStorage.setItem("mcwv-theme", "default");
         }
