@@ -1326,7 +1326,7 @@ export default function AdminPage() {
     <>
       <Navbar />
       <main className="min-h-screen px-4 py-6 text-white sm:py-8">
-        <div className={`mx-auto flex flex-col gap-6 lg:flex-row ${section === "tickets" ? "max-w-[94rem]" : "max-w-7xl"}`}>
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 lg:flex-row">
           <aside className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:w-64 lg:shrink-0">
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
               <div className="admin-stripe pointer-events-none absolute inset-x-0 top-0 h-px" />
@@ -1404,7 +1404,6 @@ export default function AdminPage() {
           </aside>
 
           <section key={section} className="admin-section-in min-w-0 flex-1 space-y-6">
-            {section !== "tickets" && (
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl sm:p-6">
               <div className="admin-stripe pointer-events-none absolute inset-x-0 top-0 h-px" />
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1459,7 +1458,6 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-            )}
 
             {section === "overview" && (
               <OverviewSection
@@ -4357,45 +4355,9 @@ function ticketStatusLabel(status: unknown) {
   return "Open";
 }
 
-function ticketScreenshotsUploaded(ticket: TicketRow | TicketDetail) {
-  return Boolean(ticket.screenshotsUploaded) || Boolean((ticket as TicketDetail).actions?.some((action) => action.action === "screenshots/uploaded"));
-}
-
-function ticketFinished(ticket: TicketRow | TicketDetail) {
-  return ["accepted", "closed"].includes(String(ticket.status ?? "").toLowerCase());
-}
-
 function robloxAvatarUrl(robloxId?: string | null) {
   if (!robloxId) return null;
   return `/api/roblox/avatar?userId=${encodeURIComponent(robloxId)}`;
-}
-
-function TicketStageBar({ ticket }: { ticket: TicketRow | TicketDetail }) {
-  const submitted = ticketScreenshotsUploaded(ticket);
-  const finished = ticketFinished(ticket);
-  const steps = [
-    { label: "Opened", active: true, tone: "green" },
-    { label: "Submitted", active: submitted || finished, tone: "green" },
-    { label: "Waiting", active: !finished, tone: "orange" },
-    { label: "Finished", active: finished, tone: "green" },
-  ];
-
-  return (
-    <div className="mt-4 grid grid-cols-4 gap-2">
-      {steps.map((step) => {
-        const activeClass = step.tone === "orange"
-          ? "bg-orange-400 shadow-[0_0_18px_rgba(251,146,60,0.45)]"
-          : "bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]";
-        const textClass = step.tone === "orange" ? "text-orange-300" : "text-emerald-300";
-        return (
-          <div key={step.label} className="space-y-1">
-            <div className={`h-1.5 rounded-full transition-all duration-500 ${step.active ? activeClass : "bg-white/10"}`} />
-            <div className={`text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors ${step.active ? textClass : "text-zinc-600"}`}>{step.label}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 function hexFromSetting(value: unknown, fallback = "#34D399") {
@@ -4428,6 +4390,7 @@ function TicketsSection({
 }) {
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [filter, setFilter] = useState("open");
+  const [query, setQuery] = useState("");
   const [ticketTab, setTicketTab] = useState<"tickets" | "blacklist" | "builder" | "settings">("tickets");
   const [loading, setLoading] = useState(false);
   const [blacklist, setBlacklist] = useState<TicketBlacklistEntry[]>([]);
@@ -4504,14 +4467,43 @@ function TicketsSection({
     void loadTicketSettings();
   }, []);
 
-  const filtered = tickets.filter((ticket) => {
-    if (filter === "all") return true;
-    if (filter === "open") return ["open", "pending"].includes(String(ticket.status ?? "open"));
-    return String(ticket.status ?? "") === filter;
-  });
+  const counts = useMemo(() => {
+    const all = tickets.length;
+    const open = tickets.filter((ticket) => String(ticket.status ?? "open") === "open").length;
+    const pending = tickets.filter((ticket) => String(ticket.status ?? "") === "pending").length;
+    const accepted = tickets.filter((ticket) => String(ticket.status ?? "") === "accepted").length;
+    const closed = tickets.filter((ticket) => String(ticket.status ?? "") === "closed").length;
+    const queue = tickets.filter((ticket) => ["open", "pending"].includes(String(ticket.status ?? "open"))).length;
+    return { all, open, pending, accepted, closed, queue };
+  }, [tickets]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tickets.filter((ticket) => {
+      const status = String(ticket.status ?? "open").toLowerCase();
+      if (filter === "open") {
+        if (!["open", "pending"].includes(status)) return false;
+      } else if (filter !== "all" && status !== filter) {
+        return false;
+      }
+      if (!q) return true;
+      const haystack = [
+        ticket.robloxUsername,
+        ticket.robloxId,
+        ticket.ticketId,
+        ticket.openerDiscordId,
+        ticket.channelId,
+        ticket.claimedBy,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [tickets, filter, query]);
 
   function updateQuestion(index: number, patch: Record<string, unknown>) {
-    setQuestions((current) => current.map((question, i) => i === index ? { ...question, ...patch } : question));
+    setQuestions((current) => current.map((question, i) => (i === index ? { ...question, ...patch } : question)));
   }
 
   function updateEmbedColor(key: keyof typeof embedColors, value: string) {
@@ -4687,452 +4679,369 @@ function TicketsSection({
     }
   }
 
-  const filters = ["open", "pending", "accepted", "closed", "all"];
+  const filters = [
+    { id: "open", label: "Queue", count: counts.queue },
+    { id: "pending", label: "Review", count: counts.pending },
+    { id: "accepted", label: "Accepted", count: counts.accepted },
+    { id: "closed", label: "Closed", count: counts.closed },
+    { id: "all", label: "All", count: counts.all },
+  ];
   const ticketTabs = [
-    { id: "tickets", label: "Ticket Queue", icon: "🎫" },
-    { id: "blacklist", label: "Blacklist", icon: "🚫" },
-    { id: "builder", label: "Panel Builder", icon: "🧩" },
-    { id: "settings", label: "Settings", icon: "⚙️" },
+    { id: "tickets", label: "Queue" },
+    { id: "blacklist", label: "Blacklist" },
+    { id: "builder", label: "Panel" },
+    { id: "settings", label: "Settings" },
   ] as const;
-  const recentTickets = [...tickets].slice(0, 4);
-  const openTicketCount = tickets.filter((ticket) => ["open", "pending"].includes(String(ticket.status ?? "open"))).length;
-  const acceptedTicketCount = tickets.filter((ticket) => String(ticket.status ?? "") === "accepted").length;
-  const closedTicketCount = tickets.filter((ticket) => String(ticket.status ?? "") === "closed").length;
-  const conversionRate = tickets.length ? Math.round((acceptedTicketCount / tickets.length) * 100) : 0;
+
+  const profileHref = selected
+    ? `/profile/${encodeURIComponent(String(selected.robloxUsername || selected.robloxId || selected.application?.robloxUsername || selected.application?.robloxId || ""))}${selected.openerDiscordId ? `?discord=${encodeURIComponent(selected.openerDiscordId)}` : ""}`
+    : "";
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <Metric label="Total Tickets" value={toDisplayValue(metrics.total ?? tickets.length)} />
-        <Metric label="Open" value={toDisplayValue(metrics.open ?? 0)} />
-        <Metric label="Pending" value={toDisplayValue(metrics.pending ?? 0)} />
-        <Metric label="Accepted" value={toDisplayValue(metrics.accepted ?? 0)} />
-        <Metric label="Closed" value={toDisplayValue(metrics.closed ?? 0)} />
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MiniStat label="Queue" value={metrics.open ?? counts.queue} />
+        <MiniStat label="Review" value={metrics.pending ?? counts.pending} />
+        <MiniStat label="Accepted" value={metrics.accepted ?? counts.accepted} />
+        <MiniStat label="Closed" value={metrics.closed ?? counts.closed} />
       </div>
 
-      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.18),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.94),rgba(3,7,18,0.96))] p-5 shadow-2xl shadow-emerald-950/20">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">Tickets Control Center</div>
-            <h3 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">Application system studio</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">A polished MCWV workspace for panels, ticket queue, application questions, colours, embeds, and staff actions.</p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:w-[26rem]">
-            {recentTickets.length ? recentTickets.map((ticket) => (
-              <button key={ticket.ticketId} type="button" onClick={() => void openTicket(ticket.ticketId)} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-emerald-400/30 hover:bg-white/10">
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusTone(ticket.status ?? "open")}`}>{ticket.status ?? "open"}</span>
-                  <span className="text-[10px] text-zinc-500">Last message {formatTime(ticket.lastMessageAt ?? ticket.updatedAt)}</span>
-                </div>
-                <div className="mt-2 truncate text-sm font-bold text-white">{ticket.robloxUsername ?? ticket.ticketId}</div>
-              </button>
-            )) : <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-zinc-500">No recent tickets yet.</div>}
-          </div>
-        </div>
-        <div className="mt-5 flex flex-wrap gap-2 rounded-3xl border border-white/10 bg-black/20 p-2">
-          {ticketTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setTicketTab(tab.id)}
-              className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${ticketTab === tab.id ? "bg-emerald-400 text-black shadow-lg shadow-emerald-500/20" : "text-zinc-400 hover:bg-white/10 hover:text-white"}`}
-            >
-              <span className="mr-2">{tab.icon}</span>{tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/5 p-1">
+        {ticketTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setTicketTab(tab.id)}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+              ticketTab === tab.id
+                ? "bg-white/10 text-white"
+                : "text-zinc-400 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            {tab.label}
+            {tab.id === "tickets" && counts.queue > 0 ? (
+              <span className="ml-2 rounded-full bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
+                {counts.queue}
+              </span>
+            ) : null}
+            {tab.id === "blacklist" && blacklist.length > 0 ? (
+              <span className="ml-2 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
+                {blacklist.length}
+              </span>
+            ) : null}
+          </button>
+        ))}
       </div>
 
       {ticketTab === "blacklist" && (
-      <Panel title="Ticket Blacklist" right={<button className="admin-button" disabled={loading} onClick={() => void reloadBlacklist()} type="button">Refresh</button>}>
-        <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-          <div className="rounded-[1.65rem] border border-white/10 bg-black/25 p-5">
-            <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Add blocked user</div>
-            <h4 className="mt-2 text-2xl font-black text-white">Block ticket access</h4>
-            <p className="mt-2 text-sm leading-6 text-zinc-400">Add a Discord user ID and a clear reason. If they are in the server, the bot also applies the blacklist role.</p>
-            <div className="mt-5 space-y-3">
+        <Panel title="Blacklist" right={<button className="admin-button" disabled={loading} onClick={() => void reloadBlacklist()} type="button">Refresh</button>}>
+          <div className="grid gap-5 lg:grid-cols-[18rem_1fr]">
+            <div className="space-y-3">
               <LabeledInput label="Discord User ID" value={blacklistDiscordId} onChange={setBlacklistDiscordId} placeholder="123456789012345678" />
               <label className="block space-y-2">
                 <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Reason</span>
-                <textarea className="admin-input min-h-28 resize-y" value={blacklistReason} onChange={(event) => setBlacklistReason(event.target.value)} placeholder="Reason shown internally and to the blocked applicant" />
+                <textarea className="admin-input min-h-24 resize-y" value={blacklistReason} onChange={(event) => setBlacklistReason(event.target.value)} placeholder="Shown internally" />
               </label>
-              <button className="admin-button-danger w-full" disabled={loading} onClick={() => void addBlacklistEntry()} type="button">Add to Blacklist</button>
+              <button className="admin-button-danger w-full" disabled={loading} onClick={() => void addBlacklistEntry()} type="button">Block</button>
             </div>
-          </div>
-
-          <div className="space-y-3">
-            {blacklist.length ? blacklist.map((entry) => (
-              <div key={entry.discordId} className="group flex flex-col gap-4 rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 transition hover:border-red-400/30 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-center gap-3">
+            <div className="divide-y divide-white/10 overflow-hidden rounded-2xl border border-white/10">
+              {blacklist.length ? blacklist.map((entry) => (
+                <div key={entry.discordId} className="flex items-center gap-3 px-4 py-3">
                   <img
                     src={entry.avatarUrl ?? `https://cdn.discordapp.com/embed/avatars/${Number(entry.discordId.slice(-1)) % 5}.png`}
-                    alt="Discord avatar"
-                    className="h-14 w-14 rounded-2xl border border-white/10 object-cover"
+                    alt=""
+                    className="h-9 w-9 rounded-full border border-white/10 object-cover"
                   />
-                  <div className="min-w-0">
-                    <div className="truncate text-lg font-black text-white">{entry.displayName ?? entry.username ?? entry.discordId}</div>
-                    <div className="text-xs text-zinc-500">{entry.discordId} · Added {formatTime(entry.createdAt)}</div>
-                    <div className="mt-1 text-sm text-zinc-300">{entry.reason || "No reason provided"}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-white">{entry.displayName ?? entry.username ?? entry.discordId}</div>
+                    <div className="truncate text-xs text-zinc-500">{entry.reason || "No reason"} · {formatTime(entry.createdAt)}</div>
                   </div>
+                  <button className="admin-button" disabled={loading} onClick={() => void removeBlacklistEntry(entry.discordId)} type="button">Remove</button>
                 </div>
-                <button className="admin-button" disabled={loading} onClick={() => void removeBlacklistEntry(entry.discordId)} type="button">Remove</button>
-              </div>
-            )) : (
-              <div className="rounded-[1.65rem] border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
-                <div className="text-4xl">✅</div>
-                <div className="mt-3 text-lg font-bold text-white">No blacklisted users</div>
-                <p className="mt-1 text-sm text-zinc-500">Blocked applicants will appear here with their Discord avatar and reason.</p>
-              </div>
-            )}
+              )) : (
+                <div className="px-4 py-8 text-center text-sm text-zinc-500">Nobody blocked.</div>
+              )}
+            </div>
           </div>
-        </div>
-      </Panel>
+        </Panel>
       )}
 
       {ticketTab === "builder" && (
-      <Panel title="Application Panel Builder" right={<span className="text-xs text-zinc-500">Sends the Discord application panel</span>}>
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <div className="space-y-3">
-            <label className="block space-y-2">
-              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Panel Channel</span>
-              <select className="admin-input" value={panelChannelId} onChange={(event) => setPanelChannelId(event.target.value)}>
-                <option value="">Select a channel...</option>
-                {channels.filter((channel) => channel.canSendMessages).map((channel) => (
-                  <option key={channel.id} value={channel.id}>{channelDisplayName(channel)}</option>
-                ))}
-              </select>
-            </label>
-            <LabeledInput label="Panel Title" value={panelTitle} onChange={setPanelTitle} />
-            <LabeledInput label="Button Label" value={panelButton} onChange={setPanelButton} />
-            <LabeledInput label="Thumbnail URL" value={panelThumbnail} onChange={setPanelThumbnail} placeholder="Optional HTTPS image URL" />
-            <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
+        <Panel title="Application panel" right={<button className="admin-button" disabled={loading} onClick={() => void sendPanel()} type="button">Send to Discord</button>}>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className="space-y-3">
               <label className="block space-y-2">
-                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Hex Colour</span>
-                <input
-                  aria-label="Panel hex colour picker"
-                  className="h-12 w-20 cursor-pointer rounded-2xl border border-white/10 bg-black/30 p-1"
-                  type="color"
-                  value={/^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399"}
-                  onChange={(event) => setPanelColor(event.target.value.toUpperCase())}
-                />
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Channel</span>
+                <select className="admin-input" value={panelChannelId} onChange={(event) => setPanelChannelId(event.target.value)}>
+                  <option value="">Select a channel...</option>
+                  {channels.filter((channel) => channel.canSendMessages).map((channel) => (
+                    <option key={channel.id} value={channel.id}>{channelDisplayName(channel)}</option>
+                  ))}
+                </select>
               </label>
-              <LabeledInput label="Hex Value" value={panelColor} onChange={setPanelColor} placeholder="#34D399" />
+              <LabeledInput label="Title" value={panelTitle} onChange={setPanelTitle} />
+              <LabeledInput label="Button" value={panelButton} onChange={setPanelButton} />
+              <LabeledInput label="Thumbnail URL" value={panelThumbnail} onChange={setPanelThumbnail} placeholder="Optional HTTPS image" />
+              <div className="grid grid-cols-[auto_1fr] items-end gap-3">
+                <label className="block space-y-2">
+                  <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Colour</span>
+                  <input
+                    aria-label="Panel colour"
+                    className="h-12 w-14 cursor-pointer rounded-xl border border-white/10 bg-black/30 p-1"
+                    type="color"
+                    value={/^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399"}
+                    onChange={(event) => setPanelColor(event.target.value.toUpperCase())}
+                  />
+                </label>
+                <LabeledInput label="Hex" value={panelColor} onChange={setPanelColor} placeholder="#34D399" />
+              </div>
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Description</span>
+                <textarea className="admin-input min-h-28 resize-y" value={panelDescription} onChange={(event) => setPanelDescription(event.target.value)} />
+              </label>
             </div>
-            <label className="block space-y-2">
-              <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Panel Description</span>
-              <textarea className="admin-input min-h-28 resize-y" value={panelDescription} onChange={(event) => setPanelDescription(event.target.value)} />
-            </label>
-            <div className="flex justify-end">
-              <button className="admin-button" disabled={loading} onClick={() => void sendPanel()} type="button">Send Panel</button>
+            <div className="rounded-2xl border border-white/10 bg-[#2b2d31] p-4" style={{ borderLeft: `4px solid ${validHex(panelColor)}` }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Preview</div>
+                {panelThumbnail.trim().startsWith("https://") && (
+                  <img src={panelThumbnail.trim()} alt="" className="h-12 w-12 rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                )}
+              </div>
+              <h4 className="mt-2 text-lg font-bold text-white">{panelTitle || "MCWV Applications"}</h4>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription}</p>
+              <div className="mt-4 inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold text-black" style={{ backgroundColor: validHex(panelColor) }}>
+                {panelButton || "Open Application"}
+              </div>
             </div>
           </div>
-          <div className="rounded-3xl border border-white/10 bg-black/25 p-5" style={{ borderLeft: `4px solid ${/^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399"}` }}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Live Preview</div>
-              {panelThumbnail.trim().startsWith("https://") && (
-                <img
-                  src={panelThumbnail.trim()}
-                  alt="Panel thumbnail preview"
-                  className="h-20 w-20 rounded-2xl border border-white/10 object-cover"
-                  onError={(event) => { event.currentTarget.style.display = "none"; }}
-                />
-              )}
-            </div>
-            <h4 className="mt-3 text-2xl font-bold text-white">{panelTitle || "MCWV Applications"}</h4>
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription}</p>
-            <div
-              className="mt-5 inline-flex rounded-2xl px-4 py-2 text-sm font-bold text-black"
-              style={{ backgroundColor: /^#[0-9A-Fa-f]{6}$/.test(panelColor) ? panelColor : "#34D399" }}
-            >
-              {panelButton || "Open Application"}
-            </div>
-            <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-zinc-400">
-              Applicants answer the modal before a ticket is created. Staff info stays hidden behind the Staff Info button.
-            </div>
-          </div>
-        </div>
-      </Panel>
+        </Panel>
       )}
 
       {ticketTab === "settings" && (
-      <Panel title="Application Settings" right={<button className="admin-button" disabled={loading} onClick={() => void saveTicketSettings()} type="button">Save Settings</button>}>
-        <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Ticket Welcome Message</h4>
-              <div className="mt-4 space-y-3">
-                <LabeledInput label="Screenshot Embed Title" value={welcomeTitle} onChange={setWelcomeTitle} />
-                <label className="block space-y-2">
-                  <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Screenshot Embed Description</span>
-                  <textarea className="admin-input min-h-40 resize-y" value={welcomeDescription} onChange={(event) => setWelcomeDescription(event.target.value)} />
-                </label>
-              </div>
-            </div>
-            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Ticket Embed Hex Colours</h4>
-              <p className="mt-2 text-xs text-zinc-500">Controls the colours used by embeds inside application tickets and the staff control flow.</p>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {([
-                  ["banner", "Banner Image Embed"],
-                  ["ticketInstructions", "Screenshot Instructions"],
-                  ["review", "Staff Control Embed"],
-                  ["staffInfo", "Staff Info Embed"],
-                  ["accepted", "Accepted Embed"],
-                  ["closed", "Closed/Transcript Embed"],
-                  ["reminder", "Screenshot Reminder"],
-                ] as Array<[keyof typeof embedColors, string]>).map(([key, label]) => (
-                  <div key={key} className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                    <span className="admin-label text-xs font-semibold uppercase tracking-[0.18em]">{label}</span>
-                    <div className="mt-2 grid grid-cols-[auto_1fr] gap-2">
+        <Panel title="Ticket settings" right={<button className="admin-button" disabled={loading} onClick={() => void saveTicketSettings()} type="button">Save</button>}>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="space-y-4">
+              <LabeledInput label="Welcome title" value={welcomeTitle} onChange={setWelcomeTitle} />
+              <label className="block space-y-2">
+                <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Welcome / screenshot text</span>
+                <textarea className="admin-input min-h-36 resize-y" value={welcomeDescription} onChange={(event) => setWelcomeDescription(event.target.value)} />
+              </label>
+              <div>
+                <div className="admin-label mb-3 text-xs font-semibold uppercase tracking-[0.2em]">Embed colours</div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {([
+                    ["banner", "Banner"],
+                    ["ticketInstructions", "Instructions"],
+                    ["review", "Staff control"],
+                    ["staffInfo", "Staff info"],
+                    ["accepted", "Accepted"],
+                    ["closed", "Closed"],
+                    ["reminder", "Reminder"],
+                  ] as Array<[keyof typeof embedColors, string]>).map(([key, label]) => (
+                    <div key={key} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
                       <input
-                        aria-label={`${label} colour picker`}
-                        className="h-11 w-14 cursor-pointer rounded-xl border border-white/10 bg-black/30 p-1"
+                        aria-label={label}
+                        className="h-8 w-10 cursor-pointer rounded-md border border-white/10 bg-transparent p-0.5"
                         type="color"
                         value={validHex(embedColors[key])}
                         onChange={(event) => updateEmbedColor(key, event.target.value)}
                       />
-                      <input
-                        className="admin-input"
-                        value={embedColors[key]}
-                        onChange={(event) => updateEmbedColor(key, event.target.value)}
-                        placeholder="#34D399"
-                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-zinc-400">{label}</div>
+                        <input className="w-full bg-transparent text-sm text-white outline-none" value={embedColors[key]} onChange={(event) => updateEmbedColor(key, event.target.value)} />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
-            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Application Questions</h4>
-              <div className="mt-4 space-y-3">
-                {questions.map((question, index) => (
-                  <div key={String(question.key ?? index)} className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Question {index + 1}{index === 0 ? " · Roblox username" : ""}</div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <input className="admin-input" value={String(question.label ?? "")} onChange={(event) => updateQuestion(index, { label: event.target.value })} placeholder="Question label" disabled={index === 0} />
-                      <input className="admin-input" value={String(question.placeholder ?? "")} onChange={(event) => updateQuestion(index, { placeholder: event.target.value })} placeholder="Placeholder" />
-                      <select className="admin-input" value={String(question.style ?? "paragraph")} onChange={(event) => updateQuestion(index, { style: event.target.value })} disabled={index === 0}>
-                        <option value="short">Short answer</option>
-                        <option value="paragraph">Long answer</option>
-                      </select>
-                      <input className="admin-input" type="number" value={Number(question.maxLength ?? 500)} onChange={(event) => updateQuestion(index, { maxLength: Number(event.target.value) })} min={16} max={1000} />
-                    </div>
-                    <label className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
-                      <input type="checkbox" checked={Boolean(question.required)} onChange={(event) => updateQuestion(index, { required: event.target.checked })} disabled={index === 0} /> Required
-                    </label>
+            <div className="space-y-3">
+              <div className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">Questions</div>
+              {questions.map((question, index) => (
+                <div key={String(question.key ?? index)} className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Q{index + 1}{index === 0 ? " · username" : ""}</div>
+                  <input className="admin-input" value={String(question.label ?? "")} onChange={(event) => updateQuestion(index, { label: event.target.value })} disabled={index === 0} />
+                  <input className="admin-input" value={String(question.placeholder ?? "")} onChange={(event) => updateQuestion(index, { placeholder: event.target.value })} placeholder="Placeholder" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="admin-input" value={String(question.style ?? "paragraph")} onChange={(event) => updateQuestion(index, { style: event.target.value })} disabled={index === 0}>
+                      <option value="short">Short</option>
+                      <option value="paragraph">Long</option>
+                    </select>
+                    <input className="admin-input" type="number" value={Number(question.maxLength ?? 500)} onChange={(event) => updateQuestion(index, { maxLength: Number(event.target.value) })} min={16} max={1000} />
                   </div>
-                ))}
-              </div>
+                  <label className="flex items-center gap-2 text-sm text-zinc-400">
+                    <input type="checkbox" checked={Boolean(question.required)} onChange={(event) => updateQuestion(index, { required: event.target.checked })} disabled={index === 0} /> Required
+                  </label>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">Feature Settings</h4>
-              <div className="mt-4 grid gap-2">
-                {["Open limit: 1", "Accept button: enabled", "Close button: enabled", "Staff Info button: enabled", "Transcripts: enabled", "Delete after close: enabled", "Support hours: coming soon", "Archive category: coming soon"].map((item) => (
-                  <div key={item} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-300">{item}</div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-300">User-facing Flow</h4>
-              <ol className="mt-4 space-y-3 text-sm text-zinc-300">
-                <li>1. Applicant clicks the panel button.</li>
-                <li>2. They answer the modal questions before a ticket is made.</li>
-                <li>3. Bot creates a private ticket and asks for screenshots.</li>
-                <li>4. Staff use Staff Info, then Accept or Close.</li>
-              </ol>
-            </div>
-          </div>
-        </div>
-      </Panel>
+        </Panel>
       )}
 
       {ticketTab === "tickets" && (
-      <Panel
-        title="Ticket Queue"
-        right={
-          <div className="flex flex-wrap gap-2">
-            {isOwner && (
-              <button
-                className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-200 transition hover:bg-red-500/20"
-                disabled={loading || tickets.length === 0}
-                onClick={() => void clearTicketRecords()}
-                type="button"
-              >
-                Clear Test Records
-              </button>
-            )}
+        <Panel
+          title="Queue"
+          right={
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                className="w-44 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-sm outline-none placeholder:text-zinc-600 focus:border-emerald-400/40 sm:w-56"
+                placeholder="Search name or ID"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {isOwner && (
+                <button
+                  className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-200"
+                  disabled={loading || tickets.length === 0}
+                  onClick={() => void clearTicketRecords()}
+                  type="button"
+                >
+                  Clear records
+                </button>
+              )}
+            </div>
+          }
+        >
+          <div className="mb-4 flex flex-wrap gap-1.5">
             {filters.map((item) => (
               <button
-                key={item}
-                className={`rounded-full border px-3 py-1 text-xs capitalize transition-all duration-300 hover:-translate-y-0.5 active:scale-95 ${filter === item ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.2)]" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
-                onClick={() => setFilter(item)}
+                key={item.id}
+                className={`rounded-full border px-3 py-1 text-xs transition ${filter === item.id ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+                onClick={() => setFilter(item.id)}
                 type="button"
               >
-                {item}
+                {item.label}
+                <span className="ml-1.5 tabular-nums text-zinc-500">{item.count}</span>
               </button>
             ))}
           </div>
-        }
-      >
-        <div className="grid gap-5 xl:grid-cols-[1.4fr_0.85fr]">
-          <div className="space-y-3">
-            {filtered.length ? filtered.map((ticket) => (
-              <button
-                key={ticket.ticketId}
-                type="button"
-                onClick={() => void openTicket(ticket.ticketId)}
-                className="shine-sweep glow-spin group relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.025))] p-4 text-left shadow-xl shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/35 hover:bg-white/[0.08] hover:shadow-emerald-950/30 active:scale-[0.99]"
-              >
-                <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 opacity-70 transition group-hover:opacity-100" />
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex min-w-0 gap-4">
-                    <img
-                      src={robloxAvatarUrl(ticket.robloxId) ?? "/favicon.ico"}
-                      alt="Roblox avatar"
-                      className="mt-1 h-16 w-16 shrink-0 rounded-2xl border border-white/10 bg-black/30 object-cover shadow-lg transition duration-300 group-hover:scale-105 group-hover:border-emerald-400/30"
-                      onError={(event) => { event.currentTarget.src = "/favicon.ico"; }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusTone(ticket.status ?? "open")}`}>{ticketStatusLabel(ticket.status)}</span>
-                        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-zinc-500">{shortenMiddle(ticket.ticketId, 8, 6)}</span>
-                      </div>
-                      <div className="mt-3 truncate text-xl font-black text-white">{ticketDisplayName(ticket)}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Discord ID {ticket.openerDiscordId ?? "—"} · Channel {ticket.channelId ? `#${shortenMiddle(ticket.channelId, 5, 5)}` : "not saved"}</div>
-                      <TicketStageBar ticket={ticket} />
-                    </div>
-                  </div>
-                  <div className="grid min-w-[9rem] gap-2 text-left text-xs text-zinc-500 lg:text-right">
-                    <span>Opened <b className="text-zinc-300">{formatTime(ticket.createdAt)}</b></span>
-                    <span>Last message <b className="text-zinc-300">{formatTime(ticket.lastMessageAt ?? ticket.updatedAt)}</b></span>
-                    <span className="inline-flex items-center justify-end gap-1 font-bold text-emerald-300 transition group-hover:translate-x-1">Open details <span aria-hidden="true">→</span></span>
-                  </div>
-                </div>
-              </button>
-            )) : (
-              <div className="rounded-[1.65rem] border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
-                <div className="text-4xl">🎫</div>
-                <div className="mt-3 text-lg font-bold text-white">No tickets in this view</div>
-                <p className="mt-1 text-sm text-zinc-500">Try another status filter or send a new application panel.</p>
-              </div>
-            )}
-          </div>
 
-          <div className="space-y-4">
-            <div className="rounded-[1.65rem] border border-white/10 bg-black/25 p-5">
-              <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Operations</div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <MiniStat label="Active queue" value={openTicketCount} />
-                <MiniStat label="Conversion" value={`${conversionRate}%`} />
-                <MiniStat label="Accepted" value={acceptedTicketCount} />
-                <MiniStat label="Closed" value={closedTicketCount} />
-              </div>
-            </div>
-            <div className="rounded-[1.65rem] border border-white/10 bg-black/25 p-5">
-              <div className="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Discord Panel Preview</div>
-              <div className="mt-4 rounded-2xl border border-white/10 bg-[#2b2d31] p-4 shadow-2xl" style={{ borderLeft: `4px solid ${validHex(panelColor)}` }}>
-                <div className="text-lg font-black text-white">{panelTitle || "MCWV Applications"}</div>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{panelDescription || "Panel description"}</p>
-                <div className="mt-4 inline-flex rounded-xl px-3 py-2 text-xs font-black text-black" style={{ backgroundColor: validHex(panelColor) }}>{panelButton || "Open Application"}</div>
-              </div>
-            </div>
-            <div className="rounded-[1.65rem] border border-emerald-400/15 bg-emerald-400/[0.04] p-5 text-sm text-emerald-100">
-              <b>Tip:</b> use Settings to tune colours/questions, then Panel Builder to ship the updated panel to Discord.
-            </div>
-          </div>
-        </div>
-      </Panel>
-      )}
-
-      {selected && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center px-3 py-4 sm:px-6">
-          <button className="absolute inset-0 bg-black/75 backdrop-blur-md transition-opacity" onClick={() => setSelected(null)} aria-label="Close ticket" />
-          <div className="relative z-10 flex max-h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-[1.4rem] border border-white/10 bg-[#070a12] shadow-2xl shadow-black/60 sm:rounded-[2rem]">
-            <div className="relative shrink-0 overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.22),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(3,7,18,0.98))] p-4 sm:p-7">
-              <div className="absolute right-8 top-4 hidden text-8xl font-black text-white/[0.03] sm:block">TICKET</div>
-              <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex min-w-0 gap-4">
+          <div className="overflow-hidden rounded-2xl border border-white/10">
+            {filtered.length ? filtered.map((ticket) => {
+              const active = selected?.ticketId === ticket.ticketId;
+              return (
+                <button
+                  key={ticket.ticketId}
+                  type="button"
+                  onClick={() => void openTicket(ticket.ticketId)}
+                  className={`flex w-full items-center gap-3 border-b border-white/10 px-3 py-3 text-left last:border-b-0 transition hover:bg-white/[0.06] ${active ? "bg-white/[0.06]" : "bg-transparent"}`}
+                >
                   <img
-                    src={robloxAvatarUrl(selected.robloxId ?? selected.application?.robloxId) ?? "/favicon.ico"}
-                    alt="Roblox avatar"
-                    className="h-14 w-14 shrink-0 rounded-2xl border border-white/10 bg-black/30 object-cover shadow-2xl sm:h-20 sm:w-20 sm:rounded-3xl"
+                    src={robloxAvatarUrl(ticket.robloxId) ?? "/favicon.ico"}
+                    alt=""
+                    className="h-9 w-9 shrink-0 rounded-full border border-white/10 bg-black/30 object-cover"
                     onError={(event) => { event.currentTarget.src = "/favicon.ico"; }}
                   />
                   <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(selected.status ?? "open")}`}>{ticketStatusLabel(selected.status)}</span>
-                    <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-zinc-400">{shortenMiddle(selected.ticketId, 9, 7)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-semibold text-white">{ticketDisplayName(ticket)}</span>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTone(ticket.status ?? "open")}`}>{ticketStatusLabel(ticket.status)}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-zinc-500">
+                      {ticket.openerDiscordId ?? "No Discord"} · {formatRelativeTime(ticket.lastMessageAt ?? ticket.updatedAt ?? ticket.createdAt, Date.now())}
+                    </div>
                   </div>
-                  <h3 className="mt-3 truncate text-2xl font-black tracking-tight text-white sm:mt-4 sm:text-5xl">{ticketDisplayName(selected)}</h3>
-                  <p className="mt-2 break-words text-xs text-zinc-400 sm:text-sm">Discord ID {selected.openerDiscordId ?? "—"}<span className="hidden sm:inline"> · </span><br className="sm:hidden" />Roblox {selected.robloxId ?? selected.application?.robloxId ?? "—"}</p>
-                  <div className="max-w-2xl"><TicketStageBar ticket={selected} /></div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                  {selected.channelId && <a className="admin-button text-center" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">Open Discord ↗</a>}
-                  <Link
-                    className="admin-button text-center"
-                    href={`/profile/${encodeURIComponent(String(selected.robloxUsername || selected.robloxId || selected.application?.robloxUsername || selected.application?.robloxId || ""))}${selected.openerDiscordId ? `?discord=${encodeURIComponent(selected.openerDiscordId)}` : ""}`}
-                  >
-                    Profile
-                  </Link>
-                  <button className="admin-button" disabled={loading || selected.status === "accepted"} onClick={() => void runTicketAction("accept", selected.ticketId)} type="button">Accept</button>
-                  <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Delete</button>
-                  <button className="admin-button" type="button" onClick={() => setSelected(null)} aria-label="Close popup">×</button>
-                </div>
+                  <span className="hidden shrink-0 text-xs text-zinc-600 sm:block">{formatTime(ticket.createdAt)}</span>
+                </button>
+              );
+            }) : (
+              <div className="px-4 py-10 text-center text-sm text-zinc-500">
+                {query.trim() ? "No tickets match that search." : "Nothing in this filter."}
               </div>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {selected && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-3 py-4">
+          <button className="absolute inset-0 bg-black/70" onClick={() => setSelected(null)} aria-label="Close ticket" />
+          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0d12] shadow-2xl">
+            <div className="flex items-start gap-3 border-b border-white/10 p-4">
+              <img
+                src={robloxAvatarUrl(selected.robloxId ?? selected.application?.robloxId) ?? "/favicon.ico"}
+                alt=""
+                className="h-12 w-12 shrink-0 rounded-xl border border-white/10 object-cover"
+                onError={(event) => { event.currentTarget.src = "/favicon.ico"; }}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="truncate text-lg font-bold text-white">{ticketDisplayName(selected)}</h3>
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTone(selected.status ?? "open")}`}>{ticketStatusLabel(selected.status)}</span>
+                </div>
+                <p className="mt-1 truncate text-xs text-zinc-500">
+                  Discord {selected.openerDiscordId ?? "—"} · Roblox {selected.robloxId ?? selected.application?.robloxId ?? "—"}
+                </p>
+              </div>
+              <button className="rounded-full border border-white/10 px-2.5 py-1 text-sm text-zinc-400" type="button" onClick={() => setSelected(null)} aria-label="Close popup">×</button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-              <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                <div className="space-y-5">
-                  <Panel title="Application Answers">
-                    {selected.application ? (
-                      <div className="grid gap-3 text-sm text-zinc-300 md:grid-cols-2">
-                        <MiniStat label="Roblox" value={`${selected.application.robloxUsername ?? "—"} (${selected.application.robloxId ?? "—"})`} />
-                        <MiniStat label="Submitted" value={formatTime(selected.application.submittedAt)} />
-                        <MiniStat label="AFK 24/7 on Windows" value={selected.application.afk247 ?? "—"} />
-                        <MiniStat label="Activity" value={selected.application.activity ?? "—"} />
-                        <MiniStat label="Liquid Gems" value={selected.application.liquidGems ?? "—"} />
-                        <MiniStat label="Why accept" value={selected.application.whyAccept ?? "—"} />
-                      </div>
-                    ) : <p className="text-sm text-zinc-500">No application answers found.</p>}
-                  </Panel>
+            <div className="flex flex-wrap gap-2 border-b border-white/10 px-4 py-3">
+              {selected.channelId && (
+                <a className="admin-button" href={`https://discord.com/channels/${selected.guildId}/${selected.channelId}`} target="_blank" rel="noreferrer">
+                  Discord
+                </a>
+              )}
+              <Link className="admin-button" href={profileHref}>Profile</Link>
+              <button className="admin-button" disabled={loading || selected.status === "accepted"} onClick={() => void runTicketAction("accept", selected.ticketId)} type="button">Accept</button>
+              <button className="admin-button-danger" disabled={loading || selected.status === "closed"} onClick={() => void runTicketAction("close", selected.ticketId)} type="button">Close</button>
+            </div>
 
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <div className="grid gap-5 md:grid-cols-[1.2fr_0.8fr]">
+                <div className="space-y-4">
+                  <div>
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Application</div>
+                    {selected.application ? (
+                      <dl className="space-y-3 text-sm">
+                        {[
+                          ["Roblox", `${selected.application.robloxUsername ?? "—"} (${selected.application.robloxId ?? "—"})`],
+                          ["Submitted", formatTime(selected.application.submittedAt)],
+                          ["AFK 24/7", selected.application.afk247 ?? "—"],
+                          ["Activity", selected.application.activity ?? "—"],
+                          ["Liquid gems", selected.application.liquidGems ?? "—"],
+                          ["Why accept", selected.application.whyAccept ?? "—"],
+                        ].map(([label, value]) => (
+                          <div key={label}>
+                            <dt className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">{label}</dt>
+                            <dd className="mt-1 whitespace-pre-wrap text-zinc-200">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      <p className="text-sm text-zinc-500">No answers yet.</p>
+                    )}
+                  </div>
                   {selected.transcript?.text && (
-                    <Panel title="Transcript">
-                      <div className="mb-3 flex flex-wrap gap-2">
-                        <button className="admin-button" type="button" onClick={() => navigator.clipboard.writeText(selected.transcript?.text ?? "")}>Copy Transcript</button>
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Transcript</div>
+                        <button className="admin-button" type="button" onClick={() => navigator.clipboard.writeText(selected.transcript?.text ?? "")}>Copy</button>
                       </div>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/35 p-4 text-xs leading-5 text-zinc-300">{selected.transcript.text}</pre>
-                    </Panel>
+                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-black/30 p-3 text-xs leading-5 text-zinc-300">{selected.transcript.text}</pre>
+                    </div>
                   )}
                 </div>
-
-                <div className="space-y-5">
-                  <Panel title="Ticket Snapshot">
-                    <div className="grid gap-3 text-sm">
-                      <MiniStat label="Opened" value={formatTime(selected.createdAt)} />
-                      <MiniStat label="Last message" value={formatTime(selected.lastMessageAt ?? selected.updatedAt)} />
-                      <MiniStat label="Channel" value={selected.channelId ? `#${selected.channelId}` : "Not saved"} />
-                      <MiniStat label="Status" value={ticketStatusLabel(selected.status)} />
-                    </div>
-                  </Panel>
-
-                  <Panel title="Action Timeline">
-                    <div className="space-y-3">
+                <div className="space-y-4">
+                  <div className="space-y-2 text-sm">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Details</div>
+                    <div className="flex justify-between gap-3 text-zinc-400"><span>Opened</span><span className="text-zinc-200">{formatTime(selected.createdAt)}</span></div>
+                    <div className="flex justify-between gap-3 text-zinc-400"><span>Last message</span><span className="text-zinc-200">{formatTime(selected.lastMessageAt ?? selected.updatedAt)}</span></div>
+                    <div className="flex justify-between gap-3 text-zinc-400"><span>Channel</span><span className="font-mono text-xs text-zinc-200">{selected.channelId ?? "—"}</span></div>
+                  </div>
+                  <div>
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Timeline</div>
+                    <div className="space-y-2">
                       {(selected.actions ?? []).length ? (selected.actions ?? []).slice(0, 12).map((action, index) => (
-                        <div key={safeId("ticket-action", action.action, index)} className="relative rounded-2xl border border-white/10 bg-black/25 p-3 pl-4 text-sm">
-                          <div className="absolute -left-1 top-4 h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.8)]" />
-                          <div className="font-bold text-white">{action.action ?? "Action"}</div>
-                          <div className="text-xs text-zinc-500">{formatTime(action.createdAt)} · {action.actorDiscordId ?? "system"}</div>
-                          {action.message && <div className="mt-1 text-zinc-400">{action.message}</div>}
+                        <div key={safeId("ticket-action", action.action, index)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
+                          <div className="font-medium text-white">{action.action ?? "Action"}</div>
+                          <div className="text-xs text-zinc-500">{formatTime(action.createdAt)}</div>
+                          {action.message && <div className="mt-1 text-xs text-zinc-400">{action.message}</div>}
                         </div>
-                      )) : <p className="text-sm text-zinc-500">No actions recorded yet.</p>}
+                      )) : <p className="text-sm text-zinc-500">No actions yet.</p>}
                     </div>
-                  </Panel>
+                  </div>
                 </div>
               </div>
             </div>
