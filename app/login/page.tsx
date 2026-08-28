@@ -44,7 +44,7 @@ export default function LoginPage() {
       router.push(safeNext);
       router.refresh();
     } catch {
-      setError("Something went wrong");
+      setError("Can't reach the hub. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
