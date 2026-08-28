@@ -5,17 +5,17 @@ import { sessionOptions, type SessionData } from "@/lib/session"
 import { isDbConnectTimeout, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
-import { loginRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
+import { loginRateLimiter, getClientIP } from "@/lib/rateLimit"
 
 const loginSchema = z.object({
   username: z
     .string()
     .trim()
-    .min(1, "Missing credentials")
+    .min(1, "Enter your username and password.")
     .max(32, "Username must be at most 32 characters."),
   password: z
     .string()
-    .min(1, "Missing credentials")
+    .min(1, "Enter your username and password.")
     .max(128, "Password must be at most 128 characters."),
 })
 
@@ -23,6 +23,50 @@ const loginSchema = z.object({
 // "unknown username" takes the same time as "wrong password" — closes the
 // response-timing account-enumeration oracle.
 const DUMMY_PASSWORD_HASH = "$2a$10$IcxHJrnJo1Q72QLmb0PFA.JX1jOGqBHjqlzZe3c.TJPd4O4lJIUT6"
+
+function waitLabel(resetMs: number) {
+  const seconds = Math.max(1, Math.ceil((resetMs - Date.now()) / 1000))
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`
+  const minutes = Math.ceil(seconds / 60)
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`
+}
+
+function loginFailure(err: unknown): { error: string; status: number } {
+  if (isDbConnectTimeout(err)) {
+    return {
+      error: "The hub database is busy. Wait a few seconds and try again.",
+      status: 503,
+    }
+  }
+
+  const msg = err instanceof Error ? err.message : String(err)
+
+  if (/DATABASE_URL/i.test(msg)) {
+    return {
+      error: "Login is temporarily unavailable. Try again in a minute.",
+      status: 503,
+    }
+  }
+
+  if (/password_hash|Illegal arguments|data and hash|hash.*must be/i.test(msg)) {
+    return {
+      error: "This account isn't set up for password login. Sign up again or ask an officer.",
+      status: 400,
+    }
+  }
+
+  if (/iron-session|password.*secret|unseal|session/i.test(msg)) {
+    return {
+      error: "Couldn't start your session. Refresh the page and try again.",
+      status: 500,
+    }
+  }
+
+  return {
+    error: "Login failed on our side. Refresh and try again.",
+    status: 500,
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -34,12 +78,8 @@ export async function POST(req: Request) {
     })
 
     if (!result.success) {
-      const firstError = result.error.errors[0]?.message ?? "Missing credentials"
-      // Keep existing behaviour: return 400 for missing, but generic message for security
-      return NextResponse.json(
-        { error: firstError },
-        { status: 400 }
-      )
+      const firstError = result.error.errors[0]?.message ?? "Enter your username and password."
+      return NextResponse.json({ error: firstError }, { status: 400 })
     }
 
     const { username, password } = result.data
@@ -53,7 +93,19 @@ export async function POST(req: Request) {
       `login-user:${username.toLowerCase()}`,
     ])
     if (!rateLimitResult.success) {
-      return rateLimitResponse(rateLimitResult)
+      const retryAfter = Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))
+      return NextResponse.json(
+        { error: `Too many login attempts. Try again in ${waitLabel(rateLimitResult.reset)}.` },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfter),
+            "X-RateLimit-Limit": String(rateLimitResult.limit),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": String(Math.ceil(rateLimitResult.reset / 1000)),
+          },
+        }
+      )
     }
 
     const userRes = await pool.query(
@@ -72,19 +124,24 @@ export async function POST(req: Request) {
       // Timing-oracle guard: spend the same bcrypt cost as a real compare.
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH)
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: "Wrong username or password." },
         { status: 401 }
       )
     }
 
-    const match = await bcrypt.compare(
-      password,
-      user.password_hash
-    )
+    const hash = typeof user.password_hash === "string" ? user.password_hash : ""
+    if (!hash.startsWith("$2")) {
+      return NextResponse.json(
+        { error: "This account isn't set up for password login. Sign up again or ask an officer." },
+        { status: 400 }
+      )
+    }
+
+    const match = await bcrypt.compare(password, hash)
 
     if (!match) {
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: "Wrong username or password." },
         { status: 401 }
       )
     }
@@ -112,18 +169,9 @@ export async function POST(req: Request) {
         role: user.role ?? null,
       },
     })
-
   } catch (err) {
     console.error("[auth/login] error:", err)
-    if (isDbConnectTimeout(err)) {
-      return NextResponse.json(
-        { error: "Database timed out. Wait a second and try again." },
-        { status: 503 }
-      )
-    }
-    return NextResponse.json(
-      { error: "Login error" },
-      { status: 500 }
-    )
+    const { error, status } = loginFailure(err)
+    return NextResponse.json({ error }, { status })
   }
 }
