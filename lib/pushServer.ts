@@ -130,6 +130,33 @@ export function ensurePushTables(): Promise<void> {
         )
       `);
       await pool.query(`ALTER TABLE alert_read_marker ADD COLUMN IF NOT EXISTS last_read_notif_id BIGINT NOT NULL DEFAULT 0`);
+      // If this was ever created as TEXT, GREATEST() is lexicographic:
+      // GREATEST('9','12') stays '9', so Mark all never advances. Force bigint.
+      // Only rewrite when the type is actually wrong — ALTER TYPE always
+      // rewrites the table even bigint→bigint.
+      await pool.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'alert_read_marker'
+              AND column_name = 'last_read_notif_id'
+              AND data_type <> 'bigint'
+          ) THEN
+            ALTER TABLE alert_read_marker
+              ALTER COLUMN last_read_notif_id TYPE BIGINT
+              USING (
+                CASE
+                  WHEN TRIM(last_read_notif_id::text) ~ '^[0-9]+$'
+                    THEN TRIM(last_read_notif_id::text)::bigint
+                  ELSE 0
+                END
+              );
+          END IF;
+        END $$;
+      `);
     })().catch((err) => {
       tablesReady = null;
       throw err;
