@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 const SESSION_COOKIE_NAME = "mcwv_session"
 
-const AUTH_PAGES = new Set(["/login", "/signup", "/connect-success"])
+const AUTH_PAGES = new Set(["/login", "/signup", "/connect-success", "/check-done"])
 
 // Legal pages must be reachable without a session (they 307'd to login).
 const PUBLIC_PAGES = new Set(["/privacy", "/terms"])
@@ -27,6 +27,8 @@ const MACHINE_API_PATHS = new Set([
 const PUBLIC_API_PATHS = new Set([
   "/api/biggames/connect",
   "/api/biggames/callback",
+  "/api/discord/guilds",
+  "/api/discord/guilds/callback",
 ])
 
 function isAuthPage(pathname: string) {
