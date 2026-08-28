@@ -14,6 +14,8 @@ const PUBLIC_PAGES = new Set(["/privacy", "/terms"])
 const MACHINE_API_PATHS = new Set([
   "/api/war-collector",
   "/api/internal/badge-role-sync",
+  "/api/internal/biggames-connected",
+  "/api/internal/discord-guild-check",
   "/api/push/trigger",
 ])
 
