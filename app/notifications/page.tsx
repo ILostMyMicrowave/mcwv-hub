@@ -197,27 +197,39 @@ export default function NotificationsPage() {
   const unreadCount = counts.unread;
   const maxId = items.reduce((max, item) => Math.max(max, item.id), 0);
 
-  async function markRead(upTo: number) {
-    if (upTo <= lastReadId) return;
+  async function persistReadMarker(body: { upTo?: number; all?: boolean }, optimistic: number) {
     const marker = lastReadId;
-    setLastReadId(Math.max(lastReadId, upTo)); // optimistic
+    setLastReadId(Math.max(lastReadId, optimistic));
     try {
-      await fetch("/api/notifications/read", {
+      const res = await fetch("/api/notifications/read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upTo }),
+        body: JSON.stringify(body),
       });
+      const data = (await res.json().catch(() => ({}))) as { lastReadId?: number };
+      if (!res.ok) {
+        setLastReadId(marker);
+        return;
+      }
+      if (Number.isFinite(Number(data.lastReadId))) {
+        setLastReadId(Number(data.lastReadId));
+      }
       // Navbar badge refreshes instantly instead of waiting for its 60s poll.
       window.dispatchEvent(new CustomEvent("mcwv:alerts-changed"));
     } catch {
-      setLastReadId(marker); // roll back if the write failed
+      setLastReadId(marker);
     }
   }
 
+  async function markRead(upTo: number) {
+    if (upTo <= lastReadId) return;
+    await persistReadMarker({ upTo }, upTo);
+  }
+
   async function markAllRead() {
-    if (maxId === 0 || marking) return;
+    if (unreadCount === 0 || marking) return;
     setMarking(true);
-    await markRead(maxId);
+    await persistReadMarker({ all: true, upTo: maxId }, Math.max(maxId, lastReadId));
     setMarking(false);
   }
 
