@@ -2,9 +2,10 @@ import crypto from "crypto";
 import { pool } from "@/lib/db";
 
 // Staff-only Discord OAuth snapshot (identify + guilds).
-// Officers start a check from the bot; the applicant opens a 15-minute
-// one-shot link. We NEVER store the OAuth token or the full guild list —
-// only denylist hits (id + display name) plus a guild count.
+// First check: applicant opens a 15-minute link. After that we keep the
+// OAuth access/refresh token (keyed by Discord ID) so /check can re-scan
+// without asking again. We still NEVER store the full guild list — only
+// denylist hits (id + display name) plus a guild count.
 
 export const DISCORD_API = "https://discord.com/api/v10";
 export const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
@@ -68,6 +69,16 @@ async function ensureGuildCheckTables() {
     CREATE UNIQUE INDEX IF NOT EXISTS discord_guild_checks_oauth_state_idx
     ON discord_guild_checks (oauth_state)
     WHERE oauth_state IS NOT NULL
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discord_oauth_tokens (
+      discord_id TEXT PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT,
+      scope TEXT NOT NULL DEFAULT 'identify guilds',
+      expires_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `);
 }
 
@@ -218,28 +229,176 @@ export function intersectDenylist(
   return hits;
 }
 
-export async function exchangeDiscordCode(code: string, redirectUri: string) {
-  const clientId = process.env.DISCORD_CLIENT_ID!;
-  const clientSecret = process.env.DISCORD_CLIENT_SECRET!;
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: redirectUri,
-  });
+type DiscordTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string;
+  error?: string;
+  error_description?: string;
+};
+
+async function discordTokenRequest(body: URLSearchParams) {
   const res = await fetch(DISCORD_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
     cache: "no-store",
   });
-  const json = (await res.json().catch(() => null)) as { access_token?: string; error?: string; error_description?: string } | null;
+  const json = (await res.json().catch(() => null)) as DiscordTokenResponse | null;
   if (!res.ok || !json?.access_token) {
     const msg = json?.error_description || json?.error || `HTTP ${res.status}`;
     throw new Error(`Discord token exchange failed: ${msg}`);
   }
-  return String(json.access_token);
+  return {
+    accessToken: String(json.access_token),
+    refreshToken: json.refresh_token ? String(json.refresh_token) : "",
+    expiresIn: Number(json.expires_in ?? 604800),
+    scope: String(json.scope ?? DISCORD_GUILD_SCOPES),
+  };
+}
+
+export async function exchangeDiscordCode(code: string, redirectUri: string) {
+  const body = new URLSearchParams({
+    client_id: process.env.DISCORD_CLIENT_ID!,
+    client_secret: process.env.DISCORD_CLIENT_SECRET!,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+  });
+  return discordTokenRequest(body);
+}
+
+export async function saveDiscordUserToken(
+  discordId: string,
+  accessToken: string,
+  refreshToken: string,
+  expiresIn: number,
+  scope = DISCORD_GUILD_SCOPES
+) {
+  await ensureGuildCheckTables();
+  const expiresAt = new Date(Date.now() + Math.max(60, expiresIn) * 1000);
+  await pool.query(
+    `INSERT INTO discord_oauth_tokens (discord_id, access_token, refresh_token, scope, expires_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (discord_id) DO UPDATE SET
+       access_token = EXCLUDED.access_token,
+       refresh_token = COALESCE(NULLIF(EXCLUDED.refresh_token, ''), discord_oauth_tokens.refresh_token),
+       scope = EXCLUDED.scope,
+       expires_at = EXCLUDED.expires_at,
+       updated_at = NOW()`,
+    [discordId, accessToken, refreshToken || "", scope, expiresAt]
+  );
+}
+
+export async function deleteDiscordUserToken(discordId: string) {
+  await ensureGuildCheckTables();
+  await pool.query(`DELETE FROM discord_oauth_tokens WHERE discord_id = $1`, [discordId]);
+}
+
+async function refreshDiscordUserToken(discordId: string, refreshToken: string) {
+  const body = new URLSearchParams({
+    client_id: process.env.DISCORD_CLIENT_ID!,
+    client_secret: process.env.DISCORD_CLIENT_SECRET!,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  const exchanged = await discordTokenRequest(body);
+  await saveDiscordUserToken(
+    discordId,
+    exchanged.accessToken,
+    exchanged.refreshToken || refreshToken,
+    exchanged.expiresIn,
+    exchanged.scope
+  );
+  return exchanged.accessToken;
+}
+
+export async function getUsableDiscordUserToken(discordId: string): Promise<string | null> {
+  await ensureGuildCheckTables();
+  const { rows } = await pool.query(
+    `SELECT access_token, refresh_token, expires_at
+     FROM discord_oauth_tokens WHERE discord_id = $1 LIMIT 1`,
+    [discordId]
+  );
+  const row = rows[0];
+  if (!row?.access_token) return null;
+  const expiresAt = row.expires_at instanceof Date ? row.expires_at : row.expires_at ? new Date(String(row.expires_at)) : null;
+  const refreshToken = row.refresh_token ? String(row.refresh_token) : "";
+  const stale = !expiresAt || expiresAt.getTime() <= Date.now() + 60_000;
+  if (stale && refreshToken) {
+    try {
+      return await refreshDiscordUserToken(discordId, refreshToken);
+    } catch (err) {
+      console.error("[discord oauth] refresh failed:", err instanceof Error ? err.message : err);
+      await deleteDiscordUserToken(discordId);
+      return null;
+    }
+  }
+  return String(row.access_token);
+}
+
+export type SilentGuildCheck =
+  | { needAuth: true }
+  | {
+      needAuth: false;
+      status: "clean" | "flagged" | "mismatch";
+      flaggedHits: FlaggedHit[];
+      guildCount: number;
+      identifiedDiscordId: string;
+    };
+
+export async function snapshotGuildsForUser(discordId: string): Promise<SilentGuildCheck> {
+  let access = await getUsableDiscordUserToken(discordId);
+  if (!access) return { needAuth: true };
+
+  const run = async (token: string) => {
+    const identity = await fetchDiscordIdentity(token);
+    if (identity.id !== discordId) {
+      await deleteDiscordUserToken(discordId);
+      return {
+        needAuth: false as const,
+        status: "mismatch" as const,
+        flaggedHits: [],
+        guildCount: 0,
+        identifiedDiscordId: identity.id,
+      };
+    }
+    const guilds = await fetchDiscordGuilds(token);
+    const denylist = await getCheckDenylist();
+    const hits = intersectDenylist(guilds, denylist);
+    return {
+      needAuth: false as const,
+      status: (hits.length ? "flagged" : "clean") as "flagged" | "clean",
+      flaggedHits: hits,
+      guildCount: guilds.length,
+      identifiedDiscordId: identity.id,
+    };
+  };
+
+  try {
+    return await run(access);
+  } catch (err) {
+    const status = typeof err === "object" && err && "status" in err ? Number((err as { status?: unknown }).status) : 0;
+    if (status === 401) {
+      const { rows } = await pool.query(
+        `SELECT refresh_token FROM discord_oauth_tokens WHERE discord_id = $1 LIMIT 1`,
+        [discordId]
+      );
+      const refreshToken = rows[0]?.refresh_token ? String(rows[0].refresh_token) : "";
+      if (refreshToken) {
+        try {
+          access = await refreshDiscordUserToken(discordId, refreshToken);
+          return await run(access);
+        } catch (refreshErr) {
+          console.error("[discord oauth] retry after 401 failed:", refreshErr instanceof Error ? refreshErr.message : refreshErr);
+        }
+      }
+      await deleteDiscordUserToken(discordId);
+      return { needAuth: true };
+    }
+    throw err;
+  }
 }
 
 export async function revokeDiscordToken(accessToken: string) {
@@ -257,7 +416,7 @@ export async function revokeDiscordToken(accessToken: string) {
       cache: "no-store",
     });
   } catch {
-    // Best-effort. Token is never stored either way.
+    // Best-effort (mismatch / revoked flows).
   }
 }
 
@@ -284,7 +443,11 @@ export async function fetchDiscordGuilds(accessToken: string) {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`Discord guilds failed: HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = new Error(`Discord guilds failed: HTTP ${res.status}`) as Error & { status: number };
+      err.status = res.status;
+      throw err;
+    }
     const batch = (await res.json()) as Array<{ id?: unknown; name?: unknown }>;
     if (!Array.isArray(batch) || batch.length === 0) break;
     for (const g of batch) {
