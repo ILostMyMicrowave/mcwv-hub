@@ -13,6 +13,7 @@ import {
   isCheckExpired,
   markCheckExpired,
   revokeDiscordToken,
+  saveDiscordUserToken,
 } from "@/lib/discordGuildCheck";
 
 export const dynamic = "force-dynamic";
@@ -56,10 +57,12 @@ export async function GET(req: Request) {
 
   let accessToken = "";
   try {
-    accessToken = await exchangeDiscordCode(code, discordGuildsRedirectUri());
+    const exchanged = await exchangeDiscordCode(code, discordGuildsRedirectUri());
+    accessToken = exchanged.accessToken;
     const identity = await fetchDiscordIdentity(accessToken);
     if (identity.id !== row.target_discord_id) {
       await completeCheck(row.token, "mismatch", { identifiedDiscordId: identity.id });
+      await revokeDiscordToken(accessToken);
       return redirectDone(
         "You signed in with a different Discord account than the one staff asked to check. You can close this tab.",
         true
@@ -69,12 +72,19 @@ export async function GET(req: Request) {
     const guilds = await fetchDiscordGuilds(accessToken);
     const denylist = await getCheckDenylist();
     const hits = intersectDenylist(guilds, denylist);
+    await saveDiscordUserToken(
+      identity.id,
+      exchanged.accessToken,
+      exchanged.refreshToken,
+      exchanged.expiresIn,
+      exchanged.scope
+    );
     await completeCheck(row.token, hits.length ? "flagged" : "clean", {
       flaggedHits: hits,
       guildCount: guilds.length,
       identifiedDiscordId: identity.id,
     });
-    return redirectDone("Done. You can close this tab and go back to Discord.", false);
+    return redirectDone("Done. Later checks won't ask you to authorise again. You can close this tab.", false);
   } catch (err) {
     console.error("[discord/guilds/callback] error:", err instanceof Error ? err.message : err);
     try {
@@ -85,9 +95,5 @@ export async function GET(req: Request) {
       // ignore
     }
     return redirectDone("Something went wrong finishing the check. Ask staff to try again.", true);
-  } finally {
-    if (accessToken) {
-      await revokeDiscordToken(accessToken);
-    }
   }
 }
