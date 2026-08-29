@@ -593,15 +593,23 @@ export async function GET(
       }
     } else {
       playerRows = await loadEndOfWarSnapshot(battle.battle_id, battle.end_time);
-      if (playerRows.length) {
-        const reportNames = await fetchRobloxNames(playerRows.map((row) => String(row.roblox_id)));
+      if (!playerRows.length) {
+        playerRows = [...clanBattleData.contributionPoints.entries()].map(([robloxId, pts]) => ({
+          roblox_id: robloxId,
+          username: linkedAccounts.get(robloxId)?.username ?? robloxId,
+          rank: null,
+          points: pts,
+          captured_at: null,
+          in_final: true,
+        }));
+      } else {
         playerRows = playerRows.map((row) => {
           const id = String(row.roblox_id);
           const linked = linkedAccounts.get(id);
           return {
             ...row,
-            username: row.username ?? linked?.username ?? reportNames.get(id) ?? id,
-            points: asNumber(row.points) || crossClanPoints.get(id) || 0,
+            username: row.username ?? linked?.username ?? id,
+            points: asNumber(row.points),
           };
         });
       }
