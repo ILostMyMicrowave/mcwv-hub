@@ -69,9 +69,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const guilds = await fetchDiscordGuilds(accessToken);
-    const denylist = await getCheckDenylist();
-    const hits = intersectDenylist(guilds, denylist);
+    // Persist before the guilds fetch so a later blip still counts as authorised.
     await saveDiscordUserToken(
       identity.id,
       exchanged.accessToken,
@@ -79,6 +77,10 @@ export async function GET(req: Request) {
       exchanged.expiresIn,
       exchanged.scope
     );
+
+    const guilds = await fetchDiscordGuilds(accessToken);
+    const denylist = await getCheckDenylist();
+    const hits = intersectDenylist(guilds, denylist);
     await completeCheck(row.token, hits.length ? "flagged" : "clean", {
       flaggedHits: hits,
       guildCount: guilds.length,
