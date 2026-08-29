@@ -209,12 +209,40 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
     ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
     : new Set(contributionIds);
 
-  // Ended wars: use the EXACT war roster captured at war end when available —
-  // only people who were actually in the clan for that war. The API prunes
-  // PointContributions after award processing, so it undercounts (e.g. 66 of
-  // 75), while AwardUserIDs (captured into cross_clan_participants) is the
-  // official 75-member war roster.
+  // Ended wars: NEVER use today's clan list (kicks after war drop it to 60).
+  // Union last snapshots + captured participants + contributions.
   if (!includeCurrentRoster) {
+    const addIds = (rows: Array<{ roblox_id?: string | null }>) => {
+      for (const row of rows) {
+        const id = String(row.roblox_id ?? "").trim();
+        if (id) memberIds.add(id);
+      }
+    };
+    try {
+      const hist = await pool.query<{ roblox_id: string }>(
+        `SELECT DISTINCT roblox_id::text AS roblox_id
+         FROM player_leaderboard_history
+         WHERE battle_id = $1`,
+        [targetKey]
+      );
+      addIds(hist.rows);
+    } catch {
+      // table may not exist
+    }
+    try {
+      const hourly = await pool.query<{ roblox_id: string }>(
+        `SELECT DISTINCT roblox_id::text AS roblox_id
+         FROM hourly_stats_player_snapshots
+         WHERE battle_id = $1
+           AND scheduled_at = (
+             SELECT MAX(scheduled_at) FROM hourly_stats_player_snapshots WHERE battle_id = $1
+           )`,
+        [targetKey]
+      );
+      addIds(hourly.rows);
+    } catch {
+      // table may not exist
+    }
     try {
       const partRes = await pool.query<{ battle_id: string; roblox_id: string }>(
         `SELECT battle_id, roblox_id
@@ -222,15 +250,18 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
          WHERE clan_name = $1`,
         [CLAN_NAME]
       );
-      const rosterRows = partRes.rows.filter(
-        (row) => normalizeBattleKey(row.battle_id) === targetKey
-      );
-      if (rosterRows.length) {
-        memberIds.clear();
-        for (const row of rosterRows) memberIds.add(String(row.roblox_id).trim());
-      }
+      addIds(partRes.rows.filter((row) => normalizeBattleKey(row.battle_id) === targetKey));
     } catch {
-      // cross_clan_participants may not exist yet — keep the API-based roster.
+      // cross_clan_participants may not exist yet
+    }
+    try {
+      const ccRes = await pool.query<{ battle_id: string; roblox_id: string }>(
+        `SELECT battle_id, roblox_id FROM cross_clan_player_history WHERE clan_name = $1`,
+        [CLAN_NAME]
+      );
+      addIds(ccRes.rows.filter((row) => normalizeBattleKey(row.battle_id) === targetKey));
+    } catch {
+      // ignore
     }
   }
 
