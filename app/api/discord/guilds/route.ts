@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { RateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
 import {
   attachOAuthState,
+  completeCheck,
   discordGuildsRedirectUri,
   discordOAuthConfigured,
   DISCORD_AUTHORIZE_URL,
@@ -10,6 +11,7 @@ import {
   getCheckByToken,
   isCheckExpired,
   markCheckExpired,
+  snapshotGuildsForUser,
 } from "@/lib/discordGuildCheck";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +66,26 @@ export async function GET(req: Request) {
     );
   }
 
+  // Already authorised this Discord account — finish without another consent screen.
+  try {
+    const snap = await snapshotGuildsForUser(row.target_discord_id);
+    if (!snap.needAuth && snap.status !== "mismatch") {
+      await completeCheck(token, snap.status, {
+        flaggedHits: snap.flaggedHits,
+        guildCount: snap.guildCount,
+        identifiedDiscordId: snap.identifiedDiscordId,
+      });
+      return NextResponse.redirect(
+        new URL(
+          "/check-done?ok=Already authorised. You can close this tab.",
+          process.env.NEXT_PUBLIC_BASE_URL || "https://mcwv-hub.vercel.app"
+        )
+      );
+    }
+  } catch (err) {
+    console.error("[discord/guilds] silent snapshot failed:", err instanceof Error ? err.message : err);
+  }
+
   const state = generateOAuthState();
   await attachOAuthState(token, state);
 
@@ -73,7 +95,6 @@ export async function GET(req: Request) {
     response_type: "code",
     scope: DISCORD_GUILD_SCOPES,
     state,
-    prompt: "consent",
   });
 
   return NextResponse.redirect(`${DISCORD_AUTHORIZE_URL}?${params.toString()}`);
