@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { requireAuthenticatedUser } from "@/lib/authUser";
+import { loadEndOfWarSnapshot } from "@/lib/warReportRoster";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -205,65 +206,11 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
     contributionPoints.set(normalizedId, asNumber(entry?.Points ?? entry?.points));
   }
 
+  // Live wars: today's clan. Ended wars: roster comes from the end snapshot
+  // (loadEndOfWarSnapshot) — not this list, not kicks after the war.
   const memberIds = includeCurrentRoster
     ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
-    : new Set(contributionIds);
-
-  // Ended wars: NEVER use today's clan list (kicks after war drop it to 60).
-  // Union last snapshots + captured participants + contributions.
-  if (!includeCurrentRoster) {
-    const addIds = (rows: Array<{ roblox_id?: string | null }>) => {
-      for (const row of rows) {
-        const id = String(row.roblox_id ?? "").trim();
-        if (id) memberIds.add(id);
-      }
-    };
-    try {
-      const hist = await pool.query<{ roblox_id: string }>(
-        `SELECT DISTINCT roblox_id::text AS roblox_id
-         FROM player_leaderboard_history
-         WHERE battle_id = $1`,
-        [targetKey]
-      );
-      addIds(hist.rows);
-    } catch {
-      // table may not exist
-    }
-    try {
-      const hourly = await pool.query<{ roblox_id: string }>(
-        `SELECT DISTINCT roblox_id::text AS roblox_id
-         FROM hourly_stats_player_snapshots
-         WHERE battle_id = $1
-           AND scheduled_at = (
-             SELECT MAX(scheduled_at) FROM hourly_stats_player_snapshots WHERE battle_id = $1
-           )`,
-        [targetKey]
-      );
-      addIds(hourly.rows);
-    } catch {
-      // table may not exist
-    }
-    try {
-      const partRes = await pool.query<{ battle_id: string; roblox_id: string }>(
-        `SELECT battle_id, roblox_id
-         FROM cross_clan_participants
-         WHERE clan_name = $1`,
-        [CLAN_NAME]
-      );
-      addIds(partRes.rows.filter((row) => normalizeBattleKey(row.battle_id) === targetKey));
-    } catch {
-      // cross_clan_participants may not exist yet
-    }
-    try {
-      const ccRes = await pool.query<{ battle_id: string; roblox_id: string }>(
-        `SELECT battle_id, roblox_id FROM cross_clan_player_history WHERE clan_name = $1`,
-        [CLAN_NAME]
-      );
-      addIds(ccRes.rows.filter((row) => normalizeBattleKey(row.battle_id) === targetKey));
-    } catch {
-      // ignore
-    }
-  }
+    : new Set<string>();
 
   // The Big Games Members array does not include the clan owner, so explicitly
   // keep them for LIVE reports. Ended wars use the captured war roster, which
@@ -598,58 +545,66 @@ export async function GET(
       }
     }
 
-    if (await tableExists("player_leaderboard_history")) {
-      const players = await pool.query<PlayerSnapshotRow>(
-        `SELECT DISTINCT ON (roblox_id)
-           roblox_id,
-           username,
-           rank,
-           points,
-           captured_at,
-           (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
-         FROM (
-           SELECT
-             roblox_id::text AS roblox_id,
+    const clanBattleData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
+
+    if (battle.is_active) {
+      if (await tableExists("player_leaderboard_history")) {
+        const players = await pool.query<PlayerSnapshotRow>(
+          `SELECT DISTINCT ON (roblox_id)
+             roblox_id,
              username,
              rank,
              points,
              captured_at,
-             MAX(captured_at) OVER () AS last_ts
-           FROM player_leaderboard_history
-           WHERE battle_id = $1
-             AND points IS NOT NULL
-         ) rows
-         ORDER BY roblox_id, captured_at DESC`,
-        [normalizeBattleKey(battle.battle_id)]
-      );
-      playerRows = players.rows;
-    }
-
-    const clanBattleData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
-    if (clanBattleData.memberIds.size > 0) {
-      const reportIds = [...clanBattleData.memberIds];
-      const reportNames = await fetchRobloxNames(reportIds);
-      const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
-      const rosterIdSet = new Set(reportIds.map((id) => String(id)));
-      const mappedRows = reportIds.map((robloxId) => {
-        const existing = rowsById.get(robloxId);
-        const linked = linkedAccounts.get(robloxId);
-        return {
-          roblox_id: robloxId,
-          username: existing?.username ?? linked?.username ?? reportNames.get(robloxId) ?? robloxId,
-          rank: existing?.rank ?? null,
-          points:
-            crossClanPoints.get(robloxId) ??
-            clanBattleData.contributionPoints.get(robloxId) ??
-            asNumber(existing?.points) ??
-            0,
-          captured_at: existing?.captured_at ?? null,
-          in_final: existing?.in_final ?? false,
-        };
-      });
-      // Roster-only: the member list is exactly the captured war roster —
-      // no kicked/left extras, no post-war joiners.
-      playerRows = mappedRows;
+             (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
+           FROM (
+             SELECT
+               roblox_id::text AS roblox_id,
+               username,
+               rank,
+               points,
+               captured_at,
+               MAX(captured_at) OVER () AS last_ts
+             FROM player_leaderboard_history
+             WHERE battle_id = $1
+               AND points IS NOT NULL
+           ) rows
+           ORDER BY roblox_id, captured_at DESC`,
+          [normalizeBattleKey(battle.battle_id)]
+        );
+        playerRows = players.rows;
+      }
+      if (clanBattleData.memberIds.size > 0) {
+        const reportIds = [...clanBattleData.memberIds];
+        const reportNames = await fetchRobloxNames(reportIds);
+        const rowsById = new Map(playerRows.map((row) => [String(row.roblox_id), row]));
+        playerRows = reportIds.map((robloxId) => {
+          const existing = rowsById.get(robloxId);
+          const linked = linkedAccounts.get(robloxId);
+          return {
+            roblox_id: robloxId,
+            username: existing?.username ?? linked?.username ?? reportNames.get(robloxId) ?? robloxId,
+            rank: existing?.rank ?? null,
+            points: clanBattleData.contributionPoints.get(robloxId) ?? asNumber(existing?.points) ?? 0,
+            captured_at: existing?.captured_at ?? null,
+            in_final: existing?.in_final ?? true,
+          };
+        });
+      }
+    } else {
+      playerRows = await loadEndOfWarSnapshot(battle.battle_id, battle.end_time);
+      if (playerRows.length) {
+        const reportNames = await fetchRobloxNames(playerRows.map((row) => String(row.roblox_id)));
+        playerRows = playerRows.map((row) => {
+          const id = String(row.roblox_id);
+          const linked = linkedAccounts.get(id);
+          return {
+            ...row,
+            username: row.username ?? linked?.username ?? reportNames.get(id) ?? id,
+            points: asNumber(row.points) || crossClanPoints.get(id) || 0,
+          };
+        });
+      }
     }
 
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
