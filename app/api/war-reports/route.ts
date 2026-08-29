@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { requireAuthenticatedUser } from "@/lib/authUser";
+import { loadEndOfWarSnapshot } from "@/lib/warReportRoster";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -184,58 +185,7 @@ async function getClanBattleReportData(battleId: string, includeCurrentRoster: b
 
   const memberIds = includeCurrentRoster
     ? new Set(currentMemberIds.size ? currentMemberIds : contributionIds)
-    : new Set(contributionIds);
-
-  if (!includeCurrentRoster) {
-    const addIds = (rows: Array<{ roblox_id?: string | null }>) => {
-      for (const row of rows) {
-        const id = String(row.roblox_id ?? "").trim();
-        if (id) memberIds.add(id);
-      }
-    };
-    try {
-      const hist = await pool.query<{ roblox_id: string }>(
-        `SELECT DISTINCT roblox_id::text AS roblox_id
-         FROM player_leaderboard_history WHERE battle_id = $1`,
-        [targetKey]
-      );
-      addIds(hist.rows);
-    } catch {
-      // ignore
-    }
-    try {
-      const hourly = await pool.query<{ roblox_id: string }>(
-        `SELECT DISTINCT roblox_id::text AS roblox_id
-         FROM hourly_stats_player_snapshots
-         WHERE battle_id = $1
-           AND scheduled_at = (
-             SELECT MAX(scheduled_at) FROM hourly_stats_player_snapshots WHERE battle_id = $1
-           )`,
-        [targetKey]
-      );
-      addIds(hourly.rows);
-    } catch {
-      // ignore
-    }
-    try {
-      const partRes = await pool.query<{ battle_id: string; roblox_id: string }>(
-        `SELECT battle_id, roblox_id FROM cross_clan_participants WHERE clan_name = $1`,
-        [CLAN_NAME]
-      );
-      addIds(partRes.rows.filter((row) => normalizeBattleKey(row.battle_id) === targetKey));
-    } catch {
-      // ignore
-    }
-    try {
-      const ccRes = await pool.query<{ battle_id: string; roblox_id: string }>(
-        `SELECT battle_id, roblox_id FROM cross_clan_player_history WHERE clan_name = $1`,
-        [CLAN_NAME]
-      );
-      addIds(ccRes.rows.filter((row) => normalizeBattleKey(row.battle_id) === targetKey));
-    } catch {
-      // ignore
-    }
-  }
+    : new Set<string>();
 
   // Big Games omits the clan owner from Members, so force include owner for
   // LIVE reports. Ended wars use the captured war roster, which already
