@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { requireAuthenticatedUser } from "@/lib/authUser";
-import { loadEndOfWarSnapshot } from "@/lib/warReportRoster";
+import { loadEndOfWarSnapshotsForBattles } from "@/lib/warReportRoster";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -298,7 +298,8 @@ export async function GET() {
     const battleKeys = [...new Set(battleRows.map((row) => normalizeBattleKey(row.battle_id)).filter(Boolean))];
     const byBattle = new Map<string, PlayerSnapshotRow[]>();
 
-    if (battleKeys.length && (await tableExists("player_leaderboard_history"))) {
+    const liveKeys = battleRows.filter((row) => row.is_active).map((row) => normalizeBattleKey(row.battle_id));
+    if (liveKeys.length && (await tableExists("player_leaderboard_history"))) {
       const players = await pool.query<PlayerSnapshotRow>(
         `SELECT DISTINCT ON (battle_key, roblox_id)
            battle_key,
@@ -306,7 +307,7 @@ export async function GET() {
            roblox_id,
            username,
            points,
-           (captured_at >= last_ts - INTERVAL '24 hours') AS in_final
+           TRUE AS in_final
          FROM (
            SELECT
              lower(battle_id) AS battle_key,
@@ -314,16 +315,13 @@ export async function GET() {
              roblox_id::text AS roblox_id,
              username,
              points,
-             captured_at,
-             MAX(captured_at) OVER (
-               PARTITION BY lower(battle_id)
-             ) AS last_ts
+             captured_at
            FROM player_leaderboard_history
            WHERE battle_id = ANY($1)
              AND points IS NOT NULL
          ) rows
          ORDER BY battle_key, roblox_id, captured_at DESC`,
-        [battleKeys]
+        [liveKeys]
       );
 
       for (const row of players.rows) {
@@ -331,6 +329,25 @@ export async function GET() {
         list.push(row);
         byBattle.set(row.battle_key, list);
       }
+    }
+
+    const endedSnaps = await loadEndOfWarSnapshotsForBattles(
+      battleRows
+        .filter((row) => !row.is_active)
+        .map((row) => ({ battleId: row.battle_id, endTime: row.end_time }))
+    );
+    for (const [key, rows] of endedSnaps) {
+      byBattle.set(
+        key,
+        rows.map((row) => ({
+          battle_key: key,
+          battle_id: key,
+          roblox_id: String(row.roblox_id),
+          username: row.username,
+          points: row.points,
+          in_final: true,
+        }))
+      );
     }
 
     const clanDataByBattle = new Map<string, Awaited<ReturnType<typeof getClanBattleReportData>>>();
@@ -359,11 +376,12 @@ export async function GET() {
       // cross_clan_player_history may not exist — reports stay API-based.
     }
 
-    for (const battle of battleRows) {
-      const key = normalizeBattleKey(battle.battle_id);
-      const clanData = await getClanBattleReportData(battle.battle_id, Boolean(battle.is_active));
+    const liveBattle = battleRows.find((row) => row.is_active);
+    if (liveBattle) {
+      const key = normalizeBattleKey(liveBattle.battle_id);
+      const clanData = await getClanBattleReportData(liveBattle.battle_id, true);
+      clanDataByBattle.set(key, clanData);
       if (clanData.memberIds.size > 0) {
-        clanDataByBattle.set(key, clanData);
         namesByBattle.set(key, await fetchRobloxNames([...clanData.memberIds]));
       }
     }
