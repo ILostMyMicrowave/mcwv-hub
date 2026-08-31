@@ -137,6 +137,11 @@ export const changePasswordRateLimiter = new RateLimiter({
   max: 3, // 3 attempts per hour
 })
 
+export const forgotPasswordRateLimiter = new RateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+})
+
 // Helper to get client IP
 export function getClientIP(req: Request): string {
   // Prefer x-real-ip: proxies like Vercel set it to the actual client IP and
