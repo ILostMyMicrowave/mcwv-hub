@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
     <AuthShell
       eyebrow="ACCOUNT RECOVERY"
       title="Forgot password"
-      subtitle="Enter your Discord username. If it's linked to a Hub login, MCWV-BOT will DM you a reset link."
+      subtitle="Enter your Discord username. If it's linked to a Hub login, MCWV-BOT DMs a reset link (can take up to a minute)."
       footer={
         <>
           Remembered it? <Link href="/login">Log in</Link>
