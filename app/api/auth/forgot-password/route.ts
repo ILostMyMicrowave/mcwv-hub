@@ -80,14 +80,13 @@ export async function POST(req: Request) {
       )
       discordId = lookup?.discord_id ? String(lookup.discord_id) : null
     } catch (err) {
-      if (err instanceof BotAdminApiError) {
-        console.error("[forgot-password] lookup:", err.message)
+      console.error("[forgot-password] lookup:", err)
+      if (err instanceof BotAdminApiError && (err.status >= 500 || err.status === 404 || err.status === 503)) {
+        return NextResponse.json(
+          { error: "Couldn't reach the bot to send a DM. Try again in a minute." },
+          { status: 503 }
+        )
       }
-      return NextResponse.json({ success: true, message: GENERIC_OK })
-    }
-
-    if (!discordId) {
-      return NextResponse.json({ success: true, message: GENERIC_OK })
     }
 
     const userRes = await pool.query<{
@@ -98,13 +97,19 @@ export async function POST(req: Request) {
     }>(
       `SELECT id, username, password_hash, discord_id
        FROM users
-       WHERE TRIM(discord_id::text) = $1
+       WHERE ($1::text IS NOT NULL AND TRIM(discord_id::text) = $1)
+          OR LOWER(TRIM(username)) = LOWER($2)
+       ORDER BY CASE WHEN $1::text IS NOT NULL AND TRIM(discord_id::text) = $1 THEN 0 ELSE 1 END
        LIMIT 1`,
-      [discordId]
+      [discordId, discordUsername]
     )
     const user = userRes.rows[0]
     const hash = typeof user?.password_hash === "string" ? user.password_hash : ""
     if (!user || !hash.startsWith("$2")) {
+      return NextResponse.json({ success: true, message: GENERIC_OK })
+    }
+    discordId = String(user.discord_id || discordId || "")
+    if (!discordId) {
       return NextResponse.json({ success: true, message: GENERIC_OK })
     }
 
@@ -145,11 +150,25 @@ export async function POST(req: Request) {
       })
     } catch (err) {
       console.error("[forgot-password] dm:", err)
+      const msg = err instanceof BotAdminApiError ? err.message : ""
+      if (/DM|DMs disabled/i.test(msg)) {
+        return NextResponse.json(
+          { error: "Couldn't DM that Discord. Open DMs from server members, then try again." },
+          { status: 400 }
+        )
+      }
+      return NextResponse.json(
+        { error: "Couldn't send the reset DM. Try again in a minute." },
+        { status: 502 }
+      )
     }
 
     return NextResponse.json({ success: true, message: GENERIC_OK })
   } catch (err) {
     console.error("[auth/forgot-password] error:", err)
-    return NextResponse.json({ success: true, message: GENERIC_OK })
+    return NextResponse.json(
+      { error: "Couldn't send a reset link. Try again." },
+      { status: 500 }
+    )
   }
 }
