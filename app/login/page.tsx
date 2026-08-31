@@ -92,6 +92,22 @@ export default function LoginPage() {
         <AuthButton loading={loading} loadingText="Checking credentials..." delay="0.36s">
           Log In
         </AuthButton>
+
+        <div className="forgot-wrap">
+          <style jsx>{`
+            .forgot-wrap {
+              text-align: center;
+              margin-top: 4px;
+            }
+            .forgot-wrap a {
+              font-size: 0.8rem;
+              font-weight: 600;
+              color: #a78bfa;
+            }
+            .forgot-wrap a:hover { text-decoration: underline; }
+          `}</style>
+          <Link href="/forgot-password">Forgot password?</Link>
+        </div>
       </form>
     </AuthShell>
   );
