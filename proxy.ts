@@ -3,7 +3,14 @@ import { NextResponse, type NextRequest } from "next/server"
 
 const SESSION_COOKIE_NAME = "mcwv_session"
 
-const AUTH_PAGES = new Set(["/login", "/signup", "/connect-success", "/check-done"])
+const AUTH_PAGES = new Set([
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/connect-success",
+  "/check-done",
+])
 
 // Legal pages must be reachable without a session (they 307'd to login).
 const PUBLIC_PAGES = new Set(["/privacy", "/terms"])
