@@ -1,5 +1,5 @@
-// Pure inbox helpers — shared by the notifications page, unit-tested by
-// scripts/test-inbox.mjs. No React, no Next — ordering logic lives here so
+// Pure inbox helpers - shared by the notifications page, unit-tested by
+// scripts/test-inbox.mjs. No React, no Next - ordering logic lives here so
 // it can never silently rot inside JSX.
 //
 // Canonical ordering: `id` DESC. ids are BIGSERIAL, so id order == time
@@ -38,9 +38,9 @@ export const TYPE_META: Record<
   broadcast: {
     icon: "📢",
     label: "Broadcast",
-    chip: "border-violet-400/30 bg-violet-400/10 text-violet-200",
-    iconTile: "border-violet-400/30 bg-violet-500/15",
-    glow: "shadow-[0_0_28px_rgba(167,139,250,0.14)]",
+    chip: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    iconTile: "border-amber-400/30 bg-amber-500/15",
+    glow: "shadow-[0_0_28px_rgba(251,191,36,0.12)]",
   },
   presence: {
     icon: "🎮",
@@ -111,7 +111,7 @@ export function dayLabelOf(iso: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Ordering — the bit that MUST be correct.
+// Ordering - the bit that MUST be correct.
 // ---------------------------------------------------------------------------
 
 export function byRecency(a: HubNotification, b: HubNotification) {
@@ -123,7 +123,7 @@ export function sortByRecency(list: HubNotification[]): HubNotification[] {
 }
 
 // Deep-linked alerts arrive out-of-band (single fetch): dedupe, then place
-// by id so an OLD tapped alert lands in its date group — never on top.
+// by id so an OLD tapped alert lands in its date group - never on top.
 export function insertByRecency(
   list: HubNotification[],
   item: HubNotification
