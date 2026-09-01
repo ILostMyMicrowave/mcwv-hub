@@ -53,8 +53,8 @@ export default function LoginPage() {
   return (
     <AuthShell
       eyebrow="MEMBER ACCESS"
-      title="Welcome back"
-      subtitle="Log in to enter the hub and sync your settings."
+      title="Log in"
+      subtitle="Hub username and password."
       footer={
         <>
           Don&apos;t have an account? <Link href="/signup">Sign up</Link>
@@ -89,7 +89,7 @@ export default function LoginPage() {
 
         <AuthError message={error} />
 
-        <AuthButton loading={loading} loadingText="Checking credentials..." delay="0.36s">
+        <AuthButton loading={loading} loadingText="Logging in..." delay="0.36s">
           Log In
         </AuthButton>
 
