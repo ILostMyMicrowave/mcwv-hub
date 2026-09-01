@@ -92,7 +92,7 @@ function DesktopLinkItem({
       {badge && badge > 0 ? (
         <span
           aria-hidden
-          className="ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-1.5 py-[3px] text-[10px] font-black leading-none text-white shadow-[0_0_12px_rgba(139,92,246,0.55)]"
+          className="ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-emerald-500 px-1.5 py-[3px] text-[10px] font-black leading-none text-black shadow-[0_0_12px_rgba(52,211,153,0.35)]"
         >
           {badge > 99 ? "99+" : badge}
         </span>
@@ -120,7 +120,7 @@ type DesktopGroupItemProps = {
 /**
  * Desktop dropdown group. Fixes vs the old inline component:
  * - The dead-space between button and panel is padding on the hover wrapper,
- *   not a margin — the mouse can't "fall through the gap" and kill the menu.
+ *   not a margin - the mouse can't "fall through the gap" and kill the menu.
  *   (The old mt-3 + mid-gap bridge div was clipped by overflow-hidden and did
  *   nothing, which is why menus snapped shut mid-move.)
  * - Closed menus are visibility:hidden + inert, so Tab can no longer land on
@@ -336,7 +336,7 @@ export default function Navbar() {
   const groupCloseTimerRef = useRef<number | null>(null);
   const measuredNavWidthRef = useRef(0);
   // Spotlight glow is written directly to the DOM (rAF-throttled) instead of
-  // going through setState — pointermove used to re-render the whole navbar
+  // going through setState - pointermove used to re-render the whole navbar
   // on every single mouse event.
   const pillGlowRef = useRef<HTMLDivElement | null>(null);
   const pillGlowRafRef = useRef<number | null>(null);
@@ -528,7 +528,7 @@ export default function Navbar() {
           closeDesktopGroupNow(groupId, { focusButton: true });
           break;
         case "Tab":
-          // Let focus move naturally — just close the menu.
+          // Let focus move naturally - just close the menu.
           closeDesktopGroupNow(groupId);
           break;
       }
@@ -619,7 +619,7 @@ export default function Navbar() {
         const data = (await res.json()) as { unread?: number };
         if (!stop) setUnreadAlerts(Math.max(0, Number(data.unread ?? 0)));
       } catch {
-        // Badge is best-effort — never let it break navigation.
+        // Badge is best-effort - never let it break navigation.
       }
     };
     const onVisible = () => {
@@ -647,7 +647,7 @@ export default function Navbar() {
     updateSection();
 
     // Next.js soft-navigates with history.pushState, which NEVER fires
-    // popstate — so hopping between /admin?section=… pages used to leave the
+    // popstate - so hopping between /admin?section=… pages used to leave the
     // highlight stuck on the previous section until a reload. Patch the
     // history functions once to emit a signal we can listen to.
     const win = window as unknown as { __mcwvNavHistoryPatched?: boolean };
@@ -698,7 +698,7 @@ export default function Navbar() {
 
       if (navEl && navEl.scrollWidth > 0) {
         // Fresh truth each pass (the old code kept a sticky max, so shrinking
-        // content — e.g. losing the Staff group — could never un-collapse).
+        // content - e.g. losing the Staff group - could never un-collapse).
         measuredNavWidthRef.current = navEl.scrollWidth;
       }
 
@@ -758,7 +758,7 @@ export default function Navbar() {
       if (activeEl) observer.observe(activeEl);
     }
 
-    // Webfont swaps widen labels after first paint — re-measure once they're in.
+    // Webfont swaps widen labels after first paint - re-measure once they're in.
     if (typeof document !== "undefined" && document.fonts?.ready) {
       document.fonts.ready.then(() => updateIndicator()).catch(() => undefined);
     }
@@ -1026,7 +1026,7 @@ export default function Navbar() {
       {/* The drawer is portalled to <body> on purpose: the header uses
           backdrop-blur + mount animations, and any ancestor with
           backdrop-filter/transform becomes the containing block for
-          position:fixed children — that trapped the backdrop inside the
+          position:fixed children - that trapped the backdrop inside the
           ~64px header bar so page content bled through next to the drawer
           on pages like Admin. Portalling removes the trap entirely, and the
           higher z-index keeps the drawer above page modals/toasts. */}
@@ -1125,7 +1125,7 @@ export default function Navbar() {
                         {item.id === "inbox" && unreadAlerts > 0 ? (
                           <span
                             aria-label={`${unreadAlerts} unread alerts`}
-                            className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-2 py-1 text-[10px] font-black leading-none text-white shadow-[0_0_14px_rgba(139,92,246,0.55)]"
+                            className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-emerald-500 px-2 py-1 text-[10px] font-black leading-none text-white shadow-[0_0_14px_rgba(52,211,153,0.35)]"
                           >
                             {unreadAlerts > 99 ? "99+" : unreadAlerts}
                           </span>
