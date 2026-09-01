@@ -28,27 +28,27 @@ function SignupSteps({ step }: { step: 1 | 2 }) {
           gap: 7px;
           transition: color 250ms ease;
         }
-        .signup-step.on { color: #c4b5fd; }
+        .signup-step.on { color: #6ee7b7; }
         .signup-step-dot {
           display: grid;
           place-items: center;
           width: 19px;
           height: 19px;
           border-radius: 50%;
-          border: 1px solid rgba(196, 181, 253, 0.3);
+          border: 1px solid rgba(52, 211, 153, 0.3);
           font-size: 9.5px;
           transition: all 250ms ease;
         }
         .signup-step.on .signup-step-dot {
-          background: rgba(167, 139, 250, 0.18);
-          border-color: rgba(167, 139, 250, 0.75);
-          color: #e9e3ff;
-          box-shadow: 0 0 12px rgba(167, 139, 250, 0.4);
+          background: rgba(52, 211, 153, 0.16);
+          border-color: rgba(52, 211, 153, 0.7);
+          color: #d1fae5;
+          box-shadow: 0 0 12px rgba(52, 211, 153, 0.28);
         }
         .signup-step-line {
           flex: 1;
           height: 1px;
-          background: linear-gradient(90deg, rgba(167, 139, 250, 0.4), rgba(255, 255, 255, 0.07));
+          background: linear-gradient(90deg, rgba(52, 211, 153, 0.4), rgba(255, 255, 255, 0.07));
         }
       `}</style>
       <span className={`signup-step${step >= 1 ? " on" : ""}`}>
@@ -165,7 +165,7 @@ export default function SignupPage() {
       title="Join MCWV"
       subtitle={
         <>
-          Enter your Roblox username — the clan bot DMs a one-time
+          Enter your Roblox username - the clan bot DMs a one-time
           code to your linked Discord account.
         </>
       }
@@ -257,8 +257,8 @@ export default function SignupPage() {
                 <style jsx>{`
                   .signup-verify {
                     border-radius: 16px;
-                    border: 1px solid rgba(167, 139, 250, 0.22);
-                    background: rgba(124, 58, 237, 0.08);
+                    border: 1px solid rgba(52, 211, 153, 0.22);
+                    background: rgba(16, 185, 129, 0.08);
                     padding: 14px;
                     animation: signup-verify-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
                   }
@@ -273,7 +273,7 @@ export default function SignupPage() {
                     margin-bottom: 12px;
                     font-size: 0.78rem;
                     line-height: 1.55;
-                    color: #c4b5fd;
+                    color: #a7f3d0;
                   }
                   .signup-verify-note .dot {
                     flex-shrink: 0;
@@ -301,7 +301,7 @@ export default function SignupPage() {
                 <div className="signup-verify-note">
                   <span className="dot" aria-hidden="true" />
                   <span>
-                    Code sent — check the Discord DM linked to that Roblox user.
+                    Code sent - check the Discord DM linked to that Roblox user.
                     It expires in 10 minutes.
                   </span>
                 </div>
