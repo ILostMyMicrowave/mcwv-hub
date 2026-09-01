@@ -4,11 +4,11 @@ import { useState, type ReactNode } from "react";
 
 /**
  * Shared shell for the pre-auth pages (/login, /signup).
- * Brand-matched to the boot intro: purple neon logo, starfield,
- * aurora beams, glass terminal card. Purely presentational.
+ * Brand-matched to the hub: emerald, starfield, glass card.
+ * Purely presentational.
  */
 
-const PURPLE = "#a78bfa";
+const ACCENT = "#34d399";
 
 export function AuthShell({
   eyebrow,
@@ -64,8 +64,8 @@ export function AuthShell({
           overflow-x: hidden;
           padding: 7vh 16px 48px;
           background:
-            radial-gradient(120% 90% at 50% 115%, rgba(124, 58, 237, 0.16), transparent 55%),
-            radial-gradient(80% 55% at 50% -12%, rgba(167, 139, 250, 0.08), transparent 60%),
+            radial-gradient(120% 90% at 50% 115%, rgba(5, 150, 105, 0.16), transparent 55%),
+            radial-gradient(80% 55% at 50% -12%, rgba(52, 211, 153, 0.08), transparent 60%),
             #050507;
           font-family: inherit;
         }
@@ -104,13 +104,13 @@ export function AuthShell({
         .auth-glow-1 {
           width: 44vmax; height: 44vmax;
           top: -18vmax; left: -14vmax;
-          background: rgba(124, 58, 237, 0.13);
+          background: rgba(5, 150, 105, 0.13);
           animation: auth-orb-1 16s ease-in-out infinite;
         }
         .auth-glow-2 {
           width: 40vmax; height: 40vmax;
           bottom: -16vmax; right: -12vmax;
-          background: rgba(167, 139, 250, 0.09);
+          background: rgba(52, 211, 153, 0.09);
           animation: auth-orb-2 19s ease-in-out infinite;
         }
         @keyframes auth-orb-1 {
@@ -127,7 +127,7 @@ export function AuthShell({
           top: 50%; left: 50%;
           width: 160vmax; height: 22vmax;
           translate: -50% -50%;
-          background: linear-gradient(100deg, transparent 42%, rgba(167, 139, 250, 0.045) 50%, transparent 58%);
+          background: linear-gradient(100deg, transparent 42%, rgba(52, 211, 153, 0.045) 50%, transparent 58%);
           pointer-events: none;
           animation: auth-beam-pan 24s linear infinite;
         }
@@ -161,7 +161,7 @@ export function AuthShell({
         .auth-logo {
           width: min(46vw, 168px);
           margin: 0 auto;
-          filter: drop-shadow(0 0 22px rgba(167, 139, 250, 0.45));
+          filter: drop-shadow(0 0 22px rgba(52, 211, 153, 0.45));
           animation: auth-logo-float 5.5s ease-in-out infinite;
         }
         @keyframes auth-logo-float {
@@ -175,18 +175,18 @@ export function AuthShell({
           font-weight: 700;
           letter-spacing: 0.34em;
           text-indent: 0.34em;
-          color: rgba(196, 181, 253, 0.85);
+          color: rgba(167, 243, 208, 0.85);
         }
 
         .auth-card {
           position: relative;
           width: 100%;
           border-radius: 26px;
-          border: 1px solid rgba(196, 181, 253, 0.16);
-          background: linear-gradient(180deg, rgba(17, 14, 28, 0.82), rgba(10, 8, 17, 0.82));
+          border: 1px solid rgba(167, 243, 208, 0.16);
+          background: linear-gradient(180deg, rgba(10, 16, 14, 0.86), rgba(6, 10, 8, 0.88));
           backdrop-filter: blur(14px);
           -webkit-backdrop-filter: blur(14px);
-          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 0 44px rgba(124, 58, 237, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 0 44px rgba(5, 150, 105, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
           padding: 26px 24px 24px;
           overflow: hidden;
           animation: auth-card-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
@@ -201,7 +201,7 @@ export function AuthShell({
           inset-inline: 0;
           top: 0;
           height: 2px;
-          background: linear-gradient(90deg, transparent, #7c3aed 25%, ${PURPLE} 50%, #7c3aed 75%, transparent);
+          background: linear-gradient(90deg, transparent, #059669 25%, ${ACCENT} 50%, #059669 75%, transparent);
           opacity: 0.9;
         }
         .auth-card-sheen {
@@ -242,7 +242,7 @@ export function AuthShell({
           animation: auth-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.5s both;
         }
         .auth-footer a {
-          color: ${PURPLE};
+          color: ${ACCENT};
           font-weight: 600;
         }
         .auth-footer a:hover { text-decoration: underline; }
@@ -331,7 +331,7 @@ export function AuthField({
           font-size: 0.68rem;
           font-weight: 600;
           letter-spacing: 0.06em;
-          color: ${focused ? PURPLE : "#8b8b9a"};
+          color: ${focused ? ACCENT : "#8b8b9a"};
           transition: color 160ms ease;
           pointer-events: none;
         }
@@ -347,14 +347,14 @@ export function AuthField({
         .auth-field input {
           width: 100%;
           border-radius: 14px;
-          border: 1px solid ${focused ? "rgba(167, 139, 250, 0.65)" : "rgba(255, 255, 255, 0.1)"};
-          background: ${focused ? "rgba(167, 139, 250, 0.05)" : "rgba(6, 5, 10, 0.6)"};
+          border: 1px solid ${focused ? "rgba(52, 211, 153, 0.65)" : "rgba(255, 255, 255, 0.1)"};
+          background: ${focused ? "rgba(52, 211, 153, 0.05)" : "rgba(6, 5, 10, 0.6)"};
           padding: 13px ${allowReveal ? "44px" : "14px"} 13px 40px;
           font-size: 16px; /* >=16px stops iOS focus zoom */
           color: #f4f4f5;
           transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
           outline: none;
-          box-shadow: ${focused ? "0 0 0 3px rgba(167, 139, 250, 0.16), 0 0 20px rgba(124, 58, 237, 0.14)" : "none"};
+          box-shadow: ${focused ? "0 0 0 3px rgba(52, 211, 153, 0.16), 0 0 20px rgba(5, 150, 105, 0.14)" : "none"};
         }
         .auth-field input::placeholder { color: #55555f; }
         .auth-field input:disabled { opacity: 0.55; }
@@ -462,11 +462,10 @@ export function AuthButton({
           font-size: 0.92rem;
           font-weight: 800;
           letter-spacing: 0.06em;
-          color: #fff;
-          background: linear-gradient(120deg, #6d28d9, #8b5cf6 55%, #a78bfa);
-          background-size: 180% 100%;
+          color: #052e16;
+          background: #34d399;
           cursor: pointer;
-          box-shadow: 0 10px 30px rgba(124, 58, 237, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+          box-shadow: 0 10px 28px rgba(52, 211, 153, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
           transition: background-position 240ms ease, transform 160ms ease, box-shadow 240ms ease, opacity 180ms ease;
           overflow: hidden;
         }
@@ -482,9 +481,8 @@ export function AuthButton({
           pointer-events: none;
         }
         .auth-btn:hover:not(:disabled) {
-          background-position: 70% 0;
           transform: translateY(-1.5px);
-          box-shadow: 0 14px 38px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+          box-shadow: 0 14px 32px rgba(52, 211, 153, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22);
         }
         .auth-btn:hover:not(:disabled)::after {
           opacity: 1;
