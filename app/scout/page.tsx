@@ -38,9 +38,9 @@ const PHASES: Array<{ key: string; label: string }> = [
 ];
 
 function relTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "—";
+  if (!Number.isFinite(t)) return "-";
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
@@ -52,13 +52,13 @@ const fmt = (n: number) => n.toLocaleString("en-GB");
 
 function LoadoutChips({ names }: { names: string[] }) {
   const chips = compressLoadout(names);
-  if (!chips.length) return <span className="text-zinc-600">—</span>;
+  if (!chips.length) return <span className="text-zinc-600">-</span>;
   return (
     <span className="flex flex-wrap gap-1">
       {chips.map((c) => (
         <span
           key={c.name}
-          className="rounded-full border border-violet-400/25 bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold text-violet-200"
+          className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200"
         >
           {c.name}{c.count > 1 ? ` ×${c.count}` : ""}
         </span>
@@ -95,7 +95,7 @@ export default function ScoutPage() {
       const data = await res.json();
       if (data?.success) setState(data.state ?? null);
     } catch {
-      setError("Could not load intel — check your connection");
+      setError("Could not load intel - check your connection");
     } finally {
       setLoaded(true);
     }
@@ -120,7 +120,7 @@ export default function ScoutPage() {
         });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data?.success) {
-          setError(data?.error ?? "Sync failed — tap resync to retry");
+          setError(data?.error ?? "Sync failed - tap resync to retry");
           return;
         }
         setSyncProgress({ phase: data.phase, progress: data.progress ?? {} });
@@ -197,20 +197,20 @@ export default function ScoutPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 pb-24 pt-8">
       {/* Header */}
-      <section className="rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/[0.08] via-transparent to-rose-500/[0.06] p-6">
+      <section className="rounded-3xl border border-white/10 border-white/10 bg-white/[0.03] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-violet-300/80">👑 Owner eyes only</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-400">👑 Owner eyes only</p>
             <h1 className="mt-1 text-3xl font-black text-white">🕵️ Enemy Intel HQ</h1>
             <p className="mt-1 text-sm text-zinc-400">
-              Top-10 clans of {battle ? <span className="font-bold text-violet-300">{battle.id}</span> : "the latest war"}
+              Top-10 clans of {battle ? <span className="font-bold text-emerald-300">{battle.id}</span> : "the latest war"}
               {battle?.participants ? <span className="text-zinc-500"> · {fmt(battle.participants)} clans fought</span> : null}
             </p>
           </div>
           <div className="text-right">
             {battle && (
               <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold ${liveWar ? "border-rose-400/40 bg-rose-500/15 text-rose-300" : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"}`}>
-                {liveWar ? "🔴 LIVE WAR — standings move when resynced" : "🏁 Final standings"}
+                {liveWar ? "🔴 LIVE WAR - standings move when resynced" : "🏁 Final standings"}
               </span>
             )}
             <p className="mt-2 text-xs text-zinc-500">
@@ -222,7 +222,7 @@ export default function ScoutPage() {
         <button
           onClick={() => void resync()}
           disabled={syncing}
-          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-5 py-3 text-sm font-black text-white shadow-[0_8px_30px_rgba(139,92,246,0.35)] transition hover:brightness-110 active:scale-[0.97] disabled:opacity-60"
+          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-white shadow-[0_8px_30px_rgba(52,211,153,0.28)] transition hover:brightness-110 active:scale-[0.97] disabled:opacity-60"
         >
           {syncing ? "⏳ Syncing…" : hasData ? "🔄 Resync intel" : "🚀 Run first scan"}
         </button>
@@ -236,7 +236,7 @@ export default function ScoutPage() {
                 const done = PHASES.findIndex((x) => x.key === (syncProgress?.phase ?? activePhase)) > myIdx || syncProgress?.phase === "done";
                 const active = idx === myIdx && syncProgress?.phase !== "done";
                 return (
-                  <div key={p.key} className={`flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold ${active ? "bg-violet-500/20 text-violet-200 ring-1 ring-violet-400/40" : done ? "text-emerald-400" : "text-zinc-600"}`}>
+                  <div key={p.key} className={`flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold ${active ? "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/40" : done ? "text-emerald-400" : "text-zinc-600"}`}>
                     <span>{done ? "✅" : active ? "⏳" : "▫️"}</span>
                     <span>{p.label}</span>
                   </div>
@@ -253,7 +253,7 @@ export default function ScoutPage() {
 
         {(error || state?.error) && !syncing && (
           <div className="mt-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-sm text-rose-300">
-            ⚠️ {error ?? state?.error} — hit Resync to continue where it left off.
+            ⚠️ {error ?? state?.error} - hit Resync to continue where it left off.
           </div>
         )}
       </section>
@@ -261,7 +261,7 @@ export default function ScoutPage() {
       <EnchantBuilder rivals={state?.enchantRows ?? []} />
 
       {!hasData && !syncing && (
-        <p className="mt-8 text-center text-sm text-zinc-500">No intel yet — run your first scan to raid the top clans&apos; loadouts 🗡</p>
+        <p className="mt-8 text-center text-sm text-zinc-500">No intel yet - run your first scan to raid the top clans&apos; loadouts 🗡</p>
       )}
 
       {hasData && summary && (
@@ -311,7 +311,7 @@ export default function ScoutPage() {
                 </tbody>
               </table>
               <p className="mt-3 text-[11px] leading-4 text-zinc-600">
-                Snapshot of currently-equipped books from {summary.inventories} public rivals — enemies may have swapped since.
+                Snapshot of currently-equipped books from {summary.inventories} public rivals - enemies may have swapped since.
               </p>
             </div>
 
@@ -324,11 +324,11 @@ export default function ScoutPage() {
                     <div className="flex-1">
                       <div className="flex items-baseline justify-between">
                         <span className="text-sm font-semibold text-zinc-100">{e.name}</span>
-                        <span className="text-xs font-bold text-violet-300">×{fmt(e.count)}</span>
+                        <span className="text-xs font-bold text-emerald-300">×{fmt(e.count)}</span>
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400"
+                          className="h-full rounded-full bg-emerald-500"
                           style={{ width: `${Math.max(4, (e.count / (summary.enchantCounts[0]?.count ?? 1)) * 100)}%` }}
                         />
                       </div>
@@ -347,7 +347,7 @@ export default function ScoutPage() {
                 <div key={t.userId} className="rounded-2xl border border-white/5 bg-black/20 p-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <p className="truncate text-sm font-bold text-white">
-                      <span className="mr-1.5 rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-black text-violet-300">#{t.clanRank} {t.clan}</span>
+                      <span className="mr-1.5 rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-black text-emerald-300">#{t.clanRank} {t.clan}</span>
                       {t.username ?? t.userId}
                     </p>
                     <span className="shrink-0 text-sm font-black text-amber-300">{fmt(t.warPoints)}</span>
@@ -371,7 +371,7 @@ export default function ScoutPage() {
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`rounded-full px-4 py-2 text-xs font-black transition ${tab === t ? "bg-violet-500 text-white" : "border border-white/10 text-zinc-400 hover:text-white"}`}
+                  className={`rounded-full px-4 py-2 text-xs font-black transition ${tab === t ? "bg-emerald-500 text-black" : "border border-white/10 text-zinc-400 hover:text-white"}`}
                 >
                   {t === "intel" ? `📖 Enchant intel (${summary.publicProfiles})` : `👥 Full roster (${summary.totalMembers})`}
                 </button>
@@ -381,7 +381,7 @@ export default function ScoutPage() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search name or enchant…"
-                  className="w-44 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white placeholder:text-zinc-600 focus:border-violet-400/50 focus:outline-none"
+                  className="w-44 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white placeholder:text-zinc-600 focus:border-emerald-400/50 focus:outline-none"
                 />
                 <select value={clanFilter} onChange={(e) => setClanFilter(e.target.value)} className="rounded-xl border border-white/10 bg-black/30 px-2 py-2 text-xs text-white focus:outline-none">
                   <option value="all">All clans</option>
@@ -409,7 +409,7 @@ export default function ScoutPage() {
                   <tbody>
                     {intelRows.map((r) => (
                       <tr key={r.userId} className="border-t border-white/5 align-top">
-                        <td className="py-2.5 pr-3"><span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-black text-violet-300">#{r.clanRank} {r.clan}</span></td>
+                        <td className="py-2.5 pr-3"><span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-black text-emerald-300">#{r.clanRank} {r.clan}</span></td>
                         <td className="py-2.5 pr-3 font-semibold text-zinc-100">
                           {r.username ?? r.userId}
                           {!r.inventoryPublic && <span className="ml-1.5 text-[10px] text-zinc-500">🔒</span>}
@@ -420,7 +420,7 @@ export default function ScoutPage() {
                     ))}
                   </tbody>
                 </table>
-                {intelRows.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No matches — try widening the filters 🎣</p>}
+                {intelRows.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No matches - try widening the filters 🎣</p>}
               </div>
             ) : (
               <div className="mt-4 overflow-x-auto">
@@ -433,7 +433,7 @@ export default function ScoutPage() {
                   <tbody>
                     {rosterRows.slice(0, shown).map((r) => (
                       <tr key={`${r.clan}-${r.userId}`} className="border-t border-white/5">
-                        <td className="py-2 pr-3"><span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-black text-violet-300">#{r.clanRank} {r.clan}</span></td>
+                        <td className="py-2 pr-3"><span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-black text-emerald-300">#{r.clanRank} {r.clan}</span></td>
                         <td className="py-2 pr-3 font-semibold text-zinc-100">{r.username ?? r.userId}</td>
                         <td className="py-2 pr-3">
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${r.role === "Owner" ? "bg-amber-400/15 text-amber-300" : r.role === "Officer" ? "bg-sky-400/15 text-sky-300" : "bg-white/5 text-zinc-400"}`}>
@@ -441,7 +441,7 @@ export default function ScoutPage() {
                           </span>
                         </td>
                         <td className="py-2 pr-3 text-right font-bold text-amber-300">{fmt(r.warPoints)}</td>
-                        <td className="py-2 text-right text-xs text-zinc-500">{r.joinDate || "—"}</td>
+                        <td className="py-2 text-right text-xs text-zinc-500">{r.joinDate || "-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -451,7 +451,7 @@ export default function ScoutPage() {
                     Show more ({fmt(rosterRows.length - shown)} hidden)
                   </button>
                 )}
-                {rosterRows.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No matches — try widening the filters 🎣</p>}
+                {rosterRows.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No matches - try widening the filters 🎣</p>}
               </div>
             )}
             <p className="mt-4 text-[11px] text-zinc-600">
