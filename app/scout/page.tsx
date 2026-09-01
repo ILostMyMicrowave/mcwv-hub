@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Pressable from "@/components/Pressable";
 import {
   STYLE_META,
   compressLoadout,
@@ -219,13 +220,13 @@ export default function ScoutPage() {
           </div>
         </div>
 
-        <button
+        <Pressable
           onClick={() => void resync()}
           disabled={syncing}
-          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-white shadow-[0_8px_30px_rgba(52,211,153,0.28)] transition hover:brightness-110 active:scale-[0.97] disabled:opacity-60"
+          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black shadow-[0_8px_30px_rgba(52,211,153,0.28)] disabled:opacity-60"
         >
-          {syncing ? "⏳ Syncing…" : hasData ? "🔄 Resync intel" : "🚀 Run first scan"}
-        </button>
+          {syncing ? "Syncing..." : hasData ? "Resync intel" : "Run first scan"}
+        </Pressable>
 
         {syncing && activePhase && (
           <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
