@@ -70,7 +70,7 @@ function formatNumber(n: number) {
 }
 
 function formatAgo(timestamp: string | null, nowMs: number) {
-  if (!timestamp) return "—";
+  if (!timestamp) return "-";
   const diff = Math.max(0, nowMs - new Date(timestamp).getTime());
 
   const seconds = Math.floor(diff / 1000);
@@ -536,14 +536,14 @@ export default function HomePage() {
                     </div>
                   </div>
                 </Animated>
-                <Animated delay="0.15s"><p className="mt-4 max-w-2xl text-base text-zinc-300 sm:text-lg">Real-time leaderboard tracking, war stats, clan performance analytics, and live updates that actually feel alive.</p></Animated>
+                <Animated delay="0.15s"><p className="mt-4 max-w-2xl text-base text-zinc-300 sm:text-lg">Live war board, clan points, and who&apos;s in game.</p></Animated>
                 <Animated delay="0.2s"><div className="mt-6 flex flex-wrap gap-3"><a href="/leaderboard" className="rounded-2xl px-6 py-3 text-sm font-semibold transition hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--primary)", color: "#000" }}>View Leaderboard</a><a href="/contributions" className="rounded-2xl px-6 py-3 text-sm font-semibold transition hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--foreground)" }}>Open Contributions</a></div></Animated>
               </div>
             </Animated>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard label="Live Players" value={formatNumber(livePlayers)} sub="Full current battle roster" accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(34,197,94,0.55))" animate numericValue={livePlayers} delay="0.1s" />
-              <StatCard label="System Status" value={statusLabel} sub={active ? "Connected to live battle data" : "Waiting for battle start"} accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(59,130,246,0.45))" delay="0.15s" />
-              <StatCard label="Tracking" value={trackingLabel} sub={active ? "Updating every 10 seconds" : "Paused until war goes live"} accent="linear-gradient(90deg, rgba(96,165,250,0.95), rgba(167,139,250,0.45))" delay="0.2s" />
+              <StatCard label="System Status" value={statusLabel} sub={active ? "Connected to live battle data" : "Waiting for battle start"} accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(16,185,129,0.45))" delay="0.15s" />
+              <StatCard label="Tracking" value={trackingLabel} sub={active ? "Updating every 10 seconds" : "Paused until war goes live"} accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(16,185,129,0.45))" delay="0.2s" />
               <StatCard label="Total Points" value={formatNumber(totalPoints)} sub={`Last sync ${syncedLabel}`} accent="linear-gradient(90deg, rgba(250,204,21,0.95), rgba(251,146,60,0.55))" animate numericValue={totalPoints} delay="0.25s" />
             </div>
             <InfoPanel title="Live Activity Feed" action={<span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full bg-current" />LIVE</span>} delay="0.2s">
