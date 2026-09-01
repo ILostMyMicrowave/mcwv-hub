@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import Pressable from "@/components/Pressable";
 import DiscordMarkdown from "@/components/DiscordMarkdown";
 import InboxPreview from "@/components/InboxPreview";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -402,14 +403,13 @@ export default function NotificationsPage() {
                 {unreadCount} new
               </span>
             ) : null}
-            <button
-              type="button"
+            <Pressable
               onClick={() => void markAllRead()}
               disabled={marking || unreadCount === 0}
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/10 disabled:opacity-40"
+              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-zinc-200 disabled:opacity-40"
             >
-              ✓ Mark all read
-            </button>
+              Mark all read
+            </Pressable>
           </div>
         </div>
 
@@ -566,14 +566,13 @@ export default function NotificationsPage() {
                       placeholder="https://…/banner.png"
                       className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-400/50"
                     />
-                    <button
-                      type="button"
+                    <Pressable
                       disabled={imageBusy}
                       onClick={() => void saveImage(imageInput.trim() || null)}
-                      className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                      className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black disabled:opacity-60"
                     >
-                      {imageBusy ? "Saving…" : "Save"}
-                    </button>
+                      {imageBusy ? "Saving..." : "Save"}
+                    </Pressable>
                   </div>
                 </div>
               ) : null}
@@ -607,16 +606,15 @@ export default function NotificationsPage() {
                 {loadError} Your alerts aren&apos;t gone - this is a hiccup, not an empty
                 inbox.
               </p>
-              <button
-                type="button"
+              <Pressable
                 onClick={() => {
                   setLoading(true);
                   void load();
                 }}
-                className="mt-4 rounded-2xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
+                className="mt-4 rounded-2xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-black"
               >
-                ↻ Retry
-              </button>
+                Retry
+              </Pressable>
             </div>
           ) : visible.length === 0 && !hero ? (
             <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-10 text-center">
@@ -668,8 +666,7 @@ export default function NotificationsPage() {
 
       {/* ---------------------------------------------- floating "new" pill */}
       {pendingNew > 0 && !loading ? (
-        <button
-          type="button"
+        <Pressable
           onClick={() => {
             window.scrollTo({ top: 0, behavior: "smooth" });
             void refreshNow();
@@ -678,12 +675,12 @@ export default function NotificationsPage() {
             animation: "mcwv-row-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both",
             paddingBottom: "env(safe-area-inset-bottom)",
           }}
-          className="fixed inset-x-0 bottom-24 z-[55] mx-auto w-fit max-w-[calc(100vw-6rem)] rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(52,211,153,0.32)] transition hover:-translate-y-0.5 hover:opacity-95"
+          className="fixed inset-x-0 bottom-24 z-[55] mx-auto w-fit max-w-[calc(100vw-6rem)] rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(52,211,153,0.32)]"
         >
           {refreshing
-            ? "Loading new alerts…"
-            : `🔔 ${pendingNew} new alert${pendingNew === 1 ? "" : "s"} - tap to view`}
-        </button>
+            ? "Loading new alerts..."
+            : `${pendingNew} new alert${pendingNew === 1 ? "" : "s"} - tap to view`}
+        </Pressable>
       ) : null}
     </main>
   );
