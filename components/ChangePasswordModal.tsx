@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Pressable from "@/components/Pressable";
 
 type ChangePasswordModalProps = {
   open: boolean;
@@ -138,13 +139,12 @@ export default function ChangePasswordModal({
             </p>
           </div>
 
-          <button
-            type="button"
+          <Pressable
             onClick={onClose}
-            className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
+            className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300"
           >
-            ✕
-          </button>
+            X
+          </Pressable>
         </div>
 
         <div className="mt-6 space-y-4">
@@ -208,22 +208,20 @@ export default function ChangePasswordModal({
           )}
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={handleSubmit}
+            <Pressable
+              onClick={() => void handleSubmit()}
               disabled={loading}
-              className="rounded-2xl bg-emerald-400 px-4 py-3 font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Updating..." : "Update Password"}
-            </button>
+            </Pressable>
 
-            <button
-              type="button"
+            <Pressable
               onClick={onClose}
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 font-semibold text-white transition hover:bg-white/10"
+              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 font-semibold text-white"
             >
               Cancel
-            </button>
+            </Pressable>
           </div>
         </div>
       </div>
