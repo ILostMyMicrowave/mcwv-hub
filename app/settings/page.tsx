@@ -5,6 +5,7 @@ import ChangePasswordModal from "@/components/ChangePasswordModal";
 import PwaInstallCard from "@/components/pwa/PwaInstallCard";
 import PushCard from "@/components/pwa/PushCard";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Pressable from "@/components/Pressable";
 import { useTheme, Theme } from "@/hooks/useTheme";
 
 type GlobalSettings = {
@@ -102,14 +103,13 @@ function FieldBlock({
       <label className="mb-2 block text-sm font-semibold text-zinc-200">{label}</label>
       {children}
       {hint && <p className="mt-2 text-xs text-zinc-500">{hint}</p>}
-      <button
-        type="button"
+      <Pressable
         onClick={onSave}
         disabled={disabled || saving}
-        className="mt-3 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-300 px-4 py-2 text-sm font-bold text-black transition hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+        className="mt-3 rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Saving..." : saveLabel}
-      </button>
+      </Pressable>
     </div>
   );
 }
@@ -278,13 +278,13 @@ export default function Settings() {
 
   function replayIntro() {
     try {
-      // Both stores must go — the gate checks localStorage first (v2)
+      // Both stores must go - the gate checks localStorage first (v2)
       // and promotes legacy sessionStorage on read.
       localStorage.removeItem(INTRO_SESSION_KEY);
       sessionStorage.removeItem(INTRO_SESSION_KEY);
       document.documentElement.removeAttribute("data-intro-done");
     } catch {
-      // Storage blocked — the intro gate will simply behave normally.
+      // Storage blocked - the intro gate will simply behave normally.
     }
     window.location.href = "/";
   }
@@ -436,28 +436,26 @@ export default function Settings() {
               <div className="space-y-3">
                 <ActionRow
                   title="Boot intro"
-                  desc="Re-watch the MCWV boot sequence — the logo reveal, reactor rings and all. You'll land back home when it ends."
+                  desc="Re-watch the MCWV boot sequence - the logo reveal, reactor rings and all. You'll land back home when it ends."
                   action={
-                    <button
-                      type="button"
+                    <Pressable
                       onClick={replayIntro}
-                      className="rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-3 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:opacity-90"
+                      className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-bold text-black"
                     >
-                      ⚡ Replay Intro
-                    </button>
+                      Replay Intro
+                    </Pressable>
                   }
                 />
                 <ActionRow
                   title="Website tutorial"
                   desc="Want a quick refresher? Restart the guided tour whenever you like."
                   action={
-                    <button
-                      type="button"
+                    <Pressable
                       onClick={() => void restartTutorial()}
-                      className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:-translate-y-0.5 hover:bg-emerald-400/15"
+                      className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-200"
                     >
                       Restart Tutorial
-                    </button>
+                    </Pressable>
                   }
                 />
               </div>
@@ -476,7 +474,7 @@ export default function Settings() {
                 >
                   <p className="text-sm font-bold text-white">📬 Alert inbox</p>
                   <p className="mt-1 text-sm text-zinc-400">
-                    Every alert with unread markers — war pings, broadcasts,
+                    Every alert with unread markers - war pings, broadcasts,
                     and personal nudges in one place.
                   </p>
                 </a>
@@ -636,7 +634,7 @@ export default function Settings() {
                           <div>
                             <p className="font-semibold text-white">{member.username}</p>
                             <p className="text-xs text-zinc-500">
-                              Discord ID: {member.discord_id ?? "—"} · Role:{" "}
+                              Discord ID: {member.discord_id ?? "-"} · Role:{" "}
                               <span className="text-zinc-300">{member.role}</span>
                             </p>
                           </div>
