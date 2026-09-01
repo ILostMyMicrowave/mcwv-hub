@@ -14,6 +14,7 @@ import HallOfFamePreview from "@/components/HallOfFamePreview";
 import AchievementsPreview from "@/components/AchievementsPreview";
 import DiscordWidget from "@/components/DiscordWidget";
 import FlowNumber from "@/components/FlowNumber";
+import Pressable from "@/components/Pressable";
 
 type LeaderboardEntry = {
   user_id: number;
@@ -537,7 +538,10 @@ export default function HomePage() {
                   </div>
                 </Animated>
                 <Animated delay="0.15s"><p className="mt-4 max-w-2xl text-base text-zinc-300 sm:text-lg">Live war board, clan points, and who&apos;s in game.</p></Animated>
-                <Animated delay="0.2s"><div className="mt-6 flex flex-wrap gap-3"><a href="/leaderboard" className="rounded-2xl px-6 py-3 text-sm font-semibold transition hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--primary)", color: "#000" }}>View Leaderboard</a><a href="/contributions" className="rounded-2xl px-6 py-3 text-sm font-semibold transition hover:opacity-90 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--foreground)" }}>Open Contributions</a></div></Animated>
+                <Animated delay="0.2s"><div className="mt-6 flex flex-wrap gap-3">
+                  <Pressable href="/leaderboard" className="rounded-2xl px-6 py-3 text-sm font-semibold" style={{ background: "var(--primary)", color: "#000" }}>View Leaderboard</Pressable>
+                  <Pressable href="/contributions" className="rounded-2xl px-6 py-3 text-sm font-semibold" style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--foreground)" }}>Open Contributions</Pressable>
+                </div></Animated>
               </div>
             </Animated>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
