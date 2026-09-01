@@ -457,6 +457,61 @@ body {
   animation: scale-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Pressable: login-style squash + ripple. Use on real CTAs, not every chip. */
+.pressable {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pressable[data-pressed="1"]:not(:disabled) {
+  transform: scale(0.94) !important;
+  transition: transform 0.08s ease-out;
+}
+.pressable-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+}
+.pressable-ripple {
+  position: absolute;
+  z-index: 0;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.22);
+  animation: pressable-ripple 0.5s ease-out forwards;
+}
+.pressable[data-ink="dark"] .pressable-ripple {
+  background: rgba(5, 46, 22, 0.22);
+}
+@keyframes pressable-ripple {
+  to {
+    transform: scale(18);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pressable,
+  .pressable-ripple {
+    animation: none !important;
+    transition: none !important;
+  }
+  .pressable-ripple {
+    display: none;
+  }
+}
+
 /* SVG chart draw-in (stroke) + fade (fills/dots) */
 @keyframes chart-draw {
   from {
@@ -623,7 +678,7 @@ body {
  * Installed-app feel: native page transitions + notch safe areas
  * ------------------------------------------------------------------------- */
 
-/* Cross-document transitions (full loads) — soft navigations are animated by
+/* Cross-document transitions (full loads) - soft navigations are animated by
  * React's <ViewTransition> in app/layout.tsx. Browsers without support just
  * render instantly; nothing breaks. */
 @view-transition {
@@ -657,7 +712,7 @@ body {
   }
 }
 
-/* viewport-fit: cover means content can slide under the notch / home bar —
+/* viewport-fit: cover means content can slide under the notch / home bar -
  * reclaim the padding so nothing interactive gets clipped when installed. */
 body {
   padding-left: env(safe-area-inset-left);
