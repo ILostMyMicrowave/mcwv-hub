@@ -406,16 +406,14 @@ export default function Settings() {
               {themes.map((t) => {
                 const active = theme === t.id;
                 return (
-                  <button
+                  <Pressable
                     key={t.id}
-                    type="button"
                     onClick={() => setTheme(t.id)}
                     className={`
-                      shine-sweep glow-spin rounded-2xl border p-5 text-left transition-all duration-300
-                      hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]
+                      shine-sweep glow-spin w-full rounded-2xl border p-5 text-left
                       ${active
-                        ? "border-white/40 bg-white/10 shadow-lg scale-[1.03]"
-                        : "border-white/10 bg-white/5 hover:bg-white/10"}
+                        ? "border-white/40 bg-white/10 shadow-lg"
+                        : "border-white/10 bg-white/5"}
                     `}
                   >
                     <div className="flex items-center gap-3">
@@ -423,8 +421,8 @@ export default function Settings() {
                       <p className="font-semibold">{t.name}</p>
                     </div>
                     <p className="mt-2 text-sm text-zinc-400">{t.desc}</p>
-                    {active && <p className="mt-3 text-xs font-semibold text-emerald-300">Active ✓</p>}
-                  </button>
+                    {active && <p className="mt-3 text-xs font-semibold text-emerald-300">Active</p>}
+                  </Pressable>
                 );
               })}
             </div>
@@ -468,16 +466,16 @@ export default function Settings() {
               <div className="space-y-3">
                 <PwaInstallCard />
                 <PushCard />
-                <a
+                <Pressable
                   href="/notifications"
-                  className="block rounded-2xl border border-white/10 bg-black/25 p-5 transition hover:-translate-y-0.5 hover:bg-white/[0.06]"
+                  className="w-full rounded-2xl border border-white/10 bg-black/25 p-5 text-left"
                 >
                   <p className="text-sm font-bold text-white">📬 Alert inbox</p>
                   <p className="mt-1 text-sm text-zinc-400">
                     Every alert with unread markers - war pings, broadcasts,
                     and personal nudges in one place.
                   </p>
-                </a>
+                </Pressable>
               </div>
             </Section>
           </div>
@@ -495,25 +493,23 @@ export default function Settings() {
                 )}
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
+                <Pressable
                   onClick={() => setPasswordOpen(true)}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white"
                 >
                   Change Password
-                </button>
-                <button
-                  type="button"
+                </Pressable>
+                <Pressable
                   onClick={async () => {
                     try {
                       await fetch("/api/auth/logout", { method: "POST" });
                     } catch {}
                     window.location.href = "/login";
                   }}
-                  className="rounded-2xl border border-red-400/30 bg-red-500/15 px-5 py-3 text-sm font-semibold text-red-200 transition hover:-translate-y-0.5 hover:bg-red-500/25"
+                  className="rounded-2xl border border-red-400/30 bg-red-500/15 px-5 py-3 text-sm font-semibold text-red-200"
                 >
                   Log Out
-                </button>
+                </Pressable>
               </div>
               <p className="mt-4 text-xs text-zinc-500">You will be signed out of this device only.</p>
             </Section>
@@ -640,35 +636,32 @@ export default function Settings() {
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {!isOwner && !isOfficer && (
-                              <button
-                                type="button"
+                              <Pressable
                                 onClick={() => updateRole(member.id, "officer")}
                                 disabled={rolesLoading}
-                                className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-black transition hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                                className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Promote to Officer
-                              </button>
+                              </Pressable>
                             )}
                             {isOfficer && (
-                              <button
-                                type="button"
+                              <Pressable
                                 onClick={() => updateRole(member.id, "member")}
                                 disabled={rolesLoading}
-                                className="rounded-2xl bg-orange-400 px-4 py-2 text-sm font-semibold text-black transition hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                                className="rounded-2xl bg-orange-400 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Demote to Member
-                              </button>
+                              </Pressable>
                             )}
                             {!isOwner && (member.has_account ?? member.hasAccount) && (
-                              <button
-                                type="button"
+                              <Pressable
                                 onClick={() => deleteWebsiteAccount(member.id, member.username)}
                                 disabled={rolesLoading}
-                                className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:-translate-y-0.5 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
                                 title="Deletes only their website login. Roblox/Discord links stay saved."
+                                className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Delete Website Account
-                              </button>
+                              </Pressable>
                             )}
                             {!isOwner && !(member.has_account ?? member.hasAccount) && (
                               <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-400">
