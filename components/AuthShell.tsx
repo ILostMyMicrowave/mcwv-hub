@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 
 /**
  * Shared shell for the pre-auth pages (/login, /signup).
@@ -25,7 +25,6 @@ export function AuthShell({
 }) {
   return (
     <main className="auth-stage">
-      {/* Atmosphere */}
       <div className="auth-stars" aria-hidden="true" />
       <div className="auth-glow auth-glow-1" aria-hidden="true" />
       <div className="auth-glow auth-glow-2" aria-hidden="true" />
@@ -163,10 +162,19 @@ export function AuthShell({
           margin: 0 auto;
           filter: drop-shadow(0 0 22px rgba(52, 211, 153, 0.45));
           animation: auth-logo-float 5.5s ease-in-out infinite;
+          transform-origin: 50% 70%;
+        }
+        .auth-wrap:has(.auth-error) .auth-logo {
+          animation: auth-logo-flinch 0.42s ease;
         }
         @keyframes auth-logo-float {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-5px); }
+        }
+        @keyframes auth-logo-flinch {
+          0%, 100% { transform: translateY(0) rotate(0); }
+          25% { transform: translateY(2px) rotate(-4deg); }
+          55% { transform: translateY(-1px) rotate(3deg); }
         }
         .auth-eyebrow {
           margin-top: 12px;
@@ -288,6 +296,7 @@ export function AuthField({
   allowReveal = false,
   hint,
   onEnter,
+  valid,
 }: {
   id: string;
   label: string;
@@ -304,13 +313,27 @@ export function AuthField({
   allowReveal?: boolean;
   hint?: ReactNode;
   onEnter?: () => void;
+  valid?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const inputType = allowReveal ? (revealed ? "text" : "password") : type;
+  const looksValid =
+    valid ??
+    (maxLength === 6
+      ? value.length === 6
+      : allowReveal
+        ? value.length >= 6
+        : value.trim().length >= 3);
 
   return (
-    <div className="auth-field" data-focused={focused}>
+    <div
+      className="auth-field"
+      data-focused={focused ? "1" : "0"}
+      data-valid={looksValid ? "1" : "0"}
+      data-reveal={allowReveal ? "1" : "0"}
+      style={{ animationDelay: delay }}
+    >
       <style jsx>{`
         .auth-field {
           position: relative;
@@ -331,10 +354,15 @@ export function AuthField({
           font-size: 0.68rem;
           font-weight: 600;
           letter-spacing: 0.06em;
-          color: ${focused ? ACCENT : "#8b8b9a"};
-          transition: color 160ms ease;
+          color: #8b8b9a;
+          transition: color 160ms ease, transform 160ms cubic-bezier(0.34, 1.4, 0.64, 1);
           pointer-events: none;
         }
+        .auth-field[data-focused="1"] label {
+          color: ${ACCENT};
+          transform: translateY(-1px);
+        }
+        .auth-field-row { position: relative; }
         .auth-field-icon {
           position: absolute;
           left: 14px;
@@ -343,18 +371,30 @@ export function AuthField({
           font-size: 0.9rem;
           opacity: 0.55;
           pointer-events: none;
+          transition: transform 180ms cubic-bezier(0.34, 1.4, 0.64, 1), opacity 180ms ease;
+        }
+        .auth-field[data-focused="1"] .auth-field-icon {
+          transform: translateY(-50%) scale(1.12);
+          opacity: 0.9;
         }
         .auth-field input {
           width: 100%;
           border-radius: 14px;
-          border: 1px solid ${focused ? "rgba(52, 211, 153, 0.65)" : "rgba(255, 255, 255, 0.1)"};
-          background: ${focused ? "rgba(52, 211, 153, 0.05)" : "rgba(6, 5, 10, 0.6)"};
-          padding: 13px ${allowReveal ? "44px" : "14px"} 13px 40px;
-          font-size: 16px; /* >=16px stops iOS focus zoom */
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(6, 5, 10, 0.6);
+          padding: 13px 14px 13px 40px;
+          font-size: 16px;
           color: #f4f4f5;
           transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
           outline: none;
-          box-shadow: ${focused ? "0 0 0 3px rgba(52, 211, 153, 0.16), 0 0 20px rgba(5, 150, 105, 0.14)" : "none"};
+          touch-action: manipulation;
+        }
+        .auth-field[data-reveal="1"] input { padding-right: 72px; }
+        .auth-field[data-valid="1"]:not([data-reveal="1"]) input { padding-right: 40px; }
+        .auth-field[data-focused="1"] input {
+          border-color: rgba(52, 211, 153, 0.65);
+          background: rgba(52, 211, 153, 0.05);
+          box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16), 0 0 20px rgba(5, 150, 105, 0.14);
         }
         .auth-field input::placeholder { color: #55555f; }
         .auth-field input:disabled { opacity: 0.55; }
@@ -366,6 +406,28 @@ export function AuthField({
           transition: background-color 99999s ease-out;
           box-shadow: 0 0 0 1000px #100d1b inset;
         }
+        .auth-tick {
+          position: absolute;
+          right: 12px;
+          top: 50%;
+          width: 18px;
+          height: 18px;
+          margin-top: -9px;
+          border-radius: 50%;
+          background: ${ACCENT};
+          color: #052e16;
+          display: grid;
+          place-items: center;
+          opacity: 0;
+          transform: scale(0.4);
+          pointer-events: none;
+          transition: opacity 180ms ease, transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .auth-field[data-reveal="1"] .auth-tick { right: 44px; }
+        .auth-field[data-valid="1"] .auth-tick {
+          opacity: 1;
+          transform: scale(1);
+        }
         .auth-eye {
           position: absolute;
           right: 10px;
@@ -373,16 +435,31 @@ export function AuthField({
           transform: translateY(-50%);
           display: grid;
           place-items: center;
-          width: 30px;
-          height: 30px;
+          width: 36px;
+          height: 36px;
           border-radius: 9px;
           border: none;
           background: transparent;
           color: #8b8b9a;
           cursor: pointer;
-          transition: background 150ms ease, color 150ms ease;
+          touch-action: manipulation;
+          transition: background 150ms ease, color 150ms ease, transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .auth-eye:hover { background: rgba(255, 255, 255, 0.06); color: #d4d4dc; }
+        .auth-eye:active { transform: translateY(-50%) scale(0.86); }
+        .auth-eye svg {
+          transition: transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .auth-eye[data-on="1"] svg {
+          transform: rotate(-18deg) scale(1.08);
+        }
+        .auth-hint { margin-top: 8px; }
+        @media (prefers-reduced-motion: reduce) {
+          .auth-field, .auth-tick, .auth-eye, .auth-eye svg, .auth-field-icon, .auth-field label {
+            animation: none !important;
+            transition: none !important;
+          }
+        }
       `}</style>
 
       <label htmlFor={id}>{label}</label>
@@ -401,10 +478,16 @@ export function AuthField({
         maxLength={maxLength}
         disabled={disabled}
       />
+      <span className="auth-tick" aria-hidden="true">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12.5 9.5 17 19 7" />
+        </svg>
+      </span>
       {allowReveal ? (
         <button
           type="button"
           className="auth-eye"
+          data-on={revealed ? "1" : "0"}
           onClick={() => setRevealed((v) => !v)}
           aria-label={revealed ? "Hide password" : "Show password"}
           tabIndex={-1}
@@ -424,6 +507,7 @@ export function AuthField({
           )}
         </button>
       ) : null}
+      </div>
       {hint ? <div className="auth-hint">{hint}</div> : null}
     </div>
   );
@@ -442,9 +526,39 @@ export function AuthButton({
   children: ReactNode;
   delay?: string;
 }) {
+  const [pressed, setPressed] = useState(false);
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
+  const rippleId = useRef(0);
+
+  function pointerDown(e: PointerEvent<HTMLButtonElement>) {
+    if (disabled || loading) return;
+    setPressed(true);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const id = ++rippleId.current;
+    setRipples((list) => [...list, { id, x: e.clientX - rect.left, y: e.clientY - rect.top }]);
+    window.setTimeout(() => {
+      setRipples((list) => list.filter((item) => item.id !== id));
+    }, 520);
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function pointerUp() {
+    setPressed(false);
+  }
+
   return (
-    <div style={{ animation: `auth-btn-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) ${delay} both` }}>
+    <div className="auth-btn-wrap" style={{ animationDelay: delay }}>
       <style jsx>{`
+        .auth-btn-wrap {
+          display: flex;
+          justify-content: center;
+          min-height: 48px;
+          animation: auth-btn-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
         @keyframes auth-btn-rise {
           from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0); }
@@ -452,69 +566,125 @@ export function AuthButton({
         .auth-btn {
           position: relative;
           width: 100%;
+          height: 48px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 9px;
           border: none;
           border-radius: 999px;
-          padding: 13px 20px;
+          padding: 0 20px;
           font-size: 0.92rem;
           font-weight: 800;
           letter-spacing: 0.06em;
           color: #052e16;
           background: #34d399;
           cursor: pointer;
-          box-shadow: 0 10px 28px rgba(52, 211, 153, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-          transition: background-position 240ms ease, transform 160ms ease, box-shadow 240ms ease, opacity 180ms ease;
           overflow: hidden;
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+          box-shadow: 0 10px 28px rgba(52, 211, 153, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+          transition:
+            width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+            transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+            box-shadow 0.2s ease,
+            opacity 0.18s ease;
         }
-        .auth-btn::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.28) 50%, transparent 58%);
-          background-size: 240% 100%;
-          background-position: 130% 0;
+        .auth-btn[data-pressed="1"]:not(:disabled) {
+          transform: scale(0.94);
+          transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+          box-shadow: 0 3px 10px rgba(52, 211, 153, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .auth-btn:hover:not(:disabled):not([data-pressed="1"]):not([data-loading="1"]) {
+            transform: translateY(-1.5px);
+            box-shadow: 0 14px 32px rgba(52, 211, 153, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+          }
+        }
+        .auth-btn[data-loading="1"] {
+          width: 48px;
+          padding: 0;
+          cursor: wait;
+        }
+        .auth-btn:disabled:not([data-loading="1"]) { opacity: 0.55; cursor: not-allowed; }
+        .auth-btn-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          white-space: nowrap;
+          transition: opacity 0.14s ease, transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .auth-btn[data-loading="1"] .auth-btn-label {
           opacity: 0;
-          transition: opacity 160ms ease;
+          transform: scale(0.72);
+          position: absolute;
           pointer-events: none;
         }
-        .auth-btn:hover:not(:disabled) {
-          transform: translateY(-1.5px);
-          box-shadow: 0 14px 32px rgba(52, 211, 153, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22);
-        }
-        .auth-btn:hover:not(:disabled)::after {
-          opacity: 1;
-          animation: auth-btn-sheen 0.8s ease-out;
-        }
-        .auth-btn:active:not(:disabled) { transform: scale(0.98); }
-        .auth-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        @keyframes auth-btn-sheen {
-          from { background-position: 130% 0; }
-          to { background-position: -130% 0; }
-        }
         .auth-spin {
-          width: 15px;
-          height: 15px;
+          position: absolute;
+          width: 18px;
+          height: 18px;
           border-radius: 50%;
-          border: 2px solid rgba(255, 255, 255, 0.35);
-          border-top-color: #fff;
+          border: 2.5px solid rgba(5, 46, 22, 0.22);
+          border-top-color: #052e16;
+          opacity: 0;
+          transform: scale(0.4);
+          transition: opacity 0.16s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .auth-btn[data-loading="1"] .auth-spin {
+          opacity: 1;
+          transform: scale(1);
           animation: auth-spin 0.7s linear infinite;
         }
         @keyframes auth-spin {
-          to { transform: rotate(360deg); }
+          to { transform: scale(1) rotate(360deg); }
+        }
+        .auth-ripple {
+          position: absolute;
+          width: 16px;
+          height: 16px;
+          margin: -8px 0 0 -8px;
+          border-radius: 50%;
+          background: rgba(5, 46, 22, 0.22);
+          pointer-events: none;
+          animation: auth-ripple 0.5s ease-out forwards;
+        }
+        @keyframes auth-ripple {
+          to {
+            transform: scale(18);
+            opacity: 0;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .auth-btn-wrap, .auth-btn, .auth-btn-label, .auth-spin, .auth-ripple {
+            animation: none !important;
+            transition: none !important;
+          }
+          .auth-btn[data-loading="1"] { width: 100%; }
+          .auth-ripple { display: none; }
         }
       `}</style>
-      <button type="submit" className="auth-btn" disabled={disabled || loading}>
-        {loading ? (
-          <>
-            <span className="auth-spin" aria-hidden="true" />
-            {loadingText}
-          </>
-        ) : (
-          children
-        )}
+      <button
+        type="submit"
+        className="auth-btn"
+        disabled={disabled || loading}
+        data-pressed={pressed ? "1" : "0"}
+        data-loading={loading ? "1" : "0"}
+        aria-busy={loading}
+        aria-label={loading ? loadingText : undefined}
+        onPointerDown={pointerDown}
+        onPointerUp={pointerUp}
+        onPointerCancel={pointerUp}
+        onPointerLeave={pointerUp}
+      >
+        {ripples.map((ripple) => (
+          <span
+            key={ripple.id}
+            className="auth-ripple"
+            style={{ left: ripple.x, top: ripple.y }}
+          />
+        ))}
+        <span className="auth-btn-label">{children}</span>
+        <span className="auth-spin" aria-hidden="true" />
       </button>
     </div>
   );
