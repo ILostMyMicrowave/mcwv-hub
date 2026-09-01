@@ -71,6 +71,7 @@ export function proxy(request: NextRequest) {
     isAuthApi(pathname) ||
     MACHINE_API_PATHS.has(pathname) ||
     pathname.startsWith("/api/internal/") ||
+    pathname.startsWith("/api/media/") ||
     PUBLIC_API_PATHS.has(pathname)
   ) {
     return NextResponse.next()
