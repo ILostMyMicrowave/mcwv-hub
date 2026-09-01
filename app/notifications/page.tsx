@@ -40,7 +40,7 @@ export default function NotificationsPage() {
   // Free-text search over alert titles + bodies (matches against the rendered
   // plain text, so emojis/timestamps don't pollute the match).
   const [query, setQuery] = useState("");
-  // New alerts that arrived while the page sat open — surfaced as a floating
+  // New alerts that arrived while the page sat open - surfaced as a floating
   // pill instead of clobbering whatever the member is reading.
   const [pendingNew, setPendingNew] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,7 +54,7 @@ export default function NotificationsPage() {
         return;
       }
       if (!res.ok) {
-        setLoadError(`Hub error ${res.status} — the inbox couldn't load.`);
+        setLoadError(`Hub error ${res.status} - the inbox couldn't load.`);
         return;
       }
       const data = (await res.json()) as {
@@ -71,7 +71,7 @@ export default function NotificationsPage() {
         setHighlightId(param);
       }
     } catch {
-      setLoadError("Couldn't reach the hub — check your connection, then retry.");
+      setLoadError("Couldn't reach the hub - check your connection, then retry.");
     } finally {
       setLoading(false);
     }
@@ -81,7 +81,7 @@ export default function NotificationsPage() {
     void load();
   }, [load]);
 
-  // Mirror of the newest id we already show — lets the poller spot fresh
+  // Mirror of the newest id we already show - lets the poller spot fresh
   // alerts without re-reading React state inside intervals.
   const knownMaxRef = useRef(0);
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function NotificationsPage() {
 
   // Silent poll: every 10s + whenever the app comes back to the foreground.
   // Faster polling so notifications feel near-instant.
-  // Never mutates the list directly — just raises the "new alerts" pill.
+  // Never mutates the list directly - just raises the "new alerts" pill.
   useEffect(() => {
     const tick = async () => {
       try {
@@ -107,7 +107,7 @@ export default function NotificationsPage() {
         );
         setPendingNew(Math.max(0, serverMax - knownMaxRef.current));
       } catch {
-        // Polling is silent — only explicit loads surface the error panel.
+        // Polling is silent - only explicit loads surface the error panel.
       }
     };
     const interval = setInterval(() => void tick(), 10_000);
@@ -133,7 +133,7 @@ export default function NotificationsPage() {
 
   // Deep-linked to an alert that's not in the latest page (old or personal):
   // fetch it directly. Waits for the first load to finish (not just for ANY
-  // items — a fresh inbox can legitimately be empty and still have a hero).
+  // items - a fresh inbox can legitimately be empty and still have a hero).
   useEffect(() => {
     if (!highlightId || hero || loading) return;
     let dead = false;
@@ -143,11 +143,11 @@ export default function NotificationsPage() {
         if (dead || !data) return;
         const notification = (data as { notification?: HubNotification }).notification;
         if (notification) {
-          // Insert by recency — an OLD alert must land in its date group,
+          // Insert by recency - an OLD alert must land in its date group,
           // never bubble to the top of the inbox.
           setItems((prev) => insertByRecency(prev, notification));
         } else {
-          setHighlightId(null); // deleted/foreign — drop the highlight cleanly
+          setHighlightId(null); // deleted/foreign - drop the highlight cleanly
         }
       })
       .catch(() => null);
@@ -167,7 +167,7 @@ export default function NotificationsPage() {
     [items, lastReadId]
   );
 
-  // ALWAYS sorted newest-first — no render path may trust insertion order.
+  // ALWAYS sorted newest-first - no render path may trust insertion order.
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const haystack = (item: HubNotification) =>
@@ -276,13 +276,13 @@ export default function NotificationsPage() {
         }}
         className={`group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border p-4 pl-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 ${
           isNew
-            ? `border-violet-400/30 bg-violet-400/[0.08] hover:border-violet-400/50 hover:bg-violet-400/[0.13] ${meta.glow}`
+            ? `border-emerald-400/30 bg-emerald-400/[0.08] hover:border-emerald-400/50 hover:bg-emerald-400/[0.13] ${meta.glow}`
             : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]"
         }`}
       >
         {/* Unread accent bar */}
         {isNew ? (
-          <span className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-violet-400 to-fuchsia-400" />
+          <span className="absolute inset-y-0 left-0 w-1 bg-emerald-400" />
         ) : null}
 
         <span
@@ -313,7 +313,7 @@ export default function NotificationsPage() {
             </span>
           ) : null}
           <span className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
-            {isNew ? <span className="h-1.5 w-1.5 rounded-full bg-violet-400" /> : null}
+            {isNew ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> : null}
             {relTime(item.createdAt)}
           </span>
         </span>
@@ -330,7 +330,7 @@ export default function NotificationsPage() {
         ) : null}
         <span
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-500 transition-all duration-200 ${
-            isNew ? "bg-violet-400/20 text-violet-200" : "bg-white/5 group-hover:bg-white/10"
+            isNew ? "bg-emerald-400/20 text-emerald-200" : "bg-white/5 group-hover:bg-white/10"
           } group-hover:text-zinc-200`}
         >
           ›
@@ -342,7 +342,7 @@ export default function NotificationsPage() {
   const sectionHeader = (label: string) => (
     <div className="flex items-center gap-3 px-1 pt-5">
       <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-r from-violet-400 to-fuchsia-400" />
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
         {label}
       </span>
       <span className="h-px flex-1 bg-white/[0.07]" />
@@ -353,7 +353,7 @@ export default function NotificationsPage() {
 
   const emptyCopy =
     filter === "unread"
-      ? { icon: "🎉", title: "All caught up!", sub: "No unread alerts — you're on top of everything." }
+      ? { icon: "🎉", title: "All caught up!", sub: "No unread alerts - you're on top of everything." }
       : filter !== "all"
         ? {
             icon: metaFor(filter).icon,
@@ -374,16 +374,16 @@ export default function NotificationsPage() {
         {/* ---------------------------------------------------------- header */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-violet-400">
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-400">
               MCWV Alerts
             </p>
-            <h1 className="mt-1 bg-gradient-to-r from-white via-violet-100 to-fuchsia-200 bg-clip-text text-4xl font-black text-transparent sm:text-5xl">
+            <h1 className="mt-1 text-4xl font-black text-white sm:text-5xl">
               Inbox
             </h1>
             <p className="mt-2 text-sm text-zinc-400">
               {unreadCount > 0
-                ? `${unreadCount} unread — fresh off the wire ⚡`
-                : "War pings, broadcasts, and nudges — all in one place."}
+                ? `${unreadCount} unread`
+                : "War pings, broadcasts, and nudges."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -398,7 +398,7 @@ export default function NotificationsPage() {
               <span className={refreshing ? "inline-block animate-spin" : "inline-block"}>↻</span>
             </button>
             {unreadCount > 0 ? (
-              <span className="rounded-full border border-violet-400/40 bg-violet-400/15 px-3 py-1.5 text-xs font-bold text-violet-200 shadow-[0_0_16px_rgba(139,92,246,0.25)]">
+              <span className="rounded-full border border-emerald-400/40 bg-emerald-400/15 px-3 py-1.5 text-xs font-bold text-emerald-200">
                 {unreadCount} new
               </span>
             ) : null}
@@ -429,7 +429,7 @@ export default function NotificationsPage() {
                   onClick={() => setFilter(f.id)}
                   className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 ${
                     active
-                      ? "bg-gradient-to-r from-violet-500 to-fuchsia-400 text-white shadow-[0_6px_24px_rgba(139,92,246,0.4)]"
+                      ? "bg-emerald-500 text-black shadow-[0_6px_24px_rgba(52,211,153,0.28)]"
                       : "border border-white/10 bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200"
                   }`}
                 >
@@ -457,7 +457,7 @@ export default function NotificationsPage() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search alerts…"
-              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-violet-400/50 focus:outline-none"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-9 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-emerald-400/50 focus:outline-none"
             />
             {query ? (
               <button
@@ -480,11 +480,11 @@ export default function NotificationsPage() {
         {/* ------------------------------------------------------------- hero */}
         {hero && heroMeta ? (
           <section
-            className="mt-6 overflow-hidden rounded-3xl border border-violet-400/35 bg-gradient-to-b from-violet-500/[0.12] to-transparent shadow-[0_0_50px_rgba(124,58,237,0.18)]"
+            className="mt-6 overflow-hidden rounded-3xl border border-emerald-400/35 bg-gradient-to-b from-emerald-500/[0.12] to-transparent shadow-[0_0_40px_rgba(52,211,153,0.12)]"
             style={{ animation: "mcwv-row-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both" }}
           >
-            <div className="flex items-center justify-between bg-violet-500/15 px-6 py-3">
-              <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-violet-300">
+            <div className="flex items-center justify-between bg-emerald-500/15 px-6 py-3">
+              <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">
                 <span
                   className={`rounded-full border px-2 py-0.5 text-[9px] ${heroMeta.chip}`}
                 >
@@ -513,7 +513,7 @@ export default function NotificationsPage() {
                     event.currentTarget.style.display = "none";
                   }}
                   // object-contain: the WHOLE image, never cropped.
-                  className="max-h-[60vh] w-full border-b border-violet-400/20 bg-black/40 object-contain transition hover:opacity-95"
+                  className="max-h-[60vh] w-full border-b border-emerald-400/20 bg-black/40 object-contain transition hover:opacity-95"
                 />
               </a>
             ) : null}
@@ -564,13 +564,13 @@ export default function NotificationsPage() {
                       value={imageInput}
                       onChange={(event) => setImageInput(event.target.value)}
                       placeholder="https://…/banner.png"
-                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-violet-400/50"
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-400/50"
                     />
                     <button
                       type="button"
                       disabled={imageBusy}
                       onClick={() => void saveImage(imageInput.trim() || null)}
-                      className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-4 py-2 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                      className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
                     >
                       {imageBusy ? "Saving…" : "Save"}
                     </button>
@@ -604,7 +604,7 @@ export default function NotificationsPage() {
               <p className="text-4xl">📡</p>
               <p className="mt-3 text-sm font-bold text-rose-200">Inbox failed to load</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-rose-200/70">
-                {loadError} Your alerts aren&apos;t gone — this is a hiccup, not an empty
+                {loadError} Your alerts aren&apos;t gone - this is a hiccup, not an empty
                 inbox.
               </p>
               <button
@@ -613,7 +613,7 @@ export default function NotificationsPage() {
                   setLoading(true);
                   void load();
                 }}
-                className="mt-4 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
+                className="mt-4 rounded-2xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
               >
                 ↻ Retry
               </button>
@@ -628,7 +628,7 @@ export default function NotificationsPage() {
               {filter === "all" ? (
                 <a
                   href="/settings"
-                  className="mt-4 inline-block rounded-2xl border border-violet-400/30 bg-violet-400/10 px-4 py-2 text-xs font-bold text-violet-200 transition hover:bg-violet-400/15"
+                  className="mt-4 inline-block rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-400/15"
                 >
                   🔔 Test your alerts in Settings →
                 </a>
@@ -678,11 +678,11 @@ export default function NotificationsPage() {
             animation: "mcwv-row-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both",
             paddingBottom: "env(safe-area-inset-bottom)",
           }}
-          className="fixed inset-x-0 bottom-24 z-[55] mx-auto w-fit max-w-[calc(100vw-6rem)] rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 px-5 py-3 text-sm font-bold text-white shadow-[0_10px_40px_rgba(139,92,246,0.55)] transition hover:-translate-y-0.5 hover:opacity-95"
+          className="fixed inset-x-0 bottom-24 z-[55] mx-auto w-fit max-w-[calc(100vw-6rem)] rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(52,211,153,0.32)] transition hover:-translate-y-0.5 hover:opacity-95"
         >
           {refreshing
             ? "Loading new alerts…"
-            : `🔔 ${pendingNew} new alert${pendingNew === 1 ? "" : "s"} — tap to view`}
+            : `🔔 ${pendingNew} new alert${pendingNew === 1 ? "" : "s"} - tap to view`}
         </button>
       ) : null}
     </main>
