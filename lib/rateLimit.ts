@@ -5,8 +5,9 @@
  * deployments, replace with Redis or another distributed store.
  * 
  * In Vercel serverless, each instance has its own memory space, so
- * rate limiting may be less effective. Consider using Upstash Redis
- * or Vercel's built-in rate limiting for production multi-instance setups.
+ * rate limiting may be less effective. Production should also put
+ * Vercel Firewall / WAF on /api/auth/* (about 5-10 req/min). Do not
+ * treat this in-memory limiter as the only brute-force control.
  */
 
 interface RateLimitEntry {
@@ -153,7 +154,7 @@ export function getClientIP(req: Request): string {
   }
 
   // x-forwarded-for is a chain "client, proxy1, proxy2, ...". The LEFTMOST
-  // entry is client-controlled and trivially spoofable — a caller can send any
+  // entry is client-controlled and trivially spoofable - a caller can send any
   // header value, which made the old rate limiter bypassable by rotating that
   // value per request. The RIGHTMOST entry is the one appended by our trusted
   // proxy, so use that instead.
