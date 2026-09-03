@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { isBotAdminAuthorized, unauthorizedMachineResponse } from "@/lib/machineAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -8,15 +9,6 @@ export const maxDuration = 20;
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-
-function authorized(request: Request) {
-  const authHeader = request.headers.get("x-admin-api-key") ?? "";
-  const bearer = request.headers.get("authorization") ?? "";
-  const provided =
-    authHeader || (bearer.toLowerCase().startsWith("bearer ") ? bearer.split(" ")[1] : "");
-  const expected = process.env.BOT_ADMIN_API_KEY ?? process.env.ADMIN_API_KEY ?? "";
-  return Boolean(expected && provided && provided === expected);
-}
 
 async function ensureMediaTable() {
   await pool.query(`
@@ -30,8 +22,8 @@ async function ensureMediaTable() {
 }
 
 export async function POST(request: Request) {
-  if (!authorized(request)) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  if (!isBotAdminAuthorized(request)) {
+    return unauthorizedMachineResponse();
   }
 
   try {
