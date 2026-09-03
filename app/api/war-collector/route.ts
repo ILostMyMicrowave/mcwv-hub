@@ -2,12 +2,28 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { timingSafeStringEqual } from "@/lib/machineAuth";
 
 export const runtime = "nodejs";
 
 const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
-const COLLECT_SECRET = process.env.WAR_COLLECT_SECRET ?? "";
+const COLLECT_SECRET = (process.env.WAR_COLLECT_SECRET ?? "").trim();
+
+function collectSecretFromRequest(request: Request): string {
+  const header = request.headers.get("x-war-collect-secret")?.trim() ?? "";
+  if (header) return header;
+
+  const bearer = request.headers.get("authorization") ?? "";
+  if (bearer.toLowerCase().startsWith("bearer ")) {
+    const token = bearer.slice(7).trim();
+    if (token) return token;
+  }
+
+  // TEMP until 2026-09-16: old bot deploys send ?secret=. Remove this
+  // branch after hub + bot have both been on the header for two weeks.
+  return new URL(request.url).searchParams.get("secret")?.trim() ?? "";
+}
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 20;
@@ -469,15 +485,11 @@ async function saveCollectorSnapshot(params: {
 
 export async function GET(request: Request) {
   try {
-    if (COLLECT_SECRET) {
-      const url = new URL(request.url);
-      const provided = url.searchParams.get("secret");
-      if (provided !== COLLECT_SECRET) {
-        return NextResponse.json(
-          { success: false, error: "Unauthorized" },
-          { status: 401, headers: makeHeaders() }
-        );
-      }
+    if (!COLLECT_SECRET || !timingSafeStringEqual(collectSecretFromRequest(request), COLLECT_SECRET)) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401, headers: makeHeaders() }
+      );
     }
 
     const active = await getActiveBattle();
