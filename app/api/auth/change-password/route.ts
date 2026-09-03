@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     // was bypassable via a spoofed X-Forwarded-For header; the user-id bucket
     // can't be spoofed, so repeated password-change attempts for one account
     // stay throttled even when the attacker rotates IPs. (Unauthenticated
-    // attempts are rejected above and deliberately not rate-limited — they
+    // attempts are rejected above and deliberately not rate-limited - they
     // can't accomplish anything and would only pollute shared buckets.)
     const rateLimitResult = changePasswordRateLimiter.checkMulti([
       getClientIP(req),
@@ -53,9 +53,9 @@ export async function POST(req: Request) {
       )
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       return NextResponse.json(
-        { error: "New password must be at least 6 characters" },
+        { error: "New password must be at least 8 characters" },
         { status: 400 }
       )
     }
