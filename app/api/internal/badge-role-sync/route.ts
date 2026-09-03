@@ -1,28 +1,14 @@
 import { NextResponse } from "next/server";
 import { maybeAutoSyncBadgeRoles } from "@/lib/badgeRoleSync";
+import { isBotAdminAuthorized, unauthorizedMachineResponse } from "@/lib/machineAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 60;
 
-function authorized(request: Request) {
-  const authHeader = request.headers.get("x-admin-api-key") ?? "";
-  const bearer = request.headers.get("authorization") ?? "";
-  const provided = authHeader || (
-    bearer.toLowerCase().startsWith("bearer ")
-      ? bearer.split(" ")[1]
-      : ""
-  );
-  const expected = process.env.BOT_ADMIN_API_KEY ?? process.env.ADMIN_API_KEY ?? "";
-  return Boolean(expected && provided && provided === expected);
-}
-
 export async function POST(request: Request) {
-  if (!authorized(request)) {
-    return NextResponse.json(
-      { success: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+  if (!isBotAdminAuthorized(request)) {
+    return unauthorizedMachineResponse();
   }
 
   try {
