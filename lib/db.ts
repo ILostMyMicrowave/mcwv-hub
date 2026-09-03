@@ -51,7 +51,7 @@ function getPool() {
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
-    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: true } : undefined,
+    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: true, ca: process.env.NODE_EXTRA_CA_CERTS ? require('fs').readFileSync(process.env.NODE_EXTRA_CA_CERTS) : undefined } : undefined,
   }
 
   const pool = new Pool(config)
