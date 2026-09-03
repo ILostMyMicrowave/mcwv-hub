@@ -51,7 +51,7 @@ function getPool() {
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
-    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: true, ca: undefined } : undefined,
+    ssl: process.env.NODE_ENV === "production" ? { rejectAuthorized: false, ca: undefined } : undefined,
   }
 
   const pool = new Pool(config)
