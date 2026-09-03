@@ -13,7 +13,7 @@ const signupSchema = z.object({
     .max(32, "Username must be at most 32 characters."),
   password: z
     .string()
-    .min(6, "Password must be at least 6 characters.")
+    .min(8, "Password must be at least 8 characters.")
     .max(128, "Password must be at most 128 characters."),
   verificationCode: z
     .string()
