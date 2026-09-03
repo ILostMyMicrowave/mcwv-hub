@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
-import { botAdminFetch, BotAdminApiError } from "@/lib/botAdminApi";
 import { ensurePushTables, pushConfigured, sendPushToAll } from "@/lib/pushServer";
 import { sweepBroadcasts, sweepWarPresence } from "@/lib/pushJobs";
 import { getSharedWarContext } from "@/lib/warContext";
+import { isBotAdminAuthorized } from "@/lib/machineAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 // Bot-triggered push: the MCWV bot calls this endpoint server-to-server
 // (using the shared X-Admin-API-Key) to fire push notifications INSTANTLY
-// when an event happens (war start, war end, placement change, etc.) —
+// when an event happens (war start, war end, placement change, etc.) -
 // instead of waiting for a device to poll /api/app-status.
 //
 // Body:
 //   { event: "war_start" | "war_end" | "placement" | "sweep", title, body, url, tag, image }
-// For "sweep", no payload is needed — just runs the sweep jobs.
+// For "sweep", no payload is needed - just runs the sweep jobs.
 
 type TriggerBody = {
   event?: string;
@@ -26,13 +26,7 @@ type TriggerBody = {
 };
 
 export async function POST(req: Request) {
-  // Auth: same shared secret the bot already uses for admin actions.
-  const authHeader = req.headers.get("x-admin-api-key") ?? "";
-  const bearer = req.headers.get("authorization") ?? "";
-  const provided = authHeader || (bearer.toLowerCase().startsWith("bearer ") ? bearer.split(" ")[1] : "");
-  const expected = process.env.BOT_ADMIN_API_KEY ?? process.env.ADMIN_API_KEY ?? "";
-
-  if (!expected || !provided || provided !== expected) {
+  if (!isBotAdminAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
