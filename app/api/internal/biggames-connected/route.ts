@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { validateBigGamesToken } from "@/lib/biggames";
+import { isBotAdminAuthorized, unauthorizedMachineResponse } from "@/lib/machineAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,17 +14,9 @@ export const revalidate = 0;
 // Body: { discord_id } or { roblox_id }. We look up the hub user's linked
 // BIG Games token and return connected: true/false.
 
-function authorized(request: Request) {
-  const authHeader = request.headers.get("x-admin-api-key") ?? "";
-  const bearer = request.headers.get("authorization") ?? "";
-  const provided = authHeader || (bearer.toLowerCase().startsWith("bearer ") ? bearer.split(" ")[1] : "");
-  const expected = process.env.BOT_ADMIN_API_KEY ?? process.env.ADMIN_API_KEY ?? "";
-  return Boolean(expected && provided && provided === expected);
-}
-
 export async function POST(request: Request) {
-  if (!authorized(request)) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  if (!isBotAdminAuthorized(request)) {
+    return unauthorizedMachineResponse();
   }
 
   try {
@@ -99,7 +92,7 @@ export async function POST(request: Request) {
           connected = true;
           robloxIdConnected = tokenRow.roblox_id ?? null;
         } else {
-          // Revoked/expired — clear the stale row so it stops passing the gate.
+          // Revoked/expired - clear the stale row so it stops passing the gate.
           if (robloxIdForCheck) {
             await pool.query(`DELETE FROM big_games_tokens WHERE roblox_id = $1`, [robloxIdForCheck]);
           }
