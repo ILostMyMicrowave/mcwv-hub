@@ -7,7 +7,7 @@ import {
   generatePkcePair,
   generateState,
   savePkceByDiscord,
-} from "@/lib/biggames";
+} from "@/lib/biggames";e
 import { RateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
