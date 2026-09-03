@@ -56,7 +56,15 @@ export async function GET(req: Request) {
 
   const { verifier, challenge } = generatePkcePair();
   const state = generateState();
-  await savePkceByDiscord(state, discordId, verifier);
+  try {
+    await savePkceByDiscord(state, discordId, verifier);
+  } catch (err) {
+    console.error("[biggames/connect] DB save failed:", err);
+    return NextResponse.json(
+      { error: "Could not prepare authorization. The database is busy. Try again in 30 seconds." },
+      { status: 503, headers: { "Retry-After": "30" } }
+    );
+  }
 
   const redirectUri = bigGamesRedirectUri();
   const params = new URLSearchParams({
