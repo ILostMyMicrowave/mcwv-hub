@@ -85,8 +85,8 @@ export default function ChangePasswordModal({
       return;
     }
 
-    if (newPassword.length < 6) {
-      setStatus("Password must be at least 6 characters");
+    if (newPassword.length < 8) {
+      setStatus("Password must be at least 8 characters");
       return;
     }
 
