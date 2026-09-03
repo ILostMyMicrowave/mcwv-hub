@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
 import { discordOAuthConfigured, snapshotGuildsForUser } from "@/lib/discordGuildCheck";
+import { isBotAdminAuthorized, unauthorizedMachineResponse } from "@/lib/machineAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function authorized(request: Request) {
-  const authHeader = request.headers.get("x-admin-api-key") ?? "";
-  const bearer = request.headers.get("authorization") ?? "";
-  const provided = authHeader || (bearer.toLowerCase().startsWith("bearer ") ? bearer.split(" ")[1] : "");
-  const expected = process.env.BOT_ADMIN_API_KEY ?? process.env.ADMIN_API_KEY ?? "";
-  return Boolean(expected && provided && provided === expected);
-}
-
 // Bot-facing: re-scan a user who already authorised Discord OAuth.
-// No full guild list is returned — only denylist hits + a count.
+// No full guild list is returned - only denylist hits + a count.
 export async function POST(request: Request) {
-  if (!authorized(request)) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  if (!isBotAdminAuthorized(request)) {
+    return unauthorizedMachineResponse();
   }
   if (!discordOAuthConfigured()) {
     return NextResponse.json({ success: false, needAuth: true, error: "Discord OAuth is not configured." }, { status: 503 });
