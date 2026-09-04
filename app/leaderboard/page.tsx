@@ -1270,7 +1270,7 @@ function PlayerMiniProfile({
             ✕
           </button>
 
-          <div className="flex flex-col items-center gap-4 pr-10 text-center sm:flex-row sm:items-start sm:gap-5 sm:pr-0 sm:text-left">
+          <div className="flex flex-col items-center gap-4 pr-12 text-center sm:flex-row sm:items-start sm:gap-5 sm:pr-0 sm:text-left">
             <AvatarWithFrame entry={entry} size="lg" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center justify-center gap-2 text-xs uppercase tracking-[0.28em] sm:justify-start" style={{ color: style.accentColor }}>
@@ -1281,7 +1281,7 @@ function PlayerMiniProfile({
                   </span>
                 )}
               </div>
-              <h2 className="mt-1 text-3xl font-bold text-white sm:text-4xl" style={fontStyle(style)}>{entry.name}</h2>
+              <h2 className="mt-1 break-words text-xl font-bold leading-tight text-white sm:text-4xl" style={fontStyle(style)}>{entry.name}</h2>
               <p className="mx-auto mt-2 max-w-xl text-sm italic text-zinc-300 sm:mx-0" style={fontStyle(style)}>{style.bio || "No bio yet. Customise your card to add one."}</p>
               <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
                 {style.badges?.length ? (
