@@ -795,8 +795,8 @@ function LeaderboardRow({
       <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px] transition group-hover:bg-black/45" />
       <div className="absolute inset-x-0 bottom-0 h-px" style={{ background: style.accentColor }} />
 
-      <div className="relative grid min-h-28 grid-cols-[4.5rem_1fr] items-center gap-4 p-4 sm:grid-cols-[5rem_5rem_1.6fr_1fr_1fr_1fr] sm:gap-5">
-        <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border bg-black/35 text-lg font-bold text-zinc-100 sm:h-16 sm:w-16 ${entry.rank <= 3 ? "pulse-glow" : ""}`} style={{ borderColor: `${style.accentColor}55` }}>
+      <div className="relative grid min-h-28 grid-cols-[3.5rem_1fr] items-center gap-3 p-3 sm:grid-cols-[5rem_5rem_1.6fr_1fr_1fr_1fr] sm:gap-5">
+        <div className={`relative flex h-12 w-12 items-center justify-center rounded-full border bg-black/35 text-base font-bold text-zinc-100 sm:h-16 sm:w-16 ${entry.rank <= 3 ? "pulse-glow" : ""}`} style={{ borderColor: `${style.accentColor}55` }}>
           {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : `#${entry.rank}`}
           {change !== 0 && (
             <span className={`absolute -right-2 -top-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${change > 0 ? "bg-emerald-400 text-black" : "bg-red-400 text-black"}`}>
@@ -813,7 +813,7 @@ function LeaderboardRow({
           <div className="flex items-center gap-3 sm:hidden">
             <AvatarWithFrame entry={entry} />
             <div className="min-w-0">
-              <h3 className="truncate text-xl font-bold" style={{ color: style.accentColor, ...fontStyle(style) }}>{entry.name}</h3>
+              <h3 className="truncate text-lg font-bold sm:text-2xl" style={{ color: style.accentColor, ...fontStyle(style) }}>{entry.name}</h3>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Rank #{entry.rank}</p>
             </div>
           </div>
