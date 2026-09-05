@@ -311,6 +311,10 @@ export async function sendPushToUser(
   opts: SendOptions = {}
 ) {
   await ensurePushTables();
+  if (opts.type === "war") {
+    const { rows } = await pool.query<{ enabled: boolean }>(`SELECT enabled FROM user_notif_prefs WHERE user_id = $1 AND type = 'war' LIMIT 1`, [userId]);
+    if (rows[0]?.enabled !== true) return { sent: 0, failed: 0, payload, notifId: null };
+  }
   const { payload: finalPayload, notifId } = await prepare(payload, opts);
   const { rows } = await pool.query<SubRow>(
     `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
@@ -324,7 +328,9 @@ export async function sendPushToAll(payload: PushPayload, opts: SendOptions = {}
   await ensurePushTables();
   const { payload: finalPayload, notifId } = await prepare(payload, opts);
   const { rows } = await pool.query<SubRow>(
-    `SELECT endpoint, p256dh, auth FROM push_subscriptions`
+    opts.type === "war"
+      ? `SELECT s.endpoint, s.p256dh, s.auth FROM push_subscriptions s JOIN user_notif_prefs p ON s.user_id = p.user_id AND p.type = 'war' WHERE p.enabled = true`
+      : `SELECT endpoint, p256dh, auth FROM push_subscriptions`,
   );
   const result = await deliver(rows, finalPayload);
   return { ...result, notifId };
