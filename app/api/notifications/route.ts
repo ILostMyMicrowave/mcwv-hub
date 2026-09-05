@@ -38,7 +38,11 @@ export async function GET() {
   if (!auth.ok) return auth.response;
 
   await ensurePushTables();
-  const [{ rows }, marker] = await Promise.all([
+
+  // User notch pref for war/placement notifications (default off)
+  await pool.query(`CREATE TABLE IF NOT EXISTS user_notif_prefs (user_id BIGINT NOT NULL, type TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (user_id, type))`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_prefs_user_type ON user_notif_prefs(user_id, type)`);
+  const [{ rows }, marker, prefRow] = await Promise.all([
     pool.query<Row>(
       `SELECT id::text AS id, type, title, body, url, image_url, created_at
        FROM notifications
@@ -54,10 +58,18 @@ export async function GET() {
        LIMIT 1`,
       [auth.user.id]
     ),
+    pool.query<{ enabled: boolean }>(
+      `SELECT enabled FROM user_notif_prefs WHERE user_id = $1 AND type = 'war' LIMIT 1`,
+      [auth.user.id]
+    ),
   ]);
 
+  const warEnabled = prefRow.rows[0]?.enabled === true;
   const lastReadId = Number(marker.rows[0]?.last_read_notif_id ?? "0") || 0;
-  const notifications = rows.map(mapRow);
+  let notifications = rows.map(mapRow);
+  if (!warEnabled) {
+    notifications = notifications.filter((n) => n.type !== "war");
+  }
   const unreadCount = notifications.filter((n) => n.id > lastReadId).length;
 
   return NextResponse.json({
