@@ -39,6 +39,13 @@ export default function NotificationsPage() {
   const [imageBusy, setImageBusy] = useState(false);
   const [filter, setFilter] = useState<FilterId>("all");
   const [warPrefOn, setWarPrefOn] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/notifications/pref")
+      .then((r) => r.json())
+      .then((data) => setWarPrefOn(data.enabled === true))
+      .catch(() => {});
+  }, []);
   // Free-text search over alert titles + bodies (matches against the rendered
   // plain text, so emojis/timestamps don't pollute the match).
   const [query, setQuery] = useState("");
@@ -461,10 +468,10 @@ export default function NotificationsPage() {
                 });
               } catch {}
             }}
-            className={`rounded-full px-3 py-2 text-xs font-bold border transition ${warPrefOn ? "bg-amber-400 text-black border-amber-400" : "bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10"}`}
+            className={`rounded-full px-3 py-2 text-xs font-bold border shadow-lg transition ${warPrefOn ? "bg-emerald-400 text-black border-emerald-400 shadow-emerald-400/30" : "bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700"}`}
             title="Toggle clan-war placement notifications"
           >
-            {warPrefOn ? "⚔️ War ON" : "⚔️ War OFF"}
+            {warPrefOn ? "✅ Placement alerts ON" : "❌ Placement alerts OFF"}
           </button>
 
           <div className="relative mt-2.5">
