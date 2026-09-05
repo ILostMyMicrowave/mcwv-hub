@@ -1270,7 +1270,7 @@ function PlayerMiniProfile({
             ✕
           </button>
 
-          <div className="flex w-full flex-col items-center justify-center gap-4 pr-12 text-center sm:flex-row sm:items-center sm:gap-5 sm:pr-0 sm:text-center">
+          <div className="flex w-full flex-col items-center justify-center gap-4 text-center sm:flex-row sm:items-center sm:gap-5 sm:text-center">
             <AvatarWithFrame entry={entry} size="lg" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center justify-center gap-2 text-xs uppercase tracking-[0.28em] sm:justify-start" style={{ color: style.accentColor }}>
