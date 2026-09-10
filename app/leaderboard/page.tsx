@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import { formatCompact } from "@/lib/numbers";
 import FlowNumber from "@/components/FlowNumber";
 import WarHistoryDropdown from "@/components/WarHistoryDropdown";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
@@ -99,7 +100,7 @@ type ApiResponse = {
 };
 
 function formatNumber(n: number) {
-  return new Intl.NumberFormat("en-GB").format(n);
+  return formatCompact(n);
 }
 
 function formatPoints(value: number | null | undefined) {
