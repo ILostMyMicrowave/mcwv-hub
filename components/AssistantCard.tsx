@@ -1,8 +1,9 @@
 "use client";
 
 import type { AssistantCardData } from "@/lib/assistantEngine";
+import { formatCompact } from "@/lib/numbers";
 
-const fmt = (value: number) => Math.round(value).toLocaleString("en-GB");
+const fmt = (value: number) => formatCompact(value);
 
 function CardTitle({ children }: { children: string }) {
   return (
