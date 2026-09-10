@@ -14,6 +14,7 @@ import HallOfFamePreview from "@/components/HallOfFamePreview";
 import AchievementsPreview from "@/components/AchievementsPreview";
 import DiscordWidget from "@/components/DiscordWidget";
 import FlowNumber from "@/components/FlowNumber";
+import { formatCompact } from "@/lib/numbers";
 import Pressable from "@/components/Pressable";
 
 type LeaderboardEntry = {
@@ -67,7 +68,7 @@ function toNumber(value: unknown): number {
 }
 
 function formatNumber(n: number) {
-  return new Intl.NumberFormat("en-GB").format(n);
+  return formatCompact(n);
 }
 
 function formatAgo(timestamp: string | null, nowMs: number) {
