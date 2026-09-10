@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import { formatCompact } from "@/lib/numbers";
 import FlowNumber from "@/components/FlowNumber";
 import BigGamesConnect from "@/components/BigGamesConnect";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -163,7 +164,7 @@ type SectionProps = {
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-GB").format(value);
+  return formatCompact(value);
 }
 
 function formatDate(value: number | null | undefined) {
