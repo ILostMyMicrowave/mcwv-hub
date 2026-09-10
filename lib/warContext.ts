@@ -85,7 +85,9 @@ async function fetchJson(url: string): Promise<Json | null> {
     const res = await fetch(url, {
       cache: "no-store",
       headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
-      signal: AbortSignal.timeout(8000),
+      // 6s keeps the assistant route comfortably under Vercel's function
+      // timeout even with retries; a slower API just means "less data".
+      signal: AbortSignal.timeout(6000),
     })
     if (!res.ok) return null
     return (await res.json()) as Json
@@ -400,7 +402,15 @@ async function memberLines(battleKey: string): Promise<MemberLine[]> {
   }
 }
 
-let sharedCache: { at: number; context: SharedWarContext } | null = null
+let sharedCache: { at: number; context: SharedWarContext; degraded: boolean } | null = null
+
+// A context built while the live API was unreachable is cached much shorter,
+// so a transient outage does not pin a stale "no war" / empty state for the
+// full 90s success TTL.
+const SHARED_CACHE_DEGRADED_MS = 10_000
+function sharedCacheTtl(degraded: boolean) {
+  return degraded ? SHARED_CACHE_DEGRADED_MS : SHARED_CACHE_MS
+}
 
 // --- War history brain ------------------------------------------------------
 // Per-war finals computed from each member's LAST snapshot inside that battle
@@ -507,8 +517,117 @@ export async function loadAskerWars(robloxId: string | null, limit = 8): Promise
   }
 }
 
+// ---------------------------------------------------------------------------
+// Local "is a war live?" evidence, used ONLY when the live battle API is
+// unreachable. An API hiccup must never flip the hub to "no war" mid-battle:
+// the war collector and the hub's own detection writes keep writing to these
+// tables throughout the war. Every signal fails soft (missing table = null).
+// ---------------------------------------------------------------------------
+async function detectActiveWarFromDb(): Promise<{
+  battleId: string
+  endMs: number | null
+} | null> {
+  const endMsOf = (value: Date | string | null | undefined): number | null => {
+    if (value === null || value === undefined) return null
+    const ms = new Date(String(value)).getTime()
+    return Number.isFinite(ms) ? ms : null
+  }
+  const inFuture = (ms: number | null): boolean => ms !== null && ms > Date.now()
+
+  // 1) Which battle is live? Signals in priority order:
+  //    - clan_history: the war collector writes a row every minute while a war
+  //      runs; a row captured within the last 10 minutes = war in progress.
+  //    - war_detection_windows: the hub itself recorded this battle recently
+  //      with an end time still in the future.
+  //    - battles: a recorded battle whose end time is null/future has not
+  //      finished, regardless of row age.
+  //    Every signal fails soft (missing table = skipped).
+  let battleId: string | null = null
+
+  try {
+    const res = await pool.query<{ battle_id: string }>(
+      `SELECT battle_id
+       FROM clan_history
+       WHERE captured_at >= NOW() - INTERVAL '10 minutes'
+       ORDER BY captured_at DESC
+       LIMIT 1`
+    )
+    if (res.rows[0]) battleId = String(res.rows[0].battle_id)
+  } catch {
+    // table missing — next signal
+  }
+
+  if (!battleId) {
+    try {
+      const res = await pool.query<{ battle_id: string }>(
+        `SELECT battle_id
+         FROM war_detection_windows
+         WHERE api_end_at > NOW()
+           AND updated_at >= NOW() - INTERVAL '15 minutes'
+         ORDER BY updated_at DESC
+         LIMIT 1`
+      )
+      if (res.rows[0]) battleId = String(res.rows[0].battle_id)
+    } catch {
+      // table missing — next signal
+    }
+  }
+
+  if (!battleId) {
+    try {
+      const res = await pool.query<{ battle_id: string }>(
+        `SELECT battle_id
+         FROM battles
+         WHERE (end_time IS NULL OR end_time > NOW())
+           AND (start_time IS NULL OR start_time <= NOW())
+         ORDER BY COALESCE(start_time, created_at) DESC NULLS LAST
+         LIMIT 1`
+      )
+      if (res.rows[0]) battleId = String(res.rows[0].battle_id)
+    } catch {
+      // table missing — give up
+    }
+  }
+
+  if (!battleId) return null
+
+  // 2) Best end-time for THAT battle (detection window first, then battles).
+  let endMs: number | null = null
+  try {
+    const res = await pool.query<{ api_end_at: Date | string }>(
+      `SELECT api_end_at
+       FROM war_detection_windows
+       WHERE battle_id = $1 AND api_end_at > NOW()
+       LIMIT 1`,
+      [battleId]
+    )
+    endMs = endMsOf(res.rows[0]?.api_end_at)
+    if (!inFuture(endMs)) endMs = null
+  } catch {
+    // table missing — next source
+  }
+
+  if (endMs === null) {
+    try {
+      const res = await pool.query<{ end_time: Date | string | null }>(
+        `SELECT end_time
+         FROM battles
+         WHERE battle_id = $1 AND end_time > NOW()
+         LIMIT 1`,
+        [battleId]
+      )
+      endMs = endMsOf(res.rows[0]?.end_time)
+      if (!inFuture(endMs)) endMs = null
+    } catch {
+      // table missing — end time stays unknown
+    }
+  }
+
+  return { battleId, endMs }
+}
+
 export async function getSharedWarContext(force = false): Promise<SharedWarContext> {
-  if (!force && sharedCache && Date.now() - sharedCache.at < SHARED_CACHE_MS) {
+  if (!force && sharedCache && Date.now() - sharedCache.at < sharedCacheTtl(sharedCache.degraded)) {
     return sharedCache.context
   }
 
@@ -520,19 +639,37 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
   const historyPromise = historyEntries()
 
   const configData = ((battlePayload?.data as Json | undefined)?.configData ?? null) as Json | null
-  const battleId = typeof configData?.Title === "string" ? configData.Title : null
-  const startSec = toEpochSeconds(configData?.StartTime)
-  const finishSec = toEpochSeconds(configData?.FinishTime)
+  let battleId = typeof configData?.Title === "string" ? configData.Title : null
+  let startSec = toEpochSeconds(configData?.StartTime)
+  let finishSec = toEpochSeconds(configData?.FinishTime)
   const nowSec = Math.floor(Date.now() / 1000)
-  const active = Boolean(finishSec && nowSec < finishSec && startSec && nowSec >= startSec)
+
+  // The live battle API is the source of truth — but when it is unreachable we
+  // must NOT declare "no war" if the hub's own collector data says a battle is
+  // in progress (a short API hiccup used to pin a 90s "no war" cache mid-war).
+  let localWar: { battleId: string; endMs: number | null } | null = null
+  if (!battlePayload) {
+    localWar = await detectActiveWarFromDb()
+    if (localWar) {
+      battleId = localWar.battleId
+      if (localWar.endMs !== null) finishSec = Math.floor(localWar.endMs / 1000)
+      startSec = startSec ?? nowSec // battle is live; start time unknown
+    }
+  }
+
+  const apiActive = Boolean(finishSec && nowSec < finishSec && startSec && nowSec >= startSec)
+  const active = apiActive || localWar !== null
   const timeLeftMs = active && finishSec ? (finishSec - nowSec) * 1000 : null
 
   // The v1 battle endpoint carries the full reward table (headline reward,
   // placement tiers, contributor bands). Parse it when we know the battle id;
   // fall back to the legacy configData format otherwise.
-  const v1Meta = battleId
-    ? (((await fetchJson(`${PS99_API}/v1/clans/battles/${encodeURIComponent(battleId)}`))?.data as Json | undefined)?.meta ?? null) as Json | null
-    : null
+  // Only when the live API actually answered — a battleId recovered from the
+  // DB fallback would just burn an 8s timeout on an unreachable host.
+  const v1Meta =
+    battleId && battlePayload
+      ? (((await fetchJson(`${PS99_API}/v1/clans/battles/${encodeURIComponent(battleId)}`))?.data as Json | undefined)?.meta ?? null) as Json | null
+      : null
   const parsedRewards = parseBattleRewards(v1Meta, configData)
 
   const clanData = (clanPayload?.data ?? {}) as Json
@@ -653,7 +790,9 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     history: await historyPromise,
   }
 
-  sharedCache = { at: Date.now(), context }
+  // degraded = the live active-battle API was unreachable, so `active` /
+  // timings lean on DB fallback data (up to ~10min stale) — cache it briefly.
+  sharedCache = { at: Date.now(), context, degraded: !battlePayload }
   return context
 }
 
