@@ -1,6 +1,7 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
+import { formatCompact } from "@/lib/numbers";
 import FlowNumber from "@/components/FlowNumber";
 import ReactECharts from "echarts-for-react";
 import { useEffect, useMemo, useState } from "react";
@@ -47,7 +48,7 @@ const FALLBACK_THEME: ThemeColors = {
 };
 
 function formatNumber(n: number) {
-  return new Intl.NumberFormat("en-GB").format(n);
+  return formatCompact(n);
 }
 
 function formatAgo(timestamp: string | null, nowMs: number) {
