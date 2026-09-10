@@ -22,11 +22,21 @@ function isTransientDbError(err: unknown) {
     code === "ETIMEDOUT" ||
     code === "ECONNRESET" ||
     code === "ECONNREFUSED" ||
+    code === "ECONNABORTED" ||
+    code === "EHOSTUNREACH" ||
+    code === "ENETUNREACH" ||
     code === "EAI_AGAIN" ||
-    code === "57P01" ||
-    code === "57P03" ||
+    code === "08006" || // connection_failure (e.g. closed mid-operation)
+    code === "08001" || // sqlclient_unspecified
+    code === "57P01" || // admin_shutdown
+    code === "57P02" || // crash_shutdown
+    code === "57P03" || // cannot_connect_now
     msg.includes("timeout exceeded when trying to connect") ||
     msg.includes("Connection terminated") ||
+    msg.includes("connection was closed in the middle of an operation") ||
+    msg.includes("backend closed the connection unexpectedly") ||
+    msg.includes("SSL SYSCALL error") ||
+    msg.includes("unexpected response in SSL negotiation") ||
     msg.includes("sorry, too many clients") ||
     msg.includes("remaining connection slots")
   )
@@ -60,13 +70,30 @@ function getPool() {
   })
 
   const originalQuery = pool.query.bind(pool) as Pool["query"]
+
+  // Supabase's pooler (and Vercel's per-isolate `max: 1`) can drop a cold
+  // connection on the first use of an isolate. Retry transient errors a couple
+  // of times with backoff before surfacing — this is what keeps
+  // "Failed to verify authentication" 500s from spooking pages/assistant.
+  const MAX_ATTEMPTS = 3
+  const retryBackoffMs = (attempt: number) => Math.min(250 * 2 ** (attempt - 1), 1000)
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
-    return Promise.resolve(run()).catch(async (err: unknown) => {
-      if (!isTransientDbError(err)) throw err
-      console.warn("[db] retrying query after:", err instanceof Error ? err.message : err)
-      return run()
-    })
+    const attempt = async (n: number): Promise<unknown> => {
+      try {
+        return await run()
+      } catch (err) {
+        if (!isTransientDbError(err) || n >= MAX_ATTEMPTS) throw err
+        const delay = retryBackoffMs(n)
+        console.warn(
+          `[db] transient error (attempt ${n}/${MAX_ATTEMPTS}), retrying in ${delay}ms:`,
+          err instanceof Error ? err.message : err
+        )
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        return attempt(n + 1)
+      }
+    }
+    return attempt(1)
   }) as Pool["query"]
   pool.query = retriedQuery
 
