@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatCompact } from "@/lib/numbers";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import FlowNumber from "@/components/FlowNumber";
@@ -96,7 +97,7 @@ type BattleHqResponse = {
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-GB").format(value);
+  return formatCompact(value);
 }
 
 function formatDuration(ms: number | null) {
