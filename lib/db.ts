@@ -38,7 +38,12 @@ function isTransientDbError(err: unknown) {
     msg.includes("SSL SYSCALL error") ||
     msg.includes("unexpected response in SSL negotiation") ||
     msg.includes("sorry, too many clients") ||
-    msg.includes("remaining connection slots")
+    msg.includes("remaining connection slots") ||
+    // Supabase *session-mode* pooler (port 5432) rejects new clients once
+    // pool_size (15) is reached: code XX000 (too generic to match alone) +
+    // this exact message. Production hit this on every burst of Vercel
+    // isolates -> 500s across auth/leaderboard/collector. Match the message.
+    msg.includes("max clients reached")
   )
 }
 
@@ -55,9 +60,13 @@ function getPool() {
     // otherwise time out every extra isolate.
     max: 1,
     // Keep a warm client a bit longer so login + navbar don’t each pay a
-    // fresh TCP handshake. Still short enough that idle isolates release.
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 20_000,
+    // fresh TCP handshake. Still short enough that idle isolates release
+    // their session-pooler slot quickly (10s, not 30s) so a burst of
+    // isolates recovers from EMAXCONNSESSION fast.
+    idleTimeoutMillis: 10_000,
+    // Fail a hung connection fast (5s, not 20s) so the retry budget below
+    // can actually be used inside Vercel’s function timeout.
+    connectionTimeoutMillis: 5_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
@@ -72,11 +81,15 @@ function getPool() {
   const originalQuery = pool.query.bind(pool) as Pool["query"]
 
   // Supabase's pooler (and Vercel's per-isolate `max: 1`) can drop a cold
-  // connection on the first use of an isolate. Retry transient errors a couple
-  // of times with backoff before surfacing — this is what keeps
-  // "Failed to verify authentication" 500s from spooking pages/assistant.
+  // connection on the first use of an isolate — or reject it outright with
+  // EMAXCONNSESSION when the 15-client session pool is full. Retry transient
+  // errors with backoff before surfacing: this is what keeps "Failed to
+  // verify authentication" 500s from spooking pages/assistant. The backoff
+  // stretches past ~2.5s total because pool slots free only as other
+  // isolates' connections idle out (a few seconds).
   const MAX_ATTEMPTS = 3
-  const retryBackoffMs = (attempt: number) => Math.min(250 * 2 ** (attempt - 1), 1000)
+  const RETRY_BACKOFF_MS = [500, 2000]
+  const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
     const attempt = async (n: number): Promise<unknown> => {
