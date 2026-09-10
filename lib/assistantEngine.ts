@@ -274,14 +274,17 @@ function nextTierUp(shared: SharedWarContext, rank: number) {
 
 function statusAnswer(shared: SharedWarContext): string {
   if (!shared.active) {
-    const bits = [
-      noWarLine(shared),
-      shared.battleId ? `Last battle: **${shared.battleId}**.` : "",
-      shared.contributors ? `We finished with **${shared.contributors} scorers**` : "",
-      shared.clanPoints !== null ? ` on **${fmt(shared.clanPoints)}** pts.` : ".",
-      "Rest while you can — when the next battle drops, we go again 😤",
-    ]
-    return bits.join("")
+    let text = noWarLine(shared)
+    if (shared.battleId) text += `Last battle: **${shared.battleId}**. `
+    if (shared.contributors || shared.clanPoints !== null) {
+      text += shared.contributors
+        ? `We finished with **${shared.contributors} scorers**`
+        : "We finished"
+      if (shared.clanPoints !== null) text += ` on **${fmt(shared.clanPoints)}** pts`
+      text += ". "
+    }
+    text += "Rest while you can — when the next battle drops, we go again 😤"
+    return text
   }
 
   const parts = [
@@ -318,7 +321,11 @@ function statusAnswer(shared: SharedWarContext): string {
       out += ` They're gaining ~${fmt(below.pph)}/h.`
     }
   }
-  out += `\n\n⏳ **${fmtDuration(shared.timeLeftMs)}** left on the clock.`
+  if (shared.timeLeftMs !== null) {
+    out += `\n\n⏳ **${fmtDuration(shared.timeLeftMs)}** left on the clock.`
+  } else {
+    out += `\n\n⏳ War is live — end time isn't confirmed yet.`
+  }
   return out
 }
 
