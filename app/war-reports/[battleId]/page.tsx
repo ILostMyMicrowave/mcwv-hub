@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatCompact } from "@/lib/numbers";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
@@ -60,7 +61,7 @@ type ReportDetail = {
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-GB").format(value);
+  return formatCompact(value);
 }
 
 function formatDate(value: string | null) {
