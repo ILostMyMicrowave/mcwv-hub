@@ -1,3 +1,5 @@
+import { formatCompact } from "@/lib/numbers";
+
 type Player = {
   user_id: number;
   name: string;
@@ -44,7 +46,7 @@ export default function Podium({ players }: PodiumProps) {
           </p>
 
           <p className="text-sm text-zinc-400">
-            {second?.points?.toLocaleString() ?? 0}
+            {second ? formatCompact(second.points) : 0}
           </p>
 
           <div className="mt-4 h-36 w-full rounded-t-2xl bg-gradient-to-t from-zinc-700 to-zinc-500/30" />
@@ -71,7 +73,7 @@ export default function Podium({ players }: PodiumProps) {
           </p>
 
           <p className="text-yellow-300">
-            {first?.points?.toLocaleString() ?? 0}
+            {first ? formatCompact(first.points) : 0}
           </p>
 
           <div className="mt-4 h-52 w-full rounded-t-2xl bg-gradient-to-t from-yellow-600 via-yellow-400/20 to-transparent" />
@@ -98,7 +100,7 @@ export default function Podium({ players }: PodiumProps) {
           </p>
 
           <p className="text-sm text-zinc-400">
-            {third?.points?.toLocaleString() ?? 0}
+            {third ? formatCompact(third.points) : 0}
           </p>
 
           <div className="mt-4 h-32 w-full rounded-t-2xl bg-gradient-to-t from-orange-800 to-orange-500/20" />
