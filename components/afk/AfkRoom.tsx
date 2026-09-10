@@ -1,4 +1,5 @@
 "use client";
+import { formatCompact } from "@/lib/numbers";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1059,7 +1060,7 @@ export default function AfkRoom() {
     };
   }, []);
 
-  const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("en-GB"));
+  const fmt = (n: number | null) => (n === null ? "—" : formatCompact(n));
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-[#060512]">
