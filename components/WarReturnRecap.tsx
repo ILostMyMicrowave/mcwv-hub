@@ -1,4 +1,5 @@
 "use client";
+import { formatCompact } from "@/lib/numbers";
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -31,7 +32,7 @@ type RecapResponse = {
 
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-GB").format(value);
+  return formatCompact(value);
 }
 
 function formatRank(value: number | null | undefined) {
