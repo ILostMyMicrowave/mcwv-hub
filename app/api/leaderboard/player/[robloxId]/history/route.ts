@@ -30,13 +30,25 @@ function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+// to_regclass is a real DB round-trip and this endpoint calls it up to 3×
+// per open. Schema changes are rare and isolates are short-lived, so cache
+// per isolate with a 5-minute TTL (a long-lived isolate stays fresh after a
+// migration within 5 minutes).
+const tableExistsCache = new Map<string, { exists: boolean; at: number }>();
+const TABLE_EXISTS_TTL_MS = 5 * 60 * 1000;
+
 async function tableExists(tableName: string) {
+  const cached = tableExistsCache.get(tableName);
+  if (cached && Date.now() - cached.at < TABLE_EXISTS_TTL_MS) return cached.exists;
+
   const result = await pool.query<{ exists: boolean }>(
     `SELECT to_regclass($1) IS NOT NULL AS exists`,
     [`public.${tableName}`]
   );
 
-  return Boolean(result.rows[0]?.exists);
+  const exists = Boolean(result.rows[0]?.exists);
+  tableExistsCache.set(tableName, { exists, at: Date.now() });
+  return exists;
 }
 
 function asNumber(value: number | string | null | undefined) {
@@ -76,10 +88,20 @@ function contributionPoints(entry: ClanBattleContribution) {
   return asNumber(entry.Points ?? 0);
 }
 
-async function fetchJson(url: string) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
-  return res.json();
+async function fetchJson(url: string, timeoutMs = 8000) {
+  // Hard timeout: this is the ONLY path where an external service (PS99 clan
+  // API) controls this endpoint's latency. Without it a hung upstream would
+  // spin the profile modal's "Loading history..." until the function times
+  // out. 8 s is generous for a JSON clan snapshot.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!res.ok) throw new Error(`Failed ${url}: HTTP ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function getFrozenClanApiPoint(battleId: string, userId: number) {
@@ -190,7 +212,7 @@ export async function GET(
            WHERE roblox_id::text = $1
              AND lower(COALESCE(battle_id, '')) = $2
              AND points IS NOT NULL
-           ORDER BY captured_at ASC
+           ORDER BY captured_at DESC
            LIMIT 500`,
           [String(userId), requestedBattleKey]
         );
@@ -211,14 +233,20 @@ export async function GET(
            FROM player_leaderboard_history
            WHERE roblox_id::text = $1
              AND battle_id IS NOT DISTINCT FROM $2::text
-           ORDER BY captured_at ASC
+           ORDER BY captured_at DESC
            LIMIT 500`,
           [String(userId), latestBattleId]
         );
       }
 
+      // DESC LIMIT keeps the NEWEST 500 snapshots (an ASC limit used to drop
+      // recent data once a war outlasted 500 captures, silently staling the
+      // graph, the 5m-change and PPH tiles). Restore ascending order for the
+      // point/delta walk below.
+      const snapshotRows = [...snapshotResult.rows].reverse();
+
       let previousPoints: number | null = null;
-      for (const row of snapshotResult.rows) {
+      for (const row of snapshotRows) {
         const value = asNumber(row.points);
         const ranked = asNumber(row.rank);
         const iso = toIso(row.captured_at);
@@ -236,14 +264,14 @@ export async function GET(
         previousPoints = value;
       }
 
-      const latest = snapshotResult.rows[snapshotResult.rows.length - 1];
+      const latest = snapshotRows[snapshotRows.length - 1];
       if (latest) {
         const latestPoints = asNumber(latest.points);
         const latestTimeMs = new Date(latest.captured_at).getTime();
         const fiveMinuteCutoff = latestTimeMs - 5 * 60 * 1000;
         const hourlyCutoff = latestTimeMs - 60 * 60 * 1000;
-        const fiveMinuteBaseline = pointsAtTime(snapshotResult.rows, fiveMinuteCutoff);
-        const hourlyBaseline = pointsAtTime(snapshotResult.rows, hourlyCutoff);
+        const fiveMinuteBaseline = pointsAtTime(snapshotRows, fiveMinuteCutoff);
+        const hourlyBaseline = pointsAtTime(snapshotRows, hourlyCutoff);
 
         change5m = fiveMinuteBaseline !== null ? Math.max(0, Math.round(latestPoints - fiveMinuteBaseline)) : 0;
 
@@ -264,18 +292,32 @@ export async function GET(
     // Fallback for older installs before snapshot history existed. Do not use this
     // for historical wars; old wars should stay frozen to that battle only.
     if (!historicalMode && !points.length && pointHistoryExists) {
-      const result = await pool.query<PointRow>(
-        `SELECT points_added, created_at
-         FROM point_history
-         WHERE user_id = $1
-         ORDER BY created_at ASC
-         LIMIT 500`,
-        [userId]
-      );
+      // Newest 500 events (an ASC limit dropped the recent tail for active
+      // players). The cumulative value needs the pre-window total so the
+      // graph stays at the real point count, not a restart from zero.
+      const [result, totalResult] = await Promise.all([
+        pool.query<PointRow>(
+          `SELECT points_added, created_at
+           FROM point_history
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 500`,
+          [userId]
+        ),
+        pool.query<{ total: number | string }>(
+          `SELECT COALESCE(SUM(points_added), 0) AS total
+           FROM point_history
+           WHERE user_id = $1`,
+          [userId]
+        ),
+      ]);
 
-      let running = 0;
+      const rows = [...result.rows].reverse();
+      const windowSum = rows.reduce((sum, row) => sum + asNumber(row.points_added), 0);
+      let running = asNumber(totalResult.rows[0]?.total ?? 0) - windowSum;
+
       const now = Date.now();
-      for (const row of result.rows) {
+      for (const row of rows) {
         const delta = asNumber(row.points_added);
         const createdAtMs = new Date(row.created_at).getTime();
         running += delta;
@@ -300,6 +342,9 @@ export async function GET(
       // (online / offline / studio) and not returning to in-game. We build
       // sessions from the transition events so we get real start + end +
       // duration (the cumulative graph was meaningless — it only went up).
+      // DESC keeps the NEWEST 2000 events — with an ASC limit, a player with
+      // >2000 events in 14 days would have their RECENT (24h) events pushed
+      // out of the window, undercounting disconnects.
       const rows = await pool.query<{
         previous_status: string | null;
         next_status: string | null;
@@ -309,10 +354,11 @@ export async function GET(
          FROM player_presence_events
          WHERE roblox_id::text = $1
            AND created_at >= NOW() - INTERVAL '14 days'
-         ORDER BY created_at ASC
+         ORDER BY created_at DESC
          LIMIT 2000`,
         [String(userId)]
       );
+      rows.rows.reverse();
 
       const isInGame = (s: string | null) =>
         ["2", "in_game", "ingame", "in game", "in-game"].includes(
