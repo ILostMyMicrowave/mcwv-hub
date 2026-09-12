@@ -7,10 +7,22 @@ import {
   pushConfigured,
   sendPushToAll,
 } from "@/lib/pushServer";
+import { RateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+// proxy.ts passes this route through without a session cookie (the installed
+// app polls it from /login and from devices whose session expired), so it is
+// effectively public — rate-limit per IP like the other public endpoints.
+// In-memory like loginRateLimiter: per-isolate best-effort, not the only
+// control. 30/5min is ~10x the AppBadgeSync cadence (2 min per open tab),
+// so shared-NAT households and multi-device members never hit it.
+const statusLimiter = new RateLimiter({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 30, // 30 polls per 5 min per IP
+})
 
 // Lightweight status polled by the installed app (AppBadgeSync):
 //   • warActive drives the 🔴 dot on the home-screen icon (Badging API)
@@ -18,7 +30,10 @@ export const revalidate = 0;
 //     push subscribers, deduped per battle id via app_push_state.
 // War data comes from the cached shared context, so this stays cheap even
 // with every installed device polling it.
-export async function GET() {
+export async function GET(req: Request) {
+  const ipLimit = statusLimiter.check(getClientIP(req));
+  if (!ipLimit.success) return rateLimitResponse(ipLimit);
+
   const user = await getAuthenticatedUser().catch(() => null);
   const war = await getSharedWarContext().catch(() => null);
 
