@@ -84,14 +84,20 @@ function getPool() {
     // (port 6543 / pooler host). Session mode’s ~15 client cap will
     // otherwise time out every extra isolate.
     max: 1,
-    // Keep a warm client a bit longer so login + navbar don’t each pay a
-    // fresh TCP handshake. Still short enough that idle isolates release
-    // their session-pooler slot quickly (10s, not 30s) so a burst of
-    // isolates recovers from EMAXCONNSESSION fast.
-    idleTimeoutMillis: 10_000,
-    // Fail a hung connection fast (5s, not 20s) so the retry budget below
-    // can actually be used inside Vercel’s function timeout.
-    connectionTimeoutMillis: 5_000,
+    // Keep a warm client longer so back-to-back requests (login + navbar,
+    // per-minute app-status polls) reuse the live TLS session instead of
+    // paying a fresh cold connect each time. 30s is safe on TRANSACTION
+    // pooling (6543): an idle client holds a supavisor client slot but no
+    // postgres backend, so the old 10s (tuned for session mode’s ~15 client
+    // cap) only caused reconnect churn.
+    idleTimeoutMillis: 30_000,
+    // Cold isolates regularly need >5s for the FIRST pooler connect — a fresh
+    // isolate’s first DNS lookup of the pooler’s CNAME→ELB chain can take
+    // seconds (prod 2026-09-12: attempt-1 timeout warnings every minute, the
+    // immediate retry always succeeding, responseStatusCode 200 on each).
+    // Give each attempt 10s; worst case 3 attempts + backoff ≈ 32s. The DNS
+    // warm-up below removes most of that latency at the source.
+    connectionTimeoutMillis: 10_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
@@ -125,6 +131,18 @@ function getPool() {
   pool.on("error", (err) => {
     console.error("[db] idle client error:", err.message)
   })
+
+  // Warm this isolate's DNS cache for the DB host before any request needs a
+  // connection. A cold isolate's first getaddrinfo for the pooler's
+  // CNAME→ELB chain can take seconds — exactly the budget the old 5s
+  // connection timeout burned on attempt 1 (prod 2026-09-12). Fire-and-forget:
+  // the resolver's cache makes the first real connect fast.
+  try {
+    const dbHost = new URL(connectionString).hostname
+    if (dbHost) void dns.promises.lookup(dbHost).catch(() => {})
+  } catch {
+    // non-URL connection string — pg will surface the real error later
+  }
 
   const originalQuery = pool.query.bind(pool) as Pool["query"]
 
