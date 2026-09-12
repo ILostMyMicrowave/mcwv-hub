@@ -475,9 +475,12 @@ async function saveCollectorSnapshot(params: {
     }
 
     await client.query("COMMIT");
-  } catch {
+  } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw new Error("Failed to save collector snapshot");
+    // Preserve the original error (e.g. "column rank ... does not exist",
+    // pooler failures) — the route logs it with the requestId so Vercel
+    // logs are actionable. A generic message here previously hid the cause.
+    throw err instanceof Error ? err : new Error("Failed to save collector snapshot");
   } finally {
     client.release();
   }
