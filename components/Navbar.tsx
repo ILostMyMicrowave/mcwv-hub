@@ -34,7 +34,14 @@ type NavGroup =
 
 type NavbarUser = {
   role?: string | null;
+  /** Extra fields (username, id, …) come from /api/auth/me or the
+   *  server-rendered landing initial data. */
+  [key: string]: unknown;
 } | null;
+
+export type NavbarInitialUser =
+  | { role?: string | null; username?: string; [key: string]: unknown }
+  | null;
 
 const SPRING = "cubic-bezier(0.22, 1, 0.36, 1)";
 
@@ -308,11 +315,13 @@ function DesktopGroupItem({
   );
 }
 
-export default function Navbar() {
+export default function Navbar({ initialUser = null }: { initialUser?: NavbarInitialUser }) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
-  const [user, setUser] = useState<NavbarUser>(null);
+  // SSR: the landing page server-renders the session user, so the name/bell
+  // paint with the first HTML frame instead of waiting on /api/auth/me.
+  const [user, setUser] = useState<NavbarUser>(initialUser);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [activeAdminSection, setActiveAdminSection] = useState<string | null>(null);
   const [renderDrawer, setRenderDrawer] = useState(false);
@@ -590,6 +599,9 @@ export default function Navbar() {
   // --- Data + tracking -------------------------------------------------------
 
   useEffect(() => {
+    // When the landing server-rendered the user, that snapshot is fresh
+    // (same request) — skip the duplicate /api/auth/me round trip.
+    if (initialUser) return;
     let cancelled = false;
     fetch("/api/auth/me", { cache: "no-store" })
       .then((res) => res.json())
@@ -601,7 +613,7 @@ export default function Navbar() {
       });
     return () => {      cancelled = true;
     };
-  }, []);
+  }, [initialUser]);
 
   // Unread-alert badge on the Inbox link: tiny count endpoint every 60s,
   // on foreground, and INSTANTLY when the inbox dispatches its
