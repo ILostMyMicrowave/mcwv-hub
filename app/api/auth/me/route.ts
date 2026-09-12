@@ -31,6 +31,20 @@ export async function GET() {
 
     return NextResponse.json({ user })
   } catch {
-    return NextResponse.json({ user: null }, { status: 500 })
+    // DB blip (pooler saturation, cold connect timeout): a 500 here reads as
+    // "logged out" to every page and the whole site flickers. The signed
+    // session already carries id/username/role — serve that (possibly stale)
+    // instead. Full fields (roblox_id, discord_id, theme) need the DB and
+    // come back on the next healthy poll.
+    try {
+      const cookieStore = await cookies()
+      const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
+      const u = session?.user
+      return NextResponse.json({
+        user: u ? { id: u.id, username: u.username, role: u.role ?? null } : null,
+      })
+    } catch {
+      return NextResponse.json({ user: null }, { status: 500 })
+    }
   }
 }
