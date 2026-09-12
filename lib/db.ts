@@ -183,6 +183,21 @@ function getPool() {
   }) as Pool["query"]
   pool.query = retriedQuery
 
+  // Keep this isolate's pool client connected indefinitely: with no traffic,
+  // the pool closes its idle client after idleTimeoutMillis (300s) and the
+  // NEXT request must open a fresh connection — which on Vercel's egress
+  // path to the Supabase pooler loses the cold-connect lottery ~30-50% of
+  // the time (2026-09-12: login 503s). One SELECT 1 per minute is ~50 bytes
+  // of egress and keeps the client's socket — and therefore the isolate —
+  // alive. The bot's 30s app-status pings keep the isolate warm; this keeps
+  // its database connection warm too. (unref: the timer must not hold a
+  // process open by itself — tests call pool.end(), and on Vercel the live
+  // socket does the holding.)
+  const connectionKeepAlive = setInterval(() => {
+    void pool.query("SELECT 1").catch(() => {})
+  }, 60_000)
+  connectionKeepAlive.unref()
+
   return pool
 }
 
