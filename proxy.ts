@@ -40,6 +40,19 @@ const PUBLIC_API_PATHS = new Set([
   "/api/discord/guilds/callback",
 ])
 
+// Public, no-session status endpoint. It is polled by the installed app
+// (AppBadgeSync every 2 min / on focus, InstallBanner) which are mounted in
+// the ROOT layout — so they run on /login too, and on devices whose 14-day
+// session cookie has expired (exactly the members who most need the 🔴 war
+// badge to pull them back in). The route already returns
+// `authenticated: false` for cookie-less callers, and warActive/battleId
+// mirror what the public PS99 API exposes about the clan anyway. Blocking it
+// here (prod 2026-09-12: every poll 401ed in the Vercel logs) silently
+// killed badge sync, InstallBanner's war urgency message, and the
+// poll-driven WAR STARTED push edge + broadcast/presence sweeps for
+// logged-out devices. The route rate-limits per IP itself.
+const PUBLIC_STATUS_API_PATHS = new Set(["/api/app-status"])
+
 function isAuthPage(pathname: string) {
   return AUTH_PAGES.has(pathname)
 }
@@ -72,6 +85,7 @@ export function proxy(request: NextRequest) {
     MACHINE_API_PATHS.has(pathname) ||
     pathname.startsWith("/api/internal/") ||
     pathname.startsWith("/api/media/") ||
+    PUBLIC_STATUS_API_PATHS.has(pathname) ||
     PUBLIC_API_PATHS.has(pathname)
   ) {
     return NextResponse.next()
