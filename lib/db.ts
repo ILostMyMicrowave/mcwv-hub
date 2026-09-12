@@ -88,7 +88,7 @@ function getPool() {
   // stretches past ~2.5s total because pool slots free only as other
   // isolates' connections idle out (a few seconds).
   const MAX_ATTEMPTS = 3
-  const RETRY_BACKOFF_MS = [500, 2000]
+  const RETRY_BACKOFF_MS = [400, 1500]
   const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
