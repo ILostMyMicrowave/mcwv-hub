@@ -282,7 +282,7 @@ export default function WarInfoPage() {
     }
 
     void loadWar(true);
-    const timer = window.setInterval(() => void loadWar(false), 10_000);
+    const timer = window.setInterval(() => void loadWar(false), 30_000);
 
     return () => {
       alive = false;
