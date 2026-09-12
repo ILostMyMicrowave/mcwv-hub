@@ -291,7 +291,7 @@ export default function ContributionsPage() {
   useEffect(() => {
     load();
 
-    const refresh = setInterval(() => load({ silent: true }), 15000);
+    const refresh = setInterval(() => load({ silent: true }), 30_000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
