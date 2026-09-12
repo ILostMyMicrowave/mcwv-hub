@@ -1,5 +1,6 @@
 import { Pool, type PoolConfig } from "pg"
 import dns from "node:dns"
+import { DB_CA_PEM } from "./caCert"
 
 // Vercel’s serverless runtime prefers IPv6. Supabase’s pooler often only
 // answers reliably on IPv4, which surfaces as:
@@ -64,13 +65,30 @@ function getPool() {
     // their session-pooler slot quickly (10s, not 30s) so a burst of
     // isolates recovers from EMAXCONNSESSION fast.
     idleTimeoutMillis: 10_000,
-    // Fail a hung connection fast (2.5 s, not 20 s) so the retry budget
-    // below can actually be used inside Vercel's 10 s function timeout.
-    connectionTimeoutMillis: 2_500,
+    // Fail a hung connection fast (5s, not 20s) so the retry budget below
+    // can actually be used inside Vercel’s function timeout.
+    connectionTimeoutMillis: 5_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
-    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: true, ca: undefined } : undefined,
+    // The Vercel serverless CA store predates the anchor for Supabase's
+    // pooler chain, so verification fails with SELF_SIGNED_CERT_IN_CHAIN
+    // without these roots (prod 2026-09-12: every DB call 500ed after the
+    // NODE_EXTRA_CA_CERTS env var was removed — the A/B proves the missing
+    // anchor is in lib/ca.crt, not in the runtime default store). The PEM is
+    // inlined from lib/ca.crt (see lib/caCert.ts) so the trust anchor is
+    // present in every isolate unconditionally — no env var, no
+    // file-tracing dependency.
+    // NOTE (Node semantics, verified experimentally): `ca` REPLACES the
+    // default trust store for this connection — it is not additive. The
+    // bundle must therefore contain the pooler's anchor on its own. If
+    // Supabase ever rotates to a CA outside this bundle, regenerate with
+    // scripts/dump-ca-cert.mjs. Other outbound HTTPS (bot API, PS99) uses
+    // fetch/undici and is unaffected by this option.
+    ssl:
+      process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: true, ca: DB_CA_PEM }
+        : undefined,
   }
 
   const pool = new Pool(config)
@@ -89,15 +107,7 @@ function getPool() {
   // isolates' connections idle out (a few seconds).
   const MAX_ATTEMPTS = 3
   const RETRY_BACKOFF_MS = [400, 1500]
-  // Jitter (up to +300 ms / +500 ms): during a pooler-saturation burst every
-  // isolate fails at the SAME instant — and with fixed backoffs every isolate
-  // retried at the SAME instant too, restamping the pooler twice (visible in
-  // the 13:19/13:20 UTC log waves). Randomizing the wait spreads the retry
-  // herd so the pooler actually gets a moment to recover.
-  const RETRY_JITTER_MS = [300, 500]
-  const retryBackoffMs = (attempt: number) =>
-    (RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]) +
-    Math.floor(Math.random() * (RETRY_JITTER_MS[attempt - 1] ?? RETRY_JITTER_MS[RETRY_JITTER_MS.length - 1]))
+  const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
     const attempt = async (n: number): Promise<unknown> => {
