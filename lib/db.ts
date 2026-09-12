@@ -84,13 +84,12 @@ function getPool() {
     // (port 6543 / pooler host). Session mode’s ~15 client cap will
     // otherwise time out every extra isolate.
     max: 1,
-    // Keep a warm client longer so back-to-back requests (login + navbar,
-    // per-minute app-status polls) reuse the live TLS session instead of
-    // paying a fresh cold connect each time. 30s is safe on TRANSACTION
-    // pooling (6543): an idle client holds a supavisor client slot but no
-    // postgres backend, so the old 10s (tuned for session mode’s ~15 client
-    // cap) only caused reconnect churn.
-    idleTimeoutMillis: 30_000,
+    // Keep a warm client for 5 minutes: app-status polls arrive every ~60s,
+    // so anything shorter disconnects between polls and every poll pays a
+    // fresh (lottery-prone) connect. Safe on TRANSACTION pooling (6543): an
+    // idle client holds a supavisor client slot (cap 200) but no postgres
+    // backend, and our concurrent warm-isolate count is single-digit.
+    idleTimeoutMillis: 300_000,
     // Cold isolates regularly need >5s for the FIRST pooler connect — a fresh
     // isolate’s first DNS lookup of the pooler’s CNAME→ELB chain can take
     // seconds (prod 2026-09-12: attempt-1 timeout warnings every minute, the
@@ -100,7 +99,12 @@ function getPool() {
     connectionTimeoutMillis: 10_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
-    allowExitOnIdle: true,
+    // Let Vercel's platform recycle isolates itself. With `true`, pg exits
+    // the isolate as soon as the pool goes idle — but the next 60s poll
+    // then cold-boots a fresh isolate that must win the cold-connect lottery
+    // again (see connectionTimeoutMillis note). Staying resident is free on
+    // Fluid compute (billed on CPU, not wall-clock).
+    allowExitOnIdle: false,
     // TLS (prod 2026-09-12 root cause #2): the pooler chain is
     //   *.pooler.supabase.com ← Supabase Intermediate 2021 CA ← Supabase
     //   Root 2021 CA — anchored at Supabase's OWN private root, which is in
@@ -150,11 +154,14 @@ function getPool() {
   // connection on the first use of an isolate — or reject it outright with
   // EMAXCONNSESSION when the 15-client session pool is full. Retry transient
   // errors with backoff before surfacing: this is what keeps "Failed to
-  // verify authentication" 500s from spooking pages/assistant. The backoff
-  // stretches past ~2.5s total because pool slots free only as other
-  // isolates' connections idle out (a few seconds).
+  // verify authentication" 500s from spooking pages/assistant.
+  // Backoff gaps are deliberately wide (prod 2026-09-12): cold-connect
+  // failures on Vercel come in correlated bursts lasting ~20-30s — retries
+  // 400ms/1.5s later land inside the same burst and die too. 1s/3s pushes
+  // the third attempt past the burst. Worst case ≈ 34s (3 × 10s timeout +
+  // backoff), inside the observed function budget (32.6s response logged).
   const MAX_ATTEMPTS = 3
-  const RETRY_BACKOFF_MS = [400, 1500]
+  const RETRY_BACKOFF_MS = [1_000, 3_000]
   const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
