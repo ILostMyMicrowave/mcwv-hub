@@ -119,7 +119,7 @@ export default function NotificationsPage() {
         // Polling is silent - only explicit loads surface the error panel.
       }
     };
-    const interval = setInterval(() => void tick(), 10_000);
+    const interval = setInterval(() => void tick(), 30_000);
     const onVisible = () => {
       if (document.visibilityState === "visible") void tick();
     };
