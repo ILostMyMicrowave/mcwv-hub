@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
+import {
+  readLeaderboardCache,
+  writeLeaderboardCache,
+  isLeaderboardCacheFresh,
+} from "@/lib/leaderboardCache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -1492,13 +1497,26 @@ async function buildLeaderboard(): Promise<LeaderboardResponse> {
 async function getCachedLeaderboard(
   forceRefresh = false
 ): Promise<LeaderboardResponse> {
+  // L1: same-instance in-memory — skips even the DB read on 10 s polls.
   const fresh = cache && Date.now() - cacheTime < CACHE_TTL;
 
   if (!forceRefresh && fresh && cache) {
-    return {
-      ...cache,
-      data: await attachProfileStyles(cache.data),
-    };
+    return cache;
+  }
+
+  // L2: shared DB cache — survives Vercel scale-to-zero, so a cold instance
+  // serves the last built board from one JSONB read instead of paying a full
+  // PS99 rebuild. Styles are baked into the cached payload (up to CACHE_TTL
+  // stale, same as the points data).
+  if (!forceRefresh) {
+    const dbCached = await readLeaderboardCache();
+    if (dbCached && isLeaderboardCacheFresh(dbCached.ageMs)) {
+      const payload = dbCached.payload as LeaderboardResponse;
+      cache = payload;
+      // Preserve original creation time so L1 respects the same 3-min TTL.
+      cacheTime = Date.now() - dbCached.ageMs;
+      return payload;
+    }
   }
 
   if (inFlight) {
@@ -1506,10 +1524,15 @@ async function getCachedLeaderboard(
   }
 
   inFlight = buildLeaderboard()
-    .then((payload) => {
-      cache = payload;
+    .then(async (payload) => {
+      const styled: LeaderboardResponse = {
+        ...payload,
+        data: await attachProfileStyles(payload.data),
+      };
+      cache = styled;
       cacheTime = Date.now();
-      return payload;
+      await writeLeaderboardCache(styled);
+      return styled;
     })
     .finally(() => {
       inFlight = null;
