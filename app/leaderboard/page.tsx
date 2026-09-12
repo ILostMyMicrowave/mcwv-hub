@@ -1963,10 +1963,10 @@ export default function LeaderboardPage() {
     const interval = setInterval(() => {
       // Historical wars (like the old Gummy battle) are frozen snapshots.
       // Also freeze polling while a player profile modal is open so its graph
-      // does not jitter/refetch every 10 seconds.
+      // does not jitter/refetch every 30 seconds.
       if (selectedBattleIdRef.current || selectedEntryOpenRef.current) return;
       void load();
-    }, 10000);
+    }, 30_000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
