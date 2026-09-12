@@ -1,0 +1,700 @@
+"use client";
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import Navbar from "@/components/Navbar";
+import type { LandingInitial } from "@/lib/landingInitial";
+import AnimatedBackground from "@/components/AnimatedBackground";
+import Podium from "@/components/Podium";
+import HallOfFamePreview from "@/components/HallOfFamePreview";
+import AchievementsPreview from "@/components/AchievementsPreview";
+import DiscordWidget from "@/components/DiscordWidget";
+import FlowNumber from "@/components/FlowNumber";
+import { formatCompact } from "@/lib/numbers";
+import Pressable from "@/components/Pressable";
+
+type LeaderboardEntry = {
+  user_id: number;
+  name: string;
+  points: number;
+  rank: number;
+  avatar: string | null;
+};
+
+type EventItem = {
+  id: string;
+  text: string;
+  type: "points" | "rankup" | "rankdown" | "crown" | "join";
+};
+
+type LeaderboardResponse = {
+  success: boolean;
+  active?: boolean;
+  title?: string;
+  total_points?: number;
+  updatedAt?: string;
+  data: LeaderboardEntry[];
+  error?: string;
+};
+
+type GlobalSettings = {
+  discord_link: string;
+  requirements_text: string;
+  banner_text: string;
+  banner_speed: number;
+};
+
+type PresenceState = {
+  status: string;
+  tone: "offline" | "online" | "ingame" | "studio" | "unknown" | string;
+};
+
+type RequirementBlock =
+  | { type: "heading1"; text: string }
+  | { type: "heading2"; text: string }
+  | { type: "heading3"; text: string }
+  | { type: "bullet"; text: string }
+  | { type: "quote"; text: string }
+  | { type: "paragraph"; text: string }
+  | { type: "spacer" };
+
+function toNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatNumber(n: number) {
+  return formatCompact(n);
+}
+
+function formatAgo(timestamp: string | null, nowMs: number) {
+  if (!timestamp) return "-";
+  const diff = Math.max(0, nowMs - new Date(timestamp).getTime());
+
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function parseRequirementBlocks(input: string): RequirementBlock[] {
+  const blocks: RequirementBlock[] = [];
+  const lines = input.split(/\r?\n/);
+
+  for (const raw of lines) {
+    const line = raw.trim();
+
+    if (!line) {
+      blocks.push({ type: "spacer" });
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      blocks.push({ type: "heading3", text: line.slice(4).trim() });
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      blocks.push({ type: "heading2", text: line.slice(3).trim() });
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      blocks.push({ type: "heading1", text: line.slice(2).trim() });
+      continue;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      blocks.push({ type: "bullet", text: line.slice(2).trim() });
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      blocks.push({ type: "quote", text: line.slice(2).trim() });
+      continue;
+    }
+
+    blocks.push({ type: "paragraph", text: line });
+  }
+
+  return blocks;
+}
+
+function renderInlineFormatting(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const regex = /(\*\*.+?\*\*|__.+?__|\*.+?\*)/g;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push(
+        <strong key={`b-${key++}`} className="font-semibold text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith("__") && token.endsWith("__")) {
+      nodes.push(
+        <u key={`u-${key++}`} className="decoration-yellow-300/70 underline-offset-2">
+          {token.slice(2, -2)}
+        </u>
+      );
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      nodes.push(
+        <em key={`i-${key++}`} className="italic text-white/95">
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function eventId() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // insecure context / old webview
+  }
+  return `evt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function makeIdleActivity(active: boolean): EventItem[] {
+  return [
+    {
+      id: eventId(),
+      type: "join",
+      text: active
+        ? "⏳ War is active. Waiting for the first live update..."
+        : "🕒 No active war right now. The feed will wake up when the next battle starts.",
+    },
+  ];
+}
+
+function buildSeedEvents(players: LeaderboardEntry[]): EventItem[] {
+  if (!players.length) return makeIdleActivity(false);
+
+  const items: EventItem[] = [
+    {
+      id: eventId(),
+      type: "join",
+      text: `✅ Tracking ${players.length} live players`,
+    },
+    {
+      id: eventId(),
+      type: "crown",
+      text: `👑 Current leader: ${players[0].name} with ${formatNumber(players[0].points)} points`,
+    },
+  ];
+
+  players.slice(0, 3).forEach((player) => {
+    items.push({
+      id: eventId(),
+      type: "join",
+      text: `• ${player.name} is currently ranked #${player.rank}`,
+    });
+  });
+
+  return items.slice(0, 8);
+}
+
+function generateEvents(prev: LeaderboardEntry[], next: LeaderboardEntry[]) {
+  const events: EventItem[] = [];
+  const prevMap = new Map(prev.map((entry) => [entry.user_id, entry]));
+
+  next.forEach((entry) => {
+    const old = prevMap.get(entry.user_id);
+
+    if (!old) {
+      events.push({
+        id: eventId(),
+        type: "join",
+        text: `🎉 ${entry.name} joined the live roster`,
+      });
+      return;
+    }
+
+    const diff = entry.points - old.points;
+
+    if (diff > 0) {
+      events.push({
+        id: eventId(),
+        type: "points",
+        text: `🔥 ${entry.name} +${formatNumber(diff)} points`,
+      });
+    }
+
+    if (old.rank && entry.rank < old.rank) {
+      events.push({
+        id: eventId(),
+        type: "rankup",
+        text: `📈 ${entry.name} moved to #${entry.rank}`,
+      });
+    }
+
+    if (old.rank && entry.rank > old.rank) {
+      events.push({
+        id: eventId(),
+        type: "rankdown",
+        text: `📉 ${entry.name} dropped to #${entry.rank}`,
+      });
+    }
+
+    if (entry.rank === 1 && old.rank !== 1) {
+      events.push({
+        id: eventId(),
+        type: "crown",
+        text: `👑 NEW LEADER: ${entry.name}`,
+      });
+    }
+  });
+
+  return events;
+}
+
+// Ticks its own 1 s clock so ONLY this label re-renders. Previously the page
+// kept a top-level `now` state on a 1 s interval, re-rendering every animated
+// panel, FlowNumber and feed item every second just to refresh "Last sync".
+function SyncAgo({ timestamp }: { timestamp: string | null }) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <>{formatAgo(timestamp, now)}</>;
+}
+
+// Animated wrapper - single source of truth
+function Animated({ children, delay = "0ms" }: { children: React.ReactNode; delay?: string }) {
+  return (
+    <div className="mcwv-home-enter min-w-0" style={{ animationDelay: delay }}>
+      {children}
+    </div>
+  );
+}
+
+// Panel component
+function Panel({
+  title,
+  children,
+  action,
+  delay = "0ms",
+}: { title: string; children: React.ReactNode; action?: React.ReactNode; delay?: string }) {
+  return (
+    <Animated delay={delay}>
+      <section className="rounded-3xl border p-4 sm:p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">{title}</h2>
+          {action}
+        </div>
+        {children}
+      </section>
+    </Animated>
+  );
+}
+
+// StatCard component
+function StatCard({
+  label,
+  value,
+  sub,
+  animate = false,
+  numericValue,
+  delay = "0ms",
+  accent,
+}: { label: string; value: string | number; sub?: React.ReactNode; animate?: boolean; numericValue?: number; delay?: string; accent?: string }) {
+  return (
+    <Animated delay={delay}>
+      <div className="shine-sweep glow-spin relative overflow-hidden rounded-3xl border p-5 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)]" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+        <div className="absolute inset-x-0 top-0 h-1" style={{ background: accent ?? "var(--primary)" }} />
+        <p className="text-xs uppercase tracking-[0.25em] text-zinc-400">{label}</p>
+        <p className="mt-3 text-3xl font-bold text-white">
+          {animate && numericValue !== undefined ? (
+            <FlowNumber value={numericValue} />
+          ) : value}
+        </p>
+        {sub && <p className="mt-2 text-sm text-zinc-400">{sub}</p>}
+      </div>
+    </Animated>
+  );
+}
+
+function CurrentStatusPill({ presence }: { presence: PresenceState }) {
+  const tone = presence.tone;
+  const colors =
+    tone === "ingame"
+      ? { bg: "rgba(52,211,153,0.13)", border: "rgba(52,211,153,0.30)", dot: "#34d399", text: "#bbf7d0" }
+      : tone === "online"
+      ? { bg: "rgba(96,165,250,0.13)", border: "rgba(96,165,250,0.30)", dot: "#60a5fa", text: "#bfdbfe" }
+      : tone === "studio"
+      ? { bg: "rgba(168,85,247,0.13)", border: "rgba(168,85,247,0.30)", dot: "#a855f7", text: "#ddd6fe" }
+      : tone === "offline"
+      ? { bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.24)", dot: "#94a3b8", text: "#e2e8f0" }
+      : { bg: "rgba(250,204,21,0.10)", border: "rgba(250,204,21,0.24)", dot: "#facc15", text: "#fef3c7" };
+
+  return (
+    <div
+      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] shadow-lg backdrop-blur"
+      style={{
+        background: colors.bg,
+        border: `1px solid ${colors.border}`,
+        color: colors.text,
+        boxShadow: `0 0 24px ${colors.border}`,
+      }}
+    >
+      <span className="live-dot h-2.5 w-2.5 animate-pulse rounded-full" style={{ background: colors.dot }} />
+      My Status: {presence.status}
+    </div>
+  );
+}
+
+function InfoPanel({ title, children, action, delay = "0ms" }: { title: string; children: React.ReactNode; action?: React.ReactNode; delay?: string }) {
+  return (
+    <Animated delay={delay}>
+      <section className="min-w-0 overflow-hidden rounded-3xl border p-4 backdrop-blur sm:p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold text-white">{title}</h2>
+          {action}
+        </div>
+        {children}
+      </section>
+    </Animated>
+  );
+}
+
+function feedAccent(type: EventItem["type"]) {
+  switch (type) {
+    case "crown": return { border: "rgba(250, 204, 21, 0.35)", dot: "bg-yellow-300" };
+    case "rankup": return { border: "rgba(96, 165, 250, 0.35)", dot: "bg-sky-300" };
+    case "rankdown": return { border: "rgba(251, 146, 60, 0.35)", dot: "bg-orange-300" };
+    case "join": return { border: "rgba(52, 211, 153, 0.30)", dot: "bg-emerald-300" };
+    default: return { border: "rgba(52, 211, 153, 0.30)", dot: "bg-emerald-300" };
+  }
+}
+
+function RequirementRenderer({ text }: { text: string }) {
+  const blocks = useMemo(() => parseRequirementBlocks(text), [text]);
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        const delay = `${Math.min(index * 0.05, 0.3)}s`;
+        if (block.type === "spacer") {
+          return <div key={index} className="h-1 animate-fade-in" style={{ animationDelay: delay }} />;
+        }
+        if (block.type === "heading1") {
+          return <Animated key={index} delay={delay}><h3 className="text-xl font-bold text-white">{renderInlineFormatting(block.text)}</h3></Animated>;
+        }
+        if (block.type === "heading2") {
+          return <Animated key={index} delay={delay}><h4 className="text-base font-semibold text-zinc-100">{renderInlineFormatting(block.text)}</h4></Animated>;
+        }
+        if (block.type === "heading3") {
+          return <Animated key={index} delay={delay}><p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">{renderInlineFormatting(block.text)}</p></Animated>;
+        }
+        if (block.type === "bullet") {
+          return <Animated key={index} delay={delay}><div className="flex items-start gap-3 text-sm text-zinc-300"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--primary)" }} /><span>{renderInlineFormatting(block.text)}</span></div></Animated>;
+        }
+        if (block.type === "quote") {
+          return <Animated key={index} delay={delay}><div className="rounded-2xl border-l-4 px-4 py-3 text-sm text-zinc-300" style={{ borderColor: "var(--primary)", background: "rgba(255,255,255,0.03)" }}>{renderInlineFormatting(block.text)}</div></Animated>;
+        }
+        return <Animated key={index} delay={delay}><p className="text-sm text-zinc-300">{renderInlineFormatting(block.text)}</p></Animated>;
+      })}
+    </div>
+  );
+}
+
+/**
+ * `initial` is the server-rendered snapshot (see lib/landingInitial.ts).
+ * When present, the stat cards / podium / banner / my-status pill paint with
+ * real values in the first HTML frame; the polling effects below still run
+ * and keep everything live. When a slice is null the client falls back to
+ * its normal fetch for that slice (identical to the pre-SSR behavior).
+ */
+export default function LandingClient({ initial }: { initial: LandingInitial | null }) {
+  const ssrPlayers = (initial?.leaderboard?.players ?? []) as LeaderboardEntry[];
+
+  const [players, setPlayers] = useState<LeaderboardEntry[]>(ssrPlayers);
+  const [activity, setActivity] = useState<EventItem[]>([]);
+  const [active, setActive] = useState(initial?.leaderboard?.active ?? false);
+  const [totalPoints, setTotalPoints] = useState(initial?.leaderboard?.totalPoints ?? 0);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
+    initial?.leaderboard?.updatedAt ?? null
+  );
+  // Consecutive failed leaderboard polls — drives the "retrying" hints (UX-2)
+  // and the backoff cadence (PERF-1). Resets on the first success.
+  const [consecFailures, setConsecFailures] = useState(0);
+  const [global, setGlobal] = useState<GlobalSettings>(
+    initial?.settings ?? {
+      discord_link: "",
+      requirements_text: "",
+      banner_text: "Recruiting now!! Join the Discord and help push us to the top.",
+      banner_speed: 18,
+    }
+  );
+  const [presence, setPresence] = useState<PresenceState>(
+    initial?.presence ?? { status: "Loading", tone: "unknown" }
+  );
+
+  const prevRef = useRef<LeaderboardEntry[]>([]);
+
+  useEffect(() => {
+    async function loadGlobal() {
+      try {
+        const res = await fetch("/api/settings/global", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setGlobal({ discord_link: data.discord_link ?? "", requirements_text: data.requirements_text ?? "", banner_text: data.banner_text ?? "", banner_speed: data.banner_speed ?? 18 });
+      } catch { /* keep defaults */ }
+    }
+    loadGlobal();
+  }, []);
+
+  useEffect(() => {
+    async function loadPresence() {
+      try {
+        const res = await fetch("/api/presence/me", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        setPresence({
+          status: String(data.status ?? "Unknown"),
+          tone: String(data.tone ?? "unknown"),
+        });
+      } catch {
+        setPresence({ status: "Unknown", tone: "unknown" });
+      }
+    }
+
+    void loadPresence();
+    const interval = window.setInterval(() => {
+      // Skip the external Roblox call while the tab is hidden (PERF-1).
+      if (typeof document !== "undefined" && document.hidden) return;
+      void loadPresence();
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const bannerText = global.banner_text;
+  const bannerSpeed = Math.min(40, Math.max(8, toNumber(global.banner_speed) || 18));
+  const discordLink = global.discord_link;
+  const requirementsText = global.requirements_text;
+
+  const hasDiscordLink = useMemo(() => /^https?:\/\//i.test(discordLink.trim()), [discordLink]);
+  const discordHref = hasDiscordLink ? discordLink.trim() : "/settings";
+  const livePlayers = players.length;
+  const statusLabel = active ? "LIVE" : "IDLE";
+  const trackingLabel = active ? "ACTIVE" : "PAUSED";
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    // Returns true on a good fetch, false otherwise (non-2xx or exception).
+    // Failure no longer disappears silently (UX-2) and the cadence backs off
+    // so a flapping upstream isn't hammered by every open tab (PERF-1/UX-6).
+    async function load(): Promise<boolean> {
+      try {
+        const res = await fetch("/api/leaderboard", { cache: "no-store" });
+        if (!res.ok) return false;
+        const data: LeaderboardResponse = await res.json();
+        const next: LeaderboardEntry[] = Array.isArray(data.data) ? data.data : [];
+        const isFirstLoad = prevRef.current.length === 0;
+
+        setActive(Boolean(data.active));
+        setPlayers(next);
+        setTotalPoints(toNumber(data.total_points ?? next.reduce((sum, entry) => sum + entry.points, 0)));
+        setLastSyncedAt(data.updatedAt ?? new Date().toISOString());
+
+        if (!next.length) {
+          prevRef.current = [];
+          setActivity(prev => prev.length ? prev : makeIdleActivity(Boolean(data.active)));
+          return true;
+        }
+
+        const events = isFirstLoad ? buildSeedEvents(next) : generateEvents(prevRef.current, next);
+        prevRef.current = next;
+        if (events.length) setActivity(prev => [...events, ...prev].slice(0, 20));
+        else if (isFirstLoad) setActivity(buildSeedEvents(next));
+        return true;
+      } catch {
+        return false; // keep last known state, report failure
+      }
+    }
+
+    let failures = 0;
+
+    function scheduleNext() {
+      // 30 s normally (was 10 s — Vercel free-tier Fluid CPU budget); on
+      // consecutive failures jump straight to the 60 s cap.
+      const delay = failures === 0 ? 30_000 : 60_000;
+      timer = setTimeout(tick, delay);
+    }
+
+    async function tick() {
+      if (disposed) return;
+      // Hidden tab: don't spend a fetch; re-check soon and again when it's
+      // visible. (document is always defined in this client component's
+      // effect, but guard for safety.)
+      const hidden = typeof document !== "undefined" && document.hidden;
+      if (!hidden) {
+        const ok = await load();
+        if (disposed) return;
+        failures = ok ? 0 : failures + 1;
+        setConsecFailures(failures);
+      }
+      scheduleNext();
+    }
+
+    // Wake up immediately when the tab returns to the foreground.
+    const onVisible = () => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+      if (disposed) return;
+      if (timer) clearTimeout(timer);
+      void tick();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    void tick();
+
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  const pillStyle = { background: "color-mix(in srgb, var(--primary) 12%, transparent)", border: "1px solid color-mix(in srgb, var(--primary) 28%, transparent)", color: "var(--primary)" } as const;
+
+  return (
+    <main className="relative isolate min-h-screen overflow-hidden bg-theme text-theme" style={{ background: "var(--background)", color: "var(--foreground)" }}>
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden"><AnimatedBackground /></div>
+      <div className="relative z-10">
+        <Navbar initialUser={initial?.user ?? null} />
+        {bannerText.trim() !== "" && (
+          <section className="mx-auto max-w-6xl px-4 pt-4 sm:px-6 lg:px-10">
+            <div className="mcwv-home-enter overflow-hidden rounded-2xl border" style={{ background: "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.07), rgba(255,255,255,0.03))", borderColor: "var(--border)" }}>
+              <div className="flex w-max items-center whitespace-nowrap py-2 text-xs font-semibold uppercase tracking-[0.25em]" style={{ color: "var(--primary)", animation: `mcwv-marquee ${bannerSpeed}s linear infinite` }}>
+                <div className="flex shrink-0 items-center gap-8 pr-8"><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span></div>
+                <div className="flex shrink-0 items-center gap-8 pr-8"><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span><span className="opacity-70">•</span><span>{bannerText}</span></div>
+              </div>
+            </div>
+          </section>
+        )}
+        <section className="mx-auto grid min-w-0 max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)] lg:px-10 lg:py-10">
+          <div className="min-w-0 space-y-6">
+            <Animated delay="0.05s">
+              <div className="rounded-3xl border p-6 backdrop-blur sm:p-8" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))", borderColor: "var(--border)" }}>
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--primary)" }} />{active ? "Tracking active" : "Waiting for the next battle"}</div>
+                <Animated delay="0.1s">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <h1 className="shimmer-text max-w-3xl text-5xl font-bold tracking-tight sm:text-6xl">MCWV Hub</h1>
+                    <div className="lg:pr-6">
+                      <CurrentStatusPill presence={presence} />
+                    </div>
+                  </div>
+                </Animated>
+                <Animated delay="0.15s"><p className="mt-4 max-w-2xl text-base text-zinc-300 sm:text-lg">Live war board, clan points, and who&apos;s in game.</p></Animated>
+                <Animated delay="0.2s"><div className="mt-6 flex flex-wrap gap-3">
+                  <Pressable href="/leaderboard" className="rounded-2xl px-6 py-3 text-sm font-semibold" style={{ background: "var(--primary)", color: "#000" }}>View Leaderboard</Pressable>
+                  <Pressable href="/contributions" className="rounded-2xl px-6 py-3 text-sm font-semibold" style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--foreground)" }}>Open Contributions</Pressable>
+                </div></Animated>
+              </div>
+            </Animated>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard label="Live Players" value={formatNumber(livePlayers)} sub="Full current battle roster" accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(34,197,94,0.55))" animate numericValue={livePlayers} delay="0.1s" />
+              <StatCard label="System Status" value={statusLabel} sub={active ? "Connected to live battle data" : "Waiting for battle start"} accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(16,185,129,0.45))" delay="0.15s" />
+              <StatCard
+                label="Tracking"
+                value={trackingLabel}
+                sub={
+                  consecFailures > 0
+                    ? "Retrying — live data unreachable"
+                    : active
+                    ? "Updating every 10 seconds"
+                    : "Paused until war goes live"
+                }
+                accent="linear-gradient(90deg, rgba(52,211,153,0.95), rgba(16,185,129,0.45))"
+                delay="0.2s"
+              />
+              <StatCard
+                label="Total Points"
+                value={formatNumber(totalPoints)}
+                sub={
+                  <>
+                    Last sync <SyncAgo timestamp={lastSyncedAt} />
+                  </>
+                }
+                accent="linear-gradient(90deg, rgba(250,204,21,0.95), rgba(251,146,60,0.55))"
+                animate
+                numericValue={totalPoints}
+                delay="0.25s"
+              />
+            </div>
+            <InfoPanel title="Live Activity Feed" action={<span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full bg-current" />LIVE</span>} delay="0.2s">
+              <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+                {activity.length === 0 ? <p className="py-6 text-sm text-zinc-400 animate-fade-in">{consecFailures > 0 ? "Live data unreachable — retrying automatically…" : "Waiting for live activity..."}</p> : activity.map((item, index) => {
+                  const accent = feedAccent(item.type);
+                  const isNew = index === 0;
+                  return (
+                    <Animated key={item.id} delay={`${Math.min(index * 0.05, 0.5)}s`}>
+                      <div className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(234,179,8,0.15)] ${isNew ? "ring-1 ring-yellow-300/30 feed-pop" : ""}`} style={{ background: index === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)", borderColor: accent.border }}>
+                        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${accent.dot}`} />
+                        <div className="flex-1 text-zinc-200">{item.text}</div>
+                      </div>
+                    </Animated>
+                  );
+                })}
+              </div>
+            </InfoPanel>
+          </div>
+          <div className="min-w-0 space-y-4">
+            <InfoPanel title="MCWV Discord" delay="0.3s">
+              <DiscordWidget />
+              {hasDiscordLink && (
+                <a href={discordHref} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-zinc-400 underline transition hover:text-zinc-200">
+                  Or open Discord in a new tab →
+                </a>
+              )}
+            </InfoPanel>
+            <InfoPanel title="Clan Requirements" delay="0.35s"><RequirementRenderer text={requirementsText} /></InfoPanel>
+          </div>
+        </section>
+        <Animated delay="0.4s"><section className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-10"><Podium players={players} /></section></Animated>
+        <Animated delay="0.45s"><section className="mx-auto grid max-w-6xl gap-6 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-2 lg:px-10"><HallOfFamePreview /><AchievementsPreview /></section></Animated>
+      </div>
+      <style jsx global>{`
+        @keyframes feedPop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        @keyframes mcwv-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .feed-pop { animation: feedPop .4s ease-out forwards; }
+        @media (prefers-reduced-motion: reduce) {
+          .feed-pop { animation: none !important; }
+        }
+      `}</style>
+    </main>
+  );
+}
