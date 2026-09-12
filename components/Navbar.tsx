@@ -45,6 +45,20 @@ export type NavbarInitialUser =
 
 const SPRING = "cubic-bezier(0.22, 1, 0.36, 1)";
 
+// Fire-and-forget: the moment an admin clicks an Admin link, start the
+// bootstrap request so the Vercel isolate + its DB pool are warm by the time
+// /admin's own load fires. A warm-isolate hit pays only the DB queries
+// (~200–500 ms) instead of a full cold start (~1–3 s). Re-arms after 30 s.
+let adminPrewarmArmed = true;
+function prewarmAdminBootstrap() {
+  if (!adminPrewarmArmed) return;
+  adminPrewarmArmed = false;
+  window.setTimeout(() => {
+    adminPrewarmArmed = true;
+  }, 30_000);
+  fetch("/api/admin/bootstrap", { cache: "no-store" }).catch(() => {});
+}
+
 // Grace before a hover-opened desktop menu closes. The menu wrapper also
 // physically bridges the button→panel gap with padding, so the grace is a
 // nicety, not a requirement.
@@ -251,7 +265,10 @@ function DesktopGroupItem({
                   href={link.href}
                   role="menuitem"
                   aria-current={activeLink ? "page" : undefined}
-                  onClick={() => onCloseNow(item.id)}
+                  onClick={() => {
+                    if (link.href.startsWith("/admin")) prewarmAdminBootstrap();
+                    onCloseNow(item.id);
+                  }}
                   onKeyDown={(event) => onMenuKeyDown(event, item.id)}
                   className="group rounded-2xl border px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-white/10 focus-visible:outline-none focus-visible:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60"
                   style={{
@@ -455,17 +472,25 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
   const openDesktopGroup = useCallback(
     (id: string) => {
       clearGroupCloseTimer();
+      const group = navGroups.find((g) => g.id === id);
+      if (group && group.type === "group" && group.links.some((l) => l.href.startsWith("/admin"))) {
+        prewarmAdminBootstrap();
+      }
       setOpenGroup(id);
     },
-    [clearGroupCloseTimer]
+    [clearGroupCloseTimer, navGroups]
   );
 
   const toggleDesktopGroup = useCallback(
     (id: string) => {
       clearGroupCloseTimer();
+      const group = navGroups.find((g) => g.id === id);
+      if (group && group.type === "group" && group.links.some((l) => l.href.startsWith("/admin"))) {
+        prewarmAdminBootstrap();
+      }
       setOpenGroup((current) => (current === id ? null : id));
     },
-    [clearGroupCloseTimer]
+    [clearGroupCloseTimer, navGroups]
   );
 
   const closeDesktopGroupSoon = useCallback(
