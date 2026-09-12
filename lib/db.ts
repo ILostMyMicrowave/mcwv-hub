@@ -16,6 +16,30 @@ declare global {
   var _mcwv_pool: Pool | undefined
 }
 
+// pg 8.22 TRAP (prod 2026-09-12 root cause #1, verified locally against the
+// exact lockfile version): ConnectionParameters builds its config with
+//   Object.assign({}, config, parse(connectionString))
+// — values parsed from the URL WIN over the explicit config object. Any
+// sslmode/ssl* query param (Supabase pooler URLs ship with ?sslmode=require)
+// is parsed into a FRESH ssl object that silently REPLACES the explicit
+// ssl option below, dropping the CA bundle and reverting to the runtime's
+// default trust store. pg-connection-string 2.14 treats sslmode=require as
+// an alias of verify-full, so the result was full verification against the
+// WRONG store → SELF_SIGNED_CERT_IN_CHAIN on every DB call. Strip the
+// TLS-shaping params here so the ssl option below is the single source of
+// truth for TLS (other params — pgbouncer, options, … — are preserved).
+const SSL_URL_PARAM = /^(sslmode|ssl|sslnegotiation|sslcert|sslkey|sslrootcert|sslpassword|sslsni)$/i
+
+function stripSslUrlParams(connectionString: string): string {
+  const q = connectionString.indexOf("?")
+  if (q === -1) return connectionString
+  const kept = [...new URLSearchParams(connectionString.slice(q + 1))].filter(
+    ([key]) => !SSL_URL_PARAM.test(key)
+  )
+  const qs = new URLSearchParams(kept).toString()
+  return qs ? `${connectionString.slice(0, q)}?${qs}` : connectionString.slice(0, q)
+}
+
 function isTransientDbError(err: unknown) {
   const code = typeof err === "object" && err && "code" in err ? String((err as { code?: unknown }).code) : ""
   const msg = err instanceof Error ? err.message : String(err)
@@ -55,7 +79,7 @@ function getPool() {
   }
 
   const config: PoolConfig = {
-    connectionString,
+    connectionString: stripSslUrlParams(connectionString),
     // Per-isolate cap. Vercel must use Supabase *transaction* pooling
     // (port 6543 / pooler host). Session mode’s ~15 client cap will
     // otherwise time out every extra isolate.
@@ -71,22 +95,28 @@ function getPool() {
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
-    // The Vercel serverless CA store predates the anchor for Supabase's
-    // pooler chain, so verification fails with SELF_SIGNED_CERT_IN_CHAIN
-    // without these roots (prod 2026-09-12: every DB call 500ed after the
-    // NODE_EXTRA_CA_CERTS env var was removed — the A/B proves the missing
-    // anchor is in lib/ca.crt, not in the runtime default store). The PEM is
-    // inlined from lib/ca.crt (see lib/caCert.ts) so the trust anchor is
-    // present in every isolate unconditionally — no env var, no
-    // file-tracing dependency.
+    // TLS (prod 2026-09-12 root cause #2): the pooler chain is
+    //   *.pooler.supabase.com ← Supabase Intermediate 2021 CA ← Supabase
+    //   Root 2021 CA — anchored at Supabase's OWN private root, which is in
+    //   NO public trust store. A Mozilla-only bundle could never verify it.
+    //   lib/ca.crt (inlined as DB_CA_PEM) now carries the Mozilla roots PLUS
+    //   the Supabase pooler root, so rejectUnauthorized:true actually
+    //   succeeds. NODE_EXTRA_CA_CERTS is no longer needed.
     // NOTE (Node semantics, verified experimentally): `ca` REPLACES the
     // default trust store for this connection — it is not additive. The
-    // bundle must therefore contain the pooler's anchor on its own. If
-    // Supabase ever rotates to a CA outside this bundle, regenerate with
+    // bundle must therefore contain every anchor on its own. If Supabase
+    // rotates the pooler CA, re-extract it and regenerate with
     // scripts/dump-ca-cert.mjs. Other outbound HTTPS (bot API, PS99) uses
     // fetch/undici and is unaffected by this option.
+    // Dev: apply the same TLS when the raw URL asked for it (its sslmode was
+    // stripped above) or PGSSLMODE is set, so local dev against the real
+    // pooler verifies against the same bundle instead of failing.
     ssl:
-      process.env.NODE_ENV === "production"
+      process.env.NODE_ENV === "production" ||
+      /[?&](sslmode|ssl|sslnegotiation|sslcert|sslkey|sslrootcert|sslpassword|sslsni)=/i.test(
+        connectionString
+      ) ||
+      process.env.PGSSLMODE
         ? { rejectUnauthorized: true, ca: DB_CA_PEM }
         : undefined,
   }
