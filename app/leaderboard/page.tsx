@@ -704,8 +704,8 @@ function RequirementRenderer({ text }: { text: string }) {
   );
 }
 
-function BackgroundLayer({ style }: { style: ProfileStyle }) {
-  if (style.backgroundUrl && style.backgroundType === "video") {
+function BackgroundLayer({ style, media = true }: { style: ProfileStyle; media?: boolean }) {
+  if (style.backgroundUrl && style.backgroundType === "video" && media) {
     return (
       <video
         className="absolute inset-0 h-full w-full object-cover opacity-35"
@@ -718,7 +718,10 @@ function BackgroundLayer({ style }: { style: ProfileStyle }) {
     );
   }
 
-  if (style.backgroundUrl) {
+  // A video URL can't be a CSS background — when media is suppressed
+  // (leaderboard rows) fall through to the preset gradient rather than
+  // rendering a broken image.
+  if (style.backgroundUrl && style.backgroundType !== "video") {
     return (
       <div
         className="absolute inset-0 bg-cover bg-center opacity-35"
@@ -792,7 +795,10 @@ function LeaderboardRow({
       className={`shine-sweep glow-spin smooth-card group relative w-full overflow-hidden rounded-3xl border p-0 text-left shadow-2xl shadow-black/20 transition-all duration-300 hover:-translate-y-0.5 ${entry.departed ? "opacity-70 saturate-50" : ""}`}
       style={{ borderColor: `${style.accentColor}55` }}
     >
-      <BackgroundLayer style={style} />
+      {/* media={false}: rows must not autoplay a looping <video> per row —
+          real battery/CPU cost on phones with a long board. The full card
+          (profile modal) still plays the video where the user is looking. */}
+      <BackgroundLayer style={style} media={false} />
       <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px] transition group-hover:bg-black/45" />
       <div className="absolute inset-x-0 bottom-0 h-px" style={{ background: style.accentColor }} />
 
@@ -878,12 +884,18 @@ function MiniLineChart({
   points,
   accentColor,
   emptyLabel = "Not enough data yet",
+  higherIsBetter = true,
 }: {
   points: PlayerHistoryPoint[];
   accentColor: string;
   emptyLabel?: string;
+  /** Points: higher is better. Rank: LOWER is better — the Δ tile must not
+   * paint a #1 → #4 slide as a green "+3". */
+  higherIsBetter?: boolean;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   if (points.length < 1) {
     return (
@@ -908,22 +920,45 @@ function MiniLineChart({
   const max = Math.max(...values);
   const range = max - min || 1;
 
+  // Time-based x-axis: an index-based axis made every gap look equal, which
+  // lied about pacing when the collector paused (e.g. 429 backoff). Now a
+  // 2-hour gap actually spans 2 hours of the chart.
+  const times = chartSeries.map((point) => new Date(point.time).getTime());
+  const t0 = times[0];
+  const t1 = times[times.length - 1];
+  const timeSpan = Math.max(1, t1 - t0);
+
   const coords = chartSeries.map((point, index) => {
-    const x = padding + (index / Math.max(chartSeries.length - 1, 1)) * (width - padding * 2);
+    const x = padding + ((times[index] - t0) / timeSpan) * (width - padding * 2);
     const y = height - padding - ((point.value - min) / range) * (height - padding * 2);
     return `${x},${y}`;
   });
 
   const firstVal = values[0];
   const lastVal = values[values.length - 1];
+  const deltaValue = higherIsBetter ? lastVal - firstVal : firstVal - lastVal;
+  const improved = deltaValue > 0;
+  const worsened = deltaValue < 0;
 
-  // Map a pointer x-position (relative to the SVG element) to the nearest index.
-  function handlePointer(event: React.MouseEvent<SVGSVGElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!rect.width) return;
-    const px = event.clientX - rect.left;
-    const ratio = Math.max(0, Math.min(1, px / rect.width));
-    const targetX = padding + ratio * (width - padding * 2);
+  // Map a pointer position to the nearest data point AND anchor the tooltip
+  // in the wrapper's pixel space. The browser letterboxes the viewBox
+  // (preserveAspectRatio="meet"), so on phones the drawn content is a
+  // centered sub-rectangle of the SVG element — we invert the same transform
+  // the browser uses, which keeps the hover lookup and tooltip pixel-accurate
+  // at any screen size. Pointer events (not mouse events) so touch drags work.
+  function handlePointer(event: React.PointerEvent<SVGSVGElement>) {
+    const wrap = wrapRef.current;
+    const svg = event.currentTarget;
+    if (!wrap) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    if (!svgRect.width || !svgRect.height) return;
+
+    const scale = Math.min(svgRect.width / width, svgRect.height / height);
+    const offsetX = (svgRect.width - width * scale) / 2;
+    const offsetY = (svgRect.height - height * scale) / 2;
+    const targetX = (event.clientX - svgRect.left - offsetX) / scale;
+
     let nearest = 0;
     let best = Infinity;
     coords.forEach((coord, i) => {
@@ -935,18 +970,30 @@ function MiniLineChart({
       }
     });
     setHoverIndex(nearest);
+
+    const [px, py] = coords[nearest].split(",").map(Number);
+    setTooltip({
+      x: svgRect.left - wrapRect.left + offsetX + px * scale,
+      y: svgRect.top - wrapRect.top + offsetY + py * scale,
+    });
+  }
+
+  function clearPointer() {
+    setHoverIndex(null);
+    setTooltip(null);
   }
 
   const hoverPoint = hoverIndex !== null ? chartSeries[hoverIndex] : null;
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/35 p-3 sm:p-4">
-      <div className="relative">
+      <div ref={wrapRef} className="relative">
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          className="h-52 w-full overflow-visible sm:h-60"
-          onMouseMove={handlePointer}
-          onMouseLeave={() => setHoverIndex(null)}
+          className="h-40 w-full overflow-visible sm:h-60"
+          style={{ touchAction: "pan-y" }}
+          onPointerMove={handlePointer}
+          onPointerLeave={clearPointer}
         >
           <defs>
             <linearGradient id="playerChartFill" x1="0" x2="0" y1="0" y2="1">
@@ -1029,13 +1076,14 @@ function MiniLineChart({
           ) : null}
         </svg>
 
-        {/* Tooltip */}
-        {hoverIndex !== null && hoverPoint && (
+        {/* Tooltip — anchored in wrapper pixels (see handlePointer), so it
+            tracks the point exactly even when the SVG is letterboxed. */}
+        {hoverIndex !== null && hoverPoint && tooltip && (
           <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-xl border px-3 py-2 text-center shadow-xl"
+            className="pointer-events-none absolute z-10 rounded-xl border px-3 py-2 text-center shadow-xl"
             style={{
-              left: `${(Number(coords[hoverIndex].split(",")[0]) / width) * 100}%`,
-              top: `${(Number(coords[hoverIndex].split(",")[1]) / height) * 100}%`,
+              left: tooltip.x,
+              top: tooltip.y,
               transform: "translate(-50%, -130%)",
               borderColor: `${accentColor}66`,
               background: "rgba(10,10,14,0.95)",
@@ -1066,10 +1114,10 @@ function MiniLineChart({
         <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">
           <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Δ</div>
           <div
-            className={`mt-0.5 truncate text-sm font-bold ${lastVal >= firstVal ? "text-emerald-300" : "text-red-300"}`}
+            className={`mt-0.5 truncate text-sm font-bold ${improved ? "text-emerald-300" : worsened ? "text-red-300" : "text-zinc-300"}`}
           >
-            {lastVal >= firstVal ? "+" : ""}
-            {formatNumber(lastVal - firstVal)}
+            {improved ? "+" : ""}
+            {formatNumber(deltaValue)}
           </div>
         </div>
       </div>
@@ -1240,6 +1288,31 @@ function PlayerMiniProfile({
     };
   }, [entry?.user_id, battleId]);
 
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  // Stable identity for the close handler: the parent re-renders on its 1 s
+  // clock tick, and this effect must NOT re-run (refocus/relock) each second.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Modal chrome: Escape closes, the page behind stops scrolling, and focus
+  // moves into the dialog (close button) instead of staying on the row.
+  useEffect(() => {
+    if (!entry) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCloseRef.current();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeBtnRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [entry]);
+
   if (!entry) return null;
   const style = getStyle(entry);
   const officerTools = canManageCards(currentUser);
@@ -1256,20 +1329,31 @@ function PlayerMiniProfile({
     <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:px-4 sm:py-6">
       <button className="modal-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Close profile" />
       <div
-        className="modal-panel animate-scale-in relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border shadow-2xl sm:max-h-[90vh] sm:rounded-3xl sm:max-w-5xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${entry.name} profile`}
+        className="modal-panel relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border shadow-2xl sm:max-h-[90vh] sm:rounded-3xl sm:max-w-5xl"
         style={{ borderColor: `${style.accentColor}66`, background: "var(--background)" }}
       >
         <BackgroundLayer style={style} />
         <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" />
-        <div className="relative overflow-y-auto p-5 pb-8 sm:p-8">
-          {/* Close button pinned top-right, always reachable on mobile */}
-          <button
-            className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/60 text-lg text-white shadow-lg transition hover:bg-black/80 hover:text-zinc-200"
-            onClick={onClose}
-            aria-label="Close profile"
-          >
-            ✕
-          </button>
+        {/* Close button lives on the PANEL, not the scroll container — inside
+            the scroller it scrolled away with the content, leaving only the
+            backdrop tap as a way out. */}
+        <button
+          ref={closeBtnRef}
+          className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/60 text-lg text-white shadow-lg transition hover:bg-black/80 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          onClick={onClose}
+          aria-label="Close profile"
+        >
+          ✕
+        </button>
+        {/* Bottom-sheet drag affordance (mobile only) */}
+        <div aria-hidden className="pointer-events-none absolute left-1/2 top-2 z-20 h-1 w-10 -translate-x-1/2 rounded-full bg-white/25 sm:hidden" />
+        <div
+          className="relative overflow-y-auto overscroll-contain p-5 sm:p-8"
+          style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom))" }}
+        >
 
           <div className="flex w-full flex-col items-center justify-center gap-4 text-center sm:flex-row sm:items-center sm:gap-5 sm:text-center">
             <AvatarWithFrame entry={entry} size="lg" />
@@ -1336,7 +1420,9 @@ function PlayerMiniProfile({
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">Player History</h3>
                 <span className="text-xs text-zinc-500">
-                  {historicalProfile ? "Frozen to the selected historical war" : "Points • Rank • Disconnects"}
+                  {historicalProfile
+                    ? "Frozen to the selected historical war · disconnects not captured"
+                    : "Points • Rank • Disconnects"}
                 </span>
               </div>
               <div className="flex w-full gap-1.5 rounded-full border border-white/10 bg-black/30 p-1 sm:w-auto">
@@ -1346,12 +1432,19 @@ function PlayerMiniProfile({
                   { id: "disconnects", label: "Disconnects", icon: "⚠️" },
                 ] as const).map((tab) => {
                   const active = historyTab === tab.id;
+                  // Frozen wars have no disconnect capture — the tab must not
+                  // promise data that can only ever come back empty.
+                  const disabled = historicalProfile && tab.id === "disconnects";
                   return (
                     <button
                       key={tab.id}
-                      className="relative flex-1 rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors sm:flex-none sm:px-3 sm:py-1"
+                      disabled={disabled}
+                      title={disabled ? "Disconnect history is not captured for frozen wars" : undefined}
+                      className={`relative flex-1 rounded-full px-3 py-2.5 text-xs font-semibold capitalize transition-colors sm:flex-none sm:px-3 sm:py-1 ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
                       style={{ color: active ? "#000" : "rgb(212 212 216)" }}
-                      onClick={() => setHistoryTab(tab.id)}
+                      onClick={() => {
+                        if (!disabled) setHistoryTab(tab.id);
+                      }}
                     >
                       {active && (
                         <motion.span
@@ -1381,6 +1474,7 @@ function PlayerMiniProfile({
                 points={chartPoints}
                 accentColor={style.accentColor}
                 emptyLabel={historicalProfile ? "No saved graph snapshots for this old war" : "Not enough data yet"}
+                higherIsBetter={historyTab !== "rank"}
               />
             )}
           </div>
