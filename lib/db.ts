@@ -64,9 +64,9 @@ function getPool() {
     // their session-pooler slot quickly (10s, not 30s) so a burst of
     // isolates recovers from EMAXCONNSESSION fast.
     idleTimeoutMillis: 10_000,
-    // Fail a hung connection fast (5s, not 20s) so the retry budget below
-    // can actually be used inside Vercel’s function timeout.
-    connectionTimeoutMillis: 5_000,
+    // Fail a hung connection fast (2.5 s, not 20 s) so the retry budget
+    // below can actually be used inside Vercel's 10 s function timeout.
+    connectionTimeoutMillis: 2_500,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
     allowExitOnIdle: true,
@@ -89,7 +89,15 @@ function getPool() {
   // isolates' connections idle out (a few seconds).
   const MAX_ATTEMPTS = 3
   const RETRY_BACKOFF_MS = [400, 1500]
-  const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
+  // Jitter (up to +300 ms / +500 ms): during a pooler-saturation burst every
+  // isolate fails at the SAME instant — and with fixed backoffs every isolate
+  // retried at the SAME instant too, restamping the pooler twice (visible in
+  // the 13:19/13:20 UTC log waves). Randomizing the wait spreads the retry
+  // herd so the pooler actually gets a moment to recover.
+  const RETRY_JITTER_MS = [300, 500]
+  const retryBackoffMs = (attempt: number) =>
+    (RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]) +
+    Math.floor(Math.random() * (RETRY_JITTER_MS[attempt - 1] ?? RETRY_JITTER_MS[RETRY_JITTER_MS.length - 1]))
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
     const attempt = async (n: number): Promise<unknown> => {
