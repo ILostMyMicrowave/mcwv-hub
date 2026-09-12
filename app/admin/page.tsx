@@ -982,16 +982,64 @@ export default function AdminPage() {
   const loadAdminData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, playersRes, giveawaysRes, invitesRes, ticketsRes, logsRes, channelsRes, rolesRes] = await Promise.all([
-        fetch("/api/admin/status", { cache: "no-store" }),
-        fetch("/api/admin/players", { cache: "no-store" }),
-        fetch("/api/admin/giveaways", { cache: "no-store" }),
-        fetch("/api/admin/invites", { cache: "no-store" }),
-        fetch("/api/admin/tickets", { cache: "no-store" }),
-        fetch("/api/admin/logs", { cache: "no-store" }),
-        fetch("/api/admin/channels", { cache: "no-store" }),
-        fetch("/api/admin/roles", { cache: "no-store" }),
-      ]);
+      // Fast path: ONE /api/admin/bootstrap call instead of 8 parallel fetches
+      // at 8 separate Vercel functions. On the free tier each of those is its
+      // own cold function (+ its own cold DB pooler connection), so the panel
+      // used to wait on the slowest of 8 isolates (~4–10 s). Bootstrap runs all
+      // 8 sources in one isolate in parallel (~1–3 s). Falls back to the old
+      // 8-fetch path if bootstrap 404s (not deployed yet) or errors.
+      type ResLike = { ok: boolean; json: () => Promise<unknown> };
+      const emptySource: ResLike = { ok: false, json: async () => ({}) };
+      let statusRes: ResLike | Response = emptySource;
+      let playersRes: ResLike | Response = emptySource;
+      let giveawaysRes: ResLike | Response = emptySource;
+      let invitesRes: ResLike | Response = emptySource;
+      let ticketsRes: ResLike | Response = emptySource;
+      let logsRes: ResLike | Response = emptySource;
+      let channelsRes: ResLike | Response = emptySource;
+      let rolesRes: ResLike | Response = emptySource;
+
+      let viaBootstrap = false;
+      try {
+        const bres = await fetch("/api/admin/bootstrap", { cache: "no-store" });
+        if (bres.ok) {
+          const data = (await bres.json().catch(() => null)) as Record<string, unknown> | null;
+          if (data) {
+            const wrap = (p: unknown): ResLike => {
+              const section = p as { ok?: boolean; payload?: unknown };
+              return {
+                ok: typeof p === "object" && p !== null && section.ok === true,
+                json: async () => section.payload ?? {},
+              };
+            };
+            statusRes = wrap(data.status);
+            playersRes = wrap(data.players);
+            giveawaysRes = wrap(data.giveaways);
+            invitesRes = wrap(data.invites);
+            ticketsRes = wrap(data.tickets);
+            logsRes = wrap(data.logs);
+            channelsRes = wrap(data.channels);
+            rolesRes = wrap(data.roles);
+            viaBootstrap = true;
+          }
+        }
+      } catch {
+        // fall through to the per-section fetches below
+      }
+
+      if (!viaBootstrap) {
+        [statusRes, playersRes, giveawaysRes, invitesRes, ticketsRes, logsRes, channelsRes, rolesRes] =
+          await Promise.all([
+            fetch("/api/admin/status", { cache: "no-store" }),
+            fetch("/api/admin/players", { cache: "no-store" }),
+            fetch("/api/admin/giveaways", { cache: "no-store" }),
+            fetch("/api/admin/invites", { cache: "no-store" }),
+            fetch("/api/admin/tickets", { cache: "no-store" }),
+            fetch("/api/admin/logs", { cache: "no-store" }),
+            fetch("/api/admin/channels", { cache: "no-store" }),
+            fetch("/api/admin/roles", { cache: "no-store" }),
+          ]);
+      }
 
       if (statusRes.ok) {
         const data = (await statusRes.json()) as StatusData;
