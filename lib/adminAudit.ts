@@ -50,7 +50,11 @@ export async function ensureAdminLogsTable() {
       await pool.query(`CREATE INDEX IF NOT EXISTS admin_logs_created_at_idx ON admin_logs (created_at DESC)`)
       await pool.query(`CREATE INDEX IF NOT EXISTS admin_logs_actor_username_idx ON admin_logs (actor_username)`)
       await pool.query(`CREATE INDEX IF NOT EXISTS admin_logs_action_idx ON admin_logs (action)`)
-    })()
+    })().catch((err) => {
+      // Don't cache a failed DDL run — retry on the next call.
+      tableReady = null
+      throw err
+    })
   }
 
   return tableReady
