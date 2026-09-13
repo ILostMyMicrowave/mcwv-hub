@@ -14,6 +14,7 @@ try {
 
 declare global {
   var _mcwv_pool: Pool | undefined
+  var _mcwv_once: Map<string, Promise<void>> | undefined
 }
 
 // pg 8.22 TRAP (prod 2026-09-12 root cause #1, verified locally against the
@@ -215,6 +216,22 @@ function getPool() {
 // Separate isolates still get their own pool, which is why max must remain 1.
 export const pool = global._mcwv_pool ?? getPool()
 global._mcwv_pool = pool
+
+// One-time-per-isolate async setup (table DDL, expired-row sweeps), so routes
+// stop paying DDL round-trips on every request. Concurrent callers share one
+// run; a FAILED run is un-memoized so the next caller retries it.
+const onceMap = (global._mcwv_once ??= new Map<string, Promise<void>>())
+export function oncePerIsolate(key: string, run: () => Promise<void>): Promise<void> {
+  let pending = onceMap.get(key)
+  if (!pending) {
+    pending = run().catch((err) => {
+      onceMap.delete(key)
+      throw err
+    })
+    onceMap.set(key, pending)
+  }
+  return pending
+}
 
 export function isDbConnectTimeout(err: unknown) {
   return isTransientDbError(err)
