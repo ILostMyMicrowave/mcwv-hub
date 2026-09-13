@@ -1,4 +1,4 @@
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 
 /**
  * Instance-independent cache for the computed leaderboard payload.
@@ -14,18 +14,20 @@ import { pool } from "@/lib/db";
 const CACHE_KEY = "current";
 const TTL_MS = 180 * 1000; // 3 minutes, matches the old in-memory TTL
 
-async function ensureTable() {
-  try {
-    await pool.query(
-      `CREATE TABLE IF NOT EXISTS public.leaderboard_cache (
-         key        TEXT PRIMARY KEY,
-         payload    JSONB NOT NULL,
-         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-       )`
-    );
-  } catch (err) {
-    console.error("[leaderboard-cache] ensureTable failed:", err);
-  }
+function ensureTable(): Promise<void> {
+  return oncePerIsolate("leaderboard_cache", async () => {
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS public.leaderboard_cache (
+           key        TEXT PRIMARY KEY,
+           payload    JSONB NOT NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+         )`
+      );
+    } catch (err) {
+      console.error("[leaderboard-cache] ensureTable failed:", err);
+    }
+  });
 }
 
 export type CachedLeaderboard = {
