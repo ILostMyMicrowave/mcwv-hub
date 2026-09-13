@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { z } from "zod";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { sessionOptions, type SessionData } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,11 @@ const updateSchema = z.object({
   step: z.string().trim().max(80).optional(),
 });
 
-async function ensureOnboardingColumns() {
+function ensureOnboardingColumns(): Promise<void> {
+  return oncePerIsolate("onboarding_columns", createOnboardingColumns);
+}
+
+async function createOnboardingColumns() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_skipped BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ`);
