@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Big Games payloads are third-party and schema-unstable. */
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import type { PoolClient } from "pg";
 import { pool } from "@/lib/db";
 import { timingSafeStringEqual } from "@/lib/machineAuth";
 
@@ -339,10 +340,35 @@ async function getClanDetails(clanName: string) {
   return fetchJson<any>(`${BASE}/api/clan/${encodeURIComponent(clanName)}`);
 }
 
+// Acquiring a pooled client opens a NEW connection when this isolate's pool
+// is cold — exactly the Vercel egress lottery (cold-connect timeouts in
+// 20-90s bursts, 2026-09-12/13). pool.query is retry-protected in lib/db,
+// but raw client transactions bypass that wrapper, so retry the CONNECT
+// itself. Once a client is in hand the transaction runs on an established
+// connection, and prod evidence says established connections never drop.
+const CONNECT_RETRY_DELAYS_MS = [1_000, 3_000, 5_000, 8_000];
+
+async function connectWithRetry(): Promise<PoolClient> {
+  if (!pool) throw new Error("database pool is not initialised");
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await pool.connect();
+    } catch (err) {
+      const delay = CONNECT_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) throw err;
+      console.warn(
+        `[war-collector] pool connect attempt ${attempt + 1}/${CONNECT_RETRY_DELAYS_MS.length + 1} failed, retrying in ${delay}ms:`,
+        err instanceof Error ? err.message : err
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 async function getLastSnapshot(battleId: string, clanName: string) {
   if (!pool) return null;
 
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     const res = await client.query<{
       rank: number | null;
@@ -406,7 +432,7 @@ async function saveCollectorSnapshot(params: {
 }) {
   if (!pool) return;
 
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   const capturedAt = new Date();
 
   try {
