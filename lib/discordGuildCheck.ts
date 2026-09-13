@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 
 // Staff-only Discord OAuth snapshot (identify + guilds).
 // First check: applicant opens a 15-minute link. After that we keep the
@@ -44,7 +44,11 @@ export type GuildCheckRow = {
   expires_at: Date;
 };
 
-async function ensureGuildCheckTables() {
+function ensureGuildCheckTables(): Promise<void> {
+  return oncePerIsolate("discord_guild_check_tables", createGuildCheckTables);
+}
+
+async function createGuildCheckTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS discord_guild_checks (
       token TEXT PRIMARY KEY,
