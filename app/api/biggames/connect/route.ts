@@ -8,7 +8,7 @@ import {
   generateState,
   savePkceByDiscord,
 } from "@/lib/biggames";
-import { RateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
+import { RateLimiter, getClientIP } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +18,29 @@ export const dynamic = "force-dynamic";
 // through.
 const connectLimiter = new RateLimiter({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 10, // 10 connect attempts per 10 min per IP
+  // 2026-09-13: was 10 — households/schools share an IP and legit applicants
+  // retry through infrastructure hiccups; 30 still stops scripted spam.
+  max: 30,
 });
 const discordLimiter = new RateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 per hour per discord id
+  // 2026-09-13: was 5 — every failed OAuth round-trip burned a slot, so a
+  // flaky evening locked applicants out for the rest of the hour (429s in prod).
+  max: 20,
 });
+
+// 429s used to render as raw JSON in the applicant's browser. Send them to
+// the branded connect-success page instead, with the actual wait time.
+function connectRateLimited(result: { reset: number }) {
+  const waitMin = Math.max(1, Math.ceil((result.reset - Date.now()) / 60_000));
+  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://mcwv-hub.vercel.app";
+  const url = new URL("/connect-success", base);
+  url.searchParams.set(
+    "bg_error",
+    `Too many attempts — please wait about ${waitMin} minute${waitMin === 1 ? "" : "s"}, then click your Discord link again.`
+  );
+  return NextResponse.redirect(url);
+}
 
 // No-login connect for APPLICANTS who don't have a hub account (and shouldn't
 // create one). The bot DMs this link to someone who needs to authorise the app
@@ -42,7 +59,7 @@ export async function GET(req: Request) {
   // Per-IP rate limit (blocks spam / automated abuse).
   const ip = getClientIP(req);
   const ipLimit = connectLimiter.check(ip);
-  if (!ipLimit.success) return rateLimitResponse(ipLimit);
+  if (!ipLimit.success) return connectRateLimited(ipLimit);
 
   const url = new URL(req.url);
   const discordId = String(url.searchParams.get("discord") ?? "").trim();
@@ -52,7 +69,7 @@ export async function GET(req: Request) {
 
   // Per-discord rate limit (blocks repeat abuse against a specific ID).
   const dLimit = discordLimiter.check(`discord:${discordId}`);
-  if (!dLimit.success) return rateLimitResponse(dLimit);
+  if (!dLimit.success) return connectRateLimited(dLimit);
 
   const { verifier, challenge } = generatePkcePair();
   const state = generateState();
