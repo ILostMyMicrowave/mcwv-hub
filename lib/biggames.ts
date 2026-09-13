@@ -52,7 +52,25 @@ export function generateState() {
 // Token storage — one row per hub user, secret server-side only.
 // ---------------------------------------------------------------------------
 
-async function ensureBigGamesTables() {
+// (2026-09-13) These CREATE/ALTER statements used to run on EVERY PKCE
+// save/consume — 5 DDL round-trips (and brief exclusive locks on
+// big_games_pkce) per connect click AND per OAuth callback. Memoize per
+// isolate; a failed attempt un-memoizes so the next call retries.
+declare global {
+  var _bigGamesTablesEnsured: Promise<void> | undefined;
+}
+
+async function ensureBigGamesTables(): Promise<void> {
+  if (!global._bigGamesTablesEnsured) {
+    global._bigGamesTablesEnsured = _createBigGamesTables().catch((err) => {
+      global._bigGamesTablesEnsured = undefined;
+      throw err;
+    });
+  }
+  return global._bigGamesTablesEnsured;
+}
+
+async function _createBigGamesTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS big_games_tokens (
       user_id INTEGER PRIMARY KEY,
@@ -308,15 +326,25 @@ export async function exchangeCode(code: string, verifier: string, redirectUri: 
     code_verifier: verifier,
   });
 
-  const res = await fetch(BIG_GAMES_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basic}`,
-    },
-    body: body.toString(),
-    cache: "no-store",
-  });
+  // (2026-09-13) No timeout here meant a hung BIG Games token exchange left
+  // the applicant staring at a blank browser tab. Fail fast and friendly.
+  let res: Response;
+  try {
+    res = await fetch(BIG_GAMES_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${basic}`,
+      },
+      body: body.toString(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new Error(
+      "BIG Games didn't respond in time. Please click your Discord link again in a minute."
+    );
+  }
 
   const text = await res.text();
   let json: any = null;
@@ -327,6 +355,11 @@ export async function exchangeCode(code: string, verifier: string, redirectUri: 
   }
 
   if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(
+        "BIG Games is busy right now. Please wait a minute and click your link again."
+      );
+    }
     const msg = json?.error_description || json?.error || `HTTP ${res.status}`;
     throw new Error(`BIG Games token exchange failed: ${msg}`);
   }
