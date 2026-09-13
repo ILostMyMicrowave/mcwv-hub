@@ -53,9 +53,12 @@ export async function GET(req: Request) {
     // Optionally resolve the linked Roblox id from the account profile.
     let robloxId: string | null = null;
     try {
+      // (2026-09-13) Best-effort fetch, but it must not hang the whole
+      // callback on a slow BIG Games — timeout falls through to robloxId = null.
       const res = await fetch("https://ps99.biggamesapi.io/v1/account/profile", {
         headers: { Authorization: `Bearer ${token.accessToken}` },
         cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
       });
       const json = await res.json().catch(() => null);
       robloxId = json?.data?.robloxUserId
