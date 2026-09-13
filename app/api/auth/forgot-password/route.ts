@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import crypto from "crypto"
 import { z } from "zod"
-import { pool } from "@/lib/db"
+import { oncePerIsolate, pool } from "@/lib/db"
 import { BotAdminApiError, botAdminApiConfigured, botAdminFetch } from "@/lib/botAdminApi"
 import { forgotPasswordRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
@@ -32,7 +32,11 @@ function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex")
 }
 
-async function ensureResetTables() {
+function ensureResetTables(): Promise<void> {
+  return oncePerIsolate("password_reset_tables", createResetTables)
+}
+
+async function createResetTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id BIGSERIAL PRIMARY KEY,
@@ -63,6 +67,11 @@ async function ensureResetTables() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+
+  // Expired reset tokens / outbox rows are dead weight — sweep them once per
+  // isolate boot instead of letting the tables grow forever (best-effort).
+  await pool.query(`DELETE FROM password_reset_tokens WHERE expires_at < NOW() - INTERVAL '1 day'`).catch(() => {})
+  await pool.query(`DELETE FROM password_reset_outbox WHERE expires_at < NOW() - INTERVAL '1 day'`).catch(() => {})
 }
 
 export async function POST(req: Request) {
