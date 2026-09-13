@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { BotAdminApiError, botAdminFetch } from "@/lib/botAdminApi";
 import { signupRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
 
@@ -25,7 +25,11 @@ function makeCode() {
 // bypasses the client-side resend timer (and regardless of source IP).
 const DM_COOLDOWN_MS = 25_000;
 
-async function ensureSignupVerificationTable() {
+function ensureSignupVerificationTable(): Promise<void> {
+  return oncePerIsolate("signup_verification_tables", createSignupVerificationTable);
+}
+
+async function createSignupVerificationTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS signup_verification_codes (
       id BIGSERIAL PRIMARY KEY,
@@ -40,6 +44,9 @@ async function ensureSignupVerificationTable() {
   `);
 
   await pool.query(`CREATE INDEX IF NOT EXISTS signup_verification_user_idx ON signup_verification_codes (user_id, created_at DESC)`);
+
+  // Sweep expired verification codes once per isolate boot (best-effort).
+  await pool.query(`DELETE FROM signup_verification_codes WHERE expires_at < NOW() - INTERVAL '1 day'`).catch(() => {});
 }
 
 export async function POST(req: Request) {
