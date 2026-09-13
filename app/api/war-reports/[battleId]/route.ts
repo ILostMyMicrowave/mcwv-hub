@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { loadEndOfWarSnapshot } from "@/lib/warReportRoster";
 
@@ -343,7 +343,11 @@ async function tableExists(tableName: string) {
   return Boolean(result.rows[0]?.exists);
 }
 
-async function ensureOverridesTable() {
+function ensureOverridesTable(): Promise<void> {
+  return oncePerIsolate("war_report_member_overrides:battle", createOverridesTable);
+}
+
+async function createOverridesTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS war_report_member_overrides (
       id BIGSERIAL PRIMARY KEY,
