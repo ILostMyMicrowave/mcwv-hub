@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { isBotAdminAuthorized, unauthorizedMachineResponse } from "@/lib/machineAuth";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,11 @@ export const maxDuration = 20;
 const MAX_BYTES = 2 * 1024 * 1024;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
-async function ensureMediaTable() {
+function ensureMediaTable(): Promise<void> {
+  return oncePerIsolate("hub_media", createMediaTable);
+}
+
+async function createMediaTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS hub_media (
       id TEXT PRIMARY KEY,
