@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { validateBigGamesToken } from "@/lib/biggames";
 import {
   MemberProfile,
@@ -22,7 +22,11 @@ export const revalidate = 0;
 const CACHE_TTL = 10 * 60 * 1000; // 10 min
 const STATS_CACHE_TABLE = "profile_stats_cache";
 
-async function ensureStatsCacheTable() {
+function ensureStatsCacheTable(): Promise<void> {
+  return oncePerIsolate("profile_stats_cache", createStatsCacheTable);
+}
+
+async function createStatsCacheTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${STATS_CACHE_TABLE} (
       roblox_id TEXT PRIMARY KEY,
@@ -114,7 +118,11 @@ async function fetchMemberStats(token: string, robloxId: string) {
 // within the lookback window.
 const SNAPSHOT_TABLE = "player_gem_snapshots";
 
-async function ensureSnapshotTable() {
+function ensureSnapshotTable(): Promise<void> {
+  return oncePerIsolate("player_gem_snapshots", createSnapshotTable);
+}
+
+async function createSnapshotTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${SNAPSHOT_TABLE} (
       id BIGSERIAL PRIMARY KEY,
