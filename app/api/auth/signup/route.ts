@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { pool } from "@/lib/db"
+import { oncePerIsolate, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { z } from "zod"
@@ -25,7 +25,11 @@ function hashCode(code: string) {
   return crypto.createHash("sha256").update(code).digest("hex")
 }
 
-async function ensureSignupVerificationTable() {
+function ensureSignupVerificationTable(): Promise<void> {
+  return oncePerIsolate("signup_verification_tables", createSignupVerificationTable)
+}
+
+async function createSignupVerificationTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS signup_verification_codes (
       id BIGSERIAL PRIMARY KEY,
@@ -40,6 +44,9 @@ async function ensureSignupVerificationTable() {
   `)
 
   await pool.query(`CREATE INDEX IF NOT EXISTS signup_verification_user_idx ON signup_verification_codes (user_id, created_at DESC)`)
+
+  // Sweep expired verification codes once per isolate boot (best-effort).
+  await pool.query(`DELETE FROM signup_verification_codes WHERE expires_at < NOW() - INTERVAL '1 day'`).catch(() => {})
 }
 
 export async function POST(req: Request) {
