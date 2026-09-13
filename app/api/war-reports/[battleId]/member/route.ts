@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { requireAdminUser } from "@/lib/adminAuth";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,11 @@ const updateSchema = z.object({
   staffNote: z.string().max(1200).nullable().optional(),
 });
 
-async function ensureOverridesTable() {
+function ensureOverridesTable(): Promise<void> {
+  return oncePerIsolate("war_report_member_overrides:member", createOverridesTable);
+}
+
+async function createOverridesTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS war_report_member_overrides (
       id BIGSERIAL PRIMARY KEY,
