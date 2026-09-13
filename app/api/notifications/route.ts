@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { ensurePushTables } from "@/lib/pushServer";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +40,10 @@ export async function GET() {
   await ensurePushTables();
 
   // User notch pref for war/placement notifications (default off)
-  await pool.query(`CREATE TABLE IF NOT EXISTS user_notif_prefs (user_id BIGINT NOT NULL, type TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (user_id, type))`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_prefs_user_type ON user_notif_prefs(user_id, type)`);
+  await oncePerIsolate("user_notif_prefs", async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS user_notif_prefs (user_id BIGINT NOT NULL, type TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (user_id, type))`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_prefs_user_type ON user_notif_prefs(user_id, type)`);
+  });
   const [{ rows }, marker, prefRow] = await Promise.all([
     pool.query<Row>(
       `SELECT id::text AS id, type, title, body, url, image_url, created_at
