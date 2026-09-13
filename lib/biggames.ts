@@ -106,6 +106,10 @@ async function _createBigGamesTables() {
   // discord_id instead of a hub user_id.
   await pool.query(`ALTER TABLE big_games_pkce ADD COLUMN IF NOT EXISTS discord_id TEXT`);
   await pool.query(`ALTER TABLE big_games_pkce ALTER COLUMN user_id DROP NOT NULL`);
+  // Abandoned OAuth clicks leave unconsumed PKCE rows forever — sweep them
+  // once per isolate boot (best-effort; 2h retention far exceeds the 10-min
+  // OAuth state validity).
+  await pool.query(`DELETE FROM big_games_pkce WHERE created_at < NOW() - INTERVAL '2 hours'`).catch(() => {});
 }
 
 export async function savePkce(state: string, userId: number, verifier: string) {
