@@ -626,11 +626,7 @@ async function detectActiveWarFromDb(): Promise<{
   return { battleId, endMs }
 }
 
-export async function getSharedWarContext(force = false): Promise<SharedWarContext> {
-  if (!force && sharedCache && Date.now() - sharedCache.at < sharedCacheTtl(sharedCache.degraded)) {
-    return sharedCache.context
-  }
-
+async function refreshSharedWarContext(): Promise<SharedWarContext> {
   const [battlePayload, clanPayload, standingsPayload] = await Promise.all([
     fetchJson(ACTIVE_BATTLE_API),
     fetchJson(CLAN_API),
@@ -794,6 +790,46 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
   // timings lean on DB fallback data (up to ~10min stale) — cache it briefly.
   sharedCache = { at: Date.now(), context, degraded: !battlePayload }
   return context
+}
+
+// Stale-while-revalidate plumbing (2026-09-13): during Vercel egress bad
+// patches a cache refresh can take 30-60s (DB connect retries). Status
+// polls (app-status, war pages, assistant) must never wait for that —
+// serve the cached context immediately and refresh in the background.
+// One refresh runs at a time per isolate; concurrent stale callers reuse
+// it (previously every stale poll ran its OWN full retry chain in
+// parallel — up to 15 connection attempts at once). The WAR STARTED push
+// fires from the first response built after the refresh lands, so it lags
+// the old blocking behaviour by at most one poll cycle (~30s).
+let sharedRefreshInFlight = false
+
+function kickBackgroundRefresh() {
+  if (sharedRefreshInFlight) return
+  sharedRefreshInFlight = true
+  void refreshSharedWarContext()
+    .catch((err) => {
+      console.warn(
+        "[warContext] background refresh failed:",
+        err instanceof Error ? err.message : err
+      )
+    })
+    .finally(() => {
+      sharedRefreshInFlight = false
+    })
+}
+
+export async function getSharedWarContext(force = false): Promise<SharedWarContext> {
+  const cache = sharedCache
+  if (!force && cache) {
+    if (Date.now() - cache.at < sharedCacheTtl(cache.degraded)) {
+      return cache.context
+    }
+    // Stale but present: serve it now, refresh quietly in the background.
+    kickBackgroundRefresh()
+    return cache.context
+  }
+  // Cold isolate (no cache yet) or an explicit force: block as before.
+  return refreshSharedWarContext()
 }
 
 export function buildAskerContext(
