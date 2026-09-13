@@ -158,10 +158,15 @@ function getPool() {
   // Backoff gaps are deliberately wide (prod 2026-09-12): cold-connect
   // failures on Vercel come in correlated bursts lasting ~20-30s — retries
   // 400ms/1.5s later land inside the same burst and die too. 1s/3s pushes
-  // the third attempt past the burst. Worst case ≈ 34s (3 × 10s timeout +
-  // backoff), inside the observed function budget (32.6s response logged).
-  const MAX_ATTEMPTS = 3
-  const RETRY_BACKOFF_MS = [1_000, 3_000]
+  // the third attempt past the burst.
+  // 2026-09-13: bursts now run 20-90s and daytime too (Sat 13 Sep probe:
+  // 503 at 34.3s while identical requests 40s earlier/later were sub-second
+  // — the flapping is per-isolate, so later attempts often land on a good
+  // moment). Extended to 5 attempts: worst case ≈ 67s (5 × 10s timeout +
+  // 17s backoff), well inside Fluid Compute's 300s Hobby function budget.
+  // A 60s login that succeeds beats a 34s 503 plus a manual retry.
+  const MAX_ATTEMPTS = 5
+  const RETRY_BACKOFF_MS = [1_000, 3_000, 5_000, 8_000]
   const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
@@ -193,9 +198,14 @@ function getPool() {
   // its database connection warm too. (unref: the timer must not hold a
   // process open by itself — tests call pool.end(), and on Vercel the live
   // socket does the holding.)
-  const connectionKeepAlive = setInterval(() => {
-    void pool.query("SELECT 1").catch(() => {})
-  }, 60_000)
+  const pingDb = () => void pool.query("SELECT 1").catch(() => {})
+  // Establish the first connection NOW, not 60s from now: a fresh isolate
+  // (every deploy, every Vercel recycle) starts with an empty pool, and that
+  // first connection is the one exposed to the egress lottery. Starting it
+  // at pool creation means the bot's 30s app-status pings have usually
+  // established the connection before the first human request needs it.
+  pingDb()
+  const connectionKeepAlive = setInterval(pingDb, 60_000)
   connectionKeepAlive.unref()
 
   return pool
