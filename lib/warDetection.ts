@@ -1,4 +1,4 @@
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 
 function toDate(value: number | string | Date | null | undefined) {
   if (value === null || value === undefined) return null;
@@ -21,7 +21,11 @@ function toDate(value: number | string | Date | null | undefined) {
   return null;
 }
 
-async function ensureWarDetectionTable() {
+function ensureWarDetectionTable(): Promise<void> {
+  return oncePerIsolate("war_detection_windows", createWarDetectionTables);
+}
+
+async function createWarDetectionTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS war_detection_windows (
       battle_id TEXT PRIMARY KEY,
