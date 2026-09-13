@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
-import { pool } from "@/lib/db";
+import { oncePerIsolate, pool } from "@/lib/db";
 import { sessionOptions, type SessionData } from "@/lib/session";
 import { getDetectedWarWindow } from "@/lib/warDetection";
 
@@ -74,7 +74,11 @@ async function fetchJson(url: string) {
   return res.json();
 }
 
-async function ensureTable() {
+function ensureTable(): Promise<void> {
+  return oncePerIsolate("user_war_visit_snapshots", createVisitSnapshotsTable);
+}
+
+async function createVisitSnapshotsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_war_visit_snapshots (
       user_id INTEGER NOT NULL,
