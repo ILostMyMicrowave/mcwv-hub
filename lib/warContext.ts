@@ -120,30 +120,6 @@ function normalizeClanName(value: unknown): string {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "")
 }
 
-// Interpolate a clan's points at an exact timestamp from its captured history.
-// Mirrors the bot's hourly-card baseline math: returns null when the target
-// time is before the oldest snapshot (no full 60-minute baseline yet).
-function pointsAtTime(
-  rows: Array<{ capturedAt: number; points: number }>,
-  targetMs: number
-): number | null {
-  if (!rows.length) return null
-  const sorted = [...rows].sort((a, b) => a.capturedAt - b.capturedAt)
-  if (targetMs < sorted[0].capturedAt) return null
-  for (let i = 0; i < sorted.length; i++) {
-    const cur = sorted[i]
-    if (cur.capturedAt === targetMs) return cur.points
-    const nxt = sorted[i + 1]
-    if (!nxt) return cur.points
-    if (cur.capturedAt <= targetMs && targetMs <= nxt.capturedAt) {
-      const span = Math.max(nxt.capturedAt - cur.capturedAt, 1)
-      const ratio = (targetMs - cur.capturedAt) / span
-      return cur.points + (nxt.points - cur.points) * ratio
-    }
-  }
-  return sorted[sorted.length - 1].points
-}
-
 // Per-clan PPH from clan_history (populated every minute by the war collector).
 // Returns a map keyed by normalized clan name -> points gained in the last 60min.
 // Falls back to the latest stored battle if the live battleId doesn't match a
@@ -153,12 +129,43 @@ async function getClanPphMap(battleId: string | null): Promise<Map<string, numbe
   const map = new Map<string, number>()
   if (!battleId) return map
   try {
-    let result = await pool.query<{ clan_name: string; points: number | string; captured_at: Date | string }>(
-      `SELECT clan_name, points, captured_at
-       FROM clan_history
-       WHERE battle_id = $1
-         AND captured_at >= NOW() - INTERVAL '3 hours'
-       ORDER BY clan_name ASC, captured_at ASC`,
+    // Aggregate in SQL: one row per clan — latest snapshot minus the last
+    // snapshot captured ≥60 min earlier. This used to stream EVERY
+    // clan_history row of the battle's 3-hour window to the client (~1MB per
+    // refresh × ~960 refreshes/day per isolate): the main driver of the
+    // 5.4GB/mo Supabase egress that pushed the org past the free 5GB quota.
+    // Semantics preserved: a clan whose history doesn't reach 60 min back is
+    // skipped (young wars report no PPH), values >10B are treated as
+    // k-scaled (same heuristic as asNumber), and only a positive PPH is
+    // kept. The old code interpolated the baseline between snapshots; with
+    // the collector's 1-minute cadence the difference is at most one
+    // minute's points — irrelevant for "rival pace" reasoning.
+    let result = await pool.query<{ clan_name: string; pph: number | string }>(
+      `WITH win AS (
+           SELECT clan_name, points, captured_at
+           FROM clan_history
+           WHERE battle_id = $1
+             AND captured_at >= NOW() - INTERVAL '3 hours'
+         ),
+         lat AS (
+           SELECT DISTINCT ON (clan_name)
+                  clan_name, points AS latest_points, captured_at AS latest_at
+           FROM win
+           ORDER BY clan_name, captured_at DESC
+         ),
+         bas AS (
+           SELECT DISTINCT ON (w.clan_name)
+                  w.clan_name, w.points AS base_points
+           FROM win w
+           JOIN lat l ON l.clan_name = w.clan_name
+           WHERE w.captured_at <= l.latest_at - INTERVAL '60 minutes'
+           ORDER BY w.clan_name, w.captured_at DESC
+         )
+         SELECT lat.clan_name,
+                (CASE WHEN lat.latest_points > 10000000000 THEN lat.latest_points / 1000 ELSE lat.latest_points END)
+              - (CASE WHEN bas.base_points  > 10000000000 THEN bas.base_points  / 1000 ELSE bas.base_points  END) AS pph
+         FROM lat
+         JOIN bas ON bas.clan_name = lat.clan_name`,
       [battleId]
     )
 
@@ -166,40 +173,47 @@ async function getClanPphMap(battleId: string | null): Promise<Map<string, numbe
     // differs). Use the most recent stored battle as a fallback so rival pace
     // is still available.
     if (!result.rows.length) {
-      result = await pool.query<{ clan_name: string; points: number | string; captured_at: Date | string }>(
-        `SELECT ch.clan_name, ch.points, ch.captured_at
-         FROM clan_history ch
-         JOIN LATERAL (
-           SELECT battle_id
-           FROM battles
-           ORDER BY COALESCE(end_time, start_time, created_at, NOW()) DESC
-           LIMIT 1
-         ) b ON true
-         WHERE ch.captured_at >= NOW() - INTERVAL '3 hours'
-         ORDER BY ch.clan_name ASC, ch.captured_at ASC`
+      result = await pool.query<{ clan_name: string; pph: number | string }>(
+        `WITH b AS (
+             SELECT battle_id
+             FROM battles
+             ORDER BY COALESCE(end_time, start_time, created_at, NOW()) DESC
+             LIMIT 1
+           ),
+           win AS (
+             SELECT ch.clan_name, ch.points, ch.captured_at
+             FROM clan_history ch, b
+             WHERE ch.battle_id = b.battle_id
+               AND ch.captured_at >= NOW() - INTERVAL '3 hours'
+           ),
+           lat AS (
+             SELECT DISTINCT ON (clan_name)
+                    clan_name, points AS latest_points, captured_at AS latest_at
+             FROM win
+             ORDER BY clan_name, captured_at DESC
+           ),
+           bas AS (
+             SELECT DISTINCT ON (w.clan_name)
+                    w.clan_name, w.points AS base_points
+             FROM win w
+             JOIN lat l ON l.clan_name = w.clan_name
+             WHERE w.captured_at <= l.latest_at - INTERVAL '60 minutes'
+             ORDER BY w.clan_name, w.captured_at DESC
+           )
+           SELECT lat.clan_name,
+                  (CASE WHEN lat.latest_points > 10000000000 THEN lat.latest_points / 1000 ELSE lat.latest_points END)
+                - (CASE WHEN bas.base_points  > 10000000000 THEN bas.base_points  / 1000 ELSE bas.base_points  END) AS pph
+           FROM lat
+           JOIN bas ON bas.clan_name = lat.clan_name`
       )
     }
 
-    if (!result.rows.length) return map
-
-    const grouped = new Map<string, Array<{ capturedAt: number; points: number }>>()
     for (const row of result.rows) {
       const key = normalizeClanName(row.clan_name)
       if (!key) continue
-      const d = row.captured_at instanceof Date ? row.captured_at : new Date(String(row.captured_at))
-      if (Number.isNaN(d.getTime())) continue
-      const list = grouped.get(key) ?? []
-      list.push({ capturedAt: d.getTime(), points: asNumber(row.points) ?? 0 })
-      grouped.set(key, list)
-    }
-
-    for (const [key, history] of grouped.entries()) {
-      if (history.length < 2) continue
-      const sorted = history.sort((a, b) => a.capturedAt - b.capturedAt)
-      const latest = sorted[sorted.length - 1]
-      const baseline = pointsAtTime(sorted, latest.capturedAt - 60 * 60 * 1000)
-      if (baseline === null) continue
-      const pph = Math.max(0, Math.round(latest.points - baseline))
+      const raw = asNumber(row.pph)
+      if (raw === null) continue
+      const pph = Math.max(0, Math.round(raw))
       if (pph > 0) map.set(key, pph)
     }
   } catch (err) {
