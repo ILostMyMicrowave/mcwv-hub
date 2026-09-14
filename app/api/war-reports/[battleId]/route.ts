@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { oncePerIsolate, pool } from "@/lib/db";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { loadEndOfWarSnapshot } from "@/lib/warReportRoster";
+import { swrCached } from "@/lib/swrCache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,6 +14,18 @@ const CLAN_API = process.env.CLAN_API ?? `${PS99_API}/api/clan/${encodeURICompon
 const LEGACY_CLAN_API = `${PS99_API}/api/clan/${encodeURIComponent(CLAN_NAME)}`;
 const GRADES = ["A+", "A", "B", "C", "D", "F"] as const;
 type Grade = typeof GRADES[number];
+
+// Thrown by buildWarReport for stable per-battle "no data yet" cases so the
+// GET wrapper can return the exact historical status/body without caching it.
+class ReportHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ReportHttpError";
+  }
+}
 
 type BattleRow = {
   battle_id: string;
@@ -437,18 +450,8 @@ function buildWarningMessage(members: Array<{ discordId: string | null; warning:
   ].join("\n");
 }
 
-export async function GET(
-  _req: Request,
-  { params }: { params: Promise<{ battleId: string }> }
-) {
-  const auth = await requireAuthenticatedUser();
-  if (!auth.ok) return auth.response;
-
-  const { battleId } = await params;
-  const canManage = auth.user.role === "officer" || auth.user.role === "owner";
-
-  try {
-    await ensureOverridesTable();
+async function buildWarReport(battleId: string, canManage: boolean) {
+  await ensureOverridesTable();
 
     let battle: BattleRow | null = null;
 
@@ -502,11 +505,9 @@ export async function GET(
     }
 
     if (!battle) {
-      return NextResponse.json(
-        {
-          error: "Report not found yet. If this is the live war, wait for the first player snapshot or open it from /war-reports.",
-        },
-        { status: 404 }
+      throw new ReportHttpError(
+        404,
+        "Report not found yet. If this is the live war, wait for the first player snapshot or open it from /war-reports."
       );
     }
 
@@ -622,10 +623,7 @@ export async function GET(
     playerRows.sort((a, b) => asNumber(b.points) - asNumber(a.points));
 
     if (!battle.is_active && playerRows.length === 0) {
-      return NextResponse.json(
-        { error: "This completed battle has no stored player report data." },
-        { status: 404 }
-      );
+      throw new ReportHttpError(404, "This completed battle has no stored player report data.");
     }
 
     const pointValues = playerRows.map((row) => asNumber(row.points));
@@ -697,7 +695,7 @@ export async function GET(
     const distribution = gradeDistribution(members);
     const warningMessage = canManage ? buildWarningMessage(members) : "";
 
-    return NextResponse.json({
+    return {
       success: true,
       canManage,
       battle: {
@@ -724,8 +722,35 @@ export async function GET(
       distribution,
       members,
       warningMessage,
-    });
+    };
+}
+
+// Round 7: the full report payload is clan-level; the only per-viewer split
+// is staff fields (manual grades / notes / warning message), so the cache is
+// keyed by battle + role. 60s fresh / 10min stale-serve with single-flight —
+// recap weekends stop re-running the whole pipeline per pageview.
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ battleId: string }> }
+) {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
+  const { battleId } = await params;
+  const canManage = auth.user.role === "officer" || auth.user.role === "owner";
+
+  try {
+    const payload = await swrCached(
+      `war-report:${normalizeBattleKey(decodeURIComponent(battleId))}:${canManage ? "staff" : "member"}`,
+      60_000,
+      600_000,
+      () => buildWarReport(battleId, canManage)
+    );
+    return NextResponse.json(payload);
   } catch (err) {
+    if (err instanceof ReportHttpError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("[war-reports] detail error:", err);
     return NextResponse.json({ success: false, error: "Failed to load war report" }, { status: 500 });
   }
