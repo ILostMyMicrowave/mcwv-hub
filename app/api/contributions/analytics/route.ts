@@ -270,24 +270,55 @@ async function getSnapshotStats(activeWar: ActiveWarInfo, currentTotal: number |
       };
     }
 
-    const rows = await pool.query<{ battle_points: string | number; captured_at: Date | string }>(
+    const now = Date.now();
+    const hourAgo = now - 60 * 60 * 1000;
+
+    // Round 7 — reduced snapshot pull. The bucketing below only ever reads
+    // clan points at hour/day boundaries and at (now - 1h). The old query
+    // shipped the ENTIRE battle's snapshot history to the function (~1 row
+    // per collector minute: 10k+ rows late-war) just to compute ~60 boundary
+    // values — the single biggest egress driver on this route. DISTINCT ON
+    // returns the first and last snapshot of every hour; the baseline query
+    // pins the exact row at (now - 1h). Every computed value is identical;
+    // only the payload shrinks to O(hours).
+    const perHour = await pool.query<{ battle_points: string | number; captured_at: Date | string }>(
+      `(SELECT DISTINCT ON (date_trunc('hour', captured_at))
+          battle_points, captured_at
+        FROM war_snapshots
+        WHERE battle_id = $1
+          AND LOWER(clan_name) = LOWER($2)
+          AND battle_points IS NOT NULL
+        ORDER BY date_trunc('hour', captured_at), captured_at ASC)
+      UNION
+      (SELECT DISTINCT ON (date_trunc('hour', captured_at))
+          battle_points, captured_at
+        FROM war_snapshots
+        WHERE battle_id = $1
+          AND LOWER(clan_name) = LOWER($2)
+           AND battle_points IS NOT NULL
+        ORDER BY date_trunc('hour', captured_at), captured_at DESC)`,
+      [activeWar.battleId, "MCWV"]
+    );
+    const hourAgoBaseline = await pool.query<{ battle_points: string | number; captured_at: Date | string }>(
       `SELECT battle_points, captured_at
        FROM war_snapshots
        WHERE battle_id = $1
          AND LOWER(clan_name) = LOWER($2)
          AND battle_points IS NOT NULL
-       ORDER BY captured_at ASC`,
-      [activeWar.battleId, "MCWV"]
+         AND captured_at <= $3::timestamptz
+       ORDER BY captured_at DESC
+       LIMIT 1`,
+      [activeWar.battleId, "MCWV", new Date(hourAgo).toISOString()]
     );
-
-    const now = Date.now();
-    const hourAgo = now - 60 * 60 * 1000;
+    const baselineRow = hourAgoBaseline.rows[0];
+    const snapshotRows = [...perHour.rows];
+    if (baselineRow) snapshotRows.push(baselineRow);
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
     const battleStart = new Date(activeWar.startIso).getTime();
     const todayOrBattleStart = Math.max(dayStart.getTime(), Number.isFinite(battleStart) ? battleStart : 0);
 
-    const normalized = rows.rows
+    const normalized = snapshotRows
       .map((row) => ({ points: toNumber(row.battle_points), time: new Date(row.captured_at).getTime() }))
       .filter((row) => Number.isFinite(row.time) && row.points >= 0)
       .sort((a, b) => a.time - b.time);
