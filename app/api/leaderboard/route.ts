@@ -6,6 +6,7 @@ import {
   writeLeaderboardCache,
   isLeaderboardCacheFresh,
 } from "@/lib/leaderboardCache";
+import { swrCached } from "@/lib/swrCache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -1554,7 +1555,15 @@ export async function GET(req: Request) {
 
     // If battle_id is provided, return historical leaderboard
     if (battleId) {
-      const payload = await buildHistoricalLeaderboard(battleId);
+      // Round 7: historical boards are per-battle and requester-independent —
+      // cache 60s fresh / 10min stale so recap browsing stops rebuilding each
+      // one from scratch per pageview.
+      const payload = await swrCached(
+        `leaderboard:history:${battleId.trim().toLowerCase()}`,
+        60_000,
+        600_000,
+        () => buildHistoricalLeaderboard(battleId)
+      );
       return NextResponse.json(payload, {
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate",
