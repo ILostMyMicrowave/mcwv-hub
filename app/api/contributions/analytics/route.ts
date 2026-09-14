@@ -392,20 +392,14 @@ async function getRobloxNames(userIds: number[]) {
   return names;
 }
 
-export async function GET() {
-  const auth = await requireAuthenticatedUser();
-  if (!auth.ok) return auth.response;
+async function buildAnalyticsPayload(): Promise<AnalyticsResponse> {
+  const activeWar = await getActiveWarInfo();
+
+  if (!activeWar) {
+    return zeroPayload(false);
+  }
 
   try {
-    const activeWar = await getActiveWarInfo();
-
-    if (!activeWar) {
-      return NextResponse.json(zeroPayload(false), {
-        headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-        },
-      });
-    }
 
     const liveStats = await getLiveClanStats(activeWar);
     const battleStart = activeWar.startIso;
@@ -569,6 +563,76 @@ export async function GET() {
       },
     };
 
+    return payload;
+  } catch (err) {
+    console.error("[contributions/analytics] error:", err);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared response cache (2026-09-14). The contributions page polls every 30s
+// per viewer, and the payload is clan-level (identical for every member), so
+// without this every viewer's poll re-ran the whole pipeline — the unbounded
+// war_snapshots pull, the live clan API call and four aggregate queries —
+// which made this route the biggest remaining war-time Supabase egress
+// source. All viewers now share one pipeline run per 30s window.
+// Stale-while-revalidate: a slow or failed refresh never blocks a response;
+// the last good payload keeps the page alive for up to 10 minutes.
+// ---------------------------------------------------------------------------
+declare global {
+  var _contribAnalyticsCache: {
+    fresh: { at: number; payload: AnalyticsResponse } | null;
+    inflight: Promise<AnalyticsResponse> | null;
+  } | undefined;
+}
+
+const analyticsCache = (global._contribAnalyticsCache ??= {
+  fresh: null,
+  inflight: null,
+});
+const ANALYTICS_FRESH_MS = 30_000; // one rebuild per poll interval, shared by all viewers
+const ANALYTICS_STALE_MS = 10 * 60_000; // keep serving the last good payload while refreshing
+
+function startAnalyticsRefresh(): Promise<AnalyticsResponse> {
+  if (!analyticsCache.inflight) {
+    analyticsCache.inflight = buildAnalyticsPayload()
+      .then((payload) => {
+        analyticsCache.fresh = { at: Date.now(), payload };
+        return payload;
+      })
+      .finally(() => {
+        analyticsCache.inflight = null;
+      });
+  }
+  return analyticsCache.inflight;
+}
+
+async function getAnalyticsPayload(): Promise<AnalyticsResponse> {
+  const cached = analyticsCache.fresh;
+  const age = cached ? Date.now() - cached.at : Infinity;
+
+  if (cached && age < ANALYTICS_FRESH_MS) {
+    return cached.payload;
+  }
+
+  if (cached && age < ANALYTICS_STALE_MS) {
+    // Serve the last good payload instantly; rebuild in the background.
+    startAnalyticsRefresh().catch(() => {});
+    return cached.payload;
+  }
+
+  // Cold cache (or the last good payload is too old): build inline, sharing
+  // one in-flight build with any concurrent requests.
+  return startAnalyticsRefresh();
+}
+
+export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
+  try {
+    const payload = await getAnalyticsPayload();
     return NextResponse.json(payload, {
       headers: {
         "Cache-Control": "no-store, no-cache, must-revalidate",
