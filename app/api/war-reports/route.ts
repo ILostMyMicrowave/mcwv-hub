@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { loadEndOfWarSnapshotsForBattles } from "@/lib/warReportRoster";
+import { swrCached } from "@/lib/swrCache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -229,12 +230,8 @@ async function tableExists(tableName: string) {
   return Boolean(result.rows[0]?.exists);
 }
 
-export async function GET() {
-  const auth = await requireAuthenticatedUser();
-  if (!auth.ok) return auth.response;
-
-  try {
-    const activeBattle = await getActiveBattleRow();
+async function buildWarReportsList() {
+  const activeBattle = await getActiveBattleRow();
 
     if (!(await tableExists("battles"))) {
       const rows = activeBattle ? [activeBattle] : [];
@@ -255,7 +252,7 @@ export async function GET() {
         topMembers: [],
       }));
 
-      return NextResponse.json({ success: true, featured: reports[0] ?? null, reports });
+      return { success: true, featured: reports[0] ?? null, reports };
     }
 
     const battles = await pool.query<BattleRow & { is_active: boolean }>(
@@ -448,11 +445,24 @@ export async function GET() {
       // Keep live previews even if they are still warming up.
       .filter((report) => report.isActive || report.accounts > 0);
 
-    return NextResponse.json({
-      success: true,
-      featured: reports[0] ?? null,
-      reports,
-    });
+  return {
+    success: true,
+    featured: reports[0] ?? null,
+    reports,
+  };
+}
+
+// Round 7: the reports list is clan-level — identical for every authed viewer
+// — and only changes when a war starts/ends or the collector ticks. 60s fresh
+// / 10min stale-serve with single-flight: recap browsing stops re-running the
+// per-battle pipelines on every pageview.
+export async function GET() {
+  const auth = await requireAuthenticatedUser();
+  if (!auth.ok) return auth.response;
+
+  try {
+    const payload = await swrCached("war-reports:list", 60_000, 600_000, buildWarReportsList);
+    return NextResponse.json(payload);
   } catch (err) {
     console.error("[war-reports] list error:", err);
     return NextResponse.json({ success: false, error: "Failed to load war reports" }, { status: 500 });
