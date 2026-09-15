@@ -12,7 +12,12 @@ import { oncePerIsolate, pool } from "@/lib/db";
  */
 
 const CACHE_KEY = "current";
-const TTL_MS = 180 * 1000; // 3 minutes, matches the old in-memory TTL
+// Egress: during a live war the board is hot, so keep the 3-minute TTL.
+// In peacetime the board barely changes between rebuilds - the cached
+// payload stays fresh for 10 minutes so idle polling stops re-reading it
+// from Supabase on every isolate/TTL expiry.
+const WAR_TTL_MS = 180 * 1000;
+const PEACETIME_TTL_MS = 600 * 1000;
 
 function ensureTable(): Promise<void> {
   return oncePerIsolate("leaderboard_cache", async () => {
@@ -63,8 +68,8 @@ export async function readLeaderboardCache(): Promise<CachedLeaderboard | null> 
   }
 }
 
-export function isLeaderboardCacheFresh(ageMs: number): boolean {
-  return ageMs < TTL_MS;
+export function isLeaderboardCacheFresh(ageMs: number, active: boolean): boolean {
+  return ageMs < (active ? WAR_TTL_MS : PEACETIME_TTL_MS);
 }
 
 /**
