@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
+// Egress fix: hub_media rows are immutable per id (UUID), so the response is
+// safe to cache at Vercel's edge indefinitely. This route used to be
+// force-dynamic: every first view per device pulled the full image bytes out
+// of Postgres. With s-maxage the origin (and Supabase egress) is hit roughly
+// once per image per edge region instead of once per device view.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(
@@ -28,7 +30,9 @@ export async function GET(
     return new NextResponse(new Uint8Array(body), {
       headers: {
         "Content-Type": row.content_type || "image/png",
-        "Cache-Control": "public, max-age=31536000, immutable",
+        // s-maxage makes VERCEL's CDN cache and serve this; max-age keeps the
+        // browser cache. Both effectively forever: content never changes per id.
+        "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
       },
     });
   } catch {
