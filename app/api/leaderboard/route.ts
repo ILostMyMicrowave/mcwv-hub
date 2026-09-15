@@ -22,7 +22,10 @@ const ROBLOX_USERS_API = "https://users.roblox.com/v1/users";
 const ROBLOX_THUMB_API =
   "https://thumbnails.roblox.com/v1/users/avatar-headshot";
 
-const CACHE_TTL = 180 * 1000; // 3 minutes
+// Egress: adaptive L1 TTL - 3 minutes during a live war, 10 minutes in
+// peacetime (the board barely changes when no battle is running).
+const WAR_CACHE_TTL = 180 * 1000;
+const PEACETIME_CACHE_TTL = 600 * 1000;
 
 /* ---------------- CACHE ---------------- */
 
@@ -1499,7 +1502,8 @@ async function getCachedLeaderboard(
   forceRefresh = false
 ): Promise<LeaderboardResponse> {
   // L1: same-instance in-memory — skips even the DB read on 10 s polls.
-  const fresh = cache && Date.now() - cacheTime < CACHE_TTL;
+  const fresh =
+    cache && Date.now() - cacheTime < (cache.active ? WAR_CACHE_TTL : PEACETIME_CACHE_TTL);
 
   if (!forceRefresh && fresh && cache) {
     return cache;
@@ -1507,16 +1511,18 @@ async function getCachedLeaderboard(
 
   // L2: shared DB cache — survives Vercel scale-to-zero, so a cold instance
   // serves the last built board from one JSONB read instead of paying a full
-  // PS99 rebuild. Styles are baked into the cached payload (up to CACHE_TTL
+  // PS99 rebuild. Styles are baked into the cached payload (up to the TTL
   // stale, same as the points data).
   if (!forceRefresh) {
     const dbCached = await readLeaderboardCache();
-    if (dbCached && isLeaderboardCacheFresh(dbCached.ageMs)) {
+    if (dbCached) {
       const payload = dbCached.payload as LeaderboardResponse;
-      cache = payload;
-      // Preserve original creation time so L1 respects the same 3-min TTL.
-      cacheTime = Date.now() - dbCached.ageMs;
-      return payload;
+      if (isLeaderboardCacheFresh(dbCached.ageMs, Boolean(payload?.active))) {
+        cache = payload;
+        // Preserve original creation time so L1 respects the same adaptive TTL.
+        cacheTime = Date.now() - dbCached.ageMs;
+        return payload;
+      }
     }
   }
 
