@@ -389,6 +389,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
           icon: "⚔",
           links: [
             { href: "/war-info", label: "War Info", icon: "📡", description: "Simple live war overview" },
+            { href: "/bounty", label: "Bounty Hunt", icon: "🎯", description: "Beat one of two. Last hunter standing" },
             { href: "/leaderboard", label: "Leaderboard", icon: "🏆", description: "Member contribution rankings" },
             { href: "/war-analyst", label: "Battle HQ", icon: "📈", description: "Race analytics and projections" },
             { href: "/contributions", label: "Contributions", icon: "🧮", description: "Charts and clan activity" },
