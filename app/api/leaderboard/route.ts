@@ -387,13 +387,22 @@ async function getRecentPlayerHistory(ids: string[], battleKey: string) {
   const history = new Map<string, PlayerHistoryPoint[]>();
   if (!ids.length) return history;
 
+  // Egress guard: sample at most one snapshot per player per 5-minute bucket
+  // (the latest in each bucket) instead of shipping every row in the 2h window.
+  // pointsAtExactTime() interpolates between neighbouring points, so
+  // change5m/change1h stay accurate with ~24 points per player.
   const result = await pool.query<BaselineRow>(
     `SELECT roblox_id, points, captured_at
-     FROM player_leaderboard_history
-     WHERE roblox_id = ANY($1)
-       AND battle_id = $2
-       AND points IS NOT NULL
-       AND captured_at >= NOW() - INTERVAL '2 hours'
+     FROM (
+       SELECT DISTINCT ON (roblox_id, (extract(epoch FROM captured_at)::bigint / 300))
+         roblox_id, points, captured_at
+       FROM player_leaderboard_history
+       WHERE roblox_id = ANY($1)
+         AND battle_id = $2
+         AND points IS NOT NULL
+         AND captured_at >= NOW() - INTERVAL '2 hours'
+       ORDER BY roblox_id, (extract(epoch FROM captured_at)::bigint / 300), captured_at DESC
+     ) sampled
      ORDER BY roblox_id ASC, captured_at ASC`,
     [ids, battleKey]
   );
