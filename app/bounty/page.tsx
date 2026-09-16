@@ -117,7 +117,7 @@ type AdminState = {
 /* ============================== constants ============================== */
 
 const POLL_PUBLIC_MS = 30_000;
-const POLL_ME_MS = 25_000;
+const POLL_ME_MS = 30_000;
 const AHEAD = "#22c55e";
 const BEHIND = "#ef4444";
 const TIED = "#a1a1aa";
@@ -381,7 +381,8 @@ function SignupCard({
           <span className="bh-kicker" style={{ color: "var(--accent)" }}>Sign-ups</span>
           <h2 className="bh-section-title">The hunt starts with the war</h2>
           <p className="bh-section-sub">
-            Targets are handed out the moment an officer starts the hunt.
+            Sign up any time before the war. The board stays live right here,
+            and rounds begin automatically when the next war starts.
             You need a linked Roblox account - your war PPH is your weapon.
           </p>
         </div>
@@ -757,9 +758,11 @@ function AdminPanel({
       setPrizeTitle(admin.event.prize.title ?? "");
       setPrizeBody(admin.event.prize.body ?? "");
       setPrizeUrl(admin.event.prize.imageUrl ?? "");
-    } else if (admin?.battles?.length) {
-      const active = admin.battles.find((b) => b.active) ?? admin.battles.find((b) => b.upcoming) ?? admin.battles[0];
-      setBattleId(active.battleId);
+    } else {
+      // No event yet: default to "Next war (auto)" - the engine attaches the
+      // live battle the moment a war starts. Officers can still pick a
+      // specific battle from the list if they ever need to.
+      setBattleId("");
     }
   }, [admin]);
 
@@ -846,9 +849,10 @@ function AdminPanel({
                   <label className="bh-field">
                     <span className="bh-label">Battle</span>
                     <select value={battleId} onChange={(e) => setBattleId(e.target.value)} className="bh-input">
+                      <option value="">Next war (auto)</option>
                       {(admin?.battles ?? []).map((b) => (
                         <option key={b.battleId} value={b.battleId}>
-                          {(b.active ? "LIVE - " : b.upcoming ? "Upcoming - " : "") + (b.battleName ?? b.battleId)}
+                          {(b.active ? "LIVE - " : b.upcoming ? "Upcoming - " : "Past - ") + (b.battleName ?? b.battleId)}
                         </option>
                       ))}
                     </select>
