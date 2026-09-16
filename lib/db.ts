@@ -166,19 +166,52 @@ function getPool() {
   // moment). Extended to 5 attempts: worst case ≈ 67s (5 × 10s timeout +
   // 17s backoff), well inside Fluid Compute's 300s Hobby function budget.
   // A 60s login that succeeds beats a 34s 503 plus a manual retry.
+  // 2026-09-17 (prod 00:33-01:03 UTC log review): different isolates were
+  // logging attempt 4/5 in the SAME millisecond — the fixed ladder keeps
+  // every unlucky isolate marching in lockstep, so the pooler faces a
+  // synchronized retry wave every 1/3/5/8s. Jitter (±35%) decorrelates the
+  // waves into a spread the pooler can absorb between requests.
   const MAX_ATTEMPTS = 5
-  const RETRY_BACKOFF_MS = [1_000, 3_000, 5_000, 8_000]
-  const retryBackoffMs = (attempt: number) => RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
+  // Connect-phase timeouts additionally get a 6th attempt: bursts documented
+  // at 20-90s outrun the old 5-attempt span (~67s) just often enough to 500
+  // (three bounty 500s in the 00:33-01:03 window each burned ~60s first).
+  // 6 attempts span ~92s worst case, still far inside Fluid Compute's 300s
+  // Hobby budget. A connect timeout never reached the server, so the extra
+  // attempt cannot double-apply a write; query-phase transients stay capped
+  // at MAX_ATTEMPTS for exactly that reason.
+  const CONNECT_TIMEOUT_MAX_ATTEMPTS = 6
+  const RETRY_BACKOFF_MS = [1_000, 3_000, 5_000, 8_000, 15_000]
+  const RETRY_JITTER_RATIO = 0.35
+  const retryBackoffMs = (attempt: number) => {
+    const base = RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
+    const jittered = base * (1 - RETRY_JITTER_RATIO + Math.random() * RETRY_JITTER_RATIO * 2)
+    return Math.round(jittered)
+  }
+  const isConnectPhaseError = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err)
+    // Both strings are provably connect-phase only:
+    // - "timeout exceeded when trying to connect" is thrown by pg-pool while
+    //   waiting for a client to connect/become available (query never started).
+    // - "Connection terminated due to connection timeout" is only ever set in
+    //   pg-pool's newClient() connect-failure callback (pg-pool 3.x source);
+    //   the timer is cleared the instant a client connects successfully.
+    // Neither can mean a query was dispatched, so an extra retry is safe.
+    return (
+      msg.includes("timeout exceeded when trying to connect") ||
+      msg.includes("Connection terminated due to connection timeout")
+    )
+  }
   const retriedQuery = ((...args: unknown[]) => {
     const run = () => (originalQuery as (...inner: unknown[]) => Promise<unknown>)(...args)
     const attempt = async (n: number): Promise<unknown> => {
       try {
         return await run()
       } catch (err) {
-        if (!isTransientDbError(err) || n >= MAX_ATTEMPTS) throw err
+        const attemptLimit = isConnectPhaseError(err) ? CONNECT_TIMEOUT_MAX_ATTEMPTS : MAX_ATTEMPTS
+        if (!isTransientDbError(err) || n >= attemptLimit) throw err
         const delay = retryBackoffMs(n)
         console.warn(
-          `[db] transient error (attempt ${n}/${MAX_ATTEMPTS}), retrying in ${delay}ms:`,
+          `[db] transient error (attempt ${n}/${attemptLimit}), retrying in ${delay}ms:`,
           err instanceof Error ? err.message : err
         )
         await new Promise((resolve) => setTimeout(resolve, delay))
