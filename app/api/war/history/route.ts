@@ -63,3 +63,25 @@ export async function GET() {
              LIMIT 1
            )` : ""}
          ORDER BY b.start_time DESC NULLS LAST, b.created_at DESC
+         LIMIT 50`
+      );
+
+      const battles = result.rows.map((row) => ({
+        battle_id: row.battle_id,
+        battle_name: row.battle_name,
+        start_time: row.start_time ? row.start_time.toISOString() : null,
+        end_time: row.end_time ? row.end_time.toISOString() : null,
+      }));
+
+      return { success: true, battles };
+    });
+
+    return NextResponse.json(payload);
+  } catch (err) {
+    console.error("[war/history] error:", err);
+    return NextResponse.json(
+      { success: false, error: "Failed to load war history" },
+      { status: 500 }
+    );
+  }
+}
