@@ -312,7 +312,7 @@ function Hero({ state, me, now, onEnter, entering }: { state: PublicState; me: M
         </p>
         <div className="bh-hero-status">
           <StatusPill event={event} now={now} />
-          {event?.status === "signup" && !joined ? (
+          {event?.status === "signup" && !joined && me ? (
             <button type="button" className="bh-btn bh-btn-primary" onClick={onEnter} disabled={entering}>
               {entering ? "Entering..." : "Enter the hunt"}
             </button>
@@ -358,16 +358,17 @@ function SignupCard({
   me,
   onEnter,
   entering,
-  needLogin,
 }: {
   state: PublicState;
   me: MeState | null;
   onEnter: () => void;
   entering: boolean;
-  needLogin: boolean;
 }) {
   const event = state.event;
-  if (!event || event.status !== "signup") return null;
+  // Sign-up UI is for signed-in members only. Visitors without an account
+  // still see the full public board; the card (and the hero enter button)
+  // appear once /api/bounty/me confirms a logged-in user.
+  if (!me || !event || event.status !== "signup") return null;
   const cap = event.signupCap;
   const count = event.entrantsCount;
   const pct = Math.min(100, (count / Math.max(1, cap)) * 100);
@@ -386,15 +387,20 @@ function SignupCard({
             You need a linked Roblox account - your war PPH is your weapon.
           </p>
         </div>
-        {needLogin ? (
-          <a className="bh-btn bh-btn-primary" href="/login?next=/bounty">Sign in to enter</a>
-        ) : !joined ? (
+        {!joined ? (
           linked ? (
             <button type="button" className="bh-btn bh-btn-primary" onClick={onEnter} disabled={entering}>
               {entering ? "Entering..." : "Enter the hunt"}
             </button>
           ) : (
-            <a className="bh-btn" href="/profile">Link Roblox account</a>
+            <div className="bh-signup-cta">
+              <a className="bh-btn" href="/profile">Link Roblox account</a>
+              <p className="bh-signup-cta-note">
+                The hunt scores you by your Roblox war stats, so your account
+                needs a Roblox link. If your profile shows not linked, ask a
+                staff member in Discord to link it, then come back.
+              </p>
+            </div>
           )
         ) : (
           <Chip tone="ahead">You are in - hunter {count} of {cap}</Chip>
@@ -1222,7 +1228,8 @@ export default function BountyPage() {
             <>
               <Hero state={state} me={me} now={now} onEnter={() => void onEnter()} entering={entering} />
               <StatStrip event={event} />
-              <SignupCard state={state} me={me} onEnter={() => void onEnter()} entering={entering} needLogin={needLogin} />
+              <SignupCard state={state} me={me} onEnter={() => void onEnter()} entering={entering} />
+
               {showYourHunt && me ? <YourHunt me={me} now={now} /> : null}
               {showEliminated && me ? <EliminatedBanner me={me} /> : null}
               <Standings state={state} now={now} />
@@ -1558,6 +1565,29 @@ export default function BountyPage() {
             align-items: flex-start;
             gap: 1rem;
             flex-wrap: wrap;
+          }
+          .bh-signup-cta {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.45rem;
+            max-width: 22rem;
+          }
+          .bh-signup-cta-note {
+            margin: 0;
+            font-size: 0.76rem;
+            line-height: 1.5;
+            text-align: right;
+            color: color-mix(in srgb, var(--foreground) 55%, transparent);
+          }
+          @media (max-width: 640px) {
+            .bh-signup-cta {
+              align-items: flex-start;
+              max-width: 100%;
+            }
+            .bh-signup-cta-note {
+              text-align: left;
+            }
           }
           .bh-capbar {
             margin-top: 1rem;
