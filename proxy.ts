@@ -13,7 +13,10 @@ const AUTH_PAGES = new Set([
 ])
 
 // Legal pages must be reachable without a session (they 307'd to login).
-const PUBLIC_PAGES = new Set(["/privacy", "/terms"])
+// The Bounty Hunt board is public spectacle (like the k0ii inspiration):
+// hero, kill feed, field and standings are viewable logged-out. Your own
+// targets and sign-up are gated by the API routes themselves (401 JSON).
+const PUBLIC_PAGES = new Set(["/privacy", "/terms", "/bounty"])
 
 // Machine-to-hub endpoints that authenticate with their own server-to-server
 // secret instead of a browser session cookie. Each route still validates its
@@ -38,6 +41,8 @@ const PUBLIC_API_PATHS = new Set([
   "/api/biggames/callback",
   "/api/discord/guilds",
   "/api/discord/guilds/callback",
+  // Public bounty board state (no secrets: targets stay server-side).
+  "/api/bounty",
 ])
 
 // Public, no-session status endpoint. It is polled by the installed app
