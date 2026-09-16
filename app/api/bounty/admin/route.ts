@@ -113,15 +113,14 @@ async function listBattles(): Promise<BattleOption[]> {
   }));
 }
 
-/** Auto-pick the battle for a new event: the live one, else the next
- *  scheduled, else the most recent. */
+/** Auto-pick the battle for a new event: only a LIVE battle is attached
+ *  directly. Between wars this returns null = "next war, auto" - the bot
+ *  engine claims whichever battle goes live next, so a peacetime-created
+ *  event can never attach to a stale battle and die at start. */
 async function autoPickBattleId(): Promise<string | null> {
   const battles = await listBattles();
   const active = battles.find((b) => b.active);
-  if (active) return active.battleId;
-  const upcoming = battles.filter((b) => b.upcoming).sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)))[0];
-  if (upcoming) return upcoming.battleId;
-  return battles[0]?.battleId ?? null;
+  return active?.battleId ?? null;
 }
 
 function imageMagicOk(buffer: Buffer): string | null {
@@ -164,10 +163,9 @@ export async function POST(request: Request) {
         if (existing.rows.length) {
           return NextResponse.json({ success: false, error: "A hunt is already open or live" }, { status: 400 });
         }
+        // Empty battle_id = "next war, auto" (stored as NULL; the engine
+        // attaches the live battle the moment a war starts).
         const battleId = body.battle_id ? String(body.battle_id) : await autoPickBattleId();
-        if (!battleId) {
-          return NextResponse.json({ success: false, error: "No battle found to attach the hunt to" }, { status: 400 });
-        }
         const cap = Math.min(MAX_CAP, Math.max(MIN_CAP, Number(body.signup_cap ?? 75) || 75));
         const prizeTitle = body.prize_title ? String(body.prize_title).slice(0, 120) : null;
         const prizeBody = body.prize_body ? String(body.prize_body).slice(0, 600) : null;
