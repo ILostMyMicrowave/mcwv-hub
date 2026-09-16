@@ -6,6 +6,17 @@ import { getAuthenticatedUser } from "@/lib/authUser";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+declare global {
+  var _bounty_me_cache: Map<number, { at: number; payload: unknown }> | undefined;
+}
+
+// Tiny per-isolate micro-cache. The page polls this every 30s per viewer and
+// tab refreshes fire bursts; during pooler pressure (2026-09-16 logs) those
+// extra origin hits turned into sitewide 500s. 10s staleness is invisible on
+// a live duel tracker scored hourly.
+const ME_CACHE_TTL_MS = 10_000;
+const meCache = (global._bounty_me_cache ??= new Map());
+
 /**
  * The signed-in entrant's own secret view: their two targets for the live
  * round plus live in-round point gains (latest snapshot minus the round
@@ -16,6 +27,11 @@ export async function GET() {
     const user = await getAuthenticatedUser();
     if (!user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const cached = meCache.get(user.id);
+    if (cached && Date.now() - cached.at < ME_CACHE_TTL_MS) {
+      return NextResponse.json(cached.payload, { headers: { "Cache-Control": "no-store" } });
     }
 
     const base: Record<string, unknown> = {
@@ -82,6 +98,11 @@ export async function GET() {
     base.finalPlace = meRow.final_place === null || meRow.final_place === undefined ? null : Number(meRow.final_place);
 
     if (status !== "active" || String(meRow.status) !== "alive") {
+    if (meCache.size > 200) {
+      const oldest = [...meCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 100);
+      for (const [k] of oldest) meCache.delete(k);
+    }
+    meCache.set(user.id, { at: Date.now(), payload: base });
       return NextResponse.json(base, { headers: { "Cache-Control": "no-store" } });
     }
 
@@ -182,6 +203,11 @@ export async function GET() {
       };
     });
 
+    if (meCache.size > 200) {
+      const oldest = [...meCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 100);
+      for (const [k] of oldest) meCache.delete(k);
+    }
+    meCache.set(user.id, { at: Date.now(), payload: base });
     return NextResponse.json(base, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("[api/bounty/me] error:", err);
