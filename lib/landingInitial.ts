@@ -87,7 +87,7 @@ async function loadUser(): Promise<LandingInitialUser | null> {
 async function loadLeaderboard(): Promise<LandingInitialLeaderboard | null> {
   try {
     const cached = await readLeaderboardCache();
-    if (!cached || !isLeaderboardCacheFresh(cached.ageMs)) return null;
+    if (!cached) return null;
 
     const payload = cached.payload as {
       success?: boolean;
@@ -97,6 +97,9 @@ async function loadLeaderboard(): Promise<LandingInitialLeaderboard | null> {
       updatedAt?: string;
       data?: unknown[];
     };
+
+    // Adaptive TTL: wars stay hot at 3 min, peacetime coasts at 10 min.
+    if (!isLeaderboardCacheFresh(cached.ageMs, Boolean(payload?.active))) return null;
 
     if (!payload || !Array.isArray(payload.data)) return null;
 
