@@ -6,6 +6,10 @@ import { swrCached } from "@/lib/swrCache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap (the Sep 16 hard failures).
+export const maxDuration = 60;
+
 
 // Featherweight badge endpoint for the navbar bell — one COUNT, no rows.
 //
