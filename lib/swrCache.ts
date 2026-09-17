@@ -39,8 +39,9 @@ function evictIfNeeded(): void {
  * - age < freshMs            → serve instantly, no work
  * - freshMs ≤ age < staleMs  → serve the stale value, one background refresh
  * - age ≥ staleMs (or cold)  → build inline, deduplicated across concurrent
- *                              callers; a failed build rejects to every
- *                              waiter exactly like the uncached route would
+ *                              callers; a failed build degrades to the last
+ *                              known value when one exists - only a cold key
+ *                              with nothing to serve rejects
  */
 export async function swrCached<T>(
   key: string,
@@ -68,7 +69,8 @@ export async function swrCached<T>(
           })
           .catch((err: unknown) => {
             // Keep serving the stale value. The next request past staleMs
-            // retries the build inline and can surface the error normally.
+            // retries the build inline, which itself degrades to the last
+            // known value if that rebuild also fails.
             const message = err instanceof Error ? err.message : String(err);
             console.warn(`[swr-cache] background refresh failed for ${key}: ${message}`);
           })
@@ -80,23 +82,42 @@ export async function swrCached<T>(
       return entry.value as T;
     }
 
-    // Past staleMs: drop and rebuild inline below.
-    entries.delete(key);
+    // Past staleMs: too old for the soft-serve window. The entry is kept
+    // (not deleted) so a failed rebuild below can still degrade to it.
   }
 
   // Cold (or expired) build, deduplicated across concurrent requests.
   const inFlight = coldBuilds.get(key);
   if (inFlight) return inFlight as Promise<T>;
 
-  const built = build().then((value) => {
-    entries.set(key, { value, builtAt: Date.now() });
-    evictIfNeeded();
-    return value;
-  });
+  const previous = entries.get(key);
+  const built = build()
+    .then((value) => {
+      entries.set(key, { value, builtAt: Date.now() });
+      evictIfNeeded();
+      return value;
+    })
+    .catch((err: unknown) => {
+      // Pooler-episode guard: degrade to the last known payload (however old)
+      // rather than failing the request. Only a genuinely cold key rejects.
+      if (previous) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[swr-cache] inline rebuild failed for ${key}, serving last known: ${message}`
+        );
+        return previous.value as T;
+      }
+      throw err;
+    });
   coldBuilds.set(key, built);
-  built.finally(() => {
-    coldBuilds.delete(key);
-  });
+  // Swallow the rejection of the finally-derived promise: a failed cold build
+  // must reject to the awaiting caller (or degrade to the last known value),
+  // not also raise an unhandled promise rejection that can kill the isolate.
+  built
+    .finally(() => {
+      coldBuilds.delete(key);
+    })
+    .catch(() => {});
   return built;
 }
 
