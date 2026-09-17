@@ -114,7 +114,10 @@ export async function GET(req: Request) {
     headers: {
       "Content-Type": contentType.split(";")[0] || "image/jpeg",
       "Content-Length": String(bytes.byteLength),
-      "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
+      // public + s-maxage: proxied images are identical for every viewer, so the
+      // Vercel edge can serve them for a day instead of re-proxying per user
+      // (big dedup when the whole clan watches the same board during a war).
+      "Cache-Control": "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
       "X-Content-Type-Options": "nosniff",
     },
   });
