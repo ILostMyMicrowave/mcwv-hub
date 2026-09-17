@@ -5,6 +5,10 @@ import { getAuthenticatedUser } from "@/lib/authUser";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap (the Sep 16 hard failures).
+export const maxDuration = 60;
+
 
 declare global {
   var _bounty_me_cache: Map<number, { at: number; payload: unknown }> | undefined;
