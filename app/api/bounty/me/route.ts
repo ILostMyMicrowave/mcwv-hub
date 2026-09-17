@@ -12,9 +12,9 @@ declare global {
 
 // Tiny per-isolate micro-cache. The page polls this every 30s per viewer and
 // tab refreshes fire bursts; during pooler pressure (2026-09-16 logs) those
-// extra origin hits turned into sitewide 500s. 10s staleness is invisible on
+// extra origin hits turned into sitewide 500s. 15s staleness is invisible on
 // a live duel tracker scored hourly.
-const ME_CACHE_TTL_MS = 10_000;
+const ME_CACHE_TTL_MS = 15_000;
 const meCache = (global._bounty_me_cache ??= new Map());
 
 /**
@@ -23,11 +23,13 @@ const meCache = (global._bounty_me_cache ??= new Map());
  * baseline slot). This is the ONLY endpoint that ever returns targets.
  */
 export async function GET() {
+  let userId: number | null = null;
   try {
     const user = await getAuthenticatedUser();
     if (!user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+    userId = user.id;
 
     const cached = meCache.get(user.id);
     if (cached && Date.now() - cached.at < ME_CACHE_TTL_MS) {
@@ -211,6 +213,15 @@ export async function GET() {
     return NextResponse.json(base, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("[api/bounty/me] error:", err);
+    // Pooler-episode guard: if this user was ever served a payload, degrade
+    // to it (however stale) instead of a 500. The tracker polls; the first
+    // poll after the episode ends picks up fresh data.
+    if (userId !== null) {
+      const cached = meCache.get(userId);
+      if (cached) {
+        return NextResponse.json(cached.payload, { headers: { "Cache-Control": "no-store" } });
+      }
+    }
     return NextResponse.json({ success: false, error: "Failed to load your hunt" }, { status: 500 });
   }
 }
