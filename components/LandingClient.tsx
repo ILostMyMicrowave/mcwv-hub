@@ -519,7 +519,7 @@ export default function LandingClient({ initial }: { initial: LandingInitial | n
     // so a flapping upstream isn't hammered by every open tab (PERF-1/UX-6).
     async function load(): Promise<boolean> {
       try {
-        const res = await fetch("/api/leaderboard", { cache: "no-store" });
+        const res = await fetch("/api/leaderboard", { cache: "no-cache" });
         if (!res.ok) return false;
         const data: LeaderboardResponse = await res.json();
         const next: LeaderboardEntry[] = Array.isArray(data.data) ? data.data : [];
