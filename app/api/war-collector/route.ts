@@ -6,6 +6,10 @@ import { pool } from "@/lib/db";
 import { timingSafeStringEqual } from "@/lib/machineAuth";
 
 export const runtime = "nodejs";
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap (the Sep 16 hard failures).
+export const maxDuration = 60;
+
 
 const BASE = "https://ps99.biggamesapi.io";
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
