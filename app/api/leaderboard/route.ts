@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
@@ -1557,6 +1558,31 @@ async function getCachedLeaderboard(
   return inFlight;
 }
 
+/* ---------------- CONDITIONAL GET ---------------- */
+
+// The board payload is byte-identical for every viewer between rebuilds, so
+// polls can validate with If-None-Match and take a 304 (empty body) instead
+// of re-transferring the full board. The ETag is SHA-1 over the exact body
+// string this response returns, so it can never desync from the payload.
+function jsonWithEtag(req: Request, payload: unknown): NextResponse {
+  const body = JSON.stringify(payload);
+  const etag = `"L-${createHash("sha1").update(body).digest("hex").slice(0, 20)}"`;
+  if (req.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, {
+      status: 304,
+      headers: { ETag: etag, "Cache-Control": "no-cache, must-revalidate" },
+    });
+  }
+  return new NextResponse(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      ETag: etag,
+      "Cache-Control": "no-cache, must-revalidate",
+    },
+  });
+}
+
 /* ---------------- ROUTE ---------------- */
 
 export async function GET(req: Request) {
@@ -1579,21 +1605,13 @@ export async function GET(req: Request) {
         600_000,
         () => buildHistoricalLeaderboard(battleId)
       );
-      return NextResponse.json(payload, {
-        headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-        },
-      });
+      return jsonWithEtag(req, payload);
     }
 
     // Otherwise, return current leaderboard
     const payload = await getCachedLeaderboard(forceRefresh);
 
-    return NextResponse.json(payload, {
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-      },
-    });
+    return jsonWithEtag(req, payload);
   } catch (err) {
     console.error("[leaderboard] error:", err);
     return NextResponse.json(
