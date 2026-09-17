@@ -1940,8 +1940,10 @@ export default function LeaderboardPage() {
       if (requestedBattleId) params.set("battle_id", requestedBattleId);
       if (forceRefresh && !requestedBattleId) params.set("refresh", "1");
 
+      // no-cache (not no-store): keeps a private copy that revalidates via
+      // If-None-Match, so unchanged polls come back as cheap 304s.
       const res = await fetch(`/api/leaderboard?${params.toString()}`, {
-        cache: "no-store",
+        cache: "no-cache",
       });
       const json: ApiResponse = await res.json();
 
