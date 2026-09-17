@@ -5,6 +5,10 @@ import { pool } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap (the Sep 16 hard failures).
+export const maxDuration = 60;
+
 
 declare global {
   // Per-isolate micro-cache for the public board state. Every open tab polls
