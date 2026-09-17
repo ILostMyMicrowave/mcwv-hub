@@ -6,6 +6,10 @@ import { isDbConnectTimeout, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { loginRateLimiter, getClientIP } from "@/lib/rateLimit"
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap (the Sep 16 hard failures).
+export const maxDuration = 60;
+
 
 const loginSchema = z.object({
   username: z
