@@ -1,4 +1,4 @@
-# MCWV Hub
+# MCWV Hub is tuff
 
 Private clan dashboard for Pet Simulator 99 clan **MCWV**.
 
