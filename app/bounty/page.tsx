@@ -97,6 +97,17 @@ type MeState = {
   }[];
 };
 
+type AdminEntrant = {
+  robloxId: string;
+  username: string;
+  avatarUrl: string | null;
+  status: string;
+  eliminatedRound: number | null;
+  finalPlace: number | null;
+  revivedCount: number;
+  joinedAt: string | null;
+};
+
 type AdminState = {
   success: boolean;
   event: {
@@ -104,14 +115,26 @@ type AdminState = {
     status: string;
     battleId: string | null;
     battleName: string | null;
+    battleStart: string | null;
+    battleEnd: string | null;
     signupCap: number;
     entrantsCount: number;
+    aliveCount: number;
+    eliminatedCount: number;
     roundCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    endNote: string | null;
     prize: { title: string | null; body: string | null; imageUrl: string | null };
+    winner: { robloxId: string; username: string; avatarUrl: string | null } | null;
   } | null;
   battles: { battleId: string; battleName: string | null; startTime: string | null; endTime: string | null; active: boolean; upcoming: boolean }[];
+  entrants: AdminEntrant[];
   eliminated: { robloxId: string; username: string; eliminatedRound: number | null }[];
   entrantsCount: number;
+  warLive: { battleId: string; battleName: string | null } | null;
+  minEntrants: number;
+  recent: { action: string; message: string; actor: string | null; at: string }[];
 };
 
 /* ============================== constants ============================== */
@@ -739,36 +762,235 @@ function Standings({ state, now }: { state: PublicState; now: number }) {
 
 /* ============================== admin ============================== */
 
+type ConfirmKind =
+  | { kind: "abort" }
+  | { kind: "start"; count: number }
+  | { kind: "remove"; entrant: AdminEntrant }
+  | { kind: "eliminate"; entrant: AdminEntrant };
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      className="bh-modal-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="bh-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        initial={{ opacity: 0, y: 14, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.97 }}
+        transition={SPRING}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="bh-modal-title">{title}</h3>
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function ConfirmModal({
+  confirm,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  confirm: ConfirmKind;
+  busy: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const map =
+    confirm.kind === "abort"
+      ? {
+          title: "Cancel this hunt?",
+          body: "The board freezes with no winner and everyone can see it was stopped. There is no undo.",
+          label: "Cancel hunt",
+          danger: true,
+        }
+      : confirm.kind === "start"
+        ? {
+            title: "Start the hunt?",
+            body: `Sign-ups close and targets go out to ${confirm.count} hunters. The first hourly slot sets the warm-up baseline, eliminations start after it.`,
+            label: "Start the hunt",
+            danger: false,
+          }
+        : confirm.kind === "remove"
+          ? {
+              title: `Remove ${confirm.entrant.username}?`,
+              body: "They are dropped from the sign-up list. They can join again while sign-ups stay open.",
+              label: "Remove hunter",
+              danger: true,
+            }
+          : {
+              title: `Strike ${confirm.entrant.username}?`,
+              body: "A manual strike. They fall when the current round closes and land in the kill feed. A revive can undo it later.",
+              label: "Strike hunter",
+              danger: true,
+            };
+  return (
+    <Modal title={map.title} onClose={onClose}>
+      <p className="bh-modal-body">{map.body}</p>
+      <div className="bh-modal-actions">
+        <button type="button" className="bh-btn" disabled={busy} onClick={onClose}>
+          Keep hunting
+        </button>
+        <button
+          type="button"
+          className={`bh-btn ${map.danger ? "bh-btn-danger" : "bh-btn-primary"}`}
+          disabled={busy}
+          onClick={onConfirm}
+        >
+          {busy ? "Working..." : map.label}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function EndHuntModal({
+  alive,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  alive: AdminEntrant[];
+  busy: boolean;
+  onConfirm: (mode: "pick" | "tiebreak", winnerId: string | null, note: string) => void;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"pick" | "tiebreak">("pick");
+  const [winnerId, setWinnerId] = useState("");
+  const [note, setNote] = useState("");
+
+  return (
+    <Modal title="End the hunt" onClose={onClose}>
+      <div className="bh-radio-col">
+        <button
+          type="button"
+          className={`bh-radio ${mode === "pick" ? "bh-radio-on" : ""}`}
+          onClick={() => setMode("pick")}
+        >
+          <span className="bh-radio-dot" aria-hidden />
+          <span>
+            <strong>Crown a hunter</strong>
+            <span className="bh-radio-sub">You pick the winner. The rest place by final-round PPH, then total points.</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`bh-radio ${mode === "tiebreak" ? "bh-radio-on" : ""}`}
+          onClick={() => setMode("tiebreak")}
+        >
+          <span className="bh-radio-dot" aria-hidden />
+          <span>
+            <strong>Decide by tiebreak</strong>
+            <span className="bh-radio-sub">Best final-round PPH takes the crown, total points break ties. The same rule the engine uses when a war ends.</span>
+          </span>
+        </button>
+      </div>
+      {mode === "pick" ? (
+        <label className="bh-field">
+          <span className="bh-label">Winner</span>
+          <select className="bh-input" value={winnerId} onChange={(e) => setWinnerId(e.target.value)}>
+            <option value="">Pick a hunter...</option>
+            {alive.map((a) => (
+              <option key={a.robloxId} value={a.robloxId}>
+                {a.username}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <label className="bh-field">
+        <span className="bh-label">End note (optional)</span>
+        <input
+          className="bh-input"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Called with two hunters left"
+          maxLength={200}
+        />
+      </label>
+      <div className="bh-modal-actions">
+        <button type="button" className="bh-btn" disabled={busy} onClick={onClose}>
+          Keep hunting
+        </button>
+        <button
+          type="button"
+          className="bh-btn bh-btn-primary"
+          disabled={busy || (mode === "pick" && !winnerId)}
+          onClick={() => onConfirm(mode, mode === "pick" ? winnerId : null, note)}
+        >
+          {busy ? "Ending..." : "End the hunt"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function AdminPanel({
   admin,
+  publicEvent,
+  now,
+  role,
   refreshAll,
   toast,
 }: {
   admin: AdminState | null;
+  publicEvent: BountyEvent | null;
+  now: number;
+  role?: string;
   refreshAll: () => void;
   toast: (msg: string, tone: "ok" | "err") => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [cap, setCap] = useState("75");
-  const [battleId, setBattleId] = useState("");
+  const [createBattleId, setCreateBattleId] = useState("");
+  const [linkBattleId, setLinkBattleId] = useState("");
   const [prizeTitle, setPrizeTitle] = useState("");
   const [prizeBody, setPrizeBody] = useState("");
   const [prizeUrl, setPrizeUrl] = useState("");
-  const [reviveId, setReviveId] = useState("");
+  const [endOpen, setEndOpen] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmKind | null>(null);
 
   useEffect(() => {
     if (admin?.event) {
       setCap(String(admin.event.signupCap ?? 75));
-      setBattleId(admin.event.battleId ?? "");
+      setLinkBattleId(admin.event.battleId ?? "");
       setPrizeTitle(admin.event.prize.title ?? "");
       setPrizeBody(admin.event.prize.body ?? "");
       setPrizeUrl(admin.event.prize.imageUrl ?? "");
     } else {
       // No event yet: default to "Next war (auto)" - the engine attaches the
-      // live battle the moment a war starts. Officers can still pick a
-      // specific battle from the list if they ever need to.
-      setBattleId("");
+      // live battle the moment a war starts.
+      setCreateBattleId("");
+      setLinkBattleId("");
     }
   }, [admin]);
 
@@ -800,6 +1022,34 @@ function AdminPanel({
     [refreshAll, toast]
   );
 
+  const rowPost = useCallback(
+    async (payload: Record<string, unknown>, okMsg: string, robloxId: string) => {
+      setRowBusy(robloxId);
+      try {
+        const res = await fetch("/api/bounty/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast(json.error ?? "Action failed", "err");
+          return null;
+        }
+        toast(okMsg, "ok");
+        refreshAll();
+        return json;
+      } catch {
+        toast("Action failed", "err");
+        return null;
+      } finally {
+        setRowBusy(null);
+      }
+    },
+    [refreshAll, toast]
+  );
+
   const uploadImage = useCallback(
     async (file: File) => {
       if (file.size > 2 * 1024 * 1024) {
@@ -822,7 +1072,54 @@ function AdminPanel({
     [post, toast]
   );
 
+  const runConfirm = useCallback(async () => {
+    const c = confirmState;
+    if (!c) return;
+    setConfirmState(null);
+    if (c.kind === "abort") {
+      await post({ action: "abort" }, "Hunt stopped");
+    } else if (c.kind === "start") {
+      await post({ action: "start" }, "The hunt is live - targets are out");
+    } else if (c.kind === "remove") {
+      await rowPost(
+        { action: "remove_entrant", roblox_id: c.entrant.robloxId },
+        `${c.entrant.username} removed from the field`,
+        c.entrant.robloxId
+      );
+    } else {
+      await rowPost(
+        { action: "eliminate", roblox_id: c.entrant.robloxId },
+        `Struck ${c.entrant.username} - they fall when the round closes`,
+        c.entrant.robloxId
+      );
+    }
+  }, [confirmState, post, rowPost]);
+
+  const isOwner = role === "owner";
   const ev = admin?.event ?? null;
+  const battles = admin?.battles ?? [];
+  const entrants = admin?.entrants ?? [];
+  const alive = entrants.filter((x) => x.status === "alive");
+  const minEntrants = admin?.minEntrants ?? 3;
+  const warLive = admin?.warLive ?? null;
+  const linkable = battles.filter((b) => b.active || b.upcoming);
+  const canLink = Boolean(ev && (ev.status === "signup" || (ev.status === "active" && ev.roundCount === 0)));
+  const pinnedDead = Boolean(ev?.battleId && !battles.some((b) => b.battleId === ev?.battleId && (b.active || b.upcoming)));
+  const trackingLive = Boolean(ev?.battleId && warLive && warLive.battleId === ev.battleId);
+  const showCreate = !ev || ev.status === "ended" || ev.status === "aborted";
+  const nextRoundMs = publicEvent?.nextRoundAt ? new Date(publicEvent.nextRoundAt).getTime() - now : null;
+
+  const phaseLabel = !ev
+    ? "No hunt yet"
+    : ev.status === "signup"
+      ? `Sign-ups ${ev.entrantsCount}/${ev.signupCap}`
+      : ev.status === "active"
+        ? `Live - R${ev.roundCount} - ${ev.aliveCount} up`
+        : ev.status === "ended"
+          ? ev.winner
+            ? `Ended - ${ev.winner.username} won`
+            : "Ended"
+          : "Stopped";
 
   return (
     <motion.section variants={riseList} initial="hidden" animate="show" className="bh-card bh-admin">
@@ -830,8 +1127,9 @@ function AdminPanel({
         <span className="bh-kicker" style={{ color: "var(--accent)" }}>Officer controls</span>
         <span className="bh-admin-toggle-right">
           {ev ? (
-            <span className="bh-label">
-              {ev.status === "signup" ? `Sign-ups - ${ev.entrantsCount}/${ev.signupCap}` : ev.status === "active" ? `Live - round ${ev.roundCount}` : `Event #${ev.id} - ${ev.status}`}
+            <span className="bh-label" style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>
+              {trackingLive ? <span className="bh-live-dot" aria-hidden /> : null}
+              {phaseLabel}
             </span>
           ) : null}
           <span className={`bh-chevron ${open ? "bh-chevron-open" : ""}`} aria-hidden>▾</span>
@@ -848,35 +1146,315 @@ function AdminPanel({
             transition={{ duration: 0.3 }}
             className="bh-admin-body"
           >
-            {!ev ? (
+            {ev ? (
+              <>
+                <div className="bh-admin-block">
+                  <h3 className="bh-admin-h">Event #{ev.id}</h3>
+                  <div className="bh-admin-stats">
+                    <div className="bh-stat">
+                      <span className="bh-label">Battle link</span>
+                      <span className="bh-stat-value">
+                        {ev.battleId ? ev.battleName ?? ev.battleId : "Next war (auto)"}
+                      </span>
+                      <span className="bh-stat-sub">
+                        {trackingLive ? (
+                          <>
+                            <span className="bh-live-dot" aria-hidden /> Tracking - live now
+                          </>
+                        ) : ev.battleId ? (
+                          pinnedDead ? "That battle is over" : "Scheduled"
+                        ) : warLive ? (
+                          `Grabs ${warLive.battleName ?? warLive.battleId} shortly`
+                        ) : (
+                          "Waiting for a war"
+                        )}
+                      </span>
+                    </div>
+                    {ev.status === "signup" ? (
+                      <div className="bh-stat">
+                        <span className="bh-label">Hunters</span>
+                        <span className="bh-stat-value bh-mono">
+                          {ev.entrantsCount}/{ev.signupCap}
+                        </span>
+                        <div className="bh-meter">
+                          <div
+                            className="bh-meter-fill"
+                            style={{ width: `${Math.min(100, (ev.entrantsCount / Math.max(1, ev.signupCap)) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    {ev.status === "active" ? (
+                      <>
+                        <div className="bh-stat">
+                          <span className="bh-label">Alive</span>
+                          <span className="bh-stat-value bh-mono">{ev.aliveCount}</span>
+                          <span className="bh-stat-sub">{ev.eliminatedCount} out</span>
+                        </div>
+                        <div className="bh-stat">
+                          <span className="bh-label">Next round</span>
+                          <span className="bh-stat-value bh-mono">
+                            {nextRoundMs !== null ? clock(nextRoundMs) : "soon"}
+                          </span>
+                          <span className="bh-stat-sub">Round {ev.roundCount} closed</span>
+                        </div>
+                      </>
+                    ) : null}
+                    {ev.status === "ended" ? (
+                      <div className="bh-stat">
+                        <span className="bh-label">Winner</span>
+                        <span className="bh-stat-value">{ev.winner ? ev.winner.username : "No winner"}</span>
+                        <span className="bh-stat-sub">{ev.endNote ?? timeAgo(ev.endedAt, now)}</span>
+                      </div>
+                    ) : null}
+                    {ev.status === "aborted" ? (
+                      <div className="bh-stat">
+                        <span className="bh-label">Status</span>
+                        <span className="bh-stat-value">Stopped</span>
+                        <span className="bh-stat-sub">{timeAgo(ev.endedAt, now)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  {ev.status === "signup" && ev.entrantsCount < minEntrants ? (
+                    <p className="bh-stat-sub">
+                      Needs {minEntrants - ev.entrantsCount} more hunter{minEntrants - ev.entrantsCount === 1 ? "" : "s"} to start.
+                    </p>
+                  ) : null}
+                </div>
+
+                {pinnedDead && (ev.status === "signup" || ev.status === "active") ? (
+                  <div className="bh-warn-strip">
+                    <span>
+                      This hunt points at <strong>{ev.battleName ?? ev.battleId}</strong>, a battle that is already
+                      over. No round can ever score.
+                    </span>
+                    {canLink ? (
+                      <button
+                        type="button"
+                        className="bh-btn"
+                        disabled={busy}
+                        onClick={() => void post({ action: "set_battle", battle_id: null }, "Battle link set to next war (auto)")}
+                      >
+                        Switch to next war (auto)
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {canLink ? (
+                  <div className="bh-admin-block">
+                    <h3 className="bh-admin-h">Battle link</h3>
+                    <p className="bh-stat-sub">
+                      The engine scores rounds from this battle&apos;s hourly snapshots. Auto grabs whichever war goes
+                      live next.
+                    </p>
+                    <div className="bh-link-row">
+                      <label className="bh-field">
+                        <span className="bh-label">Linked battle</span>
+                        <select className="bh-input" value={linkBattleId} onChange={(e) => setLinkBattleId(e.target.value)}>
+                          <option value="">Next war (auto)</option>
+                          {linkable.map((b) => (
+                            <option key={b.battleId} value={b.battleId}>
+                              {(b.active ? "LIVE - " : "Upcoming - ") + (b.battleName ?? b.battleId)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="bh-btn"
+                        disabled={busy || linkBattleId === (ev.battleId ?? "")}
+                        onClick={() =>
+                          void post(
+                            { action: "set_battle", battle_id: linkBattleId || null },
+                            linkBattleId ? "Battle link updated" : "Battle link set to next war (auto)"
+                          )
+                        }
+                      >
+                        Update link
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {ev.status === "signup" || ev.status === "active" ? (
+                  <div className="bh-admin-block">
+                    <h3 className="bh-admin-h">Controls</h3>
+                    <div className="bh-admin-actions">
+                      {ev.status === "signup" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="bh-btn bh-btn-primary"
+                            disabled={busy || ev.entrantsCount < minEntrants}
+                            onClick={() => setConfirmState({ kind: "start", count: ev.entrantsCount })}
+                          >
+                            Start hunt ({ev.entrantsCount} hunters)
+                          </button>
+                          <label className="bh-field" style={{ maxWidth: "7.5rem" }}>
+                            <span className="bh-label">Cap</span>
+                            <input
+                              className="bh-input bh-mono"
+                              value={cap}
+                              onChange={(e) => setCap(e.target.value)}
+                              inputMode="numeric"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="bh-btn"
+                            disabled={busy}
+                            onClick={() => void post({ action: "set_cap", signup_cap: Number(cap) || 75 }, "Cap updated")}
+                          >
+                            Set cap
+                          </button>
+                        </>
+                      ) : isOwner ? (
+                        <button
+                          type="button"
+                          className="bh-btn bh-btn-primary"
+                          disabled={busy || ev.aliveCount === 0}
+                          onClick={() => setEndOpen(true)}
+                        >
+                          End hunt
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="bh-btn bh-btn-danger"
+                        disabled={busy}
+                        onClick={() => setConfirmState({ kind: "abort" })}
+                      >
+                        Cancel hunt
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {ev.status === "signup" || ev.status === "active" ? (
+                  <div className="bh-admin-block">
+                    <h3 className="bh-admin-h">The field ({entrants.length})</h3>
+                    {ev.status === "signup" ? (
+                      <p className="bh-stat-sub">Remove trolls and mistakes while sign-ups are open.</p>
+                    ) : null}
+                    {entrants.length === 0 ? (
+                      <p className="bh-stat-sub">No hunters yet. The sign-up card above is live for members.</p>
+                    ) : null}
+                    <div className="bh-roster">
+                      {entrants.map((x) => (
+                        <div key={x.robloxId} className="bh-roster-row">
+                          <Avatar
+                            src={x.avatarUrl}
+                            name={x.username}
+                            size={28}
+                            dimmed={ev.status === "active" && x.status !== "alive"}
+                          />
+                          <span className="bh-roster-name">{x.username}</span>
+                          <span className="bh-roster-meta">
+                            {x.revivedCount > 0 ? (
+                              <span className="bh-label">revived x{x.revivedCount}</span>
+                            ) : null}
+                            {ev.status === "signup" ? (
+                              <span className="bh-label">joined {timeAgo(x.joinedAt, now)}</span>
+                            ) : x.status === "alive" ? (
+                              <Chip tone="ahead">alive</Chip>
+                            ) : (
+                              <Chip tone="behind">out R{x.eliminatedRound ?? "?"}</Chip>
+                            )}
+                            {ev.status === "signup" ? (
+                              <button
+                                type="button"
+                                className="bh-row-btn bh-row-btn-danger"
+                                disabled={busy || rowBusy === x.robloxId}
+                                onClick={() => setConfirmState({ kind: "remove", entrant: x })}
+                              >
+                                Remove
+                              </button>
+                            ) : x.status === "alive" && isOwner ? (
+                              <button
+                                type="button"
+                                className="bh-row-btn bh-row-btn-danger"
+                                disabled={busy || rowBusy === x.robloxId}
+                                onClick={() => setConfirmState({ kind: "eliminate", entrant: x })}
+                              >
+                                Strike
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="bh-row-btn"
+                                disabled={busy || rowBusy === x.robloxId}
+                                onClick={() =>
+                                  void rowPost(
+                                    { action: "revive", roblox_id: x.robloxId },
+                                    `${x.username} is back in the hunt`,
+                                    x.robloxId
+                                  )
+                                }
+                              >
+                                Revive
+                              </button>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {showCreate ? (
               <div className="bh-admin-block">
                 <h3 className="bh-admin-h">Create the hunt</h3>
+                {ev ? (
+                  <p className="bh-stat-sub">Event #{ev.id} is closed. The next hunt starts fresh.</p>
+                ) : null}
                 <div className="bh-form-grid">
                   <label className="bh-field">
                     <span className="bh-label">Battle</span>
-                    <select value={battleId} onChange={(e) => setBattleId(e.target.value)} className="bh-input">
+                    <select value={createBattleId} onChange={(e) => setCreateBattleId(e.target.value)} className="bh-input">
                       <option value="">Next war (auto)</option>
-                      {(admin?.battles ?? []).map((b) => (
+                      {linkable.map((b) => (
                         <option key={b.battleId} value={b.battleId}>
-                          {(b.active ? "LIVE - " : b.upcoming ? "Upcoming - " : "Past - ") + (b.battleName ?? b.battleId)}
+                          {(b.active ? "LIVE - " : "Upcoming - ") + (b.battleName ?? b.battleId)}
                         </option>
                       ))}
                     </select>
                   </label>
                   <label className="bh-field">
                     <span className="bh-label">Sign-up cap</span>
-                    <input className="bh-input bh-mono" value={cap} onChange={(e) => setCap(e.target.value)} inputMode="numeric" />
+                    <input
+                      className="bh-input bh-mono"
+                      value={cap}
+                      onChange={(e) => setCap(e.target.value)}
+                      inputMode="numeric"
+                    />
                   </label>
                 </div>
+                <p className="bh-stat-sub">
+                  Only a live or upcoming battle can be pinned. Leave it on auto and the engine grabs the next war.
+                </p>
                 <div className="bh-form-grid">
                   <label className="bh-field">
                     <span className="bh-label">Prize title</span>
-                    <input className="bh-input" value={prizeTitle} onChange={(e) => setPrizeTitle(e.target.value)} placeholder="Titanic Koi Fish" />
+                    <input
+                      className="bh-input"
+                      value={prizeTitle}
+                      onChange={(e) => setPrizeTitle(e.target.value)}
+                      placeholder="Titanic Koi Fish"
+                    />
                   </label>
                 </div>
                 <label className="bh-field">
                   <span className="bh-label">Prize description</span>
-                  <textarea className="bh-input" rows={2} value={prizeBody} onChange={(e) => setPrizeBody(e.target.value)} placeholder="Awarded in-game by staff after the hunt." />
+                  <textarea
+                    className="bh-input"
+                    rows={2}
+                    value={prizeBody}
+                    onChange={(e) => setPrizeBody(e.target.value)}
+                    placeholder="Awarded in-game by staff after the hunt."
+                  />
                 </label>
                 <div className="bh-field">
                   <span className="bh-label">Prize image</span>
@@ -890,7 +1468,9 @@ function AdminPanel({
                         if (f) void uploadImage(f);
                       }}
                     />
-                    {prizeUrl ? <img src={prizeUrl} alt="Prize preview" className="bh-upload-preview" referrerPolicy="no-referrer" /> : null}
+                    {prizeUrl ? (
+                      <img src={prizeUrl} alt="Prize preview" className="bh-upload-preview" referrerPolicy="no-referrer" />
+                    ) : null}
                   </div>
                 </div>
                 <button
@@ -899,7 +1479,14 @@ function AdminPanel({
                   disabled={busy}
                   onClick={() =>
                     void post(
-                      { action: "create", battle_id: battleId || undefined, signup_cap: Number(cap) || 75, prize_title: prizeTitle || null, prize_body: prizeBody || null, prize_image_url: prizeUrl || null },
+                      {
+                        action: "create",
+                        battle_id: createBattleId || undefined,
+                        signup_cap: Number(cap) || 75,
+                        prize_title: prizeTitle || null,
+                        prize_body: prizeBody || null,
+                        prize_image_url: prizeUrl || null,
+                      },
                       "Hunt created - sign-ups are open"
                     )
                   }
@@ -907,117 +1494,111 @@ function AdminPanel({
                   Create hunt
                 </button>
               </div>
-            ) : (
-              <>
-                <div className="bh-admin-block">
-                  <h3 className="bh-admin-h">Event #{ev.id} - {ev.status}</h3>
-                  <div className="bh-admin-actions">
-                    {ev.status === "signup" ? (
-                      <>
-                        <button
-                          type="button"
-                          className="bh-btn bh-btn-primary"
-                          disabled={busy || ev.entrantsCount < 3}
-                          onClick={() => {
-                            if (window.confirm(`Start the hunt with ${ev.entrantsCount} hunters? Sign-ups close and targets go out.`)) {
-                              void post({ action: "start" }, "The hunt is live - targets are out");
-                            }
-                          }}
-                        >
-                          Start hunt ({ev.entrantsCount} hunters)
-                        </button>
-                        <button
-                          type="button"
-                          className="bh-btn"
-                          disabled={busy}
-                          onClick={() => void post({ action: "set_cap", signup_cap: Number(cap) || 75 }, "Cap updated")}
-                        >
-                          Set cap to {Number(cap) || 75}
-                        </button>
-                      </>
-                    ) : null}
-                    {ev.status === "active" && (admin?.eliminated?.length ?? 0) > 0 ? (
-                      <div className="bh-revive-row">
-                        <select value={reviveId} onChange={(e) => setReviveId(e.target.value)} className="bh-input">
-                          <option value="">Revive a hunter...</option>
-                          {(admin?.eliminated ?? []).map((x) => (
-                            <option key={x.robloxId} value={x.robloxId}>
-                              {x.username} (out R{x.eliminatedRound ?? "?"})
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="bh-btn"
-                          disabled={busy || !reviveId}
-                          onClick={() => {
-                            if (reviveId) void post({ action: "revive", roblox_id: reviveId }, "Hunter revived - they re-enter next round");
-                          }}
-                        >
-                          Revive
-                        </button>
-                      </div>
-                    ) : null}
-                    {ev.status === "signup" || ev.status === "active" ? (
-                      <button
-                        type="button"
-                        className="bh-btn bh-btn-danger"
-                        disabled={busy}
-                        onClick={() => {
-                          if (window.confirm("Abort the hunt? The board freezes and everyone can see it was stopped.")) {
-                            void post({ action: "abort" }, "Hunt stopped");
-                          }
-                        }}
-                      >
-                        Abort hunt
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="bh-admin-block">
-                  <h3 className="bh-admin-h">Prize</h3>
-                  <div className="bh-form-grid">
-                    <label className="bh-field">
-                      <span className="bh-label">Title</span>
-                      <input className="bh-input" value={prizeTitle} onChange={(e) => setPrizeTitle(e.target.value)} />
-                    </label>
-                  </div>
+            ) : null}
+
+            {ev && (ev.status === "signup" || ev.status === "active") ? (
+              <div className="bh-admin-block">
+                <h3 className="bh-admin-h">Prize</h3>
+                <div className="bh-form-grid">
                   <label className="bh-field">
-                    <span className="bh-label">Description</span>
-                    <textarea className="bh-input" rows={2} value={prizeBody} onChange={(e) => setPrizeBody(e.target.value)} />
+                    <span className="bh-label">Title</span>
+                    <input className="bh-input" value={prizeTitle} onChange={(e) => setPrizeTitle(e.target.value)} />
                   </label>
-                  <div className="bh-field">
-                    <span className="bh-label">Image</span>
-                    <div className="bh-upload-row">
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        className="bh-input bh-input-file"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) void uploadImage(f);
-                        }}
-                      />
-                      {prizeUrl ? <img src={prizeUrl} alt="Prize preview" className="bh-upload-preview" referrerPolicy="no-referrer" /> : null}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="bh-btn bh-btn-primary"
-                    disabled={busy}
-                    onClick={() =>
-                      void post(
-                        { action: "update_prize", prize_title: prizeTitle || null, prize_body: prizeBody || null, prize_image_url: prizeUrl || null },
-                        "Prize updated"
-                      )
-                    }
-                  >
-                    Save prize
-                  </button>
                 </div>
-              </>
-            )}
+                <label className="bh-field">
+                  <span className="bh-label">Description</span>
+                  <textarea className="bh-input" rows={2} value={prizeBody} onChange={(e) => setPrizeBody(e.target.value)} />
+                </label>
+                <div className="bh-field">
+                  <span className="bh-label">Image</span>
+                  <div className="bh-upload-row">
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="bh-input bh-input-file"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadImage(f);
+                      }}
+                    />
+                    {prizeUrl ? (
+                      <img src={prizeUrl} alt="Prize preview" className="bh-upload-preview" referrerPolicy="no-referrer" />
+                    ) : null}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="bh-btn bh-btn-primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void post(
+                      {
+                        action: "update_prize",
+                        prize_title: prizeTitle || null,
+                        prize_body: prizeBody || null,
+                        prize_image_url: prizeUrl || null,
+                      },
+                      "Prize updated"
+                    )
+                  }
+                >
+                  Save prize
+                </button>
+              </div>
+            ) : null}
+
+            {(admin?.recent?.length ?? 0) > 0 ? (
+              <div className="bh-admin-block">
+                <h3 className="bh-admin-h">Recent staff actions</h3>
+                <div className="bh-recent">
+                  {(admin?.recent ?? []).map((r, i) => (
+                    <div key={`${r.at}-${i}`} className="bh-recent-row">
+                      <span className="bh-recent-when bh-label">{timeAgo(r.at, now)}</span>
+                      <span>
+                        {r.message || r.action}
+                        {r.actor ? (
+                          <>
+                            {" "}
+                            by <strong>{r.actor}</strong>
+                          </>
+                        ) : null}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <p className="bh-stat-sub">
+              The bot engine scores every round hourly from the official war snapshots. These controls only steer the
+              hunt.
+            </p>
           </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {confirmState ? (
+          <ConfirmModal
+            confirm={confirmState}
+            busy={busy}
+            onConfirm={() => void runConfirm()}
+            onClose={() => setConfirmState(null)}
+          />
+        ) : null}
+        {endOpen && ev ? (
+          <EndHuntModal
+            alive={alive}
+            busy={busy}
+            onClose={() => setEndOpen(false)}
+            onConfirm={(mode, winnerId, note) => {
+              setEndOpen(false);
+              void post(
+                { action: "end", mode, winner_roblox_id: winnerId, note: note || null },
+                "Hunt ended - standings are final"
+              );
+            }}
+          />
         ) : null}
       </AnimatePresence>
     </motion.section>
@@ -1238,7 +1819,7 @@ export default function BountyPage() {
               <RulesGrid />
             </>
           )}
-          {isOfficer ? <AdminPanel admin={admin} refreshAll={refreshAll} toast={toast} /> : null}
+          {isOfficer ? <AdminPanel admin={admin} publicEvent={event} now={now} role={me?.role ?? "member"} refreshAll={refreshAll} toast={toast} /> : null}
           <footer className="bh-footer">
             <span className="bh-label">
               Scored from the official hourly war snapshots · Board refreshes every {POLL_ME_MS / 1000}s
@@ -2089,6 +2670,249 @@ export default function BountyPage() {
             gap: 0.6rem;
             flex: 1;
             min-width: 16rem;
+          }
+          .bh-admin-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+            gap: 0.6rem;
+          }
+          .bh-stat {
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--foreground) 3%, transparent);
+            padding: 0.65rem 0.8rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+            min-width: 0;
+          }
+          .bh-stat-value {
+            font-weight: 800;
+            font-size: 1rem;
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .bh-stat-sub {
+            font-size: 0.74rem;
+            color: color-mix(in srgb, var(--foreground) 55%, transparent);
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+          }
+          .bh-meter {
+            height: 6px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--foreground) 8%, transparent);
+            overflow: hidden;
+            margin-top: 0.35rem;
+          }
+          .bh-meter-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--accent), var(--primary));
+            transition: width 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+          }
+          .bh-warn-strip {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            flex-wrap: wrap;
+            border-radius: 14px;
+            border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--border));
+            background: color-mix(in srgb, #f59e0b 10%, var(--background));
+            padding: 0.7rem 0.9rem;
+            font-size: 0.83rem;
+            margin-top: 1rem;
+          }
+          .bh-warn-strip strong {
+            font-weight: 800;
+          }
+          .bh-live-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: var(--primary);
+            display: inline-block;
+            animation: bh-pulse 1.6s ease-in-out infinite;
+          }
+          @keyframes bh-pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); }
+            50% { opacity: 0.55; box-shadow: 0 0 0 5px transparent; }
+          }
+          .bh-link-row {
+            display: flex;
+            gap: 0.6rem;
+            align-items: flex-end;
+            flex-wrap: wrap;
+          }
+          .bh-link-row .bh-field {
+            flex: 1;
+            min-width: 14rem;
+          }
+          .bh-roster {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+          }
+          .bh-roster-row {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--foreground) 3%, transparent);
+            padding: 0.45rem 0.65rem;
+          }
+          .bh-roster-name {
+            font-weight: 700;
+            font-size: 0.88rem;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .bh-roster-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-left: auto;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+          }
+          .bh-row-btn {
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: none;
+            color: color-mix(in srgb, var(--foreground) 75%, transparent);
+            font-size: 0.74rem;
+            font-weight: 700;
+            padding: 0.32rem 0.6rem;
+            cursor: pointer;
+            letter-spacing: 0.02em;
+          }
+          .bh-row-btn:hover:not(:disabled) {
+            border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+            color: var(--foreground);
+          }
+          .bh-row-btn:disabled {
+            opacity: 0.45;
+            cursor: default;
+          }
+          .bh-row-btn-danger:hover:not(:disabled) {
+            border-color: color-mix(in srgb, #ef4444 55%, var(--border));
+            color: #ef4444;
+          }
+          .bh-recent {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+          }
+          .bh-recent-row {
+            display: flex;
+            gap: 0.6rem;
+            font-size: 0.78rem;
+            color: color-mix(in srgb, var(--foreground) 65%, transparent);
+          }
+          .bh-recent-row strong {
+            color: var(--foreground);
+            font-weight: 700;
+          }
+          .bh-recent-when {
+            flex-shrink: 0;
+          }
+          .bh-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 70;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+          }
+          .bh-modal {
+            width: min(26rem, 100%);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.8);
+            padding: 1.2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.9rem;
+          }
+          .bh-modal-title {
+            font-size: 1.02rem;
+            font-weight: 800;
+          }
+          .bh-modal-body {
+            font-size: 0.86rem;
+            color: color-mix(in srgb, var(--foreground) 70%, transparent);
+            line-height: 1.5;
+          }
+          .bh-modal-actions {
+            display: flex;
+            gap: 0.6rem;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+          }
+          .bh-radio-col {
+            display: flex;
+            flex-direction: column;
+            gap: 0.55rem;
+          }
+          .bh-radio {
+            display: flex;
+            gap: 0.7rem;
+            align-items: flex-start;
+            text-align: left;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: color-mix(in srgb, var(--foreground) 3%, transparent);
+            padding: 0.7rem 0.8rem;
+            cursor: pointer;
+            color: inherit;
+          }
+          .bh-radio-on {
+            border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+            background: color-mix(in srgb, var(--primary) 10%, transparent);
+          }
+          .bh-radio-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 999px;
+            border: 2px solid color-mix(in srgb, var(--foreground) 40%, transparent);
+            margin-top: 4px;
+            flex-shrink: 0;
+          }
+          .bh-radio-on .bh-radio-dot {
+            border-color: var(--primary);
+            background: var(--primary);
+          }
+          .bh-radio strong {
+            display: block;
+            font-size: 0.88rem;
+            font-weight: 800;
+          }
+          .bh-radio-sub {
+            display: block;
+            font-size: 0.76rem;
+            color: color-mix(in srgb, var(--foreground) 60%, transparent);
+            margin-top: 0.15rem;
+            line-height: 1.45;
+          }
+          @media (max-width: 640px) {
+            .bh-roster-meta {
+              width: 100%;
+              margin-left: 2.85rem;
+              margin-top: -0.35rem;
+              justify-content: flex-start;
+            }
+            .bh-modal-actions .bh-btn {
+              flex: 1;
+            }
           }
 
           /* ---------- toasts ---------- */
