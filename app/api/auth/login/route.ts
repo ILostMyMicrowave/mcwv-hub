@@ -6,9 +6,14 @@ import { isDbConnectTimeout, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { loginRateLimiter, getClientIP } from "@/lib/rateLimit"
-// War-day resilience: ride out pooler episodes (up to 60s) instead of
-// being killed at the default cap (the Sep 16 hard failures).
-export const maxDuration = 60;
+// War-day resilience: ride out pooler episodes instead of being killed at
+// the default cap (the Sep 16 hard failures). Raised 60 -> 300 on Sep 18:
+// during Supabase's weekend connect degradation the DB retry ladder can
+// legitimately need ~90s to punch through, and the 60s cap turned that into
+// a member-facing 504 (prod 2026-09-18 23:04 UTC). Normal logins still
+// return in well under a second; this only buys the pathological case
+// enough runway to succeed instead of erroring. 300 is the Fluid Hobby cap.
+export const maxDuration = 300;
 
 
 const loginSchema = z.object({
