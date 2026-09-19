@@ -24,6 +24,13 @@ const statusLimiter = new RateLimiter({
   max: 30, // 30 polls per 5 min per IP
 })
 
+// Per-isolate cooldown for the fan-out sweeps below. Installed devices poll
+// this route every ~2 min; during a war each poll used to run the full
+// sweep chain (4-6 sequential DB round trips) - mostly redundant work that
+// stacked extra load on the pooler exactly when it was most fragile. One
+// sweep per isolate per minute is plenty for a background mirror.
+let lastSweepAt = 0;
+
 // Lightweight status polled by the installed app (AppBadgeSync):
 //   • warActive drives the 🔴 dot on the home-screen icon (Badging API)
 //   • a false→true war edge broadcasts "WAR STARTED" + battle name to all
@@ -76,9 +83,13 @@ export async function GET(req: Request) {
   // Fan-out jobs — broadcast mirroring always, presence tracking only while
   // a battle is live. Both are deduped/cooled-down internally.
   if (pushConfigured()) {
-    await sweepBroadcasts().catch(() => null);
-    if (warActive) {
-      await sweepWarPresence().catch(() => null);
+    const sweepNow = Date.now();
+    if (sweepNow - lastSweepAt > 60_000) {
+      lastSweepAt = sweepNow;
+      await sweepBroadcasts().catch(() => null);
+      if (warActive) {
+        await sweepWarPresence().catch(() => null);
+      }
     }
   }
 
