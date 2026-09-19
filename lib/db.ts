@@ -85,12 +85,17 @@ function getPool() {
     // (port 6543 / pooler host). Session mode’s ~15 client cap will
     // otherwise time out every extra isolate.
     max: 1,
-    // Keep a warm client for 5 minutes: app-status polls arrive every ~60s,
-    // so anything shorter disconnects between polls and every poll pays a
-    // fresh (lottery-prone) connect. Safe on TRANSACTION pooling (6543): an
-    // idle client holds a supavisor client slot (cap 200) but no postgres
-    // backend, and our concurrent warm-isolate count is single-digit.
-    idleTimeoutMillis: 300_000,
+    // Keep a warm client for 10 minutes. 5 minutes was exactly the
+    // quiet-hours UptimeRobot cadence (one check every 5 min), so every
+    // overnight check paid a fresh (lottery-prone) pooler connect, and
+    // during Supabase's Sep 2026 weekend connect degradation those fresh
+    // connects timed out in waves (prod 2026-09-18: app-status retry
+    // ladders + a login 504). 10 minutes keeps clients warm through the
+    // quietest gaps. Safe on TRANSACTION pooling (6543): an idle client
+    // holds a supavisor client slot (cap 200) but no postgres backend, and
+    // our concurrent warm-isolate count stays far below that even at war
+    // peak.
+    idleTimeoutMillis: 600_000,
     // Cold isolates regularly need >5s for the FIRST pooler connect — a fresh
     // isolate’s first DNS lookup of the pooler’s CNAME→ELB chain can take
     // seconds (prod 2026-09-12: attempt-1 timeout warnings every minute, the
