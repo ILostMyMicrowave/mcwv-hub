@@ -27,24 +27,46 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
   const userId = Number(session.user?.id);
   if (!Number.isFinite(userId)) return null;
 
-  const result = await pool.query(
-    `SELECT id, username, role, discord_id, roblox_id
-     FROM users
-     WHERE id = $1
-     LIMIT 1`,
-    [userId]
-  );
+  try {
+    const result = await pool.query(
+      `SELECT id, username, role, discord_id, roblox_id
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [userId]
+    );
 
-  const row = result.rows[0];
-  if (!row) return null;
+    const row = result.rows[0];
+    if (!row) return null;
 
-  return {
-    id: Number(row.id),
-    username: String(row.username ?? ""),
-    role: normalizeRole(row.role),
-    discordId: row.discord_id === null || row.discord_id === undefined ? null : String(row.discord_id),
-    robloxId: row.roblox_id === null || row.roblox_id === undefined ? null : String(row.roblox_id),
-  };
+    return {
+      id: Number(row.id),
+      username: String(row.username ?? ""),
+      role: normalizeRole(row.role),
+      discordId: row.discord_id === null || row.discord_id === undefined ? null : String(row.discord_id),
+      robloxId: row.roblox_id === null || row.roblox_id === undefined ? null : String(row.roblox_id),
+    };
+  } catch (err) {
+    // DB blip (pooler saturation, cold-connect timeout): the signed session
+    // already carries id/username/role, so serve that (possibly stale)
+    // instead of 500-ing every authenticated call — same pattern as
+    // /api/auth/me. Full fields (discord_id, roblox_id) need the DB and come
+    // back on the next healthy request.
+    console.error("[auth user] live verify failed, using signed session:", err);
+    return {
+      id: userId,
+      username: String(session.user?.username ?? ""),
+      role: normalizeRole(session.user?.role),
+      // discordId rides in the session for post-19-Sep logins (used by the
+      // broadcast gate); roblox_id still needs the DB and comes back on the
+      // next healthy request.
+      discordId:
+        session.user?.discordId === null || session.user?.discordId === undefined
+          ? null
+          : String(session.user?.discordId),
+      robloxId: null,
+    };
+  }
 }
 
 export async function requireAuthenticatedUser(): Promise<AuthCheck> {
