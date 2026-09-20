@@ -36,6 +36,8 @@ export default function AppBadgeSync() {
     let dead = false;
 
     async function tick() {
+      // Skip while hidden: the onVisible handler refreshes on focus.
+      if (document.hidden) return;
       try {
         const res = await fetch("/api/app-status", { cache: "no-store" });
         const data = (await res.json()) as { warActive?: boolean };
