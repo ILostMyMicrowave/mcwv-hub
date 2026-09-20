@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
-import { oncePerIsolate, pool } from "@/lib/db";
+import { isDbConnectTimeout, oncePerIsolate, pool } from "@/lib/db";
 import { BotAdminApiError, botAdminFetch } from "@/lib/botAdminApi";
 import { signupRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
 
@@ -50,6 +50,10 @@ async function createSignupVerificationTable() {
 }
 
 export async function POST(req: Request) {
+  // Assigned once the body is validated; the catch block refunds these keys
+  // when the failure was infrastructure, not a real code request.
+  let rateLimitKeys: string[] | null = null;
+
   try {
     const body = await req.json().catch(() => null);
     const parsed = requestSchema.safeParse({ username: body?.username });
@@ -64,10 +68,11 @@ export async function POST(req: Request) {
     // can't be spoofed, so repeated code requests for one account stay
     // throttled even when the attacker rotates IPs (and on top of the
     // server-side per-user DM cooldown below).
-    const rateLimitResult = signupRateLimiter.checkMulti([
+    rateLimitKeys = [
       `verify:${getClientIP(req)}`,
       `verify-user:${username.toLowerCase()}`,
-    ]);
+    ];
+    const rateLimitResult = signupRateLimiter.checkMulti(rateLimitKeys);
     if (!rateLimitResult.success) return rateLimitResponse(rateLimitResult);
     const existing = await pool.query<{
       id: number;
@@ -145,6 +150,22 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("[auth/signup/request-code] error:", err);
-    return NextResponse.json({ error: "Failed to send verification code" }, { status: 500 });
+    const busy =
+      isDbConnectTimeout(err) ||
+      /DATABASE_URL/i.test(err instanceof Error ? err.message : String(err));
+    if (busy && rateLimitKeys) {
+      // Pooler-wave failure, not a real code request: refund the counted
+      // uses so wave retries can't lock the 3-per-hour window. (Successful
+      // sends still count; each one sends a Discord DM.)
+      signupRateLimiter.refund(rateLimitKeys);
+    }
+    return NextResponse.json(
+      {
+        error: busy
+          ? "The hub database is busy. Wait a few seconds and try again."
+          : "Failed to send verification code",
+      },
+      { status: busy ? 503 : 500 }
+    );
   }
 }
