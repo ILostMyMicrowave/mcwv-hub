@@ -8,7 +8,7 @@ import {
   sendPushToAll,
 } from "@/lib/pushServer";
 import { RateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,6 +31,18 @@ const statusLimiter = new RateLimiter({
 // sweep per isolate per minute is plenty for a background mirror.
 let lastSweepAt = 0;
 
+// Per-isolate war-announce guard: the INSERT ... DO NOTHING below is the
+// cross-instance dedupe, but it still cost one DB round trip on EVERY device
+// poll while a war was live. Once this isolate has attempted the announce
+// for a battle (won or lost the race), skip it until the next battle.
+let lastAnnouncedBattle: string | null = null;
+
+// War-day resilience: ride out pooler episodes (up to 60s) instead of being
+// killed at the default cap — a killed function makes Vercel serve its
+// plain-text "An error occurred with this application" page, which breaks
+// client res.json() parsing.
+export const maxDuration = 60;
+
 // Lightweight status polled by the installed app (AppBadgeSync):
 //   • warActive drives the 🔴 dot on the home-screen icon (Badging API)
 //   • a false→true war edge broadcasts "WAR STARTED" + battle name to all
@@ -48,7 +60,7 @@ export async function GET(req: Request) {
   const battleId = war?.battleId ?? null;
 
   let pushSent = 0;
-  if (warActive && battleId && pushConfigured()) {
+  if (warActive && battleId && battleId !== lastAnnouncedBattle && pushConfigured()) {
     try {
       await ensurePushTables();
       // First time we see this battle id → announce it. The INSERT ... DO
@@ -60,6 +72,9 @@ export async function GET(req: Request) {
          RETURNING key`,
         [`war-push:${battleId}`]
       );
+      // Latch AFTER the attempt: if the INSERT itself failed (pooler wave),
+      // the next poll retries the announce instead of skipping it forever.
+      lastAnnouncedBattle = battleId;
       if (rows.length > 0) {
         const site =
           process.env.NEXT_PUBLIC_SITE_URL ?? "https://mcwv-hub.vercel.app";
@@ -81,15 +96,19 @@ export async function GET(req: Request) {
   }
 
   // Fan-out jobs — broadcast mirroring always, presence tracking only while
-  // a battle is live. Both are deduped/cooled-down internally.
+  // a battle is live. Both are deduped/cooled-down internally, and now run
+  // AFTER the response is sent: during pooler waves these sweeps could ride
+  // a 30-60s connect ladder and stall every device polling this endpoint.
   if (pushConfigured()) {
     const sweepNow = Date.now();
     if (sweepNow - lastSweepAt > 60_000) {
       lastSweepAt = sweepNow;
-      await sweepBroadcasts().catch(() => null);
-      if (warActive) {
-        await sweepWarPresence().catch(() => null);
-      }
+      after(async () => {
+        await sweepBroadcasts().catch(() => null);
+        if (warActive) {
+          await sweepWarPresence().catch(() => null);
+        }
+      });
     }
   }
 
