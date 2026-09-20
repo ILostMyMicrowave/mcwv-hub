@@ -96,6 +96,11 @@ function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("en-GB").format(value);
 }
 
+function formatCompactNumber(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-GB", { notation: "compact", maximumFractionDigits: 2 }).format(value);
+}
+
 function formatShortDuration(ms: number | null) {
   if (ms === null) return "—";
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -526,8 +531,18 @@ function safeProjectionHourlyGain(rawGain: number | null | undefined, robustRate
 
   let safe = raw;
 
-  if (robustRate.rate !== null && robustRate.rate > 0 && raw > robustRate.rate * 1.6 && raw - robustRate.rate > 2_000) {
-    safe = robustRate.rate;
+  // Glitch guard. The thresholds are RELATIVE on purpose: this war runs at
+  // hundreds of millions of points per hour, and the original absolute
+  // constants (> 2,000 points) fired on every legitimate hot hour, silently
+  // flooring real gains down to the 3h median (observed live: a 974M/h hour
+  // displayed as a 306M/h "adjusted pace"). Only tame extreme spikes —
+  // 2.5x+ the robust median AND at least half again above it — which is
+  // still enough to catch duplicated-snapshot glitches (those spike 10x+).
+  if (robustRate.rate !== null && robustRate.rate > 0) {
+    const spikeFloor = Math.max(50_000, robustRate.rate * 0.5);
+    if (raw > robustRate.rate * 2.5 && raw - robustRate.rate > spikeFloor) {
+      safe = robustRate.rate;
+    }
   }
 
   const positivePeers = peerRates.filter((value) => Number.isFinite(value) && value > 0);
@@ -535,7 +550,7 @@ function safeProjectionHourlyGain(rawGain: number | null | undefined, robustRate
     const p75 = percentile(positivePeers, 0.75) ?? 0;
     const med = median(positivePeers) ?? 0;
     const peerCeiling = Math.max(p75 * 1.45, med * 1.65, 1_000);
-    if (safe > peerCeiling && safe - peerCeiling > 2_000) {
+    if (safe > peerCeiling && safe - peerCeiling > Math.max(50_000, peerCeiling * 0.1)) {
       safe = peerCeiling;
     }
   }
@@ -685,7 +700,7 @@ function gapTrendFromHistories(
 
 function raceEstimateText(trend: GapTrend | null, mode: "target" | "threat", remainingMs: number | null) {
   if (!trend) return "not enough gap history yet";
-  const amount = formatNumber(Math.round(Math.abs(trend.changePer30m)));
+  const amount = formatCompactNumber(Math.round(Math.abs(trend.changePer30m)));
 
   if (trend.etaMs === 0) return mode === "target" ? "passing them now" : "they are passing us now";
 
@@ -1137,23 +1152,32 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     : "low" as const;
   const inactiveMembers = legacyOverview?.inactiveMembers ?? (legacyOverview?.membersCount && participants !== null ? Math.max(0, legacyOverview.membersCount - participants) : null);
 
-  // ── finish outlook: horizon-blended rate + symmetric scenarios ────────────
-  // The old model froze everyone at their latest hourly rate for the whole
-  // remaining war (a 1h sprint extrapolated across 20h+) and only varied OUR
-  // rate between best/worst, which produced narrow, biased bands. Now:
-  //   - our projection rate blends the recent rate with the whole-war average,
-  //     weighting the average more as the horizon grows;
-  //   - best/worst scenarios move EVERYONE (us up/them down and vice versa),
-  //     so the band is honest in both directions;
-  //   - the warmup gate is relaxed (2h span + 8 tracked clans) with confidence
-  //     staying "low" until 4h + 15 clans.
-  const recentBlendWeight = adjustedHourlyRate !== null && warAverageRate !== null
-    ? clamp(6 / (6 + remainingHours), 0.25, 1)
+  // ── finish outlook: cohort mean-reversion + symmetric scenarios ───────────
+  // Every clan — us included — regresses toward the cohort median pace as the
+  // horizon grows. The earlier model blended OUR rate toward our whole-war
+  // average (which includes the slow start) while leaving rivals at their
+  // latest hourly rate; in an accelerating war that is structurally
+  // pessimistic (live: the fastest clan nearby was forecast to fall 40
+  // places). Scenarios then move everyone symmetrically.
+  const positivePeerRates = peerRatesForProjection.filter((value) => Number.isFinite(value) && value > 0);
+  const cohortMedianRate = median(positivePeerRates);
+  const recentBlendWeight = cohortMedianRate !== null && cohortMedianRate > 0
+    ? clamp(24 / (24 + remainingHours), 0.3, 1)
     : 1;
+  const ourFinishBaseRate =
+    projectionHourGain > 0
+      ? projectionHourGain * reliability
+      : adjustedHourlyRate ?? warAverageRate ?? 0;
   const projectionRate =
-    adjustedHourlyRate !== null && warAverageRate !== null
-      ? adjustedHourlyRate * recentBlendWeight + warAverageRate * (1 - recentBlendWeight)
-      : adjustedHourlyRate ?? warAverageRate;
+    cohortMedianRate !== null && cohortMedianRate > 0
+      ? ourFinishBaseRate * recentBlendWeight + cohortMedianRate * (1 - recentBlendWeight)
+      : ourFinishBaseRate;
+
+  const opponentFinishRate = (name: string) => {
+    const rate = clanRate(name) ?? 0;
+    if (cohortMedianRate === null || cohortMedianRate <= 0 || rate <= 0) return rate;
+    return rate * recentBlendWeight + cohortMedianRate * (1 - recentBlendWeight);
+  };
 
   const finishOutlookReady =
     snapshotSpanMs >= 2 * 60 * 60 * 1000 &&
@@ -1171,7 +1195,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
         name: clan.name,
         points: namesMatch(clan.name, CLAN_NAME)
           ? ourFinishExpected
-          : clan.points + (clanRate(clan.name) ?? 0) * remainingHours,
+          : clan.points + opponentFinishRate(clan.name) * remainingHours,
       }))
     : [];
   const finishProjectionBest = finishOutlookReady
@@ -1179,7 +1203,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
         name: clan.name,
         points: namesMatch(clan.name, CLAN_NAME)
           ? ourFinishBest
-          : clan.points + (clanRate(clan.name) ?? 0) * 0.9 * remainingHours,
+          : clan.points + opponentFinishRate(clan.name) * 0.9 * remainingHours,
       }))
     : [];
   const finishProjectionWorst = finishOutlookReady
@@ -1187,7 +1211,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
         name: clan.name,
         points: namesMatch(clan.name, CLAN_NAME)
           ? ourFinishWorst
-          : clan.points + (clanRate(clan.name) ?? 0) * 1.1 * remainingHours,
+          : clan.points + opponentFinishRate(clan.name) * 1.1 * remainingHours,
       }))
     : [];
 
@@ -1282,6 +1306,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       hourlyRate: rawHourlyRate,
       averageRate: rawHourlyRate,
       adjustedHourlyRate,
+      warAverageRate: warAverageRate !== null ? Math.round(warAverageRate) : null,
       reliability,
       disconnects24h: disconnectStats.events24h,
       disconnectPlayers24h: disconnectStats.players24h,
