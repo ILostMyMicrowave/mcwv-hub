@@ -1053,10 +1053,20 @@ export default function AfkRoom() {
       }
     };
     pull();
-    const timer = window.setInterval(pull, 60_000);
+    // Pull only while the tab is visible: the room state lives server-side;
+    // a parked tab gains nothing from refreshing its own HUD (and refreshes
+    // instantly on focus).
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void pull();
+    }, 60_000);
+    const onVisible = () => {
+      if (!document.hidden) void pull();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
