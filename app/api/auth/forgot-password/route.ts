@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import crypto from "crypto"
 import { z } from "zod"
-import { oncePerIsolate, pool } from "@/lib/db"
+import { isDbConnectTimeout, oncePerIsolate, pool } from "@/lib/db"
 import { BotAdminApiError, botAdminApiConfigured, botAdminFetch } from "@/lib/botAdminApi"
 import { forgotPasswordRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
@@ -75,6 +75,10 @@ async function createResetTables() {
 }
 
 export async function POST(req: Request) {
+  // Assigned once the body is validated; the catch block refunds these keys
+  // when the failure was infrastructure (the reset flow never happened).
+  let rateLimitKeys: string[] | null = null
+
   try {
     const body = await req.json().catch(() => null)
     const parsed = schema.safeParse({
@@ -89,10 +93,11 @@ export async function POST(req: Request) {
 
     const discordUsername = parsed.data.discordUsername
 
-    const rateLimitResult = forgotPasswordRateLimiter.checkMulti([
+    rateLimitKeys = [
       `forgot:${getClientIP(req)}`,
       `forgot-user:${discordUsername.toLowerCase()}`,
-    ])
+    ]
+    const rateLimitResult = forgotPasswordRateLimiter.checkMulti(rateLimitKeys)
     if (!rateLimitResult.success) return rateLimitResponse(rateLimitResult)
 
     await ensureResetTables()
@@ -195,6 +200,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, message: GENERIC_OK })
   } catch (err) {
     console.error("[auth/forgot-password] error:", err)
+    // Anti-enumeration: the response stays GENERIC_OK no matter what. But if
+    // the DB was busy, no token or outbox row was written and no DM will
+    // arrive, so refund the counted uses — the retry is legitimate and
+    // should not eat the 5-per-15-minutes budget.
+    const busy =
+      isDbConnectTimeout(err) ||
+      /DATABASE_URL/i.test(err instanceof Error ? err.message : String(err))
+    if (busy && rateLimitKeys) {
+      forgotPasswordRateLimiter.refund(rateLimitKeys)
+    }
     return NextResponse.json({ success: true, message: GENERIC_OK })
   }
 }
