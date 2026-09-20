@@ -1062,33 +1062,9 @@
 @keyframes cs-skip-in { to { opacity: 1; } }
 @keyframes cs-skip-out { to { opacity: 0; visibility: hidden; } }
 
-/* ---------- Boot-intro loader overlay (BootIntroGate) ---------- */
-
-.cs-loader {
-  position: fixed;
-  inset: 0;
-  z-index: 200; /* above navbar portal (120/130) and every page overlay */
-  background: #050507;
-  transition: opacity 480ms ease;
-  /* Pure-CSS self-dismiss: even with dead JS the cover lifts itself. */
-  animation: cs-loader-selfhide 0.6s ease 7.2s both;
-}
-
-.cs-loader-leaving {
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes cs-loader-selfhide {
-  from { visibility: visible; }
-  to { visibility: hidden; }
-}
-
-/* Set pre-paint by the layout head script when already seen this session:
-   repeat visitors never even flash the intro. */
-html[data-intro-done] .cs-loader {
-  display: none;
-}
+/* The .cs-loader overlay rules moved to globals.css: the backdrop must
+   paint before the lazily-imported cutscene chunk arrives, and this file
+   only loads for first-time visitors now. */
 
 /* ---------- Reduced motion: show the end frame immediately ---------- */
 
@@ -1139,8 +1115,6 @@ html[data-intro-done] .cs-loader {
     pointer-events: auto !important;
   }
 
-  /* Loader mode has no end frame to land on — reduced-motion = instant pass-through */
-  .cs-loader {
-    display: none !important;
-  }
+  /* The .cs-loader reduced-motion rule moved to globals.css with the
+     other .cs-loader overlay rules. */
 }
