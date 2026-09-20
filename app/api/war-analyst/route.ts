@@ -1579,6 +1579,19 @@ export async function GET() {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
+    // Mid-wave, a cold isolate's first recompute can exhaust the connect
+    // ladder. Rather than 500-ing the page, serve the last good payload —
+    // the UI already displays its age ("Updated Xm ago"), so staleness is
+    // visible rather than silent.
+    if (cachedPayload) {
+      console.warn(
+        `[war-analyst] recompute failed (age ${Math.round((Date.now() - cachedPayload.at) / 1000)}s), serving last good payload:`,
+        error instanceof Error ? error.message : error
+      );
+      return NextResponse.json(cachedPayload.data, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
     console.error("[war-analyst] failed:", error);
     return NextResponse.json(
       {
