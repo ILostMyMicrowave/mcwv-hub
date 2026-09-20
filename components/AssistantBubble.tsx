@@ -13,7 +13,10 @@ const AssistantPanel = dynamic(() => import("./AssistantPanel"), {
 
 export default function AssistantBubble() {
   const [open, setOpen] = useState(false);
+  // While true, the panel plays its exit animation; it unmounts ~170ms later.
+  const [closing, setClosing] = useState(false);
   const preloadedRef = useRef(false);
+  const closeTimerRef = useRef<number | null>(null);
 
   const preload = useCallback(() => {
     if (preloadedRef.current) return;
@@ -25,20 +28,44 @@ export default function AssistantBubble() {
     });
   }, []);
 
+  const close = useCallback(() => {
+    if (closeTimerRef.current !== null || !open) return;
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setOpen(false);
+      setClosing(false);
+    }, 170);
+  }, [open]);
+
   useEffect(() => {
     const idle = window.setTimeout(preload, 1500);
-    return () => window.clearTimeout(idle);
+    return () => {
+      window.clearTimeout(idle);
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    };
   }, [preload]);
 
   return (
     <>
       <button
         type="button"
-        aria-label="Open MCWV war assistant"
+        aria-label={open ? "Close MCWV war assistant" : "Open MCWV war assistant"}
         onPointerEnter={preload}
         onClick={() => {
           preload();
-          setOpen((value) => !value);
+          if (closing) {
+            // Rapid re-toggle: cancel the exit and keep the panel open.
+            if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+            setClosing(false);
+            return;
+          }
+          if (open) {
+            close();
+          } else {
+            setOpen(true);
+          }
         }}
         className="fixed right-5 z-[60] grid h-14 w-14 place-items-center rounded-full border text-2xl transition hover:scale-105 active:scale-95"
         style={{
@@ -51,7 +78,7 @@ export default function AssistantBubble() {
         {open ? "✕" : "💬"}
       </button>
 
-      {open && <AssistantPanel />}
+      {open && <AssistantPanel exiting={closing} onRequestClose={close} />}
     </>
   );
 }
