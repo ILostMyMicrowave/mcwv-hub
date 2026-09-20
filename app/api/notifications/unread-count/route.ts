@@ -21,13 +21,15 @@ export async function GET() {
   const auth = await requireAuthenticatedUser();
   if (!auth.ok) return auth.response;
 
-  await ensurePushTables();
-
   const { unread } = await swrCached(
     `unread-count:${auth.user.id}`,
     10_000,
     120_000,
     async () => {
+      // Table check rides inside the cached build, not on every badge poll —
+      // during pooler waves that extra round trip was the slowest part of an
+      // otherwise cached response.
+      await ensurePushTables();
       const { rows } = await pool.query<{ unread: string }>(
         `SELECT COUNT(*)::text AS unread
          FROM notifications n
