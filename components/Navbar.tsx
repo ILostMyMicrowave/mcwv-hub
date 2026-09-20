@@ -651,6 +651,8 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
     }
     let stop = false;
     const tick = async () => {
+      // Skip while hidden: the onVisible handler refreshes on focus.
+      if (document.hidden) return;
       try {
         const res = await fetch("/api/notifications/unread-count", { cache: "no-store" });
         if (!res.ok) return;
