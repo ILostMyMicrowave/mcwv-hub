@@ -38,6 +38,32 @@ let cache: LeaderboardResponse | null = null;
 let cacheTime = 0;
 let inFlight: Promise<LeaderboardResponse> | null = null;
 
+// Wall-clock guard for the build: during a pooler wave a rebuild can ride
+// connect ladders past the 60s function cap, at which point Vercel kills the
+// function and serves its plain-text error page (breaking client JSON
+// parsing with "Unexpected token 'A'"). Race the build against a deadline
+// and fall back to the last known board, however stale, instead of dying.
+const BUILD_DEADLINE_MS = 45_000;
+
+function withBuildDeadline(promise: Promise<LeaderboardResponse>): Promise<LeaderboardResponse> {
+  return new Promise<LeaderboardResponse>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (cache) resolve(cache);
+      else reject(new Error("leaderboard build exceeded deadline"));
+    }, BUILD_DEADLINE_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 /* ---------------- POINT HISTORY TRACKING ---------------- */
 
 let lastLoggedBattleKey: string | null = null;
@@ -1537,11 +1563,17 @@ async function getCachedLeaderboard(
         cacheTime = Date.now() - dbCached.ageMs;
         return payload;
       }
+      // Stale but valid: remember it as the last-known board so the build
+      // deadline above can still serve something during a wave.
+      if (!cache && payload) {
+        cache = payload;
+        cacheTime = Date.now() - dbCached.ageMs;
+      }
     }
   }
 
   if (inFlight) {
-    return inFlight;
+    return withBuildDeadline(inFlight);
   }
 
   inFlight = buildLeaderboard()
@@ -1559,7 +1591,7 @@ async function getCachedLeaderboard(
       inFlight = null;
     });
 
-  return inFlight;
+  return withBuildDeadline(inFlight);
 }
 
 /* ---------------- CONDITIONAL GET ---------------- */
@@ -1618,6 +1650,10 @@ export async function GET(req: Request) {
     return jsonWithEtag(req, payload);
   } catch (err) {
     console.error("[leaderboard] error:", err);
+    if (cache) {
+      console.warn("[leaderboard] serving last known board after error");
+      return jsonWithEtag(req, cache);
+    }
     return NextResponse.json(
       {
         success: false,
