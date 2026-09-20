@@ -78,13 +78,14 @@ const INTENT_HINTS: IntentHint[] = [
   { keywords: ["carry", "carrying", "mvp", "scorer", "scorers", "grinder", "grinders", "best"], sample: "Who's carrying?", run: true },
   { keywords: ["surge", "surging", "rising", "climb", "climbing", "improving", "momentum", "movers"], sample: "Who's surging?", run: true },
   { keywords: ["zero", "zeros", "slacking", "inactive", "asleep", "afk", "freeloading"], sample: "Who's on zero?", run: true },
-  { keywords: ["threat", "danger", "chasing", "behind", "overtake", "rival"], sample: "Biggest threat?", run: true },
+  { keywords: ["threat", "danger", "chasing", "behind", "overtake", "rival", "hold", "defend", "safe", "cushion"], sample: "Biggest threat?", run: true },
   { keywords: ["predict", "prediction", "projection", "forecast", "final", "estimate", "finish"], sample: "What's the projection?", run: true },
   { keywords: ["end", "ends", "when", "deadline", "countdown", "over"], sample: "When does the war end?", run: true },
   { keywords: ["pace", "fast", "speed", "pph", "hourly", "rate"], sample: "What's our pace?", run: true },
   { keywords: ["my", "me", "mine", "stats", "score", "personal"], sample: "My stats", run: true },
   { keywords: ["record", "records", "ever", "history", "past", "hall"], sample: "Record book", run: true },
   { keywords: ["tips", "advice", "help", "improve", "better", "grind"], sample: "Tips to score more", run: true },
+  { keywords: ["hype", "motivate", "pump", "fire", "cheer", "energy"], sample: "Hype me up", run: true },
   { keywords: ["clan", "rival", "enemy", "another", "other"], sample: "How is <clan> doing?", run: false },
 ]
 
@@ -309,12 +310,45 @@ function prepare(raw: string): string {
 const STOP_WORDS = new Set([
   "we", "the", "our", "clan", "i", "me", "us", "war", "battle", "mcwv",
   "and", "what", "about", "how", "who", "are", "is", "do", "does", "did",
+  // Pronouns: never valid player names in the lookup regexes ("their rank?"
+  // after "how is X doing?" must resolve via topic memory, not name search).
+  "their", "them", "they", "he", "she", "his", "her",
   ...Object.keys(BARE_WORDS),
 ])
 
 // ---------------------------------------------------------------------------
 // Shared answer builders
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// War-phase awareness: the same numbers read differently at hour 2 and hour
+// 118 of a war. Answers use this to change tone, urgency, and framing.
+// ---------------------------------------------------------------------------
+
+type WarPhase = "finalHours" | "finalDay" | "midWar" | "earlyWar"
+
+function warPhase(shared: SharedWarContext): WarPhase | null {
+  if (!shared.active || shared.timeLeftMs === null || shared.timeLeftMs <= 0) return null
+  const hours = shared.timeLeftMs / 3_600_000
+  if (hours <= 6) return "finalHours"
+  if (hours <= 24) return "finalDay"
+  if (hours <= 72) return "midWar"
+  return "earlyWar"
+}
+
+function phaseUrgencyLine(shared: SharedWarContext): string {
+  const phase = warPhase(shared)
+  if (phase === "finalHours") {
+    return `\n\n🚨 **FINAL HOURS - this is where ranks flip.** Points scored right now move the board more than any other hour of the war.`
+  }
+  if (phase === "finalDay") {
+    return `\n\n🏁 **Final day.** The last 24h is when the board shuffles hardest - push now, sleep after.`
+  }
+  if (phase === "earlyWar") {
+    return `\n\nEarly days still - the board will shuffle plenty before the end.`
+  }
+  return ""
+}
 
 function noWarLine(shared: SharedWarContext) {
   if (shared.active) return ""
@@ -388,12 +422,31 @@ function statusAnswer(shared: SharedWarContext): string {
     } else if (below.pph !== null && below.pph > 0) {
       out += ` They're gaining ~${fmt(below.pph)}/h.`
     }
+    // Time-aware verdict: can they actually catch us before the clock runs out?
+    if (
+      shared.timeLeftMs !== null &&
+      shared.clanPoints !== null &&
+      below.pph !== null &&
+      ourRate !== null &&
+      below.pph - ourRate > 0
+    ) {
+      const hoursLeft = shared.timeLeftMs / 3_600_000
+      const margin = shared.clanPoints - below.points
+      if (margin > 0) {
+        const etaHours = margin / (below.pph - ourRate)
+        out +=
+          etaHours < hoursLeft
+            ? `\n⚠️ Verdict: at these paces **${below.name} passes us with ~${fmtDuration((hoursLeft - etaHours) * 3_600_000)} of war left** - finding ~**${fmt(below.pph - ourRate)}/h** more freezes the gap.`
+            : `\n✅ Verdict: even at their pace, **${below.name} runs out of clock before they catch us** - just don't let the clan go quiet.`
+      }
+    }
   }
   if (shared.timeLeftMs !== null) {
     out += `\n\n⏳ **${fmtDuration(shared.timeLeftMs)}** left on the clock.`
   } else {
     out += `\n\n⏳ War is live — end time isn't confirmed yet.`
   }
+  out += phaseUrgencyLine(shared)
   return out
 }
 
@@ -442,6 +495,11 @@ function chaseAnswer(shared: SharedWarContext, target: number): string {
       : `\n\n${paceDetail} that's **~${Math.ceil(eta)}h** of grinding with only ${fmtDuration(shared.timeLeftMs)} left — we need to speed up. Wake the zeros up 😅`
   } else {
     out += `\n\nI don't have a solid pace reading yet — check back after the bot's next snapshots land.`
+  }
+  // Final-stretch framing: near the end of a war, paces spike and ETAs lie.
+  const phase = warPhase(shared)
+  if ((phase === "finalDay" || phase === "finalHours") && eta !== null && hoursLeft !== null && eta <= hoursLeft) {
+    out += `\n\n⚡ Final-stretch maths: paces spike hard at the end of a war - treat that ETA as a floor, not a promise.`
   }
   return out
 }
@@ -874,6 +932,25 @@ function playerResponse(shared: SharedWarContext, name: string, chips: string[])
       personRaceCard(shared, suggestion.robloxId, false)
     )
   }
+  // Not a member - but maybe it's a rival clan tag ("how is PETX doing").
+  const clan = shared.standings.find(
+    (s) => s.name.toUpperCase().replace(/[^A-Z0-9]/g, "") === name.toUpperCase().replace(/[^A-Z0-9]/g, "")
+  )
+  if (clan) {
+    const usIdx = usIndex(shared)
+    const ourPoints = shared.clanPoints ?? 0
+    const gap = clan.points - ourPoints
+    const pphBit = clan.pph !== null ? `, gaining ~${fmt(clan.pph)}/h` : ""
+    const gapBit =
+      gap > 0 ? ` - ${fmt(gap)} pts ahead of us` : gap < 0 ? ` - ${fmt(-gap)} pts behind us` : " - level with us"
+    const positionBit =
+      usIdx >= 0 && clan.rank < usIdx + 1 ? " (above us)" : usIdx >= 0 && clan.rank > usIdx + 1 ? " (below us)" : ""
+    return ok(
+      `**${clan.name}** is #${clan.rank} on **${fmt(clan.points)}** pts${pphBit}${gapBit}${positionBit} - that's a clan, not a member 😉`,
+      ["Who's above us?", "Can we make top 10?", "How are we doing?"],
+      `clan:${clan.name}`
+    )
+  }
   return ok(
     `Can't find anyone called **"${name}"** in this war's data — check the spelling, or they haven't scored yet 👻`,
     chips
@@ -894,8 +971,11 @@ function matchOne(
 ): EngineResult {
   // Greeting (also used for the panel's opening message)
   if (msg === "__hello__" || /^(hi|hey|hello|yo|hiya|sup|wag1|morning|afternoon|evening)\b/.test(msg)) {
+    const phase = warPhase(shared)
+    const phaseTag =
+      phase === "finalHours" ? ` - **FINAL HOURS** 🚨` : phase === "finalDay" ? ` - **FINAL DAY** 🏁` : ""
     const warBit = shared.active
-      ? `War's LIVE — we're ${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"} with **${fmtDuration(shared.timeLeftMs)}** left ⚔️`
+      ? `War's LIVE — we're ${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"} with **${fmtDuration(shared.timeLeftMs)}** left ⚔️${phaseTag}`
       : `No war on right now — calm before the storm 😌`
     return ok(
       `Yo ${asker.username}! 💜 ${warBit}\n\nAsk me anything about the war — placements, gaps, rewards, who's carrying, who's slacking (officers see names 👀).`,
@@ -968,6 +1048,18 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
         const result = matchOne(resolved, shared, asker, officer, `player:${member.username}`, page)
         if (result.handled) return result
       }
+    }
+  }
+
+  // Conversation memory: resolve pronouns to the last-mentioned rival clan.
+  // Topic format: "clan:NAME" - set by the rival lookups below.
+  if (topic && topic.startsWith("clan:")) {
+    const clanName = topic.slice("clan:".length)
+    const rival = shared.standings.find((s) => s.name === clanName)
+    if (rival && /\b(their|them|they|it|that clan|those guys)\b/.test(msg)) {
+      const resolved = prepare(`how is ${rival.name} doing`)
+      const result = matchOne(resolved, shared, asker, officer, `clan:${rival.name}`, page)
+      if (result.handled) return result
     }
   }
 
@@ -1229,7 +1321,7 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
   }
 
   // "can we hold our rank" - who's closing in from below and how fast
-  if (/(?:hold|keep|defend|protect|safe).{0,24}(?:rank|place|position|spot)|(?:rank|place|position|spot).{0,24}(?:hold|safe|keep)/.test(msg)) {
+  if (/(?:hold|keep|defend|protect|safe).{0,24}(?:rank|place|position|spot)|(?:rank|place|position|spot).{0,24}(?:hold|safe|keep)|are we safe|how safe are we|are we okay/.test(msg)) {
     const idx = usIndex(shared)
     if (idx < 0 || !shared.active) {
       return ok(noWarLine(shared) + "Between wars there's nothing to defend 😌", DEFAULT_CHIPS)
@@ -1302,7 +1394,7 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
     )
   }
 
-  if (/who('s| is) above us|who.*above us|chase|behind us|gap/.test(msg)) {
+  if (/who('s| is) above us|who.*above us|who('s| is|are)? ?below( us)?|below us|under us|chase|behind us|gap/.test(msg)) {
     const idx = usIndex(shared)
     if (idx < 0) return ok("I can't see us in the live standings right now — probably between wars 😴", DEFAULT_CHIPS)
     const above = idx > 0 ? shared.standings[idx - 1] : null
@@ -1312,6 +1404,31 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
     else out += `⬆️ Nobody above us. We ARE the above 👑`
     if (below) out += `\n⬇️ **${below.name}** (#${below.rank}) — ${fmt((shared.clanPoints ?? 0) - below.points)} pts behind us`
     return ok(out, ["Can we make top 10?", "How are we doing?", "What's the projection?"])
+  }
+
+  if (/hype|motivat|pump me|fire me up|cheer|pep talk|psych me|give me energy/.test(msg)) {
+    if (!shared.active) {
+      return ok(
+        `No war on right now - which means every bit of prep counts double when the next one drops. Rest up, stock the potions, and be ready to strike on day one 😤`,
+        DEFAULT_CHIPS
+      )
+    }
+    const rankBit = shared.clanRank !== null ? `we're **#${shared.clanRank}**` : "we're on the board"
+    const paceBit = shared.hourlyRate !== null ? ` scoring **${fmt(shared.hourlyRate)}/h**` : ""
+    const topBit = shared.topScorers[0]
+      ? `\n\n${MEDALS[0]} **${shared.topScorers[0].username}** is leading the charge - go match them.`
+      : ""
+    const phase = warPhase(shared)
+    const phaseBit =
+      phase === "finalHours"
+        ? ` and the clock says **${fmtDuration(shared.timeLeftMs)}**. FINAL HOURS - legends are made right here 🚨`
+        : phase === "finalDay"
+          ? ` and it's **final day**. This is the push that gets remembered 🏁`
+          : ` with **${fmtDuration(shared.timeLeftMs)}** on the clock`
+    return ok(
+      `LET'S GOOO 🔥 ${rankBit.toUpperCase()}${paceBit}${phaseBit}.${topBit}\n\nEvery point you bank right now shows up on the board where everyone can see it. Now get in there 💜`,
+      ["How are we doing?", "Who's carrying?", "Can we make top 10?"]
+    )
   }
 
   if (/thank|thx|ty\b|nice|love (you|this)|sick|goat/.test(msg)) {
@@ -1335,15 +1452,28 @@ export function answerWithEngine(
 ): EngineResult {
   const base = prepare(rawMessage)
 
-  // Multi-part: "rank + my stats", "how are we doing and can we make top 10?"
-  const parts = base
-    .split(/\s*(?:, and | and then |; | & | \+ | and )\s*/)
+  // Multi-part: "rank + my stats", "how are we doing and can we make top 10?",
+  // "what do we win? who's carrying?". Question marks and "also" separate
+  // questions exactly like "and" / "+" / ";" do.
+  const segmented = base
+    .split("?")
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3)
+    .join(" and ")
+  const parts = segmented
+    .split(/\s*(?:, and | and then |; | & | \+ | and | also )\s*/)
     .map((part) => stripTail(part.trim()))
     .filter((part) => part.length >= 3)
   const uniqueParts = [...new Set(parts)]
   if (uniqueParts.length > 1) {
     const answers = uniqueParts.slice(0, 3).map((part) => matchOne(prepare(part), shared, asker, officer, topic, page))
-    const hits = answers.filter((answer) => answer.handled)
+    // A follow-up that resolves to the same answer as its lead question
+    // ("how is X doing? their rank?") must not print twice.
+    const hits = answers.filter(
+      (answer, i) =>
+        answer.handled &&
+        answers.findIndex((other) => other.handled && other.text === answer.text) === i
+    )
     if (hits.length >= 2) {
       const chips: string[] = []
       for (const hit of hits) {
