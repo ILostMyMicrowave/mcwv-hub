@@ -3,7 +3,36 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import ReactECharts from "echarts-for-react";
+import * as echarts from "echarts/core";
+import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
+import {
+  AxisPointerComponent,
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  TitleComponent,
+  TooltipComponent,
+} from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
+import ReactECharts from "echarts-for-react/lib/core";
+
+// Register only what this page uses (line/bar/pie/scatter + grid/tooltip/
+// legend/dataZoom/markLine). The full echarts bundle is ~336 KB gzipped.
+echarts.use([
+  AxisPointerComponent,
+  BarChart,
+  LineChart,
+  PieChart,
+  ScatterChart,
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  TitleComponent,
+  TooltipComponent,
+  CanvasRenderer,
+]);
 import type { MemberProfile, WarTimelinePoint } from "@/lib/profiles";
 
 type Tab = "roster" | "gems" | "detail" | "gamepass" | "improved" | "timeline";
@@ -127,8 +156,19 @@ export default function WarProfilesPage() {
 
   useEffect(() => {
     loadProfiles(false);
-    const id = setInterval(() => loadProfiles(true), 60_000);
-    return () => clearInterval(id);
+    // Refresh only while the tab is visible; parked tabs must not keep
+    // hitting the API (same pattern as the bounty page).
+    const id = setInterval(() => {
+      if (!document.hidden) loadProfiles(true);
+    }, 60_000);
+    const onVisible = () => {
+      if (!document.hidden) loadProfiles(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [loadProfiles]);
 
   // Relative age of the last generated payload (drives the "stale" badge).
@@ -291,19 +331,19 @@ export default function WarProfilesPage() {
           {/* Charts */}
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
             <ChartPanel title="Gems distribution" icon="📊">
-              <ReactECharts option={gemsChart} style={{ height: 220 }} notMerge />
+              <ReactECharts echarts={echarts} option={gemsChart} style={{ height: 220 }} notMerge />
             </ChartPanel>
             <ChartPanel title="Mastery average distribution" icon="🎯">
-              <ReactECharts option={masteryChart} style={{ height: 220 }} notMerge />
+              <ReactECharts echarts={echarts} option={masteryChart} style={{ height: 220 }} notMerge />
             </ChartPanel>
             <ChartPanel title="Connection status" icon="🔗">
-              <ReactECharts option={connDonut} style={{ height: 220 }} notMerge />
+              <ReactECharts echarts={echarts} option={connDonut} style={{ height: 220 }} notMerge />
             </ChartPanel>
             <ChartPanel title="Top gems" icon="🏆">
-              <ReactECharts option={topGemsChart} style={{ height: 220 }} notMerge />
+              <ReactECharts echarts={echarts} option={topGemsChart} style={{ height: 220 }} notMerge />
             </ChartPanel>
             <ChartPanel title="Gems vs Mastery" icon="🔬">
-              <ReactECharts option={gemsMasteryScatter} style={{ height: 240 }} notMerge />
+              <ReactECharts echarts={echarts} option={gemsMasteryScatter} style={{ height: 240 }} notMerge />
             </ChartPanel>
           </div>
 
@@ -883,7 +923,7 @@ function TimelineTab({ points, theme }: { points: WarTimelinePoint[]; theme: The
   return (
     <div className="mt-4 rounded-2xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
       <h3 className="mb-3 text-sm font-bold">War points timeline <span className="text-xs font-normal opacity-50">(dashed = new day)</span></h3>
-      <ReactECharts option={option} style={{ height: 320 }} notMerge />
+      <ReactECharts echarts={echarts} option={option} style={{ height: 320 }} notMerge />
     </div>
   );
 }
