@@ -78,6 +78,10 @@ function loginFailure(err: unknown): { error: string; status: number } {
 }
 
 export async function POST(req: Request) {
+  // Assigned once the body is validated; the catch block refunds these keys
+  // when the failure was infrastructure (503), not a credential attempt.
+  let rateLimitKeys: string[] | null = null
+
   try {
     const body = await req.json().catch(() => null)
 
@@ -97,10 +101,11 @@ export async function POST(req: Request) {
     // bypassable via a spoofed X-Forwarded-For header; the username bucket
     // can't be spoofed, so a targeted brute-force on one account stays
     // throttled even when the attacker rotates IPs.
-    const rateLimitResult = loginRateLimiter.checkMulti([
+    rateLimitKeys = [
       getClientIP(req),
       `login-user:${username.toLowerCase()}`,
-    ])
+    ]
+    const rateLimitResult = loginRateLimiter.checkMulti(rateLimitKeys)
     if (!rateLimitResult.success) {
       const retryAfter = Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000))
       return NextResponse.json(
@@ -119,7 +124,7 @@ export async function POST(req: Request) {
 
     const userRes = await pool.query(
       `
-        SELECT id, username, password_hash, role
+        SELECT id, username, password_hash, role, discord_id
         FROM users
         WHERE LOWER(username) = LOWER($1)
         LIMIT 1
@@ -166,9 +171,18 @@ export async function POST(req: Request) {
       id: Number(user.id),
       username: String(user.username),
       role: user.role ?? null,
+      discordId:
+        user.discord_id === null || user.discord_id === undefined
+          ? null
+          : String(user.discord_id),
     }
 
     await session.save()
+
+    // A successful login is not a brute-force attempt. Give the counted
+    // uses back so a few quick legit logins can't lock an IP or account
+    // out of the 5-attempt window.
+    loginRateLimiter.refund(rateLimitKeys)
 
     return NextResponse.json({
       success: true,
@@ -181,6 +195,14 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("[auth/login] error:", err)
     const { error, status } = loginFailure(err)
+
+    if (status === 503 && rateLimitKeys) {
+      // Pooler-wave failure, not a credential attempt: refund the counted
+      // uses so retrying through the wave can't lock the account out for
+      // the rest of the 5-minute window.
+      loginRateLimiter.refund(rateLimitKeys)
+    }
+
     return NextResponse.json({ error }, { status })
   }
 }
