@@ -23,6 +23,8 @@ export type EngineResult = {
   chips: string[]
   topic?: string
   card?: AssistantCardData
+  /** When unmatched but the words point at a known question: that question. */
+  suggestion?: string
 }
 
 const DEFAULT_CHIPS = ["How are we doing?", "What do we win?", "Who's carrying?"]
@@ -38,6 +40,71 @@ const withCard = (result: EngineResult, card?: AssistantCardData): EngineResult 
   card ? { ...result, card } : result
 
 const notHandled: EngineResult = { handled: false, text: "", chips: [] }
+
+// ---------------------------------------------------------------------------
+// Page-aware chips: tailor the suggestions to the page the member is on.
+// ---------------------------------------------------------------------------
+
+const PAGE_CHIPS: { prefix: string; chips: string[] }[] = [
+  { prefix: "/leaderboard", chips: ["Who's surging?", "Top scorers", "How are we doing?"] },
+  { prefix: "/war-info", chips: ["Can we make top 10?", "What's the projection?", "Who's above us?"] },
+  { prefix: "/war/profiles", chips: ["My stats", "Who's carrying?", "How are we doing?"] },
+  { prefix: "/war-reports", chips: ["How did we do last war?", "My best war", "Compare wars"] },
+  { prefix: "/contributions", chips: ["What's our pace?", "Who's carrying?", "How are we doing?"] },
+  { prefix: "/bounty", chips: ["How are we doing?", "Who's on zero?"] },
+  { prefix: "/settings", chips: ["My stats", "How are we doing?"] },
+  { prefix: "/dashboard", chips: ["How are we doing?", "My stats"] },
+]
+
+function pageChips(page?: string): string[] | null {
+  if (!page) return null
+  const hit = PAGE_CHIPS.find((entry) => page === entry.prefix || page.startsWith(`${entry.prefix}/`))
+  return hit ? hit.chips : null
+}
+
+// ---------------------------------------------------------------------------
+// "Did you mean" scoring: when nothing matched, look for word overlap with
+// the engine's known questions before falling back to the playbook. Strong
+// overlap (score >= 2) auto-answers with a "(read that as ...)" note; weak
+// overlap (score >= 1) becomes a suggested chip.
+// ---------------------------------------------------------------------------
+
+type IntentHint = { keywords: string[]; sample: string; run: boolean }
+
+const INTENT_HINTS: IntentHint[] = [
+  { keywords: ["rank", "place", "position", "standing", "doing", "status", "update", "situation", "points"], sample: "How are we doing?", run: true },
+  { keywords: ["top", "make", "reach", "target", "goal", "chance", "catch"], sample: "Can we make top 10?", run: true },
+  { keywords: ["win", "reward", "rewards", "prize", "loot", "tiers", "earn"], sample: "What do we win?", run: true },
+  { keywords: ["carry", "carrying", "mvp", "scorer", "scorers", "grinder", "grinders", "best"], sample: "Who's carrying?", run: true },
+  { keywords: ["surge", "surging", "rising", "climb", "climbing", "improving", "momentum", "movers"], sample: "Who's surging?", run: true },
+  { keywords: ["zero", "zeros", "slacking", "inactive", "asleep", "afk", "freeloading"], sample: "Who's on zero?", run: true },
+  { keywords: ["threat", "danger", "chasing", "behind", "overtake", "rival"], sample: "Biggest threat?", run: true },
+  { keywords: ["predict", "prediction", "projection", "forecast", "final", "estimate", "finish"], sample: "What's the projection?", run: true },
+  { keywords: ["end", "ends", "when", "deadline", "countdown", "over"], sample: "When does the war end?", run: true },
+  { keywords: ["pace", "fast", "speed", "pph", "hourly", "rate"], sample: "What's our pace?", run: true },
+  { keywords: ["my", "me", "mine", "stats", "score", "personal"], sample: "My stats", run: true },
+  { keywords: ["record", "records", "ever", "history", "past", "hall"], sample: "Record book", run: true },
+  { keywords: ["tips", "advice", "help", "improve", "better", "grind"], sample: "Tips to score more", run: true },
+  { keywords: ["clan", "rival", "enemy", "another", "other"], sample: "How is <clan> doing?", run: false },
+]
+
+function suggestIntent(msg: string): { hint: IntentHint; score: number } | null {
+  // Deliberately NOT filtered through STOP_WORDS: the bare-word shortcuts
+  // (prize, top, rank, loot...) ARE the intent-carrying words, and they are
+  // members of STOP_WORDS via BARE_WORDS.
+  const tokens = msg.split(/[^a-z0-9]+/).filter((token) => token.length >= 2)
+  if (tokens.length === 0) return null
+  let best: { hint: IntentHint; score: number } | null = null
+  for (const hint of INTENT_HINTS) {
+    let score = 0
+    for (const keyword of hint.keywords) {
+      if (tokens.includes(keyword)) score += 1
+      else if (msg.includes(keyword)) score += 0.5
+    }
+    if (score > 0 && (!best || score > best.score)) best = { hint, score }
+  }
+  return best
+}
 
 const fmt = (value: number | null | undefined) =>
   value === null || value === undefined ? "?" : formatCompact(value)
@@ -822,7 +889,8 @@ function matchOne(
   shared: SharedWarContext,
   asker: AskerContext,
   officer: boolean,
-  topic?: string
+  topic?: string,
+  page?: string
 ): EngineResult {
   // Greeting (also used for the panel's opening message)
   if (msg === "__hello__" || /^(hi|hey|hello|yo|hiya|sup|wag1|morning|afternoon|evening)\b/.test(msg)) {
@@ -831,7 +899,7 @@ function matchOne(
       : `No war on right now — calm before the storm 😌`
     return ok(
       `Yo ${asker.username}! 💜 ${warBit}\n\nAsk me anything about the war — placements, gaps, rewards, who's carrying, who's slacking (officers see names 👀).`,
-      ["How are we doing?", "Can we make top 10?", "What do we win?", "My stats"]
+      pageChips(page) ?? ["How are we doing?", "Can we make top 10?", "What do we win?", "My stats"]
     )
   }
 
@@ -854,12 +922,17 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
     )
   }
 
-  // "can we make top X" — before generic status so it doesn't get swallowed
-  const topMatch = msg.match(/top ?(\d{1,3})/)
+  // "can we make top X" / "gap to #X" / "Xth place" — before generic status
+  // so it doesn't get swallowed
+  const topMatch =
+    msg.match(/top ?(\d{1,3})/) ??
+    msg.match(/(?:gap|how (?:far|close))[a-z ]{0,24}?(?:to|from|till|until)? ?#?(\d{1,3})\b/) ??
+    msg.match(/(\d{1,3})(?:st|nd|rd|th) place/)
   if (
     topMatch &&
-    (/(can|will|could|make|get|reach|hit|still|doable|possible|realistic|chance)/.test(msg) ||
+    (/(can|will|could|make|get|reach|hit|still|doable|possible|realistic|chance|gap|far|close)/.test(msg) ||
       /^top ?\d{1,3}$/.test(msg) ||
+      /^\d{1,3}(?:st|nd|rd|th) place$/.test(msg) ||
       msg.startsWith("and ") ||
       (topic ? topic.startsWith("chase:") : false))
   ) {
@@ -892,7 +965,7 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
       // "their rank", "their points", "how are they", "what about them", "and them"
       if (/\b(their|them|they|he|she|his|her|that guy|that girl)\b/.test(msg)) {
         const resolved = `how is ${member.username.toLowerCase()} doing`
-        const result = matchOne(resolved, shared, asker, officer, `player:${member.username}`)
+        const result = matchOne(resolved, shared, asker, officer, `player:${member.username}`, page)
         if (result.handled) return result
       }
     }
@@ -1155,6 +1228,32 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
     )
   }
 
+  // "can we hold our rank" - who's closing in from below and how fast
+  if (/(?:hold|keep|defend|protect|safe).{0,24}(?:rank|place|position|spot)|(?:rank|place|position|spot).{0,24}(?:hold|safe|keep)/.test(msg)) {
+    const idx = usIndex(shared)
+    if (idx < 0 || !shared.active) {
+      return ok(noWarLine(shared) + "Between wars there's nothing to defend 😌", DEFAULT_CHIPS)
+    }
+    const below = idx < shared.standings.length - 1 ? shared.standings[idx + 1] : null
+    if (!below) {
+      return ok("Nobody's below us in the standings. The rank is ours 👑", ["How are we doing?", "What's the projection?"])
+    }
+    const margin = (shared.clanPoints ?? 0) - below.points
+    const ourPph = shared.hourlyRate ?? 0
+    const theirPph = below.pph ?? 0
+    const net = theirPph - ourPph
+    const eta = net > 0 && margin > 0 ? Math.ceil(margin / net) : null
+    let out = `We're #${shared.clanRank} with a **${fmt(margin)} pt** cushion over **${below.name}** (#${below.rank}).`
+    if (net > 0) {
+      out += `\n⚠️ They're gaining ~${fmt(net)}/h on us net${eta !== null ? ` - at this pace they'd catch us in ~${eta}h` : ""}. Push now, relax later.`
+    } else if (theirPph > 0) {
+      out += `\n✅ We're out-pacing them (~${fmt(ourPph)}/h vs ~${fmt(theirPph)}/h). Hold the line.`
+    } else {
+      out += `\n✅ They've shown no pace so far. Comfortable.`
+    }
+    return ok(out, ["Biggest threat?", "What's the projection?", "How are we doing?"])
+  }
+
   if (/(our|current|clan|'s) (rank|place|position)|where are we|what place|what('s| is)( our| the)? (clan )?rank/.test(msg)) {
     if (shared.clanRank === null) return ok("No live placement on record yet — once the war starts I'll track our rank hourly 📡", DEFAULT_CHIPS)
     const idx = usIndex(shared)
@@ -1172,6 +1271,28 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
       `The clan's on **${fmt(shared.clanPoints)}** pts${shared.gainLastHour !== null ? `, +${fmt(shared.gainLastHour)} in the last hour` : ""}${shared.contributors ? ` from **${shared.contributors} scorers**` : ""}.`,
       ["How are we doing?", "Who's carrying?", "What's the projection?"]
     )
+  }
+
+  // Pace: how fast are we scoring right now (only when the asker means US)
+  if (
+    /\bpace\b|how fast|points (?:per|an|a) hour|\bpph\b|hourly (?:rate|points)|scoring (?:rate|speed)/.test(msg) &&
+    /\b(we|us|our|clan|mcwv)\b/.test(msg)
+  ) {
+    if (!shared.active || shared.hourlyRate === null) {
+      return ok(noWarLine(shared) + "No live pace data right now - I'll have numbers once the war's ticking 📈", DEFAULT_CHIPS)
+    }
+    const rate = shared.hourlyRate
+    const gain = shared.gainLastHour
+    const hoursLeft = shared.timeLeftMs !== null ? Math.max(0, shared.timeLeftMs / 3_600_000) : null
+    const projected = hoursLeft !== null ? rate * hoursLeft : null
+    let out = `We're scoring ~**${fmt(rate)} pts/hour**${gain !== null ? `, +${fmt(gain)} in the last hour` : ""}.`
+    if (projected !== null) {
+      out += ` Hold this pace and we add roughly **${fmt(projected)}** more before the clock runs out.`
+    }
+    if (shared.clanRank !== null) {
+      out += `\n\nCurious who's gaining faster? Ask "biggest threat" 👀`
+    }
+    return ok(out, ["What's the projection?", "Biggest threat?", "How are we doing?"], "pace")
   }
 
   if (/how (are|r) (we|u) doing|status|update|report|recap|summary|news|winning|losing|how('s| is) (the war|it going|it)/.test(msg)) {
@@ -1209,7 +1330,8 @@ export function answerWithEngine(
   shared: SharedWarContext,
   asker: AskerContext,
   officer: boolean,
-  topic?: string
+  topic?: string,
+  page?: string
 ): EngineResult {
   const base = prepare(rawMessage)
 
@@ -1220,7 +1342,7 @@ export function answerWithEngine(
     .filter((part) => part.length >= 3)
   const uniqueParts = [...new Set(parts)]
   if (uniqueParts.length > 1) {
-    const answers = uniqueParts.slice(0, 3).map((part) => matchOne(prepare(part), shared, asker, officer, topic))
+    const answers = uniqueParts.slice(0, 3).map((part) => matchOne(prepare(part), shared, asker, officer, topic, page))
     const hits = answers.filter((answer) => answer.handled)
     if (hits.length >= 2) {
       const chips: string[] = []
@@ -1241,16 +1363,32 @@ export function answerWithEngine(
     }
   }
 
-  const single = matchOne(base, shared, asker, officer, topic)
+  const single = matchOne(base, shared, asker, officer, topic, page)
   if (single.handled) return single
 
   // Typo pass: only reached when nothing matched, so corrections can't hijack a valid question.
   const repaired = repairTypos(base)
   if (repaired !== base) {
-    const retry = matchOne(repaired, shared, asker, officer, topic)
+    const retry = matchOne(repaired, shared, asker, officer, topic, page)
     if (retry.handled) {
       return { ...retry, text: `*(read that as “${repaired}”)*\n\n${retry.text}` }
     }
+  }
+
+  // Suggestion pass: the words clearly point at a known question (two or more
+  // keyword hits), so answer that question with a note instead of dumping
+  // the playbook.
+  const suggestion = suggestIntent(base)
+  if (suggestion && suggestion.score >= 2 && suggestion.hint.run) {
+    const suggested = matchOne(prepare(suggestion.hint.sample), shared, asker, officer, topic, page)
+    if (suggested.handled) {
+      return { ...suggested, text: `*(read that as “${suggestion.hint.sample}”)*\n\n${suggested.text}` }
+    }
+  }
+
+  // Weak overlap only: hand the suggestion to the fallback as a chip.
+  if (suggestion && suggestion.score >= 1) {
+    return { ...notHandled, suggestion: suggestion.hint.sample }
   }
 
   return notHandled
@@ -1260,10 +1398,22 @@ export function answerWithEngine(
 // Fallback when nothing matched — always useful, never leaks internals.
 // ---------------------------------------------------------------------------
 
-export function fallbackAnswer(shared: SharedWarContext, asker: AskerContext): EngineResult {
+export function fallbackAnswer(
+  shared: SharedWarContext,
+  asker: AskerContext,
+  suggestion?: string | null,
+  page?: string
+): EngineResult {
+  const lead = suggestion
+    ? `Not sure I caught that one - did you mean **"${suggestion}"**? Tap it and I'll go 🎯\n\nMeanwhile, where things stand:\n\n`
+    : `Not sure I caught that one - but here's where things stand:\n\n`
+  const chips = [
+    ...(suggestion ? [suggestion] : []),
+    ...(pageChips(page) ?? ["How are we doing?", "Can we make top 10?", "Biggest threat?", "Who's carrying?"]),
+  ].slice(0, 4)
   return {
     handled: true,
-    text: `Not sure I caught that one — but here's where things stand:\n\n${statusAnswer(shared)}\n\nI can also answer:\n• "How is <clan> doing?" — rival check\n• "Biggest threat?" — who's chasing us\n• "Tips to score more" — personalised advice\n• "How is <player> doing?" — member lookup`,
-    chips: ["How are we doing?", "Can we make top 10?", "Biggest threat?", "Who's carrying?"],
+    text: `${lead}${statusAnswer(shared)}\n\nI can also answer:\n• "How is <clan> doing?" - rival check\n• "Biggest threat?" - who's chasing us\n• "Tips to score more" - personalised advice\n• "How is <player> doing?" - member lookup`,
+    chips,
   }
 }
