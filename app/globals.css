@@ -758,3 +758,17 @@ html[data-intro-done] .cs-loader {
     display: none !important;
   }
 }
+
+
+/* Assistant: blinking caret while a reply types out */
+.assistant-cursor {
+  display: inline-block;
+  animation: assistant-caret 0.9s steps(1) infinite;
+  color: var(--primary, #a855f7);
+  margin-left: 1px;
+}
+
+@keyframes assistant-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
