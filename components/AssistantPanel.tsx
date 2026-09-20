@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 
 import AssistantCard from "@/components/AssistantCard";
@@ -45,10 +45,20 @@ export function prefetchAssistantContext(force = false) {
   if (ctxState.loading) return;
   if (!force && ctxState.ctx && Date.now() - ctxState.fetchedAt < CONTEXT_TTL_MS) return;
   ctxState = { ...ctxState, loading: true, error: false };
-  fetch("/api/assistant/context", { cache: "no-store", signal: AbortSignal.timeout(10_000) })
+  // 15s: one flapped DB connection attempt burns up to 10s on its own (see
+  // lib/db.ts), so 10s aborted syncs that the server later completed with a
+  // 200. 15s rides out a single retry wave; worse than that and offline
+  // best-effort + the Reconnect chip take over.
+  fetch("/api/assistant/context", { cache: "no-store", signal: AbortSignal.timeout(15_000) })
     .then(async (res) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as AssistantContext;
+      // Shape check: a 200 that isn't a real context payload (a wrong route
+      // deployed, a proxy page, an HTML error body parsed as JSON) must
+      // degrade to offline mode, never reach the render and crash it.
+      if (!data || typeof data !== "object" || !data.shared || !data.asker) {
+        throw new Error("unexpected payload");
+      }
       ctxState = { ctx: data, loading: false, error: false, fetchedAt: Date.now() };
       emitCtx();
     })
@@ -84,6 +94,37 @@ type ChatMessage = {
 
 const STORAGE_KEY = "mcwv-assistant-v1";
 const STARTER_CHIPS = ["How are we doing?", "What do we win?", "Who's carrying?", "My stats"];
+
+const REDUCED_MOTION =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Feel layer: self-contained keyframes (injected with the panel so no other
+// file has to change). Everything is disabled for reduced-motion users.
+const PANEL_CSS = `
+@keyframes aSpringIn { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes aSpringOut { to { opacity: 0; transform: translateY(10px) scale(0.97); } }
+@keyframes aMsgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes aCardIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes aBarGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes aDotPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); } 50% { box-shadow: 0 0 0 4px rgba(52, 211, 153, 0); } }
+@keyframes aDotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes aShimmerText { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .a-anim, .a-anim * { animation: none !important; transition: none !important; }
+}
+`;
+
+const SHIMMER_TEXT: CSSProperties = {
+  backgroundImage:
+    "linear-gradient(90deg, rgba(251,191,36,0.4) 0%, #fbbf24 50%, rgba(251,191,36,0.4) 100%)",
+  backgroundSize: "200% 100%",
+  WebkitBackgroundClip: "text",
+  backgroundClip: "text",
+  color: "transparent",
+  animation: "aShimmerText 1.6s linear infinite",
+};
 
 const LOCAL_GREETING =
   "Yo! 💜 I'm the war assistant. Placements, gaps, rewards, who's carrying, your own stats.\n\nAnswers are instant: everything is computed right here in your browser, live from the war data.";
@@ -158,7 +199,13 @@ function degradedContext(): AssistantContext {
   };
 }
 
-export default function AssistantPanel() {
+export default function AssistantPanel({
+  exiting = false,
+  onRequestClose,
+}: {
+  exiting?: boolean;
+  onRequestClose?: () => void;
+}) {
   const pathname = usePathname();
   const { ctx, loading, error } = useAssistantContext();
 
@@ -169,7 +216,7 @@ export default function AssistantPanel() {
   const [typingIdx, setTypingIdx] = useState<number | null>(null);
   const [reveal, setReveal] = useState(0);
   // Only ever true while the very first war-data sync is in flight (bounded
-  // by a 10s timeout). Every other reply is instant.
+  // by a 15s timeout). Every other reply is instant.
   const [waiting, setWaiting] = useState(false);
 
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -228,14 +275,14 @@ export default function AssistantPanel() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
-      if (revealTimerRef.current !== null) window.clearInterval(revealTimerRef.current);
+      if (revealTimerRef.current !== null) window.clearTimeout(revealTimerRef.current);
     };
   }, []);
 
   // ---- Typing effect: replies type out at reading speed ----
   function flushTyping() {
     if (revealTimerRef.current !== null) {
-      window.clearInterval(revealTimerRef.current);
+      window.clearTimeout(revealTimerRef.current);
       revealTimerRef.current = null;
     }
     setTypingIdx(null);
@@ -243,27 +290,37 @@ export default function AssistantPanel() {
 
   function startTyping(index: number, text: string) {
     if (revealTimerRef.current !== null) {
-      window.clearInterval(revealTimerRef.current);
+      window.clearTimeout(revealTimerRef.current);
       revealTimerRef.current = null;
     }
-    if (text.length < 24) {
+    if (text.length < 24 || REDUCED_MOTION) {
       setTypingIdx(null);
       return;
     }
-    const totalMs = Math.min(1100, 200 + text.length * 3);
-    const startedAt = Date.now();
     setTypingIdx(index);
     setReveal(0);
-    revealTimerRef.current = window.setInterval(() => {
-      const ratio = Math.min(1, (Date.now() - startedAt) / totalMs);
-      const eased = 1 - Math.pow(1 - ratio, 2.2);
-      setReveal(Math.floor(eased * text.length));
-      if (ratio >= 1) {
-        if (revealTimerRef.current !== null) window.clearInterval(revealTimerRef.current);
+    let shown = 0;
+    const startedAt = Date.now();
+    const step = () => {
+      // 3-6 chars per tick keeps even long replies under ~2.5s; past that,
+      // fast-forward so nobody waits on a slow reveal.
+      const overtime = Date.now() - startedAt > 2400;
+      shown = Math.min(text.length, shown + (overtime ? 14 : 3 + Math.floor(Math.random() * 4)));
+      setReveal(shown);
+      if (shown >= text.length) {
         revealTimerRef.current = null;
         setTypingIdx(null);
+        return;
       }
-    }, 40);
+      // Breathing: brief pauses at punctuation make the reveal read naturally.
+      const ch = text[shown - 1];
+      let delay = 16;
+      if (/[.!?]/.test(ch)) delay = overtime ? 16 : 120;
+      else if (/[,;:]/.test(ch)) delay = overtime ? 16 : 50;
+      else if (ch === "\n") delay = overtime ? 16 : 70;
+      revealTimerRef.current = window.setTimeout(step, delay);
+    };
+    revealTimerRef.current = window.setTimeout(step, 80);
   }
 
   // ---- The engine call: synchronous, local, instant ----
@@ -332,7 +389,7 @@ export default function AssistantPanel() {
     if (ctxState.ctx === null) {
       if (ctxState.loading) {
         // First sync still in flight: hold this question briefly (bounded by
-        // the 10s fetch timeout) rather than answering blind.
+        // the 15s fetch timeout) rather than answering blind.
         pendingRef.current = trimmed;
         setWaiting(true);
         prefetchAssistantContext(true);
@@ -342,25 +399,43 @@ export default function AssistantPanel() {
     deliverAnswer(trimmed);
   }
 
+  const hoursLeft =
+    ctx && ctx.shared.active && ctx.shared.timeLeftMs !== null
+      ? ctx.shared.timeLeftMs / 3_600_000
+      : null;
   const pill = ctx
     ? ctx.shared.active
-      ? `LIVE #${ctx.shared.clanRank ?? "?"} · ${fmtTimeLeft(ctx.shared.timeLeftMs)} left`
+      ? hoursLeft !== null && hoursLeft <= 6
+        ? `LIVE #${ctx.shared.clanRank ?? "?"} · FINAL ${fmtTimeLeft(ctx.shared.timeLeftMs)}`
+        : hoursLeft !== null && hoursLeft <= 24
+          ? `LIVE #${ctx.shared.clanRank ?? "?"} · FINAL DAY · ${fmtTimeLeft(ctx.shared.timeLeftMs)}`
+          : `LIVE #${ctx.shared.clanRank ?? "?"} · ${fmtTimeLeft(ctx.shared.timeLeftMs)} left`
       : "Between wars"
     : loading
       ? "syncing…"
       : "offline";
   const pillColor = ctx ? "#34d399" : loading ? "#fbbf24" : "#f87171";
+  const dotAnimation = ctx
+    ? "aDotPulse 2.4s ease-in-out infinite"
+    : loading
+      ? "aDotBlink 1.1s ease-in-out infinite"
+      : "aDotBlink 2.6s ease-in-out infinite";
 
   return (
     <div
-      className="assistant-pop-in fixed right-5 z-[60] flex h-[min(64dvh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border backdrop-blur-xl"
+      className="a-anim fixed right-5 z-[60] flex h-[min(64dvh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border backdrop-blur-xl"
       style={{
         bottom: "calc(max(1.25rem, env(safe-area-inset-bottom)) + 4.5rem)",
         background: "color-mix(in srgb, #09090b 82%, var(--primary))",
         borderColor: "color-mix(in srgb, var(--primary) 35%, var(--border, rgba(255,255,255,0.12)))",
         boxShadow: "0 20px 60px rgba(0,0,0,0.55), 0 0 24px var(--glow)",
+        animation: exiting
+          ? "aSpringOut 0.16s ease-in both"
+          : "aSpringIn 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.12) both",
+        pointerEvents: exiting ? "none" : undefined,
       }}
     >
+      <style dangerouslySetInnerHTML={{ __html: PANEL_CSS }} />
       <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
         <div
           className="grid h-9 w-9 place-items-center rounded-2xl text-lg"
@@ -373,11 +448,19 @@ export default function AssistantPanel() {
           <div className="flex items-center gap-1.5 text-xs text-zinc-400">
             <span
               className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: pillColor }}
+              style={{ background: pillColor, animation: dotAnimation }}
             />
-            <span className="truncate">{pill}</span>
+            <span className="truncate" style={loading ? SHIMMER_TEXT : undefined}>{pill}</span>
           </div>
         </div>
+        <button
+          type="button"
+          aria-label="Close assistant"
+          onClick={onRequestClose}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-white/10 text-sm text-zinc-400 transition hover:border-white/25 hover:text-white active:scale-90"
+        >
+          ✕
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
