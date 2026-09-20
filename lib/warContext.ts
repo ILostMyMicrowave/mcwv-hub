@@ -832,6 +832,48 @@ function kickBackgroundRefresh() {
     })
 }
 
+// --- Cold-boot deadline -----------------------------------------------------
+// A cold isolate's first context build stacks external fetches on DB connect
+// ladders; during pooler waves that build can outlive the 60s function cap,
+// and Vercel kills the caller with a 504 FUNCTION_INVOCATION_TIMEOUT (the
+// non-JSON page that breaks client res.json()). Past this deadline we serve
+// a minimal degraded context and let the build keep running: when it lands
+// it overwrites the degraded cache entry, so consumers self-heal within one
+// degraded TTL (10s). Every consumer only READS the context (badge dot,
+// assistant answers, sweep gating) - nothing acts on active:false, so a
+// brief "unknown" beats a 60s hang or a function kill.
+const COLD_BOOT_DEADLINE_MS = 20_000
+
+function coldBootContext(): SharedWarContext {
+  return {
+    generatedAt: new Date().toISOString(),
+    active: false,
+    battleId: null,
+    timeLeftMs: null,
+    endsAt: null,
+    clanRank: null,
+    clanPoints: null,
+    memberCount: null,
+    sampleClans: 0,
+    gainLastHour: null,
+    gainLast24h: null,
+    hourlyRate: null,
+    projectedFinalPoints: null,
+    projectedRankIfPaceHolds: null,
+    standings: [],
+    rewards: [],
+    headlineReward: null,
+    contributorRewards: [],
+    topScorers: [],
+    movers: [],
+    members: [],
+    zeroCount: 0,
+    zeroNames: [],
+    contributors: null,
+    history: [],
+  }
+}
+
 export async function getSharedWarContext(force = false): Promise<SharedWarContext> {
   const cache = sharedCache
   if (!force && cache) {
@@ -842,8 +884,29 @@ export async function getSharedWarContext(force = false): Promise<SharedWarConte
     kickBackgroundRefresh()
     return cache.context
   }
-  // Cold isolate (no cache yet) or an explicit force: block as before.
-  return refreshSharedWarContext()
+  // Cold isolate (no cache yet) or an explicit force: block, but only up to
+  // the cold-boot deadline - past it, degrade instead of hanging the caller
+  // into a function timeout.
+  const refresh = refreshSharedWarContext()
+  const outcome = await Promise.race([
+    refresh.then(
+      () => "done" as const,
+      () => "failed" as const
+    ),
+    new Promise<"timeout">((resolve) => {
+      setTimeout(() => resolve("timeout"), COLD_BOOT_DEADLINE_MS)
+    }),
+  ])
+
+  if (outcome === "done") return await refresh
+
+  // Timed out or failed: keep the losing refresh from rejecting unhandled;
+  // when it eventually lands it replaces whatever we cache below.
+  refresh.catch(() => {})
+  if (cache) return cache.context
+  const degraded = coldBootContext()
+  sharedCache = { at: Date.now(), context: degraded, degraded: true }
+  return degraded
 }
 
 export function buildAskerContext(
