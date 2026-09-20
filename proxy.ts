@@ -56,7 +56,10 @@ const PUBLIC_API_PATHS = new Set([
 // killed badge sync, InstallBanner's war urgency message, and the
 // poll-driven WAR STARTED push edge + broadcast/presence sweeps for
 // logged-out devices. The route rate-limits per IP itself.
-const PUBLIC_STATUS_API_PATHS = new Set(["/api/app-status"])
+// /api/health joins it: the one-query monitor endpoint for uptime robots
+// (a single SELECT 1, self-rate-limited, leaks nothing). Without this it
+// 401s for cookie-less monitors (prod 2026-09-20: HEAD /api/health 401).
+const PUBLIC_STATUS_API_PATHS = new Set(["/api/app-status", "/api/health"])
 
 function isAuthPage(pathname: string) {
   return AUTH_PAGES.has(pathname)
