@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import crypto from "crypto"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
-import { pool } from "@/lib/db"
+import { isDbConnectTimeout, pool } from "@/lib/db"
 import { forgotPasswordRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
 export const dynamic = "force-dynamic"
@@ -21,6 +21,10 @@ function hashToken(token: string) {
 }
 
 export async function POST(req: Request) {
+  // Assigned once the body is validated; the catch block refunds these keys
+  // when the failure was infrastructure, not a real reset attempt.
+  let rateLimitKeys: string[] | null = null
+
   try {
     const body = await req.json().catch(() => null)
     const parsed = schema.safeParse({
@@ -35,10 +39,11 @@ export async function POST(req: Request) {
     }
 
     const { token, password } = parsed.data
-    const rateLimitResult = forgotPasswordRateLimiter.checkMulti([
+    rateLimitKeys = [
       `reset:${getClientIP(req)}`,
       `reset-token:${token.slice(0, 12)}`,
-    ])
+    ]
+    const rateLimitResult = forgotPasswordRateLimiter.checkMulti(rateLimitKeys)
     if (!rateLimitResult.success) return rateLimitResponse(rateLimitResult)
 
     const tokenHash = hashToken(token)
@@ -89,6 +94,21 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     console.error("[auth/reset-password] error:", err)
-    return NextResponse.json({ error: "Couldn't reset that password." }, { status: 500 })
+    const busy =
+      isDbConnectTimeout(err) ||
+      /DATABASE_URL/i.test(err instanceof Error ? err.message : String(err))
+    if (busy && rateLimitKeys) {
+      // Pooler-wave failure, not a real reset attempt: refund the counted
+      // uses so wave retries can't eat the 5-per-15-minutes budget.
+      forgotPasswordRateLimiter.refund(rateLimitKeys)
+    }
+    return NextResponse.json(
+      {
+        error: busy
+          ? "The hub database is busy. Wait a few seconds and try again."
+          : "Couldn't reset that password.",
+      },
+      { status: busy ? 503 : 500 }
+    )
   }
 }
