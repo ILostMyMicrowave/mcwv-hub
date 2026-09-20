@@ -719,3 +719,42 @@ body {
   padding-right: env(safe-area-inset-right);
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+
+/* ---------- Boot-intro loader overlay (BootIntroGate) ----------
+   Moved here from cutscene.css: the backdrop must paint before the lazy
+   cutscene chunk arrives, and cutscene.css only loads for first-time
+   visitors now. */
+
+.cs-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 200; /* above navbar portal (120/130) and every page overlay */
+  background: #050507;
+  transition: opacity 480ms ease;
+  /* Pure-CSS self-dismiss: even with dead JS the cover lifts itself. */
+  animation: cs-loader-selfhide 0.6s ease 7.2s both;
+}
+
+.cs-loader-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes cs-loader-selfhide {
+  from { visibility: visible; }
+  to { visibility: hidden; }
+}
+
+/* Set pre-paint by the layout head script when already seen this session:
+   repeat visitors never even flash the intro. */
+html[data-intro-done] .cs-loader {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Loader mode has no end frame to land on: reduced-motion = pass-through */
+  .cs-loader {
+    display: none !important;
+  }
+}
