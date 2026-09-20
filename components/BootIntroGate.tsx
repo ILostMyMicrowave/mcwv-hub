@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import CutsceneStage from "./CutsceneStage";
+import dynamic from "next/dynamic";
+
+// The cutscene (its JS + cutscene.css) only ships to FIRST-TIME visitors.
+// The .cs-loader backdrop rules it needs pre-paint live in globals.css.
+// ssr:false: the stage self-times from page birth and the CSS self-dismiss
+// at 7.2s still bounds the wait on slow connections.
+const CutsceneStage = dynamic(() => import("./CutsceneStage"), {
+  ssr: false,
+});
 
 /**
  * Boot intro gate — plays the MCWV cutscene ONCE PER DEVICE, covering
@@ -65,9 +73,12 @@ function markIntroSeen() {
 export default function BootIntroGate() {
   const pathname = usePathname();
   const router = useRouter();
-  // Optimistically shown (it is server-rendered so the intro starts at first
-  // paint); the head-script attribute hides it for repeat visitors.
+  // Optimistic cover: the .cs-loader backdrop renders server-side (black
+  // screen from first paint); the head-script attribute hides it for repeat
+  // visitors pre-paint. The cutscene itself mounts only after confirm, so
+  // repeat visitors never download its chunk at all.
   const [show, setShow] = useState(true);
+  const [confirmed, setConfirmed] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const finishingRef = useRef(false);
 
@@ -75,6 +86,9 @@ export default function BootIntroGate() {
     if (readIntroSeen() || SKIP_PATHS.has(pathname)) {
       setShow(false);
       window.dispatchEvent(new Event("mcwv:intro-done"));
+    } else {
+      // First visit on this device: mount (and fetch) the cutscene chunk.
+      setConfirmed(true);
     }
   }, [pathname]);
 
@@ -118,7 +132,7 @@ export default function BootIntroGate() {
 
   return (
     <div className={`cs-loader${leaving ? " cs-loader-leaving" : ""}`} role="presentation">
-      <CutsceneStage mode="loader" onSkip={finish} onFinish={finish} />
+      {confirmed && <CutsceneStage mode="loader" onSkip={finish} onFinish={finish} />}
     </div>
   );
 }
