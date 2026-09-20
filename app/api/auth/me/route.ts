@@ -4,6 +4,12 @@ import { getIronSession } from "iron-session"
 import { sessionOptions, type SessionData } from "@/lib/session"
 import { pool } from "@/lib/db"
 
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap — a killed function makes Vercel serve
+// its plain-text "An error occurred with this application" page, which
+// breaks client res.json() parsing.
+export const maxDuration = 60;
+
 export async function GET() {
   try {
     const cookieStore = await cookies()
