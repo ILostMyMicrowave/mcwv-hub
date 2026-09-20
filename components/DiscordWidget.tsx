@@ -41,10 +41,19 @@ export default function DiscordWidget() {
     }
 
     void load();
-    const interval = window.setInterval(load, 30_000);
+    // Refresh only while the tab is visible; parked tabs must not keep
+    // hitting the API (same pattern as the bounty page).
+    const interval = window.setInterval(() => {
+      if (!document.hidden) load();
+    }, 30_000);
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       active = false;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
