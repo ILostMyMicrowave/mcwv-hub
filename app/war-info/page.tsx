@@ -282,11 +282,20 @@ export default function WarInfoPage() {
     }
 
     void loadWar(true);
-    const timer = window.setInterval(() => void loadWar(false), 30_000);
+    // Refresh only while the tab is visible; parked tabs must not keep
+    // hitting the API (same pattern as the bounty page).
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void loadWar(false);
+    }, 30_000);
+    const onVisible = () => {
+      if (!document.hidden) void loadWar(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       alive = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
