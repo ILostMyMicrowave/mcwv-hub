@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import AssistantCard from "@/components/AssistantCard";
 import type { AssistantCardData } from "@/lib/assistantEngine";
@@ -24,6 +25,12 @@ type AssistantResponse = {
 const STORAGE_KEY = "mcwv-assistant-v1";
 const STARTER_CHIPS = ["How are we doing?", "What do we win?", "Who's carrying?", "My stats"];
 
+// Rendered instantly on first open so the panel never sits silent while a
+// cold server warms up; the live version (rank + time left) swaps in when
+// the background hello lands.
+const LOCAL_GREETING =
+  "Yo! 💜 I'm the war assistant. Ask me anything: how we're doing, gaps, rewards, who's carrying, your own stats.\n\nI answer instantly from live war data.";
+
 function renderRichText(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, index) =>
@@ -38,6 +45,7 @@ function renderRichText(text: string) {
 }
 
 export default function AssistantBubble() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chips, setChips] = useState<string[]>(STARTER_CHIPS);
@@ -74,6 +82,11 @@ export default function AssistantBubble() {
     } catch {
       // Storage is a bonus, never a blocker.
     }
+  }, [messages]);
+
+  // Keep the transcript pinned to the newest line, including while a reply
+  // types itself out.
+  useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, reveal, typingIdx]);
@@ -81,7 +94,12 @@ export default function AssistantBubble() {
   useEffect(() => {
     if (open && !greeted) {
       setGreeted(true);
-      void sendInternal("__hello__");
+      // Instant local greeting, then a SILENT background refresh with the
+      // live war state. No dots, no waiting: the panel is usable immediately.
+      setMessages((current) => [...current, { from: "bot", text: LOCAL_GREETING }]);
+      setChips(STARTER_CHIPS);
+      const replaceIndex = messagesRef.current.length;
+      void sendInternal("__hello__", { silent: true, replaceIndex });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -96,7 +114,11 @@ export default function AssistantBubble() {
     const now = Date.now();
     if (now - lastWarmRef.current < 45_000) return;
     lastWarmRef.current = now;
-    void fetch("/api/assistant", { method: "GET", cache: "no-store" }).catch(() => undefined);
+    void fetch("/api/assistant", {
+      method: "GET",
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -152,36 +174,85 @@ export default function AssistantBubble() {
     }, 40);
   }
 
-  async function sendInternal(text: string) {
-    if (busy) return;
-    setBusy(true);
+  async function askOnce(text: string, timeoutMs: number): Promise<AssistantResponse> {
+    const res = await fetch("/api/assistant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, context: { topic: topicRef.current, page: pathname } }),
+      // Hard client timeout: a request can never hang the dots forever. A
+      // cold isolate can legitimately need ~20s for its first war-context
+      // build, so a timeout is not a failure - attempt one has WARMED the
+      // isolate, and the retry usually lands in well under a second.
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const data = (await res.json().catch(() => ({}))) as AssistantResponse;
+    if (!res.ok || !data.reply) throw new Error(data.error ?? "Assistant request failed");
+    return data;
+  }
+
+  async function sendInternal(text: string, opts?: { silent?: boolean; replaceIndex?: number }) {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      if (busy) return;
+      setBusy(true);
+    }
     try {
-      const res = await fetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, context: { topic: topicRef.current } }),
-      });
-      const data = (await res.json().catch(() => ({}))) as AssistantResponse;
-      if (!res.ok || !data.reply) throw new Error(data.error ?? "Assistant request failed");
+      let data: AssistantResponse;
+      if (silent) {
+        // Background greeting refresh: one attempt, best-effort.
+        data = await askOnce(text, 15_000);
+      } else {
+        try {
+          data = await askOnce(text, 12_000);
+        } catch {
+          // One automatic retry with a bigger budget (isolate now warm).
+          data = await askOnce(text, 25_000);
+        }
+      }
       const replyText = String(data.reply);
-      const nextMessages = [
-        ...messagesRef.current,
-        { from: "bot" as const, text: replyText, source: data.source ?? null, card: data.card ?? null },
-      ];
-      setMessages(nextMessages);
-      startTyping(nextMessages.length - 1, replyText);
+      const botMessage = {
+        from: "bot" as const,
+        text: replyText,
+        source: data.source ?? null,
+        card: data.card ?? null,
+      };
+
+      if (opts && typeof opts.replaceIndex === "number") {
+        // Greeting refresh: only swap the placeholder if nothing newer has
+        // happened meanwhile; otherwise drop it so the transcript stays clean.
+        const current = messagesRef.current;
+        const inPlace =
+          current.length === opts.replaceIndex + 1 && current[opts.replaceIndex]?.from === "bot";
+        if (!inPlace) return;
+        const nextMessages = [...current];
+        nextMessages[opts.replaceIndex] = botMessage;
+        setMessages(nextMessages);
+        startTyping(opts.replaceIndex, replyText);
+      } else {
+        const nextMessages = [...messagesRef.current, botMessage];
+        setMessages(nextMessages);
+        startTyping(nextMessages.length - 1, replyText);
+      }
       if (Array.isArray(data.chips) && data.chips.length) setChips(data.chips);
       if (typeof data.topic === "string" && data.topic) topicRef.current = data.topic;
     } catch (err) {
+      if (silent) return;
+      const timedOut =
+        (err instanceof DOMException && /timeout/i.test(err.name)) ||
+        (err instanceof Error && /abort|timeout/i.test(`${err.name} ${err.message}`));
       setMessages((current) => [
         ...current,
         {
           from: "bot",
-          text: err instanceof Error ? `Wobble 😵 ${err.message} — try again?` : "Something wobbled — try again?",
+          text: timedOut
+            ? "Took too long there - the server was stone cold. Try again, I'm warm now 🔥"
+            : err instanceof Error
+              ? `Wobble 😵 ${err.message} — try again?`
+              : "Something wobbled — try again?",
         },
       ]);
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   }
 
