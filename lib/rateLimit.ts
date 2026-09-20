@@ -120,6 +120,20 @@ export class RateLimiter {
     }
     return { success: true, limit: max, remaining: Math.max(0, minRemaining), reset: maxReset }
   }
+
+  // Give back one use of the given keys. Called when an attempt was counted
+  // but should not have been: the request failed on infrastructure (pooler
+  // wave 503) or it was a successful login. Real credential failures still
+  // count, so brute-force protection is unchanged.
+  public refund(keys: string[]): void {
+    const now = Date.now()
+    for (const key of keys) {
+      const entry = this.store.get(key)
+      if (entry && entry.resetTime > now && entry.count > 0) {
+        entry.count -= 1
+      }
+    }
+  }
 }
 
 // Rate limit configurations
