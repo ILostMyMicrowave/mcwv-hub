@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { oncePerIsolate, pool } from "@/lib/db"
+import { isDbConnectTimeout, oncePerIsolate, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { z } from "zod"
@@ -50,6 +50,10 @@ async function createSignupVerificationTable() {
 }
 
 export async function POST(req: Request) {
+  // Assigned once the body is validated; the catch block refunds these keys
+  // when the failure was infrastructure, not a real signup attempt.
+  let rateLimitKeys: string[] | null = null
+
   try {
     const body = await req.json().catch(() => null)
 
@@ -73,10 +77,11 @@ export async function POST(req: Request) {
     // bypassable via a spoofed X-Forwarded-For header; the username bucket
     // can't be spoofed, so repeated signup attempts for one account stay
     // throttled even when the attacker rotates IPs.
-    const rateLimitResult = signupRateLimiter.checkMulti([
+    rateLimitKeys = [
       getClientIP(req),
       `signup-user:${username.toLowerCase()}`,
-    ])
+    ]
+    const rateLimitResult = signupRateLimiter.checkMulti(rateLimitKeys)
     if (!rateLimitResult.success) {
       return rateLimitResponse(rateLimitResult)
     }
@@ -181,18 +186,33 @@ export async function POST(req: Request) {
       [codeRow.id]
     )
 
+    // A successful signup is not an abuse attempt; give the counted uses
+    // back so a verified user is never locked out of the 3-per-hour window.
+    signupRateLimiter.refund(rateLimitKeys)
+
     return NextResponse.json({
       success: true,
       message: "Account verified and created successfully.",
     })
   } catch (err) {
     console.error("[auth/signup] error:", err)
+    const busy =
+      isDbConnectTimeout(err) ||
+      /DATABASE_URL/i.test(err instanceof Error ? err.message : String(err))
+    if (busy && rateLimitKeys) {
+      // Pooler-wave failure, not a real signup attempt: refund the counted
+      // uses so wave retries can't lock the account out for the rest of
+      // the 3-per-hour window.
+      signupRateLimiter.refund(rateLimitKeys)
+    }
     return NextResponse.json(
       {
         success: false,
-        error: "Signup failed",
+        error: busy
+          ? "The hub database is busy. Wait a few seconds and try again."
+          : "Signup failed",
       },
-      { status: 500 }
+      { status: busy ? 503 : 500 }
     )
   }
 }
