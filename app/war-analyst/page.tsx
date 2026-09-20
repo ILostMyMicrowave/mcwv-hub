@@ -605,10 +605,19 @@ export default function BattleHQPage() {
   useEffect(() => {
     mountedRef.current = true;
     void load(false);
-    const timer = window.setInterval(() => void load(true), 30_000);
+    // Refresh only while the tab is visible; parked tabs must not keep
+    // hitting the API (same pattern as the bounty page).
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void load(true);
+    }, 30_000);
+    const onVisible = () => {
+      if (!document.hidden) void load(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       mountedRef.current = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [load]);
 
