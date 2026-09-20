@@ -3,7 +3,15 @@
 import Navbar from "@/components/Navbar";
 import { formatCompact } from "@/lib/numbers";
 import FlowNumber from "@/components/FlowNumber";
-import ReactECharts from "echarts-for-react";
+import * as echarts from "echarts/core";
+import { BarChart, LineChart } from "echarts/charts";
+import { AxisPointerComponent, GridComponent, TooltipComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
+import ReactECharts from "echarts-for-react/lib/core";
+
+// Register only what these dashboards use. The full echarts bundle is
+// ~336 KB gzipped; this subset renders the same charts at a fraction of it.
+echarts.use([AxisPointerComponent, BarChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 import { useEffect, useMemo, useState } from "react";
 
 type AnalyticsResponse = {
@@ -291,12 +299,21 @@ export default function ContributionsPage() {
   useEffect(() => {
     load();
 
-    const refresh = setInterval(() => load({ silent: true }), 30_000);
+    // Silent refresh only while the tab is visible: parked tabs must not
+    // keep hitting the API (same pattern as the bounty page).
+    const refresh = setInterval(() => {
+      if (!document.hidden) load({ silent: true });
+    }, 30_000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
+    const onVisible = () => {
+      if (!document.hidden) load({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       clearInterval(refresh);
       clearInterval(clock);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
@@ -637,6 +654,7 @@ export default function ContributionsPage() {
               {hourlyOption ? (
                 <div className="transition-opacity duration-500">
                   <ReactECharts
+                    echarts={echarts}
                     option={hourlyOption}
                     style={{ height: 340, width: "100%" }}
                     notMerge
@@ -667,6 +685,7 @@ export default function ContributionsPage() {
               {dailyOption ? (
                 <div className="transition-opacity duration-500">
                   <ReactECharts
+                    echarts={echarts}
                     option={dailyOption}
                     style={{ height: 320, width: "100%" }}
                     notMerge
@@ -695,6 +714,7 @@ export default function ContributionsPage() {
               {topOption ? (
                 <div className="transition-opacity duration-500">
                   <ReactECharts
+                    echarts={echarts}
                     option={topOption}
                     style={{ height: 320, width: "100%" }}
                     notMerge
