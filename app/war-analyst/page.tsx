@@ -39,6 +39,7 @@ type BattleHqResponse = {
     hourlyRate?: number | null;
     averageRate?: number | null;
     adjustedHourlyRate?: number | null;
+    warAverageRate?: number | null;
     reliability?: number | null;
     disconnects24h?: number;
     disconnectPlayers24h?: number;
@@ -570,6 +571,7 @@ export default function BattleHQPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [lastFetchAt, setLastFetchAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const mountedRef = useRef(true);
 
@@ -594,6 +596,7 @@ export default function BattleHQPage() {
       setFailed(true);
     } finally {
       if (!mountedRef.current) return;
+      setLastFetchAt(Date.now());
       if (silent) setRefreshing(false);
       else setLoading(false);
     }
@@ -625,9 +628,9 @@ export default function BattleHQPage() {
   const finish = data?.finishOutlook ?? null;
 
   const updatedMsAgo = data?.lastUpdatedAt ? now - new Date(data.lastUpdatedAt).getTime() : null;
-  const nextUpdateLeft = data
-    ? Math.max(0, data.timing.nextUpdateInMs - (now % data.timing.snapshotIntervalMs))
-    : null;
+  // Client-side countdown to the next poll — the old version mixed a
+  // server-computed modulo with the client clock and often showed 0s.
+  const nextPollInMs = lastFetchAt !== null ? Math.max(0, 30_000 - (now - lastFetchAt)) : null;
 
   const forecast1hRange =
     data?.stats.predictedBestRank1h && data?.stats.predictedWorstRank1h
@@ -800,7 +803,7 @@ export default function BattleHQPage() {
                 <StatTile
                   title="War ends in"
                   value={formatDuration(data.timing.remainingMs ?? null)}
-                  sub={`Data refresh ${formatDuration(nextUpdateLeft)}`}
+                  sub={`Data refresh ${formatDuration(nextPollInMs)}`}
                   delay="0.25s"
                 />
               </div>
@@ -1072,7 +1075,7 @@ export default function BattleHQPage() {
                 <button className="admin-button !px-3 !py-1 !text-[11px] sm:hidden" onClick={() => void load(true)}>
                   Refresh
                 </button>
-                Next data refresh in {formatDuration(nextUpdateLeft)}
+                Next data refresh in {formatDuration(nextPollInMs)}
               </span>
             </div>
           </div>
