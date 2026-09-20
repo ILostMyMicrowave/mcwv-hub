@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import AssistantCard from "@/components/AssistantCard";
 import type { AssistantCardData } from "@/lib/assistantEngine";
@@ -44,6 +44,11 @@ export default function AssistantBubble() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [greeted, setGreeted] = useState(false);
+  const [typingIdx, setTypingIdx] = useState<number | null>(null);
+  const [reveal, setReveal] = useState(0);
+  const revealTimerRef = useRef<number | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const lastWarmRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const topicRef = useRef<string | null>(null);
 
@@ -63,6 +68,7 @@ export default function AssistantBubble() {
   }, []);
 
   useEffect(() => {
+    messagesRef.current = messages;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ messages: messages.slice(-40) }));
     } catch {
@@ -70,7 +76,7 @@ export default function AssistantBubble() {
     }
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, reveal, typingIdx]);
 
   useEffect(() => {
     if (open && !greeted) {
@@ -79,6 +85,72 @@ export default function AssistantBubble() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // ---- Latency: warm the server before the member types ----
+  // The assistant's serverless isolate is almost always cold when a member
+  // opens the bubble. This GET builds the shared war context and this
+  // member's cached history, so the first real message lands fast. Fired on
+  // page load (delayed), bubble hover, open, and tab focus; deduped.
+  const warm = useCallback(() => {
+    if (document.hidden) return;
+    const now = Date.now();
+    if (now - lastWarmRef.current < 45_000) return;
+    lastWarmRef.current = now;
+    void fetch("/api/assistant", { method: "GET", cache: "no-store" }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const idle = window.setTimeout(() => warm(), 1200);
+    const onVisible = () => {
+      if (!document.hidden) warm();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(idle);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [warm]);
+
+  useEffect(() => {
+    return () => {
+      if (revealTimerRef.current !== null) window.clearInterval(revealTimerRef.current);
+    };
+  }, []);
+
+  // ---- Typing effect: replies type out at reading speed ----
+  function flushTyping() {
+    if (revealTimerRef.current !== null) {
+      window.clearInterval(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    setTypingIdx(null);
+  }
+
+  function startTyping(index: number, text: string) {
+    if (revealTimerRef.current !== null) {
+      window.clearInterval(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    // Very short replies (and error wobbles) appear instantly.
+    if (text.length < 24) {
+      setTypingIdx(null);
+      return;
+    }
+    const totalMs = Math.min(1100, 200 + text.length * 3);
+    const startedAt = Date.now();
+    setTypingIdx(index);
+    setReveal(0);
+    revealTimerRef.current = window.setInterval(() => {
+      const ratio = Math.min(1, (Date.now() - startedAt) / totalMs);
+      const eased = 1 - Math.pow(1 - ratio, 2.2);
+      setReveal(Math.floor(eased * text.length));
+      if (ratio >= 1) {
+        if (revealTimerRef.current !== null) window.clearInterval(revealTimerRef.current);
+        revealTimerRef.current = null;
+        setTypingIdx(null);
+      }
+    }, 40);
+  }
 
   async function sendInternal(text: string) {
     if (busy) return;
@@ -91,7 +163,13 @@ export default function AssistantBubble() {
       });
       const data = (await res.json().catch(() => ({}))) as AssistantResponse;
       if (!res.ok || !data.reply) throw new Error(data.error ?? "Assistant request failed");
-      setMessages((current) => [...current, { from: "bot", text: String(data.reply), source: data.source ?? null, card: data.card ?? null }]);
+      const replyText = String(data.reply);
+      const nextMessages = [
+        ...messagesRef.current,
+        { from: "bot" as const, text: replyText, source: data.source ?? null, card: data.card ?? null },
+      ];
+      setMessages(nextMessages);
+      startTyping(nextMessages.length - 1, replyText);
       if (Array.isArray(data.chips) && data.chips.length) setChips(data.chips);
       if (typeof data.topic === "string" && data.topic) topicRef.current = data.topic;
     } catch (err) {
@@ -110,6 +188,7 @@ export default function AssistantBubble() {
   function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
+    flushTyping();
     setMessages((current) => [...current, { from: "me", text: trimmed }]);
     setInput("");
     void sendInternal(trimmed);
@@ -120,7 +199,11 @@ export default function AssistantBubble() {
       <button
         type="button"
         aria-label="Open MCWV war assistant"
-        onClick={() => setOpen((value) => !value)}
+        onPointerEnter={() => warm()}
+        onClick={() => {
+          warm();
+          setOpen((value) => !value);
+        }}
         className="fixed right-5 z-[60] grid h-14 w-14 place-items-center rounded-full border text-2xl transition hover:scale-105 active:scale-95"
         style={{
           bottom: "max(1.25rem, env(safe-area-inset-bottom))",
@@ -173,7 +256,14 @@ export default function AssistantBubble() {
                       : undefined
                   }
                 >
-                  {renderRichText(message.text)}
+                  {index === typingIdx && message.from === "bot" ? (
+                    <>
+                      {renderRichText(message.text.slice(0, reveal))}
+                      <span className="assistant-cursor" aria-hidden="true">▍</span>
+                    </>
+                  ) : (
+                    renderRichText(message.text)
+                  )}
                   {message.card ? <AssistantCard card={message.card} /> : null}
                 </div>
               </div>
@@ -193,7 +283,7 @@ export default function AssistantBubble() {
             )}
           </div>
 
-          {chips.length > 0 && (
+          {chips.length > 0 && typingIdx === null && (
             <div className="flex gap-2 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {chips.map((chip) => (
                 <button
