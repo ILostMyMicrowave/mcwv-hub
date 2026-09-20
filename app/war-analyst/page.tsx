@@ -548,7 +548,7 @@ function projectionOdds(data: BattleHqResponse) {
   const hi = Math.max(worst ?? expected, expected);
   if (lo === hi) return [{ rank: expected, pct: 100 }];
 
-  const rows: Array<{ rank: number; pct: number }> = [];
+  const rows: Array<{ rank: number; weight: number }> = [];
   for (let rank = lo; rank <= hi; rank += 1) {
     const weight =
       rank <= expected
@@ -617,6 +617,7 @@ export default function BattleHQPage() {
   const styles = useMemo(() => toneStyles(data?.stats.uiTone ?? "info"), [data?.stats.uiTone]);
 
   const currentPoints = data?.current?.points ?? 0;
+  const currentClanName = data?.current?.clanName ?? "";
   const rank = data?.current?.rank ?? null;
   const gapAbove = data?.stats.gapAbove ?? null;
   const gapBelow = data?.stats.gapBelow ?? null;
@@ -978,7 +979,7 @@ export default function BattleHQPage() {
                               ) : null}
                             </p>
                             <p className="mt-0.5 text-[11px] text-[var(--foreground)]/55 sm:mt-1 sm:text-xs">
-                              {isUs ? data.current.clanName : clan.points > currentPoints ? "Ahead of us" : "Behind us"}
+                              {isUs ? currentClanName || "Us" : clan.points > currentPoints ? "Ahead of us" : "Behind us"}
                             </p>
                           </div>
                         </div>
