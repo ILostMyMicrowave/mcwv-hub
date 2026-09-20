@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { getIronSession } from "iron-session"
 import { sessionOptions, type SessionData } from "@/lib/session"
-import { pool } from "@/lib/db"
+import { isDbConnectTimeout, pool } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { changePasswordRateLimiter, getClientIP, rateLimitResponse } from "@/lib/rateLimit"
 
@@ -12,6 +12,10 @@ type ChangePasswordBody = {
 }
 
 export async function POST(req: Request) {
+  // Assigned once the session is verified; the catch block refunds these
+  // keys when the failure was infrastructure, not a real attempt.
+  let rateLimitKeys: string[] | null = null
+
   try {
     const cookieStore = await cookies()
 
@@ -30,10 +34,11 @@ export async function POST(req: Request) {
     // stay throttled even when the attacker rotates IPs. (Unauthenticated
     // attempts are rejected above and deliberately not rate-limited - they
     // can't accomplish anything and would only pollute shared buckets.)
-    const rateLimitResult = changePasswordRateLimiter.checkMulti([
+    rateLimitKeys = [
       getClientIP(req),
       `pw-user:${session.user.id}`,
-    ])
+    ]
+    const rateLimitResult = changePasswordRateLimiter.checkMulti(rateLimitKeys)
     if (!rateLimitResult.success) {
       return rateLimitResponse(rateLimitResult)
     }
@@ -113,9 +118,20 @@ export async function POST(req: Request) {
 
   } catch (err) {
     console.error("[auth/change-password] error:", err)
+    const busy =
+      isDbConnectTimeout(err) ||
+      /DATABASE_URL/i.test(err instanceof Error ? err.message : String(err))
+    if (busy && rateLimitKeys) {
+      // Pooler-wave failure, not a real attempt: refund the counted uses.
+      changePasswordRateLimiter.refund(rateLimitKeys)
+    }
     return NextResponse.json(
-      { error: "Failed to change password" },
-      { status: 500 }
+      {
+        error: busy
+          ? "The hub database is busy. Wait a few seconds and try again."
+          : "Failed to change password",
+      },
+      { status: busy ? 503 : 500 }
     )
   }
 }
