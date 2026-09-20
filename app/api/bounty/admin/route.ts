@@ -7,6 +7,9 @@ import { logAdminAction } from "@/lib/adminAudit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Officer actions ride the DB retry ladder during pooler waves and can
+// legitimately need more than the 60s default; same runway as login.
+export const maxDuration = 300;
 
 const MIN_CAP = 3;
 const MAX_CAP = 200;
