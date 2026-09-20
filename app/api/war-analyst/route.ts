@@ -4,6 +4,12 @@ import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 import { getDetectedWarWindow } from "@/lib/warDetection";
 
+// War-day resilience: ride out pooler episodes (up to 60s) instead of
+// being killed at the default cap — a killed function makes Vercel serve
+// its plain-text "An error occurred with this application" page, which
+// breaks client res.json() parsing.
+export const maxDuration = 60;
+
 export const runtime = "nodejs";
 
 const CLAN_NAME = process.env.WAR_ASSISTANT_CLAN_NAME ?? "MCWV";
