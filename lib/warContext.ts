@@ -353,6 +353,94 @@ async function snapshotNear(battleKey: string, epochSeconds: number) {
   }
 }
 
+// --- Clan pace fallback (player history) ------------------------------------
+// war_snapshots/clan_history are written by the hub war-collector route that
+// the bot pings. When that chain has an outage the assistant loses ALL pace
+// data ("Too early to call") even though the bot itself writes every
+// contributor's points to player_leaderboard_history every minute, directly.
+// This derives the clan's hourly/24h gains from that table instead: for each
+// contributor, latest points minus points at (or just before) the window
+// boundary - the same semantics the bot's own PPH uses. Sums are matched
+// pairs only, so members who joined mid-window never inflate the gain.
+type PlayerPace = {
+  gainLastHour: number | null
+  gainLast24h: number | null
+  players: number
+}
+
+async function clanPaceFromPlayers(battleKey: string): Promise<PlayerPace | null> {
+  try {
+    const result = await pool.query<{
+      latest_sum: number | string
+      latest_hour_matched: number | string
+      latest_day_matched: number | string
+      hour_sum: number | string
+      day_sum: number | string
+      players: number | string
+      hour_players: number | string
+      day_players: number | string
+    }>(
+      `WITH latest AS (
+         SELECT DISTINCT ON (roblox_id)
+           roblox_id::text AS rid, points::bigint AS pts
+         FROM player_leaderboard_history
+         WHERE battle_id = $1 AND points IS NOT NULL
+         ORDER BY roblox_id, captured_at DESC
+       ), hour_ago AS (
+         SELECT DISTINCT ON (roblox_id)
+           roblox_id::text AS rid, points::bigint AS pts
+         FROM player_leaderboard_history
+         WHERE battle_id = $1 AND points IS NOT NULL
+           AND captured_at <= NOW() - INTERVAL '1 hour'
+         ORDER BY roblox_id, captured_at DESC
+       ), day_ago AS (
+         SELECT DISTINCT ON (roblox_id)
+           roblox_id::text AS rid, points::bigint AS pts
+         FROM player_leaderboard_history
+         WHERE battle_id = $1 AND points IS NOT NULL
+           AND captured_at <= NOW() - INTERVAL '24 hours'
+         ORDER BY roblox_id, captured_at DESC
+       )
+       SELECT
+         COALESCE(SUM(l.pts), 0)::float8 AS latest_sum,
+         COALESCE(SUM(l.pts) FILTER (WHERE h.rid IS NOT NULL), 0)::float8 AS latest_hour_matched,
+         COALESCE(SUM(l.pts) FILTER (WHERE d.rid IS NOT NULL), 0)::float8 AS latest_day_matched,
+         COALESCE(SUM(h.pts), 0)::float8 AS hour_sum,
+         COALESCE(SUM(d.pts), 0)::float8 AS day_sum,
+         COUNT(l.rid)::int AS players,
+         COUNT(h.rid)::int AS hour_players,
+         COUNT(d.rid)::int AS day_players
+       FROM latest l
+       LEFT JOIN hour_ago h ON h.rid = l.rid
+       LEFT JOIN day_ago d ON d.rid = l.rid`,
+      [battleKey]
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    const players = asNumber(row.players) ?? 0
+    if (players <= 0) return null
+    const hourPlayers = asNumber(row.hour_players) ?? 0
+    const dayPlayers = asNumber(row.day_players) ?? 0
+    const hourMatched = asNumber(row.latest_hour_matched)
+    const hourSum = asNumber(row.hour_sum)
+    const dayMatched = asNumber(row.latest_day_matched)
+    const daySum = asNumber(row.day_sum)
+    return {
+      gainLastHour:
+        hourPlayers > 0 && hourMatched !== null && hourSum !== null
+          ? hourMatched - hourSum
+          : null,
+      gainLast24h:
+        dayPlayers > 0 && dayMatched !== null && daySum !== null
+          ? dayMatched - daySum
+          : null,
+      players,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function memberLines(battleKey: string): Promise<MemberLine[]> {
   try {
     const latest = await pool.query(
@@ -728,14 +816,38 @@ async function refreshSharedWarContext(): Promise<SharedWarContext> {
   const usIndex = standings.findIndex((row) => row.name.toUpperCase() === CLAN_NAME.toUpperCase())
   if (active && usIndex >= 0) clanRank = usIndex + 1
 
-  const gainLastHour =
-    snapshotPoints !== null && hourAgo && asNumber(hourAgo.battle_points) !== null
+  // A "1h ago" / "24h ago" snapshot only counts when it really is that old.
+  // Right after the collector chain heals (or with a single saved row), the
+  // nearest-row pick can be minutes old and its diff is a lie: near-zero or a
+  // short-window overestimate. Require a real window before trusting it.
+  const snapGapMs = (a: unknown, b: unknown): number => {
+    const ta = a ? new Date(a as string | Date).getTime() : NaN
+    const tb = b ? new Date(b as string | Date).getTime() : NaN
+    return Number.isFinite(ta) && Number.isFinite(tb) ? Math.abs(ta - tb) : 0
+  }
+  const hourAgoReal = snapGapMs(latest?.captured_at, hourAgo?.captured_at) >= 45 * 60_000
+  const dayAgoReal = snapGapMs(latest?.captured_at, dayAgo?.captured_at) >= 20 * 3_600_000
+
+  let gainLastHour =
+    snapshotPoints !== null && hourAgoReal && hourAgo && asNumber(hourAgo.battle_points) !== null
       ? snapshotPoints - Number(hourAgo.battle_points)
       : null
-  const gainLast24h =
-    snapshotPoints !== null && dayAgo && asNumber(dayAgo.battle_points) !== null
+  let gainLast24h =
+    snapshotPoints !== null && dayAgoReal && dayAgo && asNumber(dayAgo.battle_points) !== null
       ? snapshotPoints - Number(dayAgo.battle_points)
       : null
+
+  // Pace fallback: when war_snapshots gives no trustworthy window (collector
+  // chain down, or just healed with too little spacing), derive the clan's
+  // gains from the bot's own per-minute player snapshots instead. That table
+  // is written directly by the bot and does not depend on the collector.
+  if (battleKey && gainLastHour === null) {
+    const pace = await clanPaceFromPlayers(battleKey)
+    if (pace) {
+      if (pace.gainLastHour !== null) gainLastHour = pace.gainLastHour
+      if (pace.gainLast24h !== null && gainLast24h === null) gainLast24h = pace.gainLast24h
+    }
+  }
 
   const hourlyRate =
     gainLastHour !== null
