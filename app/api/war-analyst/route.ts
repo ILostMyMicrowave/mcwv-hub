@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 import { getDetectedWarWindow } from "@/lib/warDetection";
+import { buildSparkLanes, paceDivergencePct, parseRacePayload, type RaceModelView } from "@/lib/warRaceModel";
 
 // War-day resilience: ride out pooler episodes (up to 60s) instead of
 // being killed at the default cap — a killed function makes Vercel serve
@@ -943,6 +944,89 @@ async function saveLiveAnalyticsSnapshot(params: {
   }
 }
 
+// ── bot race model integration (war_projection_cache + tick lanes) ──────────
+//
+// The bot's race_model_loop recomputes the full model every 5 minutes (5-min
+// tick EWMA pace + Monte-Carlo flip odds + whole-field rank DP + what-it-takes
+// ladder) and UPSERTs the JSONB result into war_projection_cache - the same
+// Supabase DB the hub reads. So the page and /threatboard share ONE engine and
+// can never disagree. The reads are one small indexed query per lane set, all
+// inside the existing 45s single-flight payload cache; any failure collapses
+// to null and the page shows its legacy view, exactly as before this existed.
+async function loadRaceModelFor(
+  active: LiveWarInfo,
+  nearby: Array<{ name: string }>
+): Promise<{ view: RaceModelView; lanes: Record<string, [number, number][]>; surge: Array<{ username: string; gain: number }> | null } | null> {
+  if (!pool) return null;
+  try {
+    const variants = [...new Set([active.battleId, normalizeName(active.battleId)].filter(Boolean))];
+    const cacheRes = await pool.query(
+      `SELECT payload, computed_at FROM war_projection_cache ORDER BY computed_at DESC LIMIT 1`
+    );
+    const row = cacheRes.rows[0] as { payload: unknown; computed_at: Date } | undefined;
+    if (!row) return null;
+    const view = parseRacePayload(row.payload, {
+      activeBattleKey: normalizeName(active.battleId),
+      computedAt: row.computed_at,
+    });
+    if (!view) return null;
+
+    // Tick lanes + surge are best-effort decoration: failures here keep the model.
+    const ourKey = CLAN_NAME.toLowerCase();
+    const laneKeys = [...new Set([ourKey, ...nearby.map((clan) => String(clan.name ?? "").trim().toLowerCase()).filter(Boolean)])].slice(0, 10);
+    const [laneRes, surgeRes] = await Promise.all([
+      pool
+        .query(
+          `SELECT clan_key, EXTRACT(EPOCH FROM captured_at)::int AS ts, points
+           FROM war_clan_ticks
+           WHERE battle_id = ANY($1) AND clan_key = ANY($2)
+             AND captured_at >= NOW() - INTERVAL '6 hours'
+           ORDER BY clan_key, captured_at
+           LIMIT 1200`,
+          [variants, laneKeys]
+        )
+        .catch(() => null),
+      pool
+        .query(
+          `SELECT (array_agg(username ORDER BY captured_at DESC))[1] AS username,
+                  (array_agg(points ORDER BY captured_at DESC))[1]
+                  - (array_agg(points ORDER BY captured_at ASC))[1] AS gain
+           FROM war_player_ticks
+           WHERE battle_id = ANY($1) AND clan_key = $2
+             AND captured_at >= NOW() - INTERVAL '60 minutes'
+             AND roblox_id IS NOT NULL
+           GROUP BY roblox_id
+           HAVING COUNT(*) >= 2
+           ORDER BY gain DESC NULLS LAST
+           LIMIT 10`,
+          [variants, ourKey]
+        )
+        .catch(() => null),
+    ]);
+    let lanes: Record<string, [number, number][]> = {};
+    if (laneRes) {
+      lanes = buildSparkLanes(
+        (laneRes.rows as Array<Record<string, unknown>>).map((r) => ({
+          clan_key: String(r.clan_key ?? ""),
+          ts: Number(r.ts),
+          points: Number(r.points),
+        }))
+      );
+    }
+    let surge: Array<{ username: string; gain: number }> | null = null;
+    if (surgeRes) {
+      surge = (surgeRes.rows as Array<Record<string, unknown>>)
+        .map((r) => ({ username: String(r.username ?? "?"), gain: Number(r.gain ?? 0) }))
+        .filter((s) => Number.isFinite(s.gain) && s.gain > 0);
+      if (!surge.length) surge = null;
+    }
+    return { view, lanes, surge };
+  } catch (err) {
+    console.warn("[war-analyst] race model read failed (serving legacy view):", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── the live payload builder ────────────────────────────────────────────────
 
 async function buildLiveBattleHq(active: LiveWarInfo) {
@@ -1032,11 +1116,13 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     nearby: nearbyWithUs,
   });
 
-  // Parallel reads: our 24h snapshots + every clan's 3h history + disconnects.
-  const [snapshotRows, clanHistories, disconnectStats] = await Promise.all([
+  // Parallel reads: our 24h snapshots + every clan's 3h history + disconnects
+  // + the bot race model (all three model/tick reads batch into ONE cache hop).
+  const [snapshotRows, clanHistories, disconnectStats, raceModelBase] = await Promise.all([
     getSnapshotHistory(active.battleId, CLAN_NAME, 24),
     getClanHistoriesWindow(active.battleId, 3),
     getDisconnectStats(),
+    loadRaceModelFor(active, nearbyWithUs),
   ]);
 
   const snapshotHistory = snapshotRows
@@ -1287,6 +1373,22 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
   }
   const displayPointsHistory = [...displayHistoryByMinute.values()];
 
+  // Race model view + engine cross-check (bot pace vs legacy pace).
+  const legacyPace = adjustedHourlyRate ?? rawHourlyRate ?? null;
+  const raceModel = raceModelBase
+    ? {
+        ...raceModelBase.view,
+        lanes: raceModelBase.lanes,
+        surge: raceModelBase.surge,
+        crosscheck: (() => {
+          const pct = paceDivergencePct(raceModelBase.view.us.rate, legacyPace);
+          return pct === null
+            ? null
+            : { modelPph: raceModelBase.view.us.rate, legacyPph: legacyPace, divergencePct: pct };
+        })(),
+      }
+    : null;
+
   return {
     success: true,
     active: true,
@@ -1385,6 +1487,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     history: {
       points24h: displayPointsHistory,
     },
+    raceModel,
     diagnostics: {
       snapshotsAvailable: snapshotRows.length,
       latestSnapshotRank: rank,
@@ -1412,6 +1515,7 @@ async function buildFallbackPayload() {
       battleId: null,
       battleName: null,
       current: null,
+      raceModel: null,
       summary: "No saved battle snapshots yet.",
     };
   }
