@@ -192,6 +192,15 @@ function toneStyles(tone: BattleHqResponse["stats"]["uiTone"]) {
   }
 }
 
+// Alpha-on-color via string concatenation ("${accent}88") only works for
+// literal hex values. The accents here are CSS vars (theme-aware), so
+// `var(--primary)88` is invalid CSS and the browser drops the whole
+// background -> blank bars. color-mix() accepts vars and every modern
+// browser the hub targets (the file already uses it for borders/tracks).
+function withAlpha(accent: string, pct: number) {
+  return `color-mix(in srgb, ${accent} ${pct}%, transparent)`;
+}
+
 function Panel({
   title,
   children,
@@ -289,7 +298,7 @@ function ProgressBar({ value, accent, track }: { value: number | null; accent: s
         {pct !== null ? (
           <div
             className="h-full rounded-full transition-all duration-500 animate-gradientMove gradient-bar"
-            style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${accent}88, ${accent})` }}
+            style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${withAlpha(accent, 55)}, ${accent})` }}
           />
         ) : null}
       </div>
@@ -1316,7 +1325,7 @@ export default function BattleHQPage() {
                               className="h-full rounded-full transition-all duration-700"
                               style={{
                                 width: `${item.pct}%`,
-                                background: `linear-gradient(90deg, ${styles.accent}66, ${styles.accent})`,
+                                background: `linear-gradient(90deg, ${withAlpha(styles.accent, 40)}, ${styles.accent})`,
                               }}
                             />
                           </div>
