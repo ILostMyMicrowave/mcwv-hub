@@ -5,6 +5,8 @@ import { formatCompact } from "@/lib/numbers";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import FlowNumber from "@/components/FlowNumber";
+import { fmtRacePph, fmtRacePts, flipDisplay, flipTone, raceWhatIf } from "@/lib/warRaceModel";
+import type { RaceModelView } from "@/lib/warRaceModel";
 
 type NearbyClan = {
   rank: number | null;
@@ -105,6 +107,11 @@ type BattleHqResponse = {
       rank: number | null;
     }>;
   };
+  raceModel?: (RaceModelView & {
+    lanes: Record<string, [number, number][]>;
+    surge: Array<{ username: string; gain: number }> | null;
+    crosscheck: { modelPph: number | null; legacyPph: number | null; divergencePct: number } | null;
+  }) | null;
   diagnostics: {
     snapshotsAvailable: number;
     latestSnapshotRank: number | null;
@@ -448,7 +455,9 @@ type GraphClan = {
 
 const GRAPH_COLORS = ["#facc15", "#38bdf8", "#f472b6", "#4ade80", "#fb923c", "#a78bfa", "#f87171", "#2dd4bf"];
 
-function ProjectionGraph({ clans, remainingHours }: { clans: GraphClan[]; remainingHours: number | null }) {
+// nowMs comes from the page's 1s clock state: keeps this render pure
+// (react-hooks/purity) and lets the "now" line advance between polls.
+function ProjectionGraph({ clans, remainingHours, nowMs }: { clans: GraphClan[]; remainingHours: number | null; nowMs: number }) {
   const width = 900;
   const height = 320;
   const padding = { top: 18, right: 86, bottom: 14, left: 12 };
@@ -465,7 +474,7 @@ function ProjectionGraph({ clans, remainingHours }: { clans: GraphClan[]; remain
     );
   }
 
-  const now = Date.now();
+  const now = nowMs;
   const tMin = Math.min(...clans.flatMap((clan) => clan.history.map((point) => point.t)).filter((t) => Number.isFinite(t)), now - 60 * 60_000);
   const tMax = remainingHours && remainingHours > 0.1 ? now + remainingHours * 3_600_000 : now + 60 * 60_000;
   const vMin = Math.min(...allValues);
@@ -563,6 +572,251 @@ function projectionOdds(data: BattleHqResponse) {
     .filter((row) => row.pct >= 1)
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 8);
+}
+
+// ── bot race model panel (same engine as the bot's /threatboard) ────────────
+// Renders war_projection_cache as parsed+validated by lib/warRaceModel. The
+// what-if slider re-solves ONLY the deterministic lane (closed forms identical
+// to the bot); Monte-Carlo flip probabilities stay at current pace and are
+// labelled so. Every block hides itself when its data is missing, so a partly
+// warmed-up model still renders cleanly.
+type RaceModel = NonNullable<BattleHqResponse["raceModel"]>;
+
+function LanePairSpark({ us, rival, accent }: { us?: [number, number][]; rival?: [number, number][]; accent: string }) {
+  const lanes = [us, rival].filter((l): l is [number, number][] => !!l && l.length >= 2);
+  if (!lanes.length) return null;
+  const all = lanes.flat();
+  const tMin = Math.min(...all.map(([t]) => t));
+  const tMax = Math.max(...all.map(([t]) => t));
+  const vMin = Math.min(...all.map(([, v]) => v));
+  const vMax = Math.max(...all.map(([, v]) => v));
+  const w = 120;
+  const h = 26;
+  const x = (t: number) => ((t - tMin) / Math.max(1, tMax - tMin)) * (w - 2) + 1;
+  const y = (v: number) => (vMax <= vMin ? h / 2 : h - 3 - ((v - vMin) / (vMax - vMin)) * (h - 6));
+  const toPath = (lane: [number, number][]) => lane.map(([t, v], i) => `${i ? "L" : "M"}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-7 w-[120px] shrink-0" preserveAspectRatio="none" role="img" aria-label="pace lane vs ours, last 6 hours">
+      {us && us.length >= 2 ? <path d={toPath(us)} fill="none" stroke={accent} strokeWidth={1.4} opacity={0.85} /> : null}
+      {rival && rival.length >= 2 ? <path d={toPath(rival)} fill="none" stroke="#fb7185" strokeWidth={1.4} /> : null}
+    </svg>
+  );
+}
+
+function ProbBar({ prob }: { prob: number | null }) {
+  if (prob === null || !Number.isFinite(prob)) return null;
+  const pct = Math.max(0, Math.min(1, prob)) * 100;
+  const tone = pct >= 60 ? "bg-rose-400" : pct >= 30 ? "bg-amber-400" : "bg-sky-400/70";
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10" title={`Monte-Carlo flip probability at current pace: ${pct.toFixed(0)}%`}>
+      <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function RaceModelPanel({ model, clanKey, accent }: { model: RaceModel; clanKey: string; accent: string }) {
+  const [boostPct, setBoostPct] = useState(0);
+  const frac = boostPct / 100;
+  const boostPph = (model.us.rate ?? 0) * frac;
+  const boosted = boostPct > 0;
+  const usLane = model.lanes[clanKey];
+  const shown = model.races.slice(0, 8);
+  const headlineTone = model.headline?.includes("NEXT THREAT")
+    ? "border-rose-500/30 bg-rose-500/10 text-rose-100"
+    : model.headline?.includes("NEXT PASS")
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+      : "border-white/10 bg-white/5 text-zinc-200";
+  const odds = [
+    ["top5", 5],
+    ["top10", 10],
+    ["top15", 15],
+    ["top20", 20],
+  ] as const;
+  const hasOdds = odds.some(([k]) => typeof model.probs[k] === "number");
+
+  return (
+    <Panel
+      title="Race model"
+      delay="0.18s"
+      right={
+        <span className="flex items-center gap-1.5">
+          {model.crosscheck && model.crosscheck.divergencePct > 25 ? (
+            <Chip tone="warn">engines diverge {model.crosscheck.divergencePct}%</Chip>
+          ) : null}
+          <Chip tone={model.status === "ok" ? "good" : "warn"}>
+            {model.status === "ok" ? `bot engine - synced ${formatDuration(model.ageSeconds * 1000)} ago` : `model age ${formatDuration(model.ageSeconds * 1000)}`}
+          </Chip>
+        </span>
+      }
+    >
+      <div className="space-y-3">
+        {model.headline ? (
+          <p className={`rounded-2xl border px-4 py-3 text-sm font-bold leading-snug sm:text-base ${headlineTone}`}>{model.headline}</p>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatTile
+            title="Model pace (5-min EWMA)"
+            value={model.us.rate !== null ? `${fmtRacePph(model.us.rate)}/h` : "?"}
+            sub={model.us.rate1h !== null ? `last 30m ${fmtRacePph(model.us.rate1h)}/h` : "last 30m pending"}
+          />
+          <StatTile
+            title="Live rank"
+            value={model.us.rank !== null ? `#${model.us.rank}` : "-"}
+            sub={model.hoursLeft !== null ? `${model.hoursLeft.toFixed(0)}h war remaining` : undefined}
+          />
+          <StatTile
+            title="Projected finish"
+            value={model.final.p50 !== null ? fmtRacePts(model.final.p50) : "?"}
+            sub={model.final.p10 !== null && model.final.p90 !== null ? `p10-p90 ${fmtRacePts(model.final.p10)} - ${fmtRacePts(model.final.p90)}` : undefined}
+          />
+          <StatTile
+            title="Median final rank"
+            value={model.final.medRank !== null ? `#${model.final.medRank}` : "?"}
+            sub={model.probsSrc === "field" ? "whole-field DP over every clan" : model.probsSrc === "sim" ? "1000-run simulation" : undefined}
+          />
+        </div>
+
+        {hasOdds ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {odds.map(([k, n]) => {
+              const p = model.probs[k];
+              return (
+                <div key={k} className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">top {n}</span>
+                    <span className="text-sm font-bold text-white">{p === undefined ? "?" : `${Math.round(p * 100)}%`}</span>
+                  </div>
+                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full" style={{ width: `${p === undefined ? 0 : Math.max(0, Math.min(1, p)) * 100}%`, background: accent }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {model.whatItTakes.length ? (
+          <div className="space-y-1.5">
+            {model.whatItTakes.map((line, i) => {
+              const m = line.match(/^TOP (\d+):\s*(.*)$/);
+              const locked = line.includes("LOCKED");
+              return (
+                <div key={i} className="flex items-start gap-2 text-[11px] leading-snug sm:text-xs">
+                  <span className={`mt-px inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${locked ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>
+                    {m ? `top ${m[1]}` : "target"}
+                  </span>
+                  <span className="text-[var(--foreground)]/75">{m ? m[2] : line}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
+          <span className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">What if we add</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={25}
+            value={boostPct}
+            onChange={(e) => setBoostPct(Number(e.target.value))}
+            className="h-1.5 w-32 cursor-pointer accent-[var(--primary)]"
+            aria-label="pace boost percent"
+          />
+          <span className="text-xs font-bold text-white">
+            {boosted ? `+${boostPct}% pace (+${fmtRacePph(boostPph)}/h)` : "current pace"}
+          </span>
+          <span className="hidden text-[10px] text-zinc-500 md:inline">what-if moves the deterministic lane; Monte-Carlo odds stay at current pace</span>
+        </div>
+
+        <div className="space-y-2">
+          {shown.map((r) => {
+            const wi = raceWhatIf(r, boostPph, model.hoursLeft);
+            const flip = flipDisplay(r);
+            const tone = flipTone(r);
+            const required = wi.requiredPph ?? null;
+            const rivalLane = model.lanes[r.clan.trim().toLowerCase()];
+            const ahead = r.gap > 0;
+            return (
+              <div
+                key={r.clan}
+                className="grid grid-cols-2 items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 sm:gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,1fr)]"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-white">
+                      {r.rank !== null ? `#${r.rank} ` : ""}{r.clan}
+                    </p>
+                    <p className="text-[10px] text-zinc-400">
+                      {r.paceSrc === "ticks-5m" ? "5-min ticks" : "collector"}
+                      {r.windowH ? ` - ${r.windowH.toFixed(0)}h window` : ""}
+                      {r.confidence === "LOW" ? " - LOW conf" : ""}
+                      {r.confidence === "NO PACE DATA" ? " - no pace data" : ""}
+                    </p>
+                  </div>
+                  <LanePairSpark us={usLane} rival={rivalLane} accent={accent} />
+                </div>
+                <div className="text-right md:text-left">
+                  <p className={`text-sm font-black ${ahead ? "text-emerald-300" : "text-rose-300"}`}>
+                    {ahead ? "+" : "-"}{fmtRacePts(Math.abs(r.gap))}
+                  </p>
+                  <p className="text-[10px] text-zinc-400">{ahead ? "lead" : "trail"}</p>
+                </div>
+                <div className="hidden md:block">
+                  <p className="text-[11px] text-zinc-300">
+                    us {r.ourRate !== null ? fmtRacePph(r.ourRate * (1 + frac)) : "?"}/h
+                  </p>
+                  <p className="text-[11px] text-zinc-400">them {r.theirRate !== null ? fmtRacePph(r.theirRate) : "?"}/h</p>
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip tone={tone === "bad" ? "bad" : tone === "good" ? "good" : "neutral"}>{wi.verdict}</Chip>
+                    {boosted ? <span className="text-[9px] uppercase tracking-wide text-zinc-500">what-if</span> : null}
+                  </div>
+                  <p className="mt-1 truncate text-[11px] text-zinc-300" title={boosted ? "deterministic re-solve at +" + boostPct + "% pace" : undefined}>
+                    {wi.etaDetH !== null
+                      ? `${r.gap < 0 ? "we pass" : "they pass"} in ~${wi.etaDetH.toFixed(1)}h`
+                      : flip.label}
+                  </p>
+                  {!boosted ? <div className="mt-1"><ProbBar prob={r.flipProb} /></div> : null}
+                  {r.signals ? <p className="mt-0.5 truncate text-[10px] text-zinc-500">{r.signals}</p> : null}
+                </div>
+                <div className="col-span-2 text-[11px] text-zinc-300 md:col-span-1 md:text-right">
+                  {required !== null && required > 1
+                    ? <span className="font-bold text-amber-200">need +{fmtRacePph(required)}/h</span>
+                    : <span className="text-emerald-300">{ahead ? "hold ok" : "out-pacing them"}</span>}
+                </div>
+              </div>
+            );
+          })}
+          {model.races.length > shown.length ? (
+            <p className="text-[10px] text-zinc-500">
+              +{model.races.length - shown.length} further rivals tracked - full list on the bot board (/threatboard).
+            </p>
+          ) : null}
+        </div>
+
+        {model.surge?.length ? (
+          <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">Top movers - last hour (global top-200 board)</p>
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+              {model.surge.map((s) => (
+                <span key={s.username} className="text-[11px] text-zinc-300">
+                  {s.username} <span className="font-bold text-emerald-300">+{fmtRacePts(s.gain)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {model.notes.length ? (
+          <p className="text-[10px] leading-relaxed text-zinc-500">{model.notes.join(" - ")}</p>
+        ) : null}
+      </div>
+    </Panel>
+  );
 }
 
 export default function BattleHQPage() {
@@ -849,6 +1103,11 @@ export default function BattleHQPage() {
               </div>
             </Panel>
 
+            {/* ── bot race model (same engine as /threatboard) ─────── */}
+            {data.raceModel ? (
+              <RaceModelPanel model={data.raceModel} clanKey={String(data.current.clanName ?? "").trim().toLowerCase()} accent={styles.accent} />
+            ) : null}
+
             {/* ── pace panel ───────────────────────────────────────── */}
             <Panel
               title="Our pace"
@@ -1070,7 +1329,7 @@ export default function BattleHQPage() {
               )}
 
               <div className="mt-5">
-                <ProjectionGraph clans={graphClans} remainingHours={finish?.remainingHours ?? null} />
+                <ProjectionGraph clans={graphClans} remainingHours={finish?.remainingHours ?? null} nowMs={now} />
               </div>
             </Panel>
 
