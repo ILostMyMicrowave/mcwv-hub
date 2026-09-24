@@ -828,6 +828,13 @@ function RaceModelPanel({ model, clanKey, accent }: { model: RaceModel; clanKey:
   );
 }
 
+// Instant-paint cache: the freshest successful live payload, kept in
+// localStorage so a reload renders in the same tick instead of flashing the
+// skeleton while the API answers. Key is global; the payload is per-war and
+// gets overwritten by the first live poll.
+const SNAPSHOT_KEY = "mcwv:war-analyst-snapshot";
+const SNAPSHOT_TTL_MS = 15 * 60 * 1000;
+
 export default function BattleHQPage() {
   const [data, setData] = useState<BattleHqResponse | null>(null);
   const [selectedClan, setSelectedClan] = useState<NearbyClan | null>(null);
@@ -837,6 +844,8 @@ export default function BattleHQPage() {
   const [lastFetchAt, setLastFetchAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const mountedRef = useRef(true);
+  const paintedFromSnapshot = useRef(false);
+  const deepLinkDone = useRef(false);
 
   const load = useCallback(async (silent: boolean) => {
     if (silent) setRefreshing(true);
@@ -849,6 +858,18 @@ export default function BattleHQPage() {
       if (json?.success) {
         setData(json as BattleHqResponse);
         setFailed(false);
+        // Store the snapshot for instant paint. Only live-war payloads are
+        // written, so a finished war can never repaint as if still active.
+        if (json.active) {
+          try {
+            window.localStorage.setItem(
+              SNAPSHOT_KEY,
+              JSON.stringify({ savedAt: Date.now(), battleId: json.battleId, payload: json }),
+            );
+          } catch {
+            /* quota / private mode: instant paint is a nice-to-have */
+          }
+        }
       } else {
         if (!silent) setData(null);
         setFailed(true);
@@ -865,9 +886,27 @@ export default function BattleHQPage() {
     }
   }, []);
 
+  // Paint the snapshot before the first fetch lands (recent + valid only).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SNAPSHOT_KEY);
+      if (!raw) return;
+      const snap = JSON.parse(raw) as { savedAt?: number; payload?: BattleHqResponse };
+      if (snap?.payload?.success && Date.now() - (snap.savedAt ?? 0) < SNAPSHOT_TTL_MS) {
+        setData(snap.payload);
+        paintedFromSnapshot.current = true;
+        setLoading(false);
+      }
+    } catch {
+      /* corrupt snapshot: ignore, the fetch will paint */
+    }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
-    void load(false);
+    // If the snapshot painted already, refresh silently instead of flashing
+    // the skeleton again through setLoading.
+    void load(paintedFromSnapshot.current);
     // Refresh only while the tab is visible; parked tabs must not keep
     // hitting the API (same pattern as the bounty page).
     const timer = window.setInterval(() => {
@@ -883,6 +922,24 @@ export default function BattleHQPage() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [load]);
+
+  // ?clan=Name (or ?rival=Name) opens that clan's mini-profile once data is
+  // here - for pasting a rival link into war chat. Matched against the
+  // nearby list only; unknown names are a silent no-op. Runs once per visit
+  // so closing the modal is final until the next page load.
+  useEffect(() => {
+    if (deepLinkDone.current || !data) return;
+    const q = new URLSearchParams(window.location.search);
+    const wanted = (q.get("clan") ?? q.get("rival") ?? "").trim().toLowerCase();
+    if (!wanted) return;
+    deepLinkDone.current = true;
+    const lower = (data.nearby ?? []).map((c) => ({ c, n: c.name.toLowerCase() }));
+    const hit =
+      lower.find((x) => x.n === wanted)?.c ??
+      lower.find((x) => x.n.startsWith(wanted))?.c ??
+      lower.find((x) => x.n.includes(wanted))?.c;
+    if (hit) setSelectedClan(hit);
+  }, [data]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
