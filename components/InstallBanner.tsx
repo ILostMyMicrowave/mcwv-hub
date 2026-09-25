@@ -169,7 +169,7 @@ export default function InstallBanner() {
 
   const urgency = warActive;
   const headline = urgency
-    ? "⚔️ War is live — install for instant alerts"
+    ? "⚔️ War is live. Install for instant alerts"
     : "📲 Install MCWV Hub as an app";
   const subtext = urgency
     ? "Get push notifications the moment wars start, placements change, or you're on the slacker list."
