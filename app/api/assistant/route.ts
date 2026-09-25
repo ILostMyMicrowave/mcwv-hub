@@ -87,6 +87,6 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     console.error("[assistant] failed:", err)
-    return NextResponse.json({ error: "Assistant had a wobble — try again in a sec" }, { status: 500 })
+    return NextResponse.json({ error: "Assistant had a wobble. Try again in a sec" }, { status: 500 })
   }
 }
