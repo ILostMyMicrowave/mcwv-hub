@@ -115,7 +115,7 @@ export default function EnchantBuilder({ rivals }: { rivals: EnchantRow[] }) {
     });
     setSlots(next);
     setImportNote(
-      `📥 Imported ${matched}/${Math.min(row.enchantNames.length, SLOT_COUNT)} of ${row.username ?? "rival"}'s books — tiers guessed at max (rivals hide tiers).` +
+      `📥 Imported ${matched}/${Math.min(row.enchantNames.length, SLOT_COUNT)} of ${row.username ?? "rival"}'s books, tiers guessed at max (rivals hide tiers).` +
         (unmatched.length ? ` Unmatched: ${unmatched.join(", ")}` : "")
     );
   }
@@ -179,7 +179,7 @@ export default function EnchantBuilder({ rivals }: { rivals: EnchantRow[] }) {
       {importNote && <p className="mt-3 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-zinc-300">{importNote}</p>}
       {loadError && (
         <p className="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
-          ⚠️ {loadError} — <button className="font-bold underline" onClick={() => void fetchFamilies()}>retry</button>
+          ⚠️ {loadError}, <button className="font-bold underline" onClick={() => void fetchFamilies()}>retry</button>
         </p>
       )}
 
@@ -242,7 +242,7 @@ export default function EnchantBuilder({ rivals }: { rivals: EnchantRow[] }) {
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
           <h3 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-400">📊 Stack math</h3>
           {summary.rows.length === 0 ? (
-            <p className="mt-2 text-xs text-zinc-600">Tap a slot and add books — combined power + diminishing thresholds appear here.</p>
+            <p className="mt-2 text-xs text-zinc-600">Tap a slot and add books, combined power + diminishing thresholds appear here.</p>
           ) : (
             <>
               <div className="mt-2 grid gap-2">
@@ -263,7 +263,7 @@ export default function EnchantBuilder({ rivals }: { rivals: EnchantRow[] }) {
                           />
                         </div>
                         <p className="mt-0.5 text-[10px] text-zinc-500">
-                          {row.status === "cap" && <span className="font-bold text-emerald-300">🎯 PERFECT — right at the {row.threshold} cap</span>}
+                          {row.status === "cap" && <span className="font-bold text-emerald-300">🎯 PERFECT, right at the {row.threshold} cap</span>}
                           {row.status === "under" && <span>{row.threshold - row.combined} more power before diminishing</span>}
                           {row.status === "over" && <span className="font-bold text-rose-300">⚠️ {row.overBy} power wasted past the {row.threshold} cap</span>}
                         </p>
