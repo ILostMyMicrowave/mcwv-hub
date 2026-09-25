@@ -28,12 +28,12 @@ export const STYLE_META: Record<StyleKey, { label: string; emoji: string; tip: s
   "th-stack": {
     label: "Treasure Hunter stack (5+)",
     emoji: "💰",
-    tip: "Fill every slot with Treasure Hunter — best average scorer among public rivals.",
+    tip: "Fill every slot with Treasure Hunter, best average scorer among public rivals.",
   },
   "eggs-stack": {
     label: "Lucky Eggs stack (6+)",
     emoji: "🥚",
-    tip: "All-in on Lucky Eggs — the most popular rival setup.",
+    tip: "All-in on Lucky Eggs, the most popular rival setup.",
   },
   "eggs-hybrid": {
     label: "Lucky Eggs hybrid (3-5)",
@@ -43,7 +43,7 @@ export const STYLE_META: Record<StyleKey, { label: string; emoji: string; tip: s
   utility: {
     label: "Utility / AFK mix",
     emoji: "🛠",
-    tip: "Breakers, taps, speeds and one-offs — the wildcard lane.",
+    tip: "Breakers, taps, speeds and one-offs, the wildcard lane.",
   },
 };
 
