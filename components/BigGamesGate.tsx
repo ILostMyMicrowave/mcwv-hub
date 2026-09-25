@@ -79,7 +79,7 @@ export default function BigGamesGate() {
         <h1 className="mt-5 text-2xl font-black text-white">Connect your PS99 account</h1>
         <p className="mt-3 text-sm leading-relaxed text-zinc-300">
           MCWV requires every member to authorize the clan app so we can see live
-          gem counts, inventory and extended stats. It only reads your data — we
+          gem counts, inventory and extended stats. It only reads your data. We
           never see your password.
         </p>
         <div className="mt-6 flex flex-col items-center gap-2">
@@ -97,7 +97,7 @@ export default function BigGamesGate() {
           </a>
         </div>
         <p className="mt-5 text-[11px] text-zinc-500">
-          Authorizing is safe and instant — you&apos;ll be back in seconds.
+          Authorizing is safe and instant. You&apos;ll be back in seconds.
         </p>
       </div>
     </div>
