@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatCompact } from "@/lib/numbers";
 import Navbar from "@/components/Navbar";
@@ -17,6 +19,14 @@ type NearbyClan = {
 };
 
 type BattleHqResponse = {
+  bridge?: {
+    battleId: string;
+    clan: string;
+    battleName: string | null;
+    endedAt: string | null;
+    rank: number | null;
+    points: number | null;
+  } | null;
   success: boolean;
   active: boolean;
   battleId: string | null;
@@ -366,7 +376,7 @@ function ClanMiniProfile({
   onClose: () => void;
 }) {
   const currentPoints = data.current?.points ?? 0;
-  const ourPph = data.stats.pointsLastHour ?? null;
+  const ourPph = data?.stats?.pointsLastHour ?? null;
   const theirPph = clan.pph ?? null;
   const isUs = clan.name.toLowerCase() === (data.current?.clanName ?? "").toLowerCase();
   const gap = clan.points - currentPoints;
@@ -559,9 +569,9 @@ function ProjectionGraph({ clans, remainingHours, nowMs }: { clans: GraphClan[];
 // ── odds (triangular distribution across best..expected..worst) ─────────────
 
 function projectionOdds(data: BattleHqResponse) {
-  const expected = data.finishOutlook?.expectedRank ?? data.stats.predictedRank1h ?? null;
-  const best = data.finishOutlook?.bestRank ?? data.stats.predictedBestRank1h ?? null;
-  const worst = data.finishOutlook?.worstRank ?? data.stats.predictedWorstRank1h ?? null;
+  const expected = data.finishOutlook?.expectedRank ?? data?.stats?.predictedRank1h ?? null;
+  const best = data.finishOutlook?.bestRank ?? data?.stats?.predictedBestRank1h ?? null;
+  const worst = data.finishOutlook?.worstRank ?? data?.stats?.predictedWorstRank1h ?? null;
   if (expected === null) return [];
 
   const lo = Math.max(1, Math.min(best ?? expected, expected));
@@ -626,6 +636,22 @@ function ProbBar({ prob }: { prob: number | null }) {
 
 // ── rewards panel: per-battle placementRewards, straight from the public API
 // shape, so it adapts to every battle format (null meta -> no panel, ever).
+function PetIcon({ icon, size = 22 }: { icon?: string | null; size?: number }) {
+  const m = icon ? /rbxassetid:\/\/(\d+)/.exec(icon) : null;
+  if (!m) return null;
+  return (
+    <img
+      src={`https://ps99.biggamesapi.io/image/${m[1]}`}
+      width={size}
+      height={size}
+      loading="lazy"
+      alt=""
+      className="mr-1 inline-block rounded-md border border-white/10 align-[-4px]"
+      style={{ background: "rgba(0,0,0,0.25)" }}
+    />
+  );
+}
+
 function RewardPanel({ rewards, rank, points, nearby, projBest, projWorst, gapBelow }: {
   rewards: RewardBoard;
   rank: number | null;
@@ -664,7 +690,7 @@ function RewardPanel({ rewards, rank, points, nearby, projBest, projWorst, gapBe
           {held.length > 0 ? (
             <>
               Holding <span className="font-bold text-white">#{rank}</span> locks in{" "}
-              <span className="font-bold text-emerald-300">{rewardNames(held)}</span>
+              <span className="font-bold text-emerald-300"><PetIcon icon={held[0]?.items[0]?.icon} />{rewardNames(held)}</span>
               {contrib ? <span className="text-zinc-400"> (top {contrib} of the clan receive them)</span> : null}
             </>
           ) : (
@@ -675,7 +701,7 @@ function RewardPanel({ rewards, rank, points, nearby, projBest, projWorst, gapBe
         </p>
         {up ? (
           <p className="text-sm leading-relaxed text-zinc-300">
-            Next rung: <span className="font-bold text-amber-200">{rewardNames(up.gains)}</span> for #{up.targetRank} or better
+            Next rung: <span className="font-bold text-amber-200"><PetIcon icon={up.gains[0]?.items[0]?.icon} size={18} />{rewardNames(up.gains)}</span> for #{up.targetRank} or better
             {occupant ? (
               <>
                 {" - passing "}
@@ -691,7 +717,7 @@ function RewardPanel({ rewards, rank, points, nearby, projBest, projWorst, gapBe
         {slip && slip.losses.length > 0 ? (
           <p className="text-[13px] leading-relaxed text-zinc-400">
             Slip to #{rank + 1} and we give up{" "}
-            <span className="font-bold text-rose-300">{rewardNames(slip.losses)}</span>
+            <span className="font-bold text-rose-300"><PetIcon icon={slip.losses[0]?.items[0]?.icon} size={18} />{rewardNames(slip.losses)}</span>
             {slip.gains.length > 0 ? <> - landing on {rewardNames(slip.gains)} instead</> : <> and fall out of every tier</>}
             {gapBelow !== null && gapBelow > 0 ? <> (the clan below sits {fmtRacePts(gapBelow)} pts back)</> : null}.
           </p>
@@ -1029,14 +1055,14 @@ export default function BattleHQPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const styles = useMemo(() => toneStyles(data?.stats.uiTone ?? "info"), [data?.stats.uiTone]);
+  const styles = useMemo(() => toneStyles(data?.stats?.uiTone ?? "info"), [data?.stats?.uiTone]);
 
   const currentPoints = data?.current?.points ?? 0;
   const currentClanName = data?.current?.clanName ?? "";
   const rank = data?.current?.rank ?? null;
-  const gapAbove = data?.stats.gapAbove ?? null;
-  const gapBelow = data?.stats.gapBelow ?? null;
-  const pointsHistory = data?.history.points24h ?? [];
+  const gapAbove = data?.stats?.gapAbove ?? null;
+  const gapBelow = data?.stats?.gapBelow ?? null;
+  const pointsHistory = data?.history?.points24h ?? [];
   const finish = data?.finishOutlook ?? null;
 
   const updatedMsAgo = data?.lastUpdatedAt ? now - new Date(data.lastUpdatedAt).getTime() : null;
@@ -1045,12 +1071,12 @@ export default function BattleHQPage() {
   const nextPollInMs = lastFetchAt !== null ? Math.max(0, 30_000 - (now - lastFetchAt)) : null;
 
   const forecast1hRange =
-    data?.stats.predictedBestRank1h && data?.stats.predictedWorstRank1h
-      ? data.stats.predictedBestRank1h === data.stats.predictedWorstRank1h
-        ? rankLabel(data.stats.predictedBestRank1h)
-        : `${rankLabel(data.stats.predictedBestRank1h)}–${rankLabel(data.stats.predictedWorstRank1h)}`
-      : data?.stats.predictedRank1h
-      ? rankLabel(data.stats.predictedRank1h)
+    data?.stats?.predictedBestRank1h && data?.stats?.predictedWorstRank1h
+      ? data?.stats?.predictedBestRank1h === data?.stats?.predictedWorstRank1h
+        ? rankLabel(data?.stats?.predictedBestRank1h)
+        : `${rankLabel(data?.stats?.predictedBestRank1h)}–${rankLabel(data?.stats?.predictedWorstRank1h)}`
+      : data?.stats?.predictedRank1h
+      ? rankLabel(data?.stats?.predictedRank1h)
       : "—";
 
   const finishRange =
@@ -1069,7 +1095,7 @@ export default function BattleHQPage() {
     const ourHistory = pointsHistory
       .filter((row) => row.capturedAt)
       .map((row) => ({ t: new Date(row.capturedAt as string).getTime(), points: row.points }));
-    const ourPph = data.stats.adjustedHourlyRate ?? data.stats.pointsLastHour ?? null;
+    const ourPph = data?.stats?.adjustedHourlyRate ?? data?.stats?.pointsLastHour ?? null;
     const remainingHours = finish?.remainingHours ?? null;
     const projected = ourPph !== null && remainingHours !== null ? currentPoints + ourPph * remainingHours : null;
 
@@ -1129,23 +1155,73 @@ export default function BattleHQPage() {
               <div className="h-24 rounded-2xl bg-zinc-800/50 sm:h-28" />
             </div>
           </div>
-        ) : !data || !data.current ? (
+        ) : !data ? (
           <div className="rounded-3xl border p-6 text-center sm:p-8" style={{ background: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.30)" }}>
             <svg className="mx-auto h-14 w-14 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <h2 className="mt-4 text-lg font-semibold sm:text-xl">
-              {failed ? "Could not load battle data just now." : "No battle data available right now."}
-            </h2>
+            <h2 className="mt-4 text-lg font-semibold sm:text-xl">{failed ? "Could not load battle data just now." : "Battle HQ is waking up."}</h2>
             <p className="mt-2 text-sm text-zinc-400">
-              {failed
-                ? "The backend is busy or briefly unreachable (this can happen during heavy war traffic). Retrying automatically every 30 seconds."
-                : "Check back later or contact an officer."}
+              The backend is busy or briefly unreachable (this can happen during heavy war traffic). Retrying automatically every 30 seconds.
             </p>
             <button className="admin-button mt-5" onClick={() => void load(false)}>
               Retry now
             </button>
           </div>
+        ) : !data.current ? (
+          data.bridge ? (
+            <section
+              className="rounded-[1.5rem] border p-6 text-center sm:p-9"
+              style={{
+                borderColor: "rgba(234,179,8,0.25)",
+                background: "linear-gradient(180deg, rgba(234,179,8,0.07), rgba(0,0,0,0.15))",
+                animation: "fadeInUp 0.5s ease-out forwards",
+                opacity: 0,
+              }}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300/80">Post-war archive</p>
+              <h2 className="mt-3 text-xl font-bold text-white sm:text-2xl">
+                {data.bridge.battleName || "The last battle"} has ended
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+                {data.bridge.rank !== null ? (
+                  <>
+                    {data.bridge.clan} finished <span className="font-bold text-amber-200">#{data.bridge.rank}</span>
+                    {data.bridge.points !== null ? <> with <span className="font-bold text-white">{fmtRacePts(data.bridge.points)} pts</span></> : null}
+                    {medalForRank(data.bridge.rank) ? <> - {medalForRank(data.bridge.rank)} medal</> : null}
+                    {" on the final recorded snapshot."}
+                  </>
+                ) : (
+                  <>The final snapshot for this battle is not recorded here, but the written report covers the war end to end.</>
+                )}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">
+                {data.bridge.endedAt ? `Battle closed ${data.bridge.endedAt.slice(0, 10)}. ` : ""}
+                Hourly replays land on this page when the scrubber ships.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <Link className="admin-button" href={`/war-reports/${encodeURIComponent(data.bridge.battleId)}`}>
+                  Full war report
+                </Link>
+                <Link className="admin-button" href="/hall-of-fame">
+                  Hall of Fame
+                </Link>
+              </div>
+            </section>
+          ) : (
+            <div className="rounded-3xl border border-white/10 p-7 text-center" style={{ background: "rgba(255,255,255,0.03)" }}>
+              <p className="text-3xl" aria-hidden>⛏️</p>
+              <h2 className="mt-3 text-lg font-semibold text-white sm:text-xl">The mines are quiet</h2>
+              <p className="mt-2 text-sm text-zinc-400">
+                No battle is running and no archive rows are on file yet. Battle HQ re-arms itself automatically the moment a war goes live.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <Link className="admin-button" href="/war-reports">War reports</Link>
+                <Link className="admin-button" href="/hall-of-fame">Hall of Fame</Link>
+                <button className="admin-button" onClick={() => void load(false)}>Retry now</button>
+              </div>
+            </div>
+          )
         ) : (
           <div className="space-y-4 sm:space-y-6" style={{ animation: "fadeInUp 0.5s ease-out forwards" }}>
             {/* ── hero ─────────────────────────────────────────────── */}
@@ -1164,7 +1240,7 @@ export default function BattleHQPage() {
                   Battle HQ
                 </p>
                 <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.pill}`}>
-                  {data.active ? "Live" : "Inactive"}
+                  {data.active ? "Live" : "Post-war"}
                 </span>
                 {refreshing ? (
                   <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-200">
@@ -1203,18 +1279,18 @@ export default function BattleHQPage() {
                   title="Battle points"
                   value={formatNumber(currentPoints)}
                   numericValue={currentPoints}
-                  sub={data.stats.gain24h ? `+${formatNumber(data.stats.gain24h)} in 24h` : "24h gain pending"}
+                  sub={data?.stats?.gain24h ? `+${formatNumber(data?.stats?.gain24h)} in 24h` : "24h gain pending"}
                   delay="0.15s"
                 />
                 <StatTile
                   title="Predicted rank in 1h"
                   value={forecast1hRange}
-                  sub={data.stats.bandPct ? `Band ±${data.stats.bandPct}% pace` : `Confidence: ${data.stats.confidence.toUpperCase()}`}
+                  sub={data?.stats?.bandPct ? `Band ±${data?.stats?.bandPct}% pace` : `Confidence: ${data?.stats?.confidence.toUpperCase()}`}
                   delay="0.2s"
                 />
                 <StatTile
                   title="War ends in"
-                  value={formatDuration(data.timing.remainingMs ?? null)}
+                  value={formatDuration(data?.timing?.remainingMs ?? null)}
                   sub={`Data refresh ${formatDuration(nextPollInMs)}`}
                   delay="0.25s"
                 />
@@ -1231,9 +1307,9 @@ export default function BattleHQPage() {
                 rank={data.current.rank}
                 points={data.current.points}
                 nearby={data.nearby ?? []}
-                projBest={data.stats.projectedBestPlacement ?? null}
-                projWorst={data.stats.projectedWorstPlacement ?? null}
-                gapBelow={data.stats.gapBelow ?? null}
+                projBest={data?.stats?.projectedBestPlacement ?? null}
+                projWorst={data?.stats?.projectedWorstPlacement ?? null}
+                gapBelow={data?.stats?.gapBelow ?? null}
               />
             ) : null}
 
@@ -1258,7 +1334,7 @@ export default function BattleHQPage() {
                   <StatTile
                     title="Disconnect impact"
                     value={<span className="text-base sm:text-xl">{data.summary.disconnectImpact ?? "Unknown"}</span>}
-                    sub={`${formatNumber(data.stats.disconnects24h ?? 0)} disconnects / 24h`}
+                    sub={`${formatNumber(data?.stats?.disconnects24h ?? 0)} disconnects / 24h`}
                   />
                 </div>
               </div>
@@ -1272,7 +1348,7 @@ export default function BattleHQPage() {
             {/* ── pace panel ───────────────────────────────────────── */}
             <Panel
               title="Our pace"
-              right={data.diagnostics.clanTracks !== undefined ? <Chip tone="info">{data.diagnostics.clanTracks} clans tracked</Chip> : null}
+              right={data?.diagnostics?.clanTracks !== undefined ? <Chip tone="info">{data?.diagnostics?.clanTracks} clans tracked</Chip> : null}
               delay="0.2s"
             >
               <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
@@ -1280,19 +1356,19 @@ export default function BattleHQPage() {
                   <div className="rounded-2xl border p-3 sm:p-4" style={{ borderColor: styles.border, background: styles.soft }}>
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--foreground)]/50 sm:text-xs">Last hour</p>
                     <p className="mt-2 text-xl font-black text-white sm:text-3xl">
-                      <FlowNumber value={data.stats.pointsLastHour ?? 0} prefix="+" format={{ notation: "compact", maximumFractionDigits: 2 }} />
+                      <FlowNumber value={data?.stats?.pointsLastHour ?? 0} prefix="+" format={{ notation: "compact", maximumFractionDigits: 2 }} />
                     </p>
                     <p className="mt-1 text-[11px] text-zinc-400 sm:text-xs">points gained</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--foreground)]/50 sm:text-xs">vs previous hour</p>
-                    {data.stats.momentumPct !== null && data.stats.momentumPct !== undefined ? (
+                    {data?.stats?.momentumPct !== null && data?.stats?.momentumPct !== undefined ? (
                       <>
-                        <p className={`mt-2 text-xl font-black sm:text-3xl ${data.stats.momentumPct >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                          {data.stats.momentumPct > 0 ? "▲" : data.stats.momentumPct < 0 ? "▼" : "▬"} {Math.abs(data.stats.momentumPct)}%
+                        <p className={`mt-2 text-xl font-black sm:text-3xl ${data?.stats?.momentumPct >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                          {data?.stats?.momentumPct > 0 ? "▲" : data?.stats?.momentumPct < 0 ? "▼" : "▬"} {Math.abs(data?.stats?.momentumPct)}%
                         </p>
                         <p className="mt-1 text-[11px] text-zinc-400 sm:text-xs">
-                          {data.stats.previousHourGain ? `was +${formatNumber(data.stats.previousHourGain)}` : ""}
+                          {data?.stats?.previousHourGain ? `was +${formatNumber(data?.stats?.previousHourGain)}` : ""}
                         </p>
                       </>
                     ) : (
@@ -1302,22 +1378,22 @@ export default function BattleHQPage() {
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--foreground)]/50 sm:text-xs">Adjusted pace</p>
                     <p className="mt-2 text-xl font-black text-white sm:text-3xl">
-                      {data.stats.adjustedHourlyRate !== null && data.stats.adjustedHourlyRate !== undefined
-                        ? `${formatNumber(Math.round(data.stats.adjustedHourlyRate))}/h`
+                      {data?.stats?.adjustedHourlyRate !== null && data?.stats?.adjustedHourlyRate !== undefined
+                        ? `${formatNumber(Math.round(data?.stats?.adjustedHourlyRate))}/h`
                         : "—"}
                     </p>
-                    <p className="mt-1 text-[11px] text-zinc-400 sm:text-xs">reliability {(Math.round((data.stats.reliability ?? 1) * 100))}%</p>
+                    <p className="mt-1 text-[11px] text-zinc-400 sm:text-xs">reliability {(Math.round((data?.stats?.reliability ?? 1) * 100))}%</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--foreground)]/50 sm:text-xs">Next hour band</p>
-                    <p className="mt-2 text-xl font-black text-white sm:text-3xl">{data.stats.bandPct ? `±${data.stats.bandPct}%` : "—"}</p>
+                    <p className="mt-2 text-xl font-black text-white sm:text-3xl">{data?.stats?.bandPct ? `±${data?.stats?.bandPct}%` : "—"}</p>
                     <p className="mt-1 text-[11px] text-zinc-400 sm:text-xs">from our own pace variance</p>
                   </div>
                 </div>
                 <div>
-                  <Sparkline history={data.history.points24h} accent={styles.accent} />
+                  <Sparkline history={data?.history?.points24h} accent={styles.accent} />
                   <p className="mt-2 text-[11px] leading-5 text-[var(--foreground)]/50 sm:text-xs">
-                    Points over the tracked window. The ±{data.stats.bandPct ?? 15}% forecast band comes from the robust variance of our recent pace, not a fixed guess.
+                    Points over the tracked window. The ±{data?.stats?.bandPct ?? 15}% forecast band comes from the robust variance of our recent pace, not a fixed guess.
                   </p>
                 </div>
               </div>
@@ -1329,17 +1405,17 @@ export default function BattleHQPage() {
                 <div className="rounded-2xl border p-4" style={{ borderColor: styles.border, background: styles.soft }}>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--foreground)]/50 sm:text-xs">Next target</p>
-                    {data.stats.canPassTarget ? <Chip tone="good">Reachable</Chip> : <Chip tone="neutral">Hold pace</Chip>}
+                    {data?.stats?.canPassTarget ? <Chip tone="good">Reachable</Chip> : <Chip tone="neutral">Hold pace</Chip>}
                   </div>
-                  <p className="mt-2 truncate text-base font-bold text-white sm:text-lg">{data.stats.targetName ?? data.summary.target}</p>
+                  <p className="mt-2 truncate text-base font-bold text-white sm:text-lg">{data?.stats?.targetName ?? data.summary.target}</p>
                   <p className="mt-2 text-sm text-[var(--foreground)]/75">
                     Need {gapAbove === null ? "—" : `${formatNumber(gapAbove)} more points`}
                   </p>
-                  <p className="mt-1 text-sm text-[var(--foreground)]/75">Pass estimate: {data.stats.passEstimateText ?? etaText(data.stats.etaAboveMs)}</p>
-                  {data.stats.targetGapTrendPer30m !== null && data.stats.targetGapTrendPer30m !== undefined ? (
-                    <p className={`mt-2 text-xs ${data.stats.targetGapTrendPer30m < 0 ? "text-emerald-300" : "text-zinc-400"}`}>
-                      Gap {data.stats.targetGapTrendPer30m < 0 ? "closing" : "growing"} {formatNumber(Math.abs(Math.round(data.stats.targetGapTrendPer30m)))} / 30m
-                      {data.stats.targetPph ? ` · their pace ${formatNumber(Math.round(data.stats.targetPph))}/h` : ""}
+                  <p className="mt-1 text-sm text-[var(--foreground)]/75">Pass estimate: {data?.stats?.passEstimateText ?? etaText(data?.stats?.etaAboveMs)}</p>
+                  {data?.stats?.targetGapTrendPer30m !== null && data?.stats?.targetGapTrendPer30m !== undefined ? (
+                    <p className={`mt-2 text-xs ${data?.stats?.targetGapTrendPer30m < 0 ? "text-emerald-300" : "text-zinc-400"}`}>
+                      Gap {data?.stats?.targetGapTrendPer30m < 0 ? "closing" : "growing"} {formatNumber(Math.abs(Math.round(data?.stats?.targetGapTrendPer30m)))} / 30m
+                      {data?.stats?.targetPph ? ` · their pace ${formatNumber(Math.round(data?.stats?.targetPph))}/h` : ""}
                     </p>
                   ) : null}
                 </div>
@@ -1347,17 +1423,17 @@ export default function BattleHQPage() {
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--foreground)]/50 sm:text-xs">Closest threat</p>
-                    {data.stats.canBePassed ? <Chip tone="bad">At risk</Chip> : <Chip tone="good">Safe for now</Chip>}
+                    {data?.stats?.canBePassed ? <Chip tone="bad">At risk</Chip> : <Chip tone="good">Safe for now</Chip>}
                   </div>
-                  <p className="mt-2 truncate text-base font-bold text-white sm:text-lg">{data.stats.threatName ?? data.summary.threat}</p>
+                  <p className="mt-2 truncate text-base font-bold text-white sm:text-lg">{data?.stats?.threatName ?? data.summary.threat}</p>
                   <p className="mt-2 text-sm text-[var(--foreground)]/75">
                     Gap below: {gapBelow === null ? "—" : formatNumber(gapBelow)}
                   </p>
-                  <p className="mt-1 text-sm text-[var(--foreground)]/75">Threat estimate: {data.stats.threatEstimateText ?? etaText(data.stats.threatEtaMs)}</p>
-                  {data.stats.threatGapTrendPer30m !== null && data.stats.threatGapTrendPer30m !== undefined ? (
-                    <p className={`mt-2 text-xs ${data.stats.threatGapTrendPer30m < 0 ? "text-rose-300" : "text-zinc-400"}`}>
-                      They are {data.stats.threatGapTrendPer30m < 0 ? "closing by" : "losing"} {formatNumber(Math.abs(Math.round(data.stats.threatGapTrendPer30m)))} / 30m
-                      {data.stats.threatPph ? ` · their pace ${formatNumber(Math.round(data.stats.threatPph))}/h` : ""}
+                  <p className="mt-1 text-sm text-[var(--foreground)]/75">Threat estimate: {data?.stats?.threatEstimateText ?? etaText(data?.stats?.threatEtaMs)}</p>
+                  {data?.stats?.threatGapTrendPer30m !== null && data?.stats?.threatGapTrendPer30m !== undefined ? (
+                    <p className={`mt-2 text-xs ${data?.stats?.threatGapTrendPer30m < 0 ? "text-rose-300" : "text-zinc-400"}`}>
+                      They are {data?.stats?.threatGapTrendPer30m < 0 ? "closing by" : "losing"} {formatNumber(Math.abs(Math.round(data?.stats?.threatGapTrendPer30m)))} / 30m
+                      {data?.stats?.threatPph ? ` · their pace ${formatNumber(Math.round(data?.stats?.threatPph))}/h` : ""}
                     </p>
                   ) : null}
                 </div>
@@ -1370,11 +1446,11 @@ export default function BattleHQPage() {
               delay="0.3s"
               right={<span className="text-[11px] text-[var(--foreground)]/50 sm:text-xs">Tap a clan for details</span>}
             >
-              {data.nearby.length === 0 ? (
+              {data?.nearby?.length === 0 ? (
                 <p className="text-sm text-[var(--foreground)]/65">No nearby clans available yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {data.nearby.map((clan) => {
+                  {data?.nearby?.map((clan) => {
                     const isUs = clan.name.toLowerCase() === data.current?.clanName.toLowerCase();
                     return (
                       <button
@@ -1431,13 +1507,13 @@ export default function BattleHQPage() {
               title="Forecast"
               right={
                 <span className="text-[11px] text-[var(--foreground)]/50 sm:text-xs">
-                  Confidence {(finish?.confidence ?? data.stats.confidence).replace("_", " ").toUpperCase()}
+                  Confidence {(finish?.confidence ?? data?.stats?.confidence).replace("_", " ").toUpperCase()}
                 </span>
               }
               delay="0.35s"
             >
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <StatTile title="Rank in 1h (expected)" value={data.stats.predictedRank1h ? rankLabel(data.stats.predictedRank1h) : "—"} sub={`Range ${forecast1hRange}`} />
+                <StatTile title="Rank in 1h (expected)" value={data?.stats?.predictedRank1h ? rankLabel(data?.stats?.predictedRank1h) : "—"} sub={`Range ${forecast1hRange}`} />
                 <StatTile
                   title="Finish (expected)"
                   value={finish?.ready && finish.expectedRank ? rankLabel(finish.expectedRank) : "Warming up"}
@@ -1450,8 +1526,8 @@ export default function BattleHQPage() {
                 />
                 <StatTile
                   title="Pace tracks"
-                  value={data.diagnostics.clanTracks ?? "—"}
-                  sub={`${data.diagnostics.rateCoveragePct ?? 0}% of nearby clans moving`}
+                  value={data?.diagnostics?.clanTracks ?? "—"}
+                  sub={`${data?.diagnostics?.rateCoveragePct ?? 0}% of nearby clans moving`}
                 />
               </div>
 
@@ -1505,7 +1581,7 @@ export default function BattleHQPage() {
             {/* ── data quality footer ──────────────────────────────── */}
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 pb-2 text-[11px] text-[var(--foreground)]/40 sm:text-xs">
               <span>
-                {data.diagnostics.snapshotsAvailable} snapshots · {data.diagnostics.historySpanMinutes ?? 0}min of history · updated{" "}
+                {data?.diagnostics?.snapshotsAvailable} snapshots · {data?.diagnostics?.historySpanMinutes ?? 0}min of history · updated{" "}
                 {updatedMsAgo !== null ? `${formatDuration(updatedMsAgo)} ago` : "—"}
               </span>
               <span className="flex items-center gap-2">
