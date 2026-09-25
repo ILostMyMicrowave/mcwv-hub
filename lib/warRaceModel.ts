@@ -358,6 +358,7 @@ export type RewardItem = {
   name: string;
   collection: string;
   amount: number;
+  icon: string | null;
 };
 
 export type RewardTier = {
@@ -401,6 +402,7 @@ function asRewardItem(raw: unknown): RewardItem | null {
     name: variant && variant !== "regular" ? `${variant} ${id}` : id,
     collection: typeof o.collection === "string" && o.collection ? o.collection : "Reward",
     amount,
+    icon: typeof o.icon === "string" && o.icon.trim() ? o.icon.trim() : null,
   };
 }
 
