@@ -74,7 +74,7 @@ export default function PwaInstallCard() {
       <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-5">
         <p className="text-sm font-bold text-emerald-200">✅ Installed</p>
         <p className="mt-1 text-sm text-emerald-100/70">
-          You&apos;re running MCWV Hub as an app — straight from your home
+          You&apos;re running MCWV Hub as an app, straight from your home
           screen, no browser chrome.
         </p>
       </div>
@@ -87,7 +87,7 @@ export default function PwaInstallCard() {
         <div className="min-w-0">
           <p className="text-sm font-bold text-white">📲 Install the app</p>
           <p className="mt-1 max-w-md text-sm text-zinc-400">
-            Add MCWV Hub to your home screen — full-screen launch, app icon,
+            Add MCWV Hub to your home screen, full-screen launch, app icon,
             buttery page transitions. The icon even gets a 🔴 dot when a war
             is live.
           </p>
@@ -140,7 +140,7 @@ export default function PwaInstallCard() {
             <span className="font-semibold text-white">Add to Home Screen</span>
           </li>
           <li>
-            Tap <span className="font-semibold text-white">Add</span> — done 🎉
+            Tap <span className="font-semibold text-white">Add</span>, done 🎉
           </li>
         </ol>
       ) : null}
