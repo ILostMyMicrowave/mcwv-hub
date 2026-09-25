@@ -191,7 +191,7 @@ export default function PushCard() {
       setStatus("on");
       setNote("Alerts on ✅ You'll get a ping the moment war is declared.");
     } catch {
-      setNote("Couldn't enable alerts — try again.");
+      setNote("Couldn't enable alerts. Try again.");
     } finally {
       setBusy(false);
     }
@@ -233,10 +233,10 @@ export default function PushCard() {
       setNote(
         res.ok
           ? data.inboxLogged === false
-            ? `Push sent ✅ but ⚠️ the inbox copy failed to save — inbox would look EMPTY. Owner: check Vercel logs for "inbox log failed".`
+            ? `Push sent ✅ but ⚠️ the inbox copy failed to save, inbox would look EMPTY. Owner: check Vercel logs for "inbox log failed".`
             : `Test sent ✅ (${data.sent ?? 0} device${
                 (data.sent ?? 0) === 1 ? "" : "s"
-              }) — inbox copy${
+              }), inbox copy${
                 data.notifId ? ` #${data.notifId}` : ""
               } saved ✓ Tap the notification to open it!`
           : data.error ?? "Test failed."
@@ -254,7 +254,7 @@ export default function PushCard() {
         <p className="text-sm font-bold text-white">🔔 War alerts</p>
         <p className="mt-1 text-sm text-zinc-400">
           Push alerts aren&apos;t supported in this browser. On iPhone,
-          install the app first — iOS delivers web push only to
+          install the app first, iOS delivers web push only to
           home-screen apps.
         </p>
       </div>
@@ -267,7 +267,7 @@ export default function PushCard() {
         <div className="min-w-0">
           <p className="text-sm font-bold text-white">🔔 War alerts</p>
           <p className="mt-1 max-w-md text-sm text-zinc-400">
-            Get an instant ping when a clan battle goes live — even when the
+            Get an instant ping when a clan battle goes live, even when the
             app&apos;s closed. Opt-in, and yours alone.
           </p>
         </div>
@@ -305,19 +305,19 @@ export default function PushCard() {
 
       {status === "denied" ? (
         <p className="mt-3 text-sm text-amber-300/90">
-          Notifications are blocked for this site — allow them in your
+          Notifications are blocked for this site, allow them in your
           browser&apos;s site settings, then come back here.
         </p>
       ) : null}
       {status === "unconfigured" ? (
         <p className="mt-3 text-sm text-amber-300/90">
-          Push isn&apos;t wired up on the server yet — an owner needs to add
+          Push isn&apos;t wired up on the server yet, an owner needs to add
           the VAPID keys on Vercel.
         </p>
       ) : null}
       {iosNeedsInstall && status !== "on" ? (
         <p className="mt-3 text-sm text-zinc-500">
-          📱 On iPhone: install the app first (card above) — Apple only
+          📱 On iPhone: install the app first (card above), Apple only
           delivers web push to home-screen apps.
         </p>
       ) : null}
@@ -353,7 +353,7 @@ export default function PushCard() {
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">📢 Broadcasts → app alerts</p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              Officer setting — Discord broadcasts also ping every subscribed
+              Officer setting, Discord broadcasts also ping every subscribed
               app. Clan-wide.
             </p>
           </div>
