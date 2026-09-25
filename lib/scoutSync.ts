@@ -277,7 +277,7 @@ async function stepUsernames(state: ScoutState, deadline: number): Promise<void>
   const unique = Array.from(new Set(state.rows.map((r) => r.userId)));
   const resolved = new Map<string, string>();
   for (let i = 0; i < unique.length; i += 100) {
-    if (Date.now() > deadline - 8_000) break; // names are cosmetic — never block the sync
+    if (Date.now() > deadline - 8_000) break; // names are cosmetic, never block the sync
     const batch = await robloxBatch(unique.slice(i, i + 100));
     for (const [id, name] of batch) resolved.set(id, name);
     state.progress = { ...state.progress, named: resolved.size };
