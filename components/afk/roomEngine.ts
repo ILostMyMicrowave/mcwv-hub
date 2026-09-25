@@ -1163,8 +1163,8 @@ function drawWallClock(t: PixelTarget, g: RoomGeo, now: Date) {
       t.fill(cx + Math.round(Math.cos(a) * k), cy + Math.round(Math.sin(a) * k), 1, 1, c)
     }
   }
-  hand((hours / 12) * TAU - Math.PI / 2, 2, [40, 38, 36]) // hour — short & dark
-  hand((minutes / 60) * TAU - Math.PI / 2, 4, [58, 56, 52]) // minute — long
+  hand((hours / 12) * TAU - Math.PI / 2, 2, [40, 38, 36]) // hour, short & dark
+  hand((minutes / 60) * TAU - Math.PI / 2, 4, [58, 56, 52]) // minute, long
   // sweeping red second hand with a counterweight tail
   const sa = ((now.getSeconds() + now.getMilliseconds() / 1000) / 60) * TAU - Math.PI / 2
   hand(sa, 4, [212, 82, 70])
@@ -3091,7 +3091,7 @@ function drawFishTank(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number) {
 function drawAlarmClock(t: PixelTarget, g: RoomGeo, s: SceneState, tMs: number, ringing: boolean) {
   const x = g.bedX - 1
   const top = g.floorY - 20
-  const y = top - 22 // feet rest on the headboard's top edge — nothing floats
+  const y = top - 22 // feet rest on the headboard's top edge, nothing floats
   const jig = ringing ? (Math.floor(tMs / 70) % 2 === 0 ? 1 : -1) : 0
   // bells + hammer
   t.fill(x - 1 + jig, y - 2, 2, 2, [206, 208, 216])
