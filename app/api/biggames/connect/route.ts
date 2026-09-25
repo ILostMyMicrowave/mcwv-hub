@@ -37,7 +37,7 @@ function connectRateLimited(result: { reset: number }) {
   const url = new URL("/connect-success", base);
   url.searchParams.set(
     "bg_error",
-    `Too many attempts — please wait about ${waitMin} minute${waitMin === 1 ? "" : "s"}, then click your Discord link again.`
+    `Too many attempts, please wait about ${waitMin} minute${waitMin === 1 ? "" : "s"}, then click your Discord link again.`
   );
   return NextResponse.redirect(url);
 }
