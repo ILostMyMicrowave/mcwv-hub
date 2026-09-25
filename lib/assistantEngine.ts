@@ -352,7 +352,7 @@ function phaseUrgencyLine(shared: SharedWarContext): string {
 
 function noWarLine(shared: SharedWarContext) {
   if (shared.active) return ""
-  return `No war on right now — we're between battles (next one drops with the next event). `
+  return `No war on right now. We're between battles (next one drops with the next event). `
 }
 
 function rewardsAtRank(shared: SharedWarContext, rank: number): string[] {
@@ -385,14 +385,14 @@ function statusAnswer(shared: SharedWarContext): string {
       if (shared.clanPoints !== null) text += ` on **${fmt(shared.clanPoints)}** pts`
       text += ". "
     }
-    text += "Rest while you can — when the next battle drops, we go again 😤"
+    text += "Rest while you can, when the next battle drops, we go again 😤"
     return text
   }
 
   const parts = [
     `We're **${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"}**`,
     shared.clanPoints !== null ? ` with **${fmt(shared.clanPoints)}** pts` : "",
-    shared.gainLastHour !== null ? ` — **+${fmt(shared.gainLastHour)}** in the last hour` : "",
+    shared.gainLastHour !== null ? ` · **+${fmt(shared.gainLastHour)}** in the last hour` : "",
     shared.gainLast24h !== null ? ` (**+${fmt(shared.gainLast24h)}** in 24h)` : "",
     `.`,
   ]
@@ -405,8 +405,8 @@ function statusAnswer(shared: SharedWarContext): string {
     out += `\n\nThe clan above us is **${above.name}**, ${fmt(above.points - (shared.clanPoints ?? 0))} pts ahead.`
     if (above.pph !== null && ourRate !== null) {
       const net = ourRate - above.pph
-      if (net > 0) out += ` We're out-pacing them (~${fmt(net)}/h net) — closing the gap.`
-      else if (net < 0) out += ` They're pulling away (~${fmt(-net)}/h net) — we need more pace.`
+      if (net > 0) out += ` We're out-pacing them (~${fmt(net)}/h net), closing the gap.`
+      else if (net < 0) out += ` They're pulling away (~${fmt(-net)}/h net). We need more pace.`
       else out += ` Dead even on pace (~${fmt(ourRate)}/h each).`
     } else if (above.pph !== null && above.pph > 0) {
       out += ` They're gaining ~${fmt(above.pph)}/h.`
@@ -417,7 +417,7 @@ function statusAnswer(shared: SharedWarContext): string {
     out += ` **${below.name}** is ${fmt((shared.clanPoints ?? 0) - below.points)} pts behind us.`
     if (below.pph !== null && ourRate !== null) {
       const net = below.pph - ourRate
-      if (net > 0) out += ` They're gaining on us (~${fmt(net)}/h net) — watch our back.`
+      if (net > 0) out += ` They're gaining on us (~${fmt(net)}/h net). Watch our back.`
       else if (net < 0) out += ` We're pulling away (~${fmt(-net)}/h net).`
     } else if (below.pph !== null && below.pph > 0) {
       out += ` They're gaining ~${fmt(below.pph)}/h.`
@@ -444,7 +444,7 @@ function statusAnswer(shared: SharedWarContext): string {
   if (shared.timeLeftMs !== null) {
     out += `\n\n⏳ **${fmtDuration(shared.timeLeftMs)}** left on the clock.`
   } else {
-    out += `\n\n⏳ War is live — end time isn't confirmed yet.`
+    out += `\n\n⏳ War is live, end time isn't confirmed yet.`
   }
   out += phaseUrgencyLine(shared)
   return out
@@ -453,22 +453,22 @@ function statusAnswer(shared: SharedWarContext): string {
 function chaseAnswer(shared: SharedWarContext, target: number): string {
   if (!shared.active) return noWarLine(shared) + "Ask me again when the next war kicks off and I'll do the maths 🔥"
   if (shared.clanRank === null || shared.clanPoints === null) {
-    return "I can't see our live placement right now — try again in a bit."
+    return "I can't see our live placement right now. Try again in a bit."
   }
   if (target <= 0) target = 10
   if (shared.clanRank <= target) {
-    return `We're already **#${shared.clanRank}** — top ${target} is ours to lose 😤 Defend it: keep the hourly pace up and watch who's behind us.`
+    return `We're already **#${shared.clanRank}**, top ${target} is ours to lose 😤 Defend it: keep the hourly pace up and watch who's behind us.`
   }
   const targetRow = standingAt(shared, target)
   if (!targetRow) {
-    return `I can only see the top ${shared.standings.length} clans and we're #${shared.clanRank} — top ${target} isn't in my data.`
+    return `I can only see the top ${shared.standings.length} clans and we're #${shared.clanRank}, top ${target} isn't in my data.`
   }
   const gap = targetRow.points - shared.clanPoints
   const ourRate = shared.hourlyRate
   const theirPph = targetRow.pph // null when we have no rival pace data yet
   const hoursLeft = shared.timeLeftMs !== null ? shared.timeLeftMs / 3_600_000 : null
 
-  let out = `Top ${target} is **${targetRow.name}** on ${fmt(targetRow.points)} pts — we're **${fmt(gap)}** behind.`
+  let out = `Top ${target} is **${targetRow.name}** on ${fmt(targetRow.points)} pts. We're **${fmt(gap)}** behind.`
   if (theirPph !== null && theirPph > 0) {
     out += ` They're gaining ~${fmt(theirPph)}/h.`
   }
@@ -480,21 +480,21 @@ function chaseAnswer(shared: SharedWarContext, target: number): string {
   const eta = netRate !== null && netRate > 0 ? gap / netRate : null
 
   if (ourRate === null) {
-    out += `\n\nI don't have a solid pace reading yet — check back after the bot's next snapshots land.`
+    out += `\n\nI don't have a solid pace reading yet. Check back after the bot's next snapshots land.`
   } else if (netRate !== null && netRate <= 0) {
     const rivalLine = theirPph !== null && theirPph > 0
       ? `matching/beating that at ~${fmt(theirPph)}/h`
       : "holding steady"
-    out += `\n\nWe're ~${fmt(ourRate)}/h but ${targetRow.name} is ${rivalLine} — we're **not closing the gap** at this pace. We need to step it up. 😤`
+    out += `\n\nWe're ~${fmt(ourRate)}/h but ${targetRow.name} is ${rivalLine}. We're **not closing the gap** at this pace. We need to step it up. 😤`
   } else if (eta !== null && hoursLeft !== null) {
     const paceDetail = theirPph !== null
       ? `Net pace ~${fmt(netRate)}/h (${fmt(ourRate)}/h vs their ${fmt(theirPph)}/h)`
       : `At our current pace (~${fmt(ourRate)}/h)`
     out += eta <= hoursLeft
-      ? `\n\n${paceDetail} we'd catch them in **~${Math.ceil(eta)}h** with ${fmtDuration(shared.timeLeftMs)} to go — **yes, it's on.** 🔥`
-      : `\n\n${paceDetail} that's **~${Math.ceil(eta)}h** of grinding with only ${fmtDuration(shared.timeLeftMs)} left — we need to speed up. Wake the zeros up 😅`
+      ? `\n\n${paceDetail} we'd catch them in **~${Math.ceil(eta)}h** with ${fmtDuration(shared.timeLeftMs)} to go · **yes, it's on.** 🔥`
+      : `\n\n${paceDetail} that's **~${Math.ceil(eta)}h** of grinding with only ${fmtDuration(shared.timeLeftMs)} left. We need to speed up. Wake the zeros up 😅`
   } else {
-    out += `\n\nI don't have a solid pace reading yet — check back after the bot's next snapshots land.`
+    out += `\n\nI don't have a solid pace reading yet. Check back after the bot's next snapshots land.`
   }
   // Final-stretch framing: near the end of a war, paces spike and ETAs lie.
   const phase = warPhase(shared)
@@ -532,7 +532,7 @@ function projectedRankRivalAware(shared: SharedWarContext): number | null {
 function projectionAnswer(shared: SharedWarContext): string {
   if (!shared.active) return noWarLine(shared) + "Once a war starts I'll project our final placement."
   if (shared.projectedFinalPoints === null) {
-    return "Too early to call — I need a bit more pace data. Ask me after the next hourly snapshot."
+    return "Too early to call. I need a bit more pace data. Ask me after the next hourly snapshot."
   }
   const projRank = projectedRankRivalAware(shared)
   const hasRivalPace = shared.standings.some((row) => row.pph !== null && row.pph > 0)
@@ -542,8 +542,8 @@ function projectionAnswer(shared: SharedWarContext): string {
   }
   out += `.\n\n`
   out += hasRivalPace
-    ? `_That accounts for rival pace too — clans charging hard are extrapolated to the war's end. Still a vibe-check, not a prophecy 🔮_`
-    : `_Caveat: pace isn't destiny — other clans push hard in the final hours too. Treat it as a vibe-check, not a prophecy 🔮_`
+    ? `_That accounts for rival pace too, clans charging hard are extrapolated to the war's end. Still a vibe-check, not a prophecy 🔮_`
+    : `_Caveat: pace isn't destiny, other clans push hard in the final hours too. Treat it as a vibe-check, not a prophecy 🔮_`
 
   const rewards = projRank ? rewardsAtRank(shared, projRank) : []
   if (rewards.length) out += `\n\n💎 That placement currently means: **${rewards.join(" + ")}**.`
@@ -556,12 +556,12 @@ function rewardsAnswer(shared: SharedWarContext): string {
     Boolean(shared.headlineReward) ||
     shared.contributorRewards.length > 0
   if (!hasRewards) {
-    return "The game hasn't exposed this war's reward table to me — usually it's huge/titanic pets for the top ranks and a clan gift for the top 500."
+    return "The game hasn't exposed this war's reward table to me, usually it's huge/titanic pets for the top ranks and a clan gift for the top 500."
   }
 
   const parts: string[] = []
   if (shared.headlineReward) {
-    parts.push(`🏆 **Headline prize:** ${shared.headlineReward} — goes to the winning clan's top contributor.`)
+    parts.push(`🏆 **Headline prize:** ${shared.headlineReward}, goes to the winning clan's top contributor.`)
   }
 
   const rank = projectedRankRivalAware(shared) ?? shared.clanRank
@@ -576,7 +576,7 @@ function rewardsAnswer(shared: SharedWarContext): string {
   if (better) {
     const boundaryRow = standingAt(shared, better.worst)
     const gap = boundaryRow && shared.clanPoints !== null ? boundaryRow.points - shared.clanPoints : null
-    parts.push(`One tier up (${ordinal(better.best)}–${ordinal(better.worst)}): **${rewardsAtRank(shared, better.best).join(" + ")}**${gap !== null && gap > 0 ? ` — that's ${fmt(gap)} pts away 👀` : "."}`)
+    parts.push(`One tier up (${ordinal(better.best)}–${ordinal(better.worst)}): **${rewardsAtRank(shared, better.best).join(" + ")}**${gap !== null && gap > 0 ? `, that's ${fmt(gap)} pts away 👀` : "."}`)
   }
 
   if (shared.contributorRewards.length) {
@@ -590,16 +590,16 @@ function rewardsAnswer(shared: SharedWarContext): string {
 
 function carryingAnswer(shared: SharedWarContext): string {
   if (!shared.topScorers.length) {
-    return "No score data yet — once the war starts I'll name and shame the carries 💪"
+    return "No score data yet. Once the war starts I'll name and shame the carries 💪"
   }
   const lines = shared.topScorers
     .slice(0, 5)
-    .map((row, i) => `${["🥇", "🥈", "🥉", "4.", "5."][i]} **${row.username}** — ${fmt(row.points)} pts`)
+    .map((row, i) => `${["🥇", "🥈", "🥉", "4.", "5."][i]} **${row.username}** · ${fmt(row.points)} pts`)
   const totalPoints = shared.clanPoints
   const top5Total = shared.topScorers.slice(0, 5).reduce((sum, row) => sum + row.points, 0)
   let out = `Top of the war right now:\n${lines.join("\n")}`
   if (totalPoints && totalPoints > 0) {
-    out += `\n\nBetween them: ${fmt(top5Total)} pts — **${Math.round((top5Total / totalPoints) * 100)}% of the clan**. Heavy lifters 🏋️`
+    out += `\n\nBetween them: ${fmt(top5Total)} pts · **${Math.round((top5Total / totalPoints) * 100)}% of the clan**. Heavy lifters 🏋️`
   }
   return out
 }
@@ -610,14 +610,14 @@ function moversAnswer(shared: SharedWarContext): string {
   }
   const lines = shared.movers
     .slice(0, 5)
-    .map((row, i) => `${i + 1}. **${row.username}** — +${fmt(row.gain24h)} pts (now on ${fmt(row.points)})`)
+    .map((row, i) => `${i + 1}. **${row.username}** · +${fmt(row.gain24h)} pts (now on ${fmt(row.points)})`)
   return `Biggest climbers in the last 24h 📈\n${lines.join("\n")}\n\nMomentum merchants.`
 }
 
 function zerosAnswer(shared: SharedWarContext, officer: boolean): string {
-  if (!shared.active) return noWarLine(shared) + "Zeros only matter mid-war — I'll keep the receipts for next time 🧾"
+  if (!shared.active) return noWarLine(shared) + "Zeros only matter mid-war. I'll keep the receipts for next time 🧾"
   if (shared.zeroCount === 0) {
-    return "Literally **zero zeros** — everyone linked has scored. Beautiful sight 🥹"
+    return "Literally **zero zeros**, everyone linked has scored. Beautiful sight 🥹"
   }
   if (!officer) {
     return `There are **${shared.zeroCount} members on 0 points** 👀 Names are officer business, but if YOU'RE one of them... you know what to do 😅`
@@ -778,7 +778,7 @@ function warBarsCard(book: WarBookEntry[], title: string): AssistantCardData | u
 
 function recordsAnswer(shared: SharedWarContext): EngineResult {
   const book = warBook(shared)
-  if (!book.length) return ok("No war history on record yet — fight one and I'll start the record book 📖", DEFAULT_CHIPS)
+  if (!book.length) return ok("No war history on record yet. Fight one and I'll start the record book 📖", DEFAULT_CHIPS)
   const bestHaul = [...book].sort((a, b) => b.clanPoints - a.clanPoints)[0]
   const mostScorers = [...book].sort((a, b) => b.scorers - a.scorers)[0]
   const recordCarry = shared.history.reduce<{ username: string; points: number; title: string } | null>(
@@ -791,11 +791,11 @@ function recordsAnswer(shared: SharedWarContext): EngineResult {
   const bits = [
     `**All-time record book** 📖`,
     ``,
-    `💥 Best haul: **${bestHaul.title}** — **${fmt(bestHaul.clanPoints)} pts**${bestHaul.live ? " 🔴 and still counting" : ""}`,
-    `👥 Most scorers: **${mostScorers.title}** — **${mostScorers.scorers} people** on the board`,
+    `💥 Best haul: **${bestHaul.title}** · **${fmt(bestHaul.clanPoints)} pts**${bestHaul.live ? " 🔴 and still counting" : ""}`,
+    `👥 Most scorers: **${mostScorers.title}** · **${mostScorers.scorers} people** on the board`,
   ]
   if (recordCarry) {
-    bits.push(`🥇 Biggest single-war carry: **${recordCarry.username}** — **${fmt(recordCarry.points)} pts** in ${recordCarry.title}`)
+    bits.push(`🥇 Biggest single-war carry: **${recordCarry.username}** · **${fmt(recordCarry.points)} pts** in ${recordCarry.title}`)
   }
   return withCard(ok(bits.join("\n"), ["Compare wars", "My best war", "War history"]), warBarsCard(book, "Clan points per war"))
 }
@@ -803,7 +803,7 @@ function recordsAnswer(shared: SharedWarContext): EngineResult {
 function compareAnswer(shared: SharedWarContext): EngineResult {
   const book = warBook(shared)
   if (book.length < 2) {
-    return ok("I need at least two wars on the books to compare — go make history first ⚔️", ["War history", "How are we doing?"])
+    return ok("I need at least two wars on the books to compare. Go make history first ⚔️", ["War history", "How are we doing?"])
   }
   const [a, b] = book
   const ptsDelta = a.clanPoints - b.clanPoints
@@ -811,10 +811,10 @@ function compareAnswer(shared: SharedWarContext): EngineResult {
   const ptsPct = b.clanPoints > 0 ? Math.round((ptsDelta / b.clanPoints) * 100) : null
   const verdict =
     ptsDelta > 0
-      ? `${a.live ? "We're already past last war's FINAL total" : "That war beat the one before"}${ptsPct !== null ? ` — **+${ptsPct}%**` : ""} 🔥`
+      ? `${a.live ? "We're already past last war's FINAL total" : "That war beat the one before"}${ptsPct !== null ? ` · **+${ptsPct}%**` : ""} 🔥`
       : ptsDelta < 0
-        ? `${a.live ? "Still" : "It finished"} **${fmt(Math.abs(ptsDelta))} pts** behind the previous mark${a.live ? " — chase it down before the clock dies 😤" : ""}`
-        : "Dead level with the previous war — spooky 👻"
+        ? `${a.live ? "Still" : "It finished"} **${fmt(Math.abs(ptsDelta))} pts** behind the previous mark${a.live ? ". Chase it down before the clock dies 😤" : ""}`
+        : "Dead level with the previous war, spooky 👻"
   const lines = [
     `⚖️ **${a.title}${a.live ? " 🔴 so far" : ""}** vs **${b.title}**`,
     ``,
@@ -835,7 +835,7 @@ function myHistoryAnswer(shared: SharedWarContext, asker: AskerContext): EngineR
   for (const war of asker.wars) rows.push({ title: war.title, points: war.points, live: false })
   if (!rows.length) {
     return ok(
-      `No finished wars on your record yet, ${asker.username} — fight one and I'll chart your arc 📈`,
+      `No finished wars on your record yet, ${asker.username}. Fight one and I'll chart your arc 📈`,
       DEFAULT_CHIPS
     )
   }
@@ -844,17 +844,17 @@ function myHistoryAnswer(shared: SharedWarContext, asker: AskerContext): EngineR
   const bits = [
     `Your personal war arc, ${asker.username} 📈`,
     ``,
-    ...rows.slice(0, 5).map((row) => `• **${row.title}**${row.live ? " 🔴 so far" : ""} — **${fmt(row.points)} pts**`),
+    ...rows.slice(0, 5).map((row) => `• **${row.title}**${row.live ? " 🔴 so far" : ""} · **${fmt(row.points)} pts**`),
   ]
   bits.push(
     ``,
-    `🏆 Personal best: **${best.title}** with **${fmt(best.points)} pts**${best.live ? " — and you're still writing it!" : ""}`
+    `🏆 Personal best: **${best.title}** with **${fmt(best.points)} pts**${best.live ? ", and you're still writing it!" : ""}`
   )
   if (trend !== null) {
     bits.push(
       trend >= 0
-        ? `📈 Trend: **+${fmt(trend)} pts** up on last war — levelling up!`
-        : `📉 Trend: ${fmt(Math.abs(trend))} pts below last war — revenge arc loading...`
+        ? `📈 Trend: **+${fmt(trend)} pts** up on last war, levelling up!`
+        : `📉 Trend: ${fmt(Math.abs(trend))} pts below last war, revenge arc loading...`
     )
   }
   return withCard(ok(bits.join("\n"), ["Record book", "My stats", "Compare wars"]), {
@@ -866,11 +866,11 @@ function myHistoryAnswer(shared: SharedWarContext, asker: AskerContext): EngineR
 
 function historyListAnswer(shared: SharedWarContext): EngineResult {
   if (!shared.history.length) {
-    return ok("The history book is blank so far — wars we fight get written in automatically 📖", DEFAULT_CHIPS)
+    return ok("The history book is blank so far, wars we fight get written in automatically 📖", DEFAULT_CHIPS)
   }
   const lines = shared.history.slice(0, 5).map(
     (entry, index) =>
-      `${index + 1}. **${entry.title}** — **${fmt(entry.clanPoints)} pts** · ${entry.scorers} scorers${entry.topUsername ? ` · 🥇 ${entry.topUsername}` : ""}`
+      `${index + 1}. **${entry.title}** · **${fmt(entry.clanPoints)} pts** · ${entry.scorers} scorers${entry.topUsername ? ` · 🥇 ${entry.topUsername}` : ""}`
   )
   return withCard(
     ok(`The MCWV history book, newest first:\n\n${lines.join("\n")}`, ["Record book", "Compare wars", "My best war"]),
@@ -884,13 +884,13 @@ function playerAnswer(shared: SharedWarContext, member: MemberLine): string {
   const rank = index >= 0 ? index + 1 : null
   let out = `**${member.username}**: **${fmt(member.points)}** pts this war`
   if (rank !== null) {
-    out += ` — **${ordinal(rank)}** in the clan`
+    out += ` · **${ordinal(rank)}** in the clan`
     if (index > 0) {
       const above = scored[index - 1]
       out += `, ${fmt(above.points - member.points)} pts behind ${above.username}`
     }
   } else if (member.points <= 0) {
-    out += ` — hasn't scored yet 💀`
+    out += `, hasn't scored yet 💀`
   }
   if (member.gain24h !== null && member.gain24h > 0) out += `\nGained **+${fmt(member.gain24h)}** in the last 24h 📈`
   return out
@@ -898,17 +898,17 @@ function playerAnswer(shared: SharedWarContext, member: MemberLine): string {
 
 function myStatsAnswer(shared: SharedWarContext, asker: AskerContext): string {
   if (!asker.inRoster || asker.points === null) {
-    return `I couldn't find you in this war's data, ${asker.username} — not linked yet or the game hasn't logged your first points. If you're linked, score 1 point and I'll see you 👀`
+    return `I couldn't find you in this war's data, ${asker.username}, not linked yet or the game hasn't logged your first points. If you're linked, score 1 point and I'll see you 👀`
   }
   let out = `You, ${asker.username}: **${fmt(asker.points)}** pts`
   if (asker.rank !== null) out += `, **${ordinal(asker.rank)}** in the clan`
   out += `.`
   if (asker.nextPlayer && asker.gapToNext !== null) {
-    out += `\n\nYou're **${fmt(asker.gapToNext)}** pts behind **${asker.nextPlayer}** — catchable? Very 😏`
+    out += `\n\nYou're **${fmt(asker.gapToNext)}** pts behind **${asker.nextPlayer}**, catchable? Very 😏`
   } else if (asker.rank === 1) {
-    out += `\n\nYou're **top of the clan** 👑 — everyone behind you is chasing YOUR shadow`
+    out += `\n\nYou're **top of the clan** 👑, everyone behind you is chasing YOUR shadow`
   }
-  if (asker.gain24h !== null && asker.gain24h > 0) out += `\n\n📈 +${fmt(asker.gain24h)} in the last 24h — keep that pace`
+  if (asker.gain24h !== null && asker.gain24h > 0) out += `\n\n📈 +${fmt(asker.gain24h)} in the last 24h, keep that pace`
   return out
 }
 
@@ -925,7 +925,7 @@ function playerResponse(shared: SharedWarContext, name: string, chips: string[])
   if (suggestion) {
     return withCard(
       ok(
-        `Can't find anyone called **"${name}"** — did you mean **${suggestion.username}**? 👀\n\n${playerAnswer(shared, suggestion)}`,
+        `Can't find anyone called **"${name}"**, did you mean **${suggestion.username}**? 👀\n\n${playerAnswer(shared, suggestion)}`,
         chips,
         `player:${suggestion.username}`
       ),
@@ -952,7 +952,7 @@ function playerResponse(shared: SharedWarContext, name: string, chips: string[])
     )
   }
   return ok(
-    `Can't find anyone called **"${name}"** in this war's data — check the spelling, or they haven't scored yet 👻`,
+    `Can't find anyone called **"${name}"** in this war's data. Check the spelling, or they haven't scored yet 👻`,
     chips
   )
 }
@@ -975,10 +975,10 @@ function matchOne(
     const phaseTag =
       phase === "finalHours" ? ` - **FINAL HOURS** 🚨` : phase === "finalDay" ? ` - **FINAL DAY** 🏁` : ""
     const warBit = shared.active
-      ? `War's LIVE — we're ${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"} with **${fmtDuration(shared.timeLeftMs)}** left ⚔️${phaseTag}`
-      : `No war on right now — calm before the storm 😌`
+      ? `War's LIVE. We're ${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"} with **${fmtDuration(shared.timeLeftMs)}** left ⚔️${phaseTag}`
+      : `No war on right now, calm before the storm 😌`
     return ok(
-      `Yo ${asker.username}! 💜 ${warBit}\n\nAsk me anything about the war — placements, gaps, rewards, who's carrying, who's slacking (officers see names 👀).`,
+      `Yo ${asker.username}! 💜 ${warBit}\n\nAsk me anything about the war, placements, gaps, rewards, who's carrying, who's slacking (officers see names 👀).`,
       pageChips(page) ?? ["How are we doing?", "Can we make top 10?", "What do we win?", "My stats"]
     )
   }
@@ -1067,12 +1067,12 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
   if (/next (war|battle|clan battle)|another war|new (war|battle)|when.*(war|battle).*(start|begin|drop|come)/.test(msg)) {
     if (shared.active) {
       return ok(
-        `This war's still live — ⏳ **${fmtDuration(shared.timeLeftMs)}** left. The next battle usually drops with the next in-game event, basically right after this one. Finish strong first 😤`,
+        `This war's still live, ⏳ **${fmtDuration(shared.timeLeftMs)}** left. The next battle usually drops with the next in-game event, basically right after this one. Finish strong first 😤`,
         ["When does the war end?", "How are we doing?", "Can we make top 10?"]
       )
     }
     return ok(
-      `${noWarLine(shared)}${shared.battleId ? `Last one was **${shared.battleId}**. ` : ""}Big Games fires the starting gun with the next in-game event, and I'll know the second it goes live 📯\n\nPrep now: dream team ready, best enchants on, clear your schedule for day one — early points snowball.`,
+      `${noWarLine(shared)}${shared.battleId ? `Last one was **${shared.battleId}**. ` : ""}Big Games fires the starting gun with the next in-game event, and I'll know the second it goes live 📯\n\nPrep now: dream team ready, best enchants on, clear your schedule for day one, early points snowball.`,
       ["How did we do last war?", "What do we win?", "How are we doing?"]
     )
   }
@@ -1093,20 +1093,20 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
     let personal = ""
     if (selfRow && myPph !== null) {
       if (myPph === 0) {
-        personal = `\n\n**You're on 0 PPH right now** — even a few hundred pts/hour helps. Find your fastest zone and lock in.`
+        personal = `\n\n**You're on 0 PPH right now**, even a few hundred pts/hour helps. Find your fastest zone and lock in.`
       } else if (topPph && myPph < topPph * 0.3) {
-        personal = `\n\n**Your pace: ~${fmt(myPph)}/h** — top grinders are doing ~${fmt(topPph)}/h. You've got room to push. Check your team/enchants and find a faster zone.`
+        personal = `\n\n**Your pace: ~${fmt(myPph)}/h**, top grinders are doing ~${fmt(topPph)}/h. You've got room to push. Check your team/enchants and find a faster zone.`
       } else if (topPph && myPph < topPph * 0.7) {
-        personal = `\n\n**Your pace: ~${fmt(myPph)}/h** — decent, but top is ~${fmt(topPph)}/h. Tighten the rotation and you'll close the gap.`
+        personal = `\n\n**Your pace: ~${fmt(myPph)}/h**, decent, but top is ~${fmt(topPph)}/h. Tighten the rotation and you'll close the gap.`
       } else {
-        personal = `\n\n**Your pace: ~${fmt(myPph)}/h** — you're carrying. Keep it up and push others to match your pace.`
+        personal = `\n\n**Your pace: ~${fmt(myPph)}/h**. You're carrying. Keep it up and push others to match your pace.`
       }
     } else if (selfRow && myPoints !== null && myPoints === 0) {
-      personal = `\n\n**You haven't scored yet this war** — get in there and start grinding. Every point counts.`
+      personal = `\n\n**You haven't scored yet this war**. Get in there and start grinding. Every point counts.`
     }
 
     return ok(
-      `Every clan battle scores on its **own gimmick** — the in-game Clan Battle page shows exactly what counts this time. Universal cheat codes:\n\n• **Highest zone you melt fast** — speed beats ego\n• **Best team + enchants on**, always\n• **Day-one points snowball** — start early\n• **Final 24h is when ranks flip** — that's push time${personal}\n\n${shared.active ? `Clock check: **${fmtDuration(shared.timeLeftMs)}** left — go go go` : "Between wars right now, so stock the prep: potions, upgrades, dream team."}`,
+      `Every clan battle scores on its **own gimmick**, the in-game Clan Battle page shows exactly what counts this time. Universal cheat codes:\n\n• **Highest zone you melt fast**, speed beats ego\n• **Best team + enchants on**, always\n• **Day-one points snowball**, start early\n• **Final 24h is when ranks flip**, that's push time${personal}\n\n${shared.active ? `Clock check: **${fmtDuration(shared.timeLeftMs)}** left. Go go go` : "Between wars right now, so stock the prep: potions, upgrades, dream team."}`,
       ["How are we doing?", "My stats", "Top scorers"]
     )
   }
@@ -1117,7 +1117,7 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
     const lines = shared.topScorers.slice(0, 5).map((row, index) => {
       const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`
       const gain = row.gain24h !== null && row.gain24h > 0 ? ` *(+${fmt(row.gain24h)} last 24h)*` : ""
-      return `${medal} **${row.username}** — ${fmt(row.points)} pts${gain}`
+      return `${medal} **${row.username}** · ${fmt(row.points)} pts${gain}`
     })
     return withCard(
       ok(
@@ -1153,12 +1153,12 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
   if (/last (war|battle)|previous (war|battle)|how did we (do|finish)|our (record|best) (finish|war)|best (finish|war)|war recap|recap (of )?(the )?(last |previous )?(war|battle)/.test(msg)) {
     if (shared.active) {
       return ok(
-        `We're mid-**${shared.battleId ?? "battle"}** — recap when the dust settles! Right now: **${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"}** with ⏳ **${fmtDuration(shared.timeLeftMs)}** left 📖`,
+        `We're mid-**${shared.battleId ?? "battle"}**. Recap when the dust settles! Right now: **${shared.clanRank !== null ? `#${shared.clanRank}` : "unranked"}** with ⏳ **${fmtDuration(shared.timeLeftMs)}** left 📖`,
         ["How are we doing?", "When's the next war?", "Who's carrying?"]
       )
     }
     const bits = [
-      `Last battle: **${shared.battleId ?? "unknown"}** — `,
+      `Last battle: **${shared.battleId ?? "unknown"}**, `,
       shared.contributors ? `**${shared.contributors} scorers** piled up ` : "",
       shared.clanPoints !== null ? `**${fmt(shared.clanPoints)} pts**` : "a pile of pts",
       ".",
@@ -1297,10 +1297,10 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
 
   if (/who.*(winning|first|leading|#?1\b)|who('s| is) (first|top|leading)|leader of|best clan/.test(msg)) {
     const top = standingAt(shared, 1)
-    if (!top) return ok("I can't see the live standings right now — try again shortly.", DEFAULT_CHIPS)
+    if (!top) return ok("I can't see the live standings right now. Try again shortly.", DEFAULT_CHIPS)
     const gap = shared.clanPoints !== null && top.points > shared.clanPoints ? top.points - shared.clanPoints : null
     return ok(
-      `**${top.name}** leads on **${fmt(top.points)}** pts${gap !== null && gap > 0 ? ` — we're ${fmt(gap)} behind them` : ""}${top.name.toUpperCase() === "MCWV" ? " — WAIT THAT'S US 👑" : "."}`,
+      `**${top.name}** leads on **${fmt(top.points)}** pts${gap !== null && gap > 0 ? `. We're ${fmt(gap)} behind them` : ""}${top.name.toUpperCase() === "MCWV" ? ", WAIT THAT'S US 👑" : "."}`,
       ["Can we make top 10?", "How are we doing?", "What's the projection?"]
     )
   }
@@ -1313,9 +1313,9 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
   }
 
   if (/when does (the )?(war|battle|it) end|time (left|remaining)|how long (left|until)|ends when|countdown/.test(msg)) {
-    if (!shared.active) return ok(noWarLine(shared) + "Wars run about a week once they start — you'll know when I know ⏰", DEFAULT_CHIPS)
+    if (!shared.active) return ok(noWarLine(shared) + "Wars run about a week once they start. You'll know when I know ⏰", DEFAULT_CHIPS)
     return ok(
-      `⏳ **${fmtDuration(shared.timeLeftMs)}** left${shared.endsAt ? ` — ends ${new Date(shared.endsAt).toLocaleString("en-GB", { weekday: "long", hour: "numeric", minute: "2-digit" })}` : ""}. Final-hours push planning starts... now 😤`,
+      `⏳ **${fmtDuration(shared.timeLeftMs)}** left${shared.endsAt ? `. Ends ${new Date(shared.endsAt).toLocaleString("en-GB", { weekday: "long", hour: "numeric", minute: "2-digit" })}` : ""}. Final-hours push planning starts... now 😤`,
       ["How are we doing?", "Can we make top 10?", "Who's on zero?"]
     )
   }
@@ -1347,18 +1347,18 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
   }
 
   if (/(our|current|clan|'s) (rank|place|position)|where are we|what place|what('s| is)( our| the)? (clan )?rank/.test(msg)) {
-    if (shared.clanRank === null) return ok("No live placement on record yet — once the war starts I'll track our rank hourly 📡", DEFAULT_CHIPS)
+    if (shared.clanRank === null) return ok("No live placement on record yet. Once the war starts I'll track our rank hourly 📡", DEFAULT_CHIPS)
     const idx = usIndex(shared)
     const above = idx > 0 ? shared.standings[idx - 1] : null
     return ok(
-      `We're **#${shared.clanRank}**${shared.clanPoints !== null ? ` on **${fmt(shared.clanPoints)}** pts` : ""}${above ? ` — ${fmt(above.points - (shared.clanPoints ?? 0))} pts behind ${above.name} (#${above.rank})` : ""}.`,
+      `We're **#${shared.clanRank}**${shared.clanPoints !== null ? ` on **${fmt(shared.clanPoints)}** pts` : ""}${above ? ` · ${fmt(above.points - (shared.clanPoints ?? 0))} pts behind ${above.name} (#${above.rank})` : ""}.`,
       ["Can we make top 10?", "How are we doing?", "Who's above us?"],
       "rank"
     )
   }
 
   if (/how many points (do we|we have|does (the )?clan)|clan points|total points/.test(msg)) {
-    if (shared.clanPoints === null) return ok("No points on the board yet — war hasn't started or hasn't ticked over 🐣", DEFAULT_CHIPS)
+    if (shared.clanPoints === null) return ok("No points on the board yet, war hasn't started or hasn't ticked over 🐣", DEFAULT_CHIPS)
     return ok(
       `The clan's on **${fmt(shared.clanPoints)}** pts${shared.gainLastHour !== null ? `, +${fmt(shared.gainLastHour)} in the last hour` : ""}${shared.contributors ? ` from **${shared.contributors} scorers**` : ""}.`,
       ["How are we doing?", "Who's carrying?", "What's the projection?"]
@@ -1396,13 +1396,13 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
 
   if (/who('s| is) above us|who.*above us|who('s| is|are)? ?below( us)?|below us|under us|chase|behind us|gap/.test(msg)) {
     const idx = usIndex(shared)
-    if (idx < 0) return ok("I can't see us in the live standings right now — probably between wars 😴", DEFAULT_CHIPS)
+    if (idx < 0) return ok("I can't see us in the live standings right now, probably between wars 😴", DEFAULT_CHIPS)
     const above = idx > 0 ? shared.standings[idx - 1] : null
     const below = idx < shared.standings.length - 1 ? shared.standings[idx + 1] : null
     let out = ""
-    if (above) out += `⬆️ **${above.name}** (#${above.rank}) — ${fmt(above.points - (shared.clanPoints ?? 0))} pts ahead of us`
+    if (above) out += `⬆️ **${above.name}** (#${above.rank}) · ${fmt(above.points - (shared.clanPoints ?? 0))} pts ahead of us`
     else out += `⬆️ Nobody above us. We ARE the above 👑`
-    if (below) out += `\n⬇️ **${below.name}** (#${below.rank}) — ${fmt((shared.clanPoints ?? 0) - below.points)} pts behind us`
+    if (below) out += `\n⬇️ **${below.name}** (#${below.rank}) · ${fmt((shared.clanPoints ?? 0) - below.points)} pts behind us`
     return ok(out, ["Can we make top 10?", "How are we doing?", "What's the projection?"])
   }
 
@@ -1432,7 +1432,7 @@ You can stack questions ("rank + my stats"), follow up ("and top 5?"), and typos
   }
 
   if (/thank|thx|ty\b|nice|love (you|this)|sick|goat/.test(msg)) {
-    return ok(`Anytime 💜 Now go get some points — ${shared.active ? `${fmtDuration(shared.timeLeftMs)} on the clock` : "war's coming"} 😤`, DEFAULT_CHIPS)
+    return ok(`Anytime 💜 Now go get some points · ${shared.active ? `${fmtDuration(shared.timeLeftMs)} on the clock` : "war's coming"} 😤`, DEFAULT_CHIPS)
   }
 
   return notHandled
