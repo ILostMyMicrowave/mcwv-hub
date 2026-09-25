@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "MCWV Hub",
     short_name: "MCWV",
-    description: "MCWV clan hub — war stats, leaderboards, achievements.",
+    description: "MCWV clan hub, war stats, leaderboards, achievements.",
     start_url: "/",
     scope: "/",
     display: "standalone",
