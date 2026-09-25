@@ -874,7 +874,7 @@ function buildActivityCopyMessage(rows: ActivityMember[], label: string, thresho
   const details = rows
     .filter((row) => row.discordId)
     .slice(0, 20)
-    .map((row) => `• ${row.username}: ${row.pphReady ? `${row.pph} PPH` : "PPH warming up"}, ${row.points} pts${row.reasons.length ? ` — ${row.reasons.join(", ")}` : ""}`)
+    .map((row) => `• ${row.username}: ${row.pphReady ? `${row.pph} PPH` : "PPH warming up"}, ${row.points} pts${row.reasons.length ? ` · ${row.reasons.join(", ")}` : ""}`)
     .join("\n");
 
   return [
@@ -3318,7 +3318,7 @@ function BroadcastSection({
                 <div className="space-y-2">
                   {preview.missingTicketRecipients.slice(0, 8).map((recipient, index) => (
                     <div key={safeId("broadcast-missing", recipient.discord_id, index)} className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                      {recipient.username ?? recipient.discord_id} — no saved ticket
+                      {recipient.username ?? recipient.discord_id} · no saved ticket
                     </div>
                   ))}
                 </div>
@@ -3514,7 +3514,7 @@ function BroadcastTemplatesPanel({
             )}
             {audience === "discord_role" && (
               <p className="text-xs text-zinc-500">
-                Heads up: the role itself is picked at send time — this template just remembers the audience type.
+                Heads up: the role itself is picked at send time. This template just remembers the audience type.
               </p>
             )}
             <label className="block space-y-2">
@@ -3523,7 +3523,7 @@ function BroadcastTemplatesPanel({
                 className="admin-input min-h-32 resize-y"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="War ends in {war_time_left}, {username} — you're on {points} points!"
+                placeholder="War ends in {war_time_left}, {username}. You're on {points} points!"
               />
               <span className="admin-label text-xs">Placeholders: {"{ping}"}, {"{username}"}, {"{points}"}, {"{pph}"}, {"{change5m}"}, {"{rank}"}, {"{clan_rank}"}, {"{war_time_left}"}, {"{next_player}"}, {"{next_rank_gap}"}</span>
             </label>
@@ -3546,7 +3546,7 @@ function BroadcastTemplatesPanel({
                 />
               ) : null}
               <span className="admin-label text-xs">
-                Artwork sent with the broadcast — embed image, app push picture, and inbox banner.
+                Artwork sent with the broadcast: embed image, app push picture, and inbox banner.
               </span>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -3616,7 +3616,7 @@ function BroadcastTemplatesPanel({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-zinc-500">
-              No templates yet. Save your go-to war messages here — or hit &quot;Save as Template&quot; in the Send tab.
+              No templates yet. Save your go-to war messages here, or hit &quot;Save as Template&quot; in the Send tab.
             </p>
             <button className="admin-button" type="button" onClick={startCreate}>+ New Template</button>
           </div>
@@ -3874,8 +3874,8 @@ function BroadcastSchedulesPanel({
               <label className="block space-y-2">
                 <span className="admin-label text-xs font-semibold uppercase tracking-[0.2em]">State</span>
                 <select className="admin-input" value={enabled ? "on" : "off"} onChange={(event) => setEnabled(event.target.value === "on")}>
-                  <option value="on">Enabled — fires automatically</option>
-                  <option value="off">Disabled — draft only</option>
+                  <option value="on">Enabled: fires automatically</option>
+                  <option value="off">Disabled: draft only</option>
                 </select>
               </label>
             </div>
@@ -3885,7 +3885,7 @@ function BroadcastSchedulesPanel({
             )}
             {editing?.kind === "one_time" && editing.lastFiredAt && (
               <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                This one-time broadcast already fired and won&apos;t fire again — create a new schedule instead.
+                This one-time broadcast already fired and won&apos;t fire again. Create a new schedule instead.
               </p>
             )}
             <label className="block space-y-2">
@@ -3975,7 +3975,7 @@ function BroadcastSchedulesPanel({
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-zinc-500">No schedules yet — automate war nudges and congrats messages here.</p>
+            <p className="text-sm text-zinc-500">No schedules yet. Set up war nudges and congrats broadcasts here.</p>
             <button className="admin-button" type="button" onClick={startCreate}>+ New Schedule</button>
           </div>
         )}
@@ -4188,7 +4188,7 @@ function BroadcastHistoryPanel({
           </div>
         ) : (
           <p className="text-sm text-zinc-500">
-            Nothing sent yet — every broadcast from Discord, the Hub, and automations lands here with delivery + conversion stats.
+            Nothing sent yet. Every broadcast from Discord, the Hub, and automations lands here with delivery + conversion stats.
           </p>
         )}
       </Panel>
@@ -5163,7 +5163,7 @@ function PlayersSection({
                       {Boolean(player.onLoa) && (
                         <span
                           className="whitespace-nowrap rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-[11px] text-sky-300"
-                          title="Leave of Absence — excused from wars and tracking"
+                          title="Leave of Absence: excused from wars and tracking"
                         >
                           🏝️ LOA
                         </span>
@@ -5445,7 +5445,7 @@ function WarSchedulePanel() {
       });
       const json = await res.json().catch(() => null) as { error?: string } | null;
       if (!res.ok) throw new Error(json?.error ?? "Save failed");
-      setNotice(`Saved ${battleId} (manual override active — the API can't overwrite it).`);
+      setNotice(`Saved ${battleId} (manual override active, so the API can't overwrite it).`);
       setDrafts((prev) => {
         const next = { ...prev };
         delete next[battleId];
@@ -5526,7 +5526,7 @@ function WarSchedulePanel() {
 
   return (
     <Panel
-      title="War Schedule — Date Editor"
+      title="War Schedule: Date Editor"
       right={
         <span className="text-xs text-zinc-500">
           Manual dates override the PS99 API everywhere (reports, projections, broadcast triggers)
@@ -5821,7 +5821,7 @@ function BadgePresetManager() {
     setColor(preset.color);
     setRoleId(preset.linkedDiscordRoleId ?? "");
     setTier(Boolean(preset.exclusiveTier));
-    setStatus(`Editing “${preset.label}” — save to apply, or cancel.`);
+    setStatus(`Editing “${preset.label}”. Save to apply, or cancel.`);
   }
 
   async function savePreset() {
@@ -5869,10 +5869,10 @@ function BadgePresetManager() {
       setStatus(
         editing
           ? wasLinked
-            ? `Badge updated — still linked to ${linkedRoleName ?? "the role"}, members stay in sync.`
+            ? `Badge updated, still linked to ${linkedRoleName ?? "the role"}, members stay in sync.`
             : "Badge updated."
           : wasLinked
-          ? `Badge saved & linked to ${linkedRoleName ?? "the role"} — a sync just ran, so role members have it already.`
+          ? `Badge saved & linked to ${linkedRoleName ?? "the role"}, a sync just ran, so role members have it already.`
           : "Badge preset saved."
       );
       await loadPresets();
@@ -5966,7 +5966,7 @@ function BadgePresetManager() {
     >
       <div className="space-y-5">
         <p className="text-sm text-zinc-400">
-          Create the badge options for leaderboard profile cards. Officers pin them by hand — or link a badge to a Discord server role (like OG) and it appears on members&apos; cards automatically. Roles are only ever read, never edited.
+          Create the badge options for leaderboard profile cards. Officers pin them by hand, or link a badge to a Discord server role (like OG) and it appears on members&apos; cards automatically. Roles are only ever read, never edited.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-[1fr_6rem_7rem_auto] sm:items-end">
@@ -6030,7 +6030,7 @@ function BadgePresetManager() {
             value={roleId}
             onChange={(event) => setRoleId(event.target.value)}
           >
-            <option value="">No link — officers pin this badge by hand</option>
+            <option value="">No link: officers pin this badge by hand</option>
             {roleOptions.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name}
@@ -6041,8 +6041,8 @@ function BadgePresetManager() {
           </select>
           <span className="admin-label block text-xs">
             {roleId
-              ? "Members holding that role in the Discord server get this badge automatically — lose the role, lose the badge. Read-only: no roles are ever created, assigned, or edited."
-              : "Link a role (e.g. OG) to make this badge fully automatic — or use ✎ on a badge below to link it."}
+              ? "Members holding that role in the Discord server get this badge automatically. Lose the role, lose the badge. Read-only: no roles are ever created, assigned, or edited."
+              : "Link a role (e.g. OG) to make this badge fully automatic, or use ✎ on a badge below to link it."}
             {rolesNote ? ` ${rolesNote}` : ""}
           </span>
         </label>
@@ -6056,7 +6056,7 @@ function BadgePresetManager() {
             onChange={(event) => setTier(event.target.checked)}
           />
           <span>
-            <b>★ Tier badge</b> — a member only shows their <b>highest</b> tier badge, ranked by your Discord role list
+            <b>★ Tier badge</b>: a member only shows their <b>highest</b> tier badge, ranked by your Discord role list
             (Owner hides Head Officer &amp; Officer; Head Officer hides Officer, and so on). Needs a linked role.
           </span>
         </label>
