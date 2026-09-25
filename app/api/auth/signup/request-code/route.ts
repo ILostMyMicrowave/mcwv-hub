@@ -117,7 +117,7 @@ export async function POST(req: Request) {
     if (lastSentAt && Date.now() - new Date(lastSentAt).getTime() < DM_COOLDOWN_MS) {
       return NextResponse.json({
         success: true,
-        message: "A code was just sent — check your Discord DMs (it can take a minute to arrive).",
+        message: "A code was just sent. Check your Discord DMs (it can take a minute to arrive).",
       });
     }
 
