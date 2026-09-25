@@ -219,7 +219,7 @@ export async function POST(req: Request) {
     const prevRoleId = previous.rows[0]?.linked_discord_role_id || null;
 
     if (editKey && !previous.rows.length) {
-      return NextResponse.json({ error: "Badge preset not found — it may have been deleted." }, { status: 404 });
+      return NextResponse.json({ error: "Badge preset not found, it may have been deleted." }, { status: 404 });
     }
 
     const returningCols = `id, badge_key, label, emoji, color, enabled, sort_order,
