@@ -226,7 +226,7 @@ function ReportCard({ report, featured = false }: { report: WarReportSummary; fe
               {!report.isActive && isPartialReport(report) && (
                 <span
                   className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100"
-                  title="This war was captured after the game API began removing contributors — member lists, ranks and totals are best-effort."
+                  title="This war was captured after the game API began removing contributors: member lists, ranks and totals are best-effort."
                 >
                   ⚠ Partial data
                 </span>
@@ -375,7 +375,7 @@ export default function WarReportsPage() {
               War Reports
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--foreground)]/60">
-              After-action report cards for every completed war — MVPs, grades, alt tracking, warnings, and CSV exports.
+              After-action report cards for every completed war: MVPs, grades, alt tracking, warnings, and CSV exports.
             </p>
           </div>
           <div className="relative w-full lg:w-80">
@@ -394,7 +394,7 @@ export default function WarReportsPage() {
           <span className="mt-0.5 shrink-0">⚠️</span>
           <p>
             <span className="font-semibold">War data before 16 Aug 2026 may be incomplete.</span>{" "}
-            Full live capture began with the next battle — earlier wars were partially recovered after
+            Full live capture began with the next battle, earlier wars were partially recovered after
             the game API started removing contributors, so member lists, ranks and totals for those wars
             are best-effort and can differ from the true final numbers.
           </p>
