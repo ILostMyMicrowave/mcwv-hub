@@ -346,3 +346,161 @@ export function flipTone(race: RaceModelRace): "bad" | "good" | "neutral" {
   if ((race.flipProb ?? 0) >= 0.2 && race.flipDir === "we_pass_them") return "good";
   return "neutral";
 }
+
+// ── per-battle reward ladder (parsed from PS99 battle meta.placementRewards) ─
+// Fully data-driven so it adapts to every clan battle; unknown shape -> null
+// and the UI hides the ladder entirely. No hard-coded game facts here except
+// MEDAL_BANDS, the PS99 clan-war system medals (constant across battles:
+// Gold #1, Silver #2-8, Bronze #9-20; if a future battle overrides them the
+// payload wins because tiers come from the API).
+
+export type RewardItem = {
+  name: string;
+  collection: string;
+  amount: number;
+};
+
+export type RewardTier = {
+  label: string;
+  best: number;
+  worst: number;
+  items: RewardItem[];
+  contributorWindow: string | null;
+};
+
+export type RewardBoard = {
+  tiers: RewardTier[];
+  headline: RewardItem | null;
+};
+
+export const MEDAL_BANDS: ReadonlyArray<{ medal: string; best: number; worst: number }> = [
+  { medal: "Gold", best: 1, worst: 1 },
+  { medal: "Silver", best: 2, worst: 8 },
+  { medal: "Bronze", best: 9, worst: 20 },
+];
+
+export function medalForRank(rank: number | null | undefined): string | null {
+  if (typeof rank !== "number" || !Number.isFinite(rank) || rank < 1) return null;
+  const band = MEDAL_BANDS.find((b) => rank >= b.best && rank <= b.worst);
+  return band ? `${band.medal} medal` : null;
+}
+
+function asInt(v: unknown): number | null {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
+function asRewardItem(raw: unknown): RewardItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === "string" && o.id.trim() ? o.id.trim() : null;
+  if (!id) return null;
+  const variant = typeof o.variant === "string" ? o.variant.trim() : "";
+  const amount = asInt(o.amount) ?? 1;
+  return {
+    name: variant && variant !== "regular" ? `${variant} ${id}` : id,
+    collection: typeof o.collection === "string" && o.collection ? o.collection : "Reward",
+    amount,
+  };
+}
+
+export function parseRewardTiers(meta: unknown): RewardBoard | null {
+  if (!meta || typeof meta !== "object") return null;
+  const m = meta as Record<string, unknown>;
+  const raw = Array.isArray(m.placementRewards) ? (m.placementRewards as unknown[]) : null;
+  if (!raw || raw.length === 0) return null;
+
+  const tiers: RewardTier[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const best = asInt(e.best);
+    const worst = asInt(e.worst) ?? best;
+    if (best === null || worst === null || worst < best) continue;
+    const items = (Array.isArray(e.items) ? (e.items as unknown[]) : [])
+      .map(asRewardItem)
+      .filter((x): x is RewardItem => !!x);
+    if (items.length === 0) continue;
+    const label =
+      typeof e.placement === "string" && e.placement.trim()
+        ? e.placement.trim()
+        : best === worst
+          ? `${best}st`
+          : `${best}-${worst}`;
+    const contrib =
+      typeof e.contributorPlacement === "string" && e.contributorPlacement.trim()
+        ? e.contributorPlacement.trim()
+        : null;
+    tiers.push({ label, best, worst, items, contributorWindow: contrib });
+  }
+  if (tiers.length === 0) return null;
+  tiers.sort((a, b) => a.best - b.best || a.worst - b.worst);
+
+  const headline = asRewardItem(m.headlineReward ?? null);
+  return { tiers, headline };
+}
+
+export function tiersForRank(board: RewardBoard | null, rank: number | null | undefined): RewardTier[] {
+  if (!board || typeof rank !== "number" || !Number.isFinite(rank) || rank < 1) return [];
+  return board.tiers.filter((t) => rank >= t.best && rank <= t.worst);
+}
+
+// Deduped, human-readable sum of a set of tiers ("2x Gem + Dog"). Distinct
+// items can share a name (the live meta has a "Yee-haw" hoverboard AND a
+// "Yee-haw" booth), so on collision we disambiguate with the collection.
+export function rewardNames(tiers: RewardTier[]): string {
+  const raw: { name: string; collection: string; label: string }[] = [];
+  const uniqueNames = new Set<string>();
+  for (const t of tiers) {
+    for (const i of t.items) {
+      const key = `${i.name}|${i.collection}`;
+      if (!raw.some((r) => `${r.name}|${r.collection}` === key)) {
+        raw.push({ name: i.name, collection: i.collection, label: i.amount > 1 ? `${i.amount}x ${i.name}` : i.name });
+      }
+    }
+  }
+  for (const r of raw) uniqueNames.add(r.name);
+  const dupes = new Set<string>();
+  const counts = new Map<string, number>();
+  for (const r of raw) counts.set(r.name, (counts.get(r.name) ?? 0) + 1);
+  for (const [name, n] of counts) if (n > 1) dupes.add(name);
+  return raw.map((r) => (dupes.has(r.name) ? `${r.label} (${r.collection})` : r.label)).join(" + ");
+}
+
+// Most exclusive item this rank locks in (for compact chips next to odds).
+export function primaryRewardName(board: RewardBoard | null, rank: number | null | undefined): string | null {
+  const held = tiersForRank(board, rank);
+  return held.length ? held[0].items[0]?.name ?? null : null;
+}
+
+// Next rung up: the nearest better band edge we can still climb to, and what
+// climbing there would ADD to the haul (bands overlap, so e.g. slipping out
+// of "1st" still keeps the 1-30 hoverboard).
+export function nextLadder(
+  board: RewardBoard | null,
+  rank: number,
+): { targetRank: number; gains: RewardTier[] } | null {
+  if (!board) return null;
+  const better = board.tiers.filter((t) => t.worst < rank);
+  if (better.length === 0) return null;
+  const target = better.reduce((a, b) => (b.worst > a.worst ? b : a));
+  const targetRank = target.worst;
+  const gains = tiersForRank(board, targetRank).filter(
+    (t) => !(t.best <= rank && rank <= t.worst),
+  );
+  return gains.length > 0 ? { targetRank, gains } : null;
+}
+
+// What one rank of slip costs: tiers held at `rank` but not at rank + 1.
+// gains = consolation tier we fall INTO (may be empty - out of the ladder).
+export function slipDelta(
+  board: RewardBoard | null,
+  rank: number,
+): { losses: RewardTier[]; gains: RewardTier[] } | null {
+  const now = tiersForRank(board, rank);
+  if (now.length === 0) return null;
+  const after = tiersForRank(board, rank + 1);
+  const losses = now.filter((t) => !after.includes(t));
+  const gains = after.filter((t) => !now.includes(t));
+  return losses.length > 0 || gains.length > 0 ? { losses, gains } : null;
+}
