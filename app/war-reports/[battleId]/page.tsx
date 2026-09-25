@@ -361,7 +361,7 @@ export default function WarReportDetailPage() {
                         return partial ? (
                           <span
                             className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100"
-                            title="Captured after the game API began removing contributors — member lists, ranks and totals are best-effort."
+                            title="Captured after the game API began removing contributors, member lists, ranks and totals are best-effort."
                           >
                             ⚠ Partial data
                           </span>
