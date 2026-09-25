@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import { requireAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
 import { getDetectedWarWindow } from "@/lib/warDetection";
-import { buildSparkLanes, paceDivergencePct, parseRacePayload, type RaceModelView } from "@/lib/warRaceModel";
+import { buildSparkLanes, paceDivergencePct, parseRewardTiers, parseRacePayload, type RaceModelView } from "@/lib/warRaceModel";
 
 // War-day resilience: ride out pooler episodes (up to 60s) instead of
 // being killed at the default cap — a killed function makes Vercel serve
@@ -1347,16 +1347,16 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     : "Early";
   const disconnectImpact = reliability >= 0.9 ? "Low" : reliability >= 0.75 ? "Medium" : "High";
   const recommendation = canPassTarget && etaAboveMs !== null && etaAboveMs <= 30 * 60 * 1000 && above
-    ? `Push now — ${above.name} is reachable in ${formatShortDuration(etaAboveMs)} if this gap trend holds.`
+    ? `Push now · ${above.name} is reachable in ${formatShortDuration(etaAboveMs)} if this gap trend holds.`
     : canBePassed && threatEtaMs !== null && threatEtaMs <= 30 * 60 * 1000 && below
-    ? `Defend now — ${below.name} could catch us in ${formatShortDuration(threatEtaMs)} if nothing changes.`
+    ? `Defend now · ${below.name} could catch us in ${formatShortDuration(threatEtaMs)} if nothing changes.`
     : targetTrend && targetTrend.changePer30m > 0 && above
     ? `${above.name} is close, but the gap is currently growing. We need a stronger push before the pass estimate improves.`
     : threatTrend && threatTrend.changePer30m > 0 && below
-    ? `Hold pace — ${below.name} is not catching us right now.`
+    ? `Hold pace · ${below.name} is not catching us right now.`
     : lastHourGain > 0
-    ? `Keep pressure steady — MCWV gained ${formatNumber(lastHourGain)} points in the last 60 minutes.`
-    : `Collecting race history — estimates will sharpen as more snapshots come in.`;
+    ? `Keep pressure steady, MCWV gained ${formatNumber(lastHourGain)} points in the last 60 minutes.`
+    : `Collecting race history, estimates will sharpen as more snapshots come in.`;
 
   const updateEveryMs = 30_000;
   const nextUpdateMs = updateEveryMs - (Date.now() % updateEveryMs);
@@ -1395,6 +1395,10 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
     battleId: active.battleId,
     battleName: active.title,
     lastUpdatedAt: new Date().toISOString(),
+    // Per-battle reward ladder, parsed from the public battle meta we already
+    // fetch for this request (no extra API call). null on unknown shape and
+    // the page hides the ladder, so other battle styles need no changes.
+    rewards: parseRewardTiers(publicBattle?.meta ?? publicBattle ?? null),
     current: {
       clanName: CLAN_NAME,
       rank,
@@ -1476,7 +1480,7 @@ async function buildLiveBattleHq(active: LiveWarInfo) {
       remainingHours: Math.round(remainingHours * 10) / 10,
       reason: finishOutlookReady
         ? `Based on ${formatNumber(clanRateMap.size)} clan pace tracks, ${formatShortDuration(remainingMs)} remaining.`
-        : `Showing live rank while the finish forecast warms up — needs 2h of snapshots and 8+ clan pace tracks.`,
+        : `Showing live rank while the finish forecast warms up, needs 2h of snapshots and 8+ clan pace tracks.`,
     },
     timing: {
       snapshotIntervalMs: updateEveryMs,
