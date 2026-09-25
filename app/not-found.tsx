@@ -33,7 +33,7 @@ export default function NotFound() {
           4<span style={{ color: "var(--accent)" }}>0</span>4
         </h1>
         <p className="mt-4 max-w-xs text-sm leading-6 text-zinc-400">
-          This page drifted off the grid — or never existed at all.
+          This page drifted off the grid, or never existed at all.
         </p>
         <div className="mt-8 flex items-center gap-3">
           <Link
