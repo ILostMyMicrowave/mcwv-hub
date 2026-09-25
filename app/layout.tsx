@@ -32,14 +32,14 @@ export const metadata: Metadata = {
   description: "MCWV clan hub, leaderboard, stats, and updates.",
   openGraph: {
     title: "MCWV HUB",
-    description: "Clan HQ — war stats, leaderboards, achievements.",
+    description: "Clan HQ: war stats, leaderboards, achievements.",
     siteName: "MCWV HUB",
     images: [
       {
         url: "/og-card.png",
         width: 1200,
         height: 630,
-        alt: "MCWV HUB — War Mode Engaged",
+        alt: "MCWV HUB, War Mode Engaged",
       },
     ],
     type: "website",
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "MCWV HUB",
-    description: "Clan HQ — war stats, leaderboards, achievements.",
+    description: "Clan HQ: war stats, leaderboards, achievements.",
     images: ["/og-card.png"],
   },
   manifest: "/manifest.webmanifest",
