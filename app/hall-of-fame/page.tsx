@@ -607,7 +607,7 @@ export default function HallOfFamePage() {
                     placeholder="https://..."
                   />
                   <p className="mt-2 text-xs text-zinc-500">
-                    ⚠️ Discord CDN links expire ~24h after copying and Roblox thumbnail links are signed — use the
+                    ⚠️ Discord CDN links expire ~24h after copying and Roblox thumbnail links are signed. Use the
                     Roblox avatar button above, or a permanent host (imgur, etc.). Everything loads through the MCWV
                     proxy with automatic fallback, so broken links show initials instead of a broken image.
                   </p>
@@ -622,7 +622,7 @@ export default function HallOfFamePage() {
                           fallbackClassName="text-sm"
                         />
                       </div>
-                      <p className="text-xs text-zinc-500">Live preview — if the link is dead you'll see initials here before saving.</p>
+                      <p className="text-xs text-zinc-500">Live preview: if the link is dead you'll see initials here before saving.</p>
                     </div>
                   )}
                 </div>
