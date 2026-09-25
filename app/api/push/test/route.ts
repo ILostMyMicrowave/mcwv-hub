@@ -22,7 +22,7 @@ export async function POST() {
     auth.user.id,
     {
       title: "MCWV Hub 🔔",
-      body: "Test alert — you're all set! War pings will land right here.",
+      body: "Test alert. You're all set! War pings will land right here.",
       url: "/settings",
       tag: "mcwv-test",
     },
