@@ -1022,7 +1022,7 @@ export default function AfkRoom() {
 
     const loop = (tMs: number) => {
       raf = window.requestAnimationFrame(loop);
-      tickCam(tMs); // camera moves at display rate — buttery even at 12fps paint
+      tickCam(tMs); // camera moves at display rate, buttery even at 12fps paint
       if (tMs - last < FRAME_MS) return;
       last = tMs;
       draw(tMs);
