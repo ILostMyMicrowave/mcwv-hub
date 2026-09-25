@@ -349,7 +349,7 @@ export async function syncBadgeRoles(opts?: {
       return finish({
         ...base,
         ok: false,
-        error: "Bot member-role snapshot was empty — nothing changed (badges preserved)",
+        error: "Bot member-role snapshot was empty, nothing changed (badges preserved)",
       });
     }
 
