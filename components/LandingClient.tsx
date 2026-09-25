@@ -633,7 +633,7 @@ export default function LandingClient({ initial }: { initial: LandingInitial | n
                 value={trackingLabel}
                 sub={
                   consecFailures > 0
-                    ? "Retrying — live data unreachable"
+                    ? "Retrying: live data unreachable"
                     : active
                     ? "Updating every 10 seconds"
                     : "Paused until war goes live"
@@ -657,7 +657,7 @@ export default function LandingClient({ initial }: { initial: LandingInitial | n
             </div>
             <InfoPanel title="Live Activity Feed" action={<span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={pillStyle}><span className="h-2 w-2 animate-pulse rounded-full bg-current" />LIVE</span>} delay="0.2s">
               <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-                {activity.length === 0 ? <p className="py-6 text-sm text-zinc-400 animate-fade-in">{consecFailures > 0 ? "Live data unreachable — retrying automatically…" : "Waiting for live activity..."}</p> : activity.map((item, index) => {
+                {activity.length === 0 ? <p className="py-6 text-sm text-zinc-400 animate-fade-in">{consecFailures > 0 ? "Live data unreachable, retrying automatically…" : "Waiting for live activity..."}</p> : activity.map((item, index) => {
                   const accent = feedAccent(item.type);
                   const isNew = index === 0;
                   return (
