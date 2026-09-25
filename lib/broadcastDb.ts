@@ -72,7 +72,7 @@ export function missingTablesResponse() {
   return NextResponse.json(
     {
       error:
-        "Broadcast tables not found yet. The bot creates them on boot — upload the latest main.py on Render, restart the bot, then retry.",
+        "Broadcast tables not found yet. The bot creates them on boot. Upload the latest main.py on Render, restart the bot, then retry.",
       missingTables: true,
     },
     { status: 503 }
@@ -179,7 +179,7 @@ export function sanitizeTemplateInput(body: unknown): Validation<BroadcastTempla
   // Accepts both camelCase (hub UI) and snake_case (bot-flavoured payloads).
   const imageUrl = cleanImageUrl(record.imageUrl ?? record.image_url)
   if (imageUrl === null) {
-    return { ok: false, error: "Image URL must start with http:// or https:// — or be left empty." }
+    return { ok: false, error: "Image URL must start with http:// or https://, or be left empty." }
   }
 
   return { ok: true, data: { name, audience, value, delivery, style, message, imageUrl } }
