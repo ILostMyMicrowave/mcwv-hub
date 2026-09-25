@@ -820,8 +820,8 @@ function ImprovedTab({ members, warWindow }: { members: MemberProfile[]; warWind
     return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
   };
   const windowLabel = warWindow
-    ? `Net gem change during the war (${fmtWindow(warWindow.start)} → ${fmtWindow(warWindow.end)}) — who spent the most`
-    : "Net gem change during the war — who spent the most";
+    ? `Net gem change during the war (${fmtWindow(warWindow.start)} → ${fmtWindow(warWindow.end)}), who spent the most`
+    : "Net gem change during the war: who spent the most";
 
   // The biggest spender = most negative delta. Rank so most negative is #1.
   const spenders = members.filter((m) => (m.gemDelta ?? 0) < 0);
@@ -869,7 +869,7 @@ function ImprovedTab({ members, warWindow }: { members: MemberProfile[]; warWind
         )}
 
         {!spenders.length && !gainers.length && (
-          <div className="py-10 text-center text-sm opacity-50">No gem snapshots yet — they accumulate as the Profiles page is viewed.</div>
+          <div className="py-10 text-center text-sm opacity-50">No gem snapshots yet, they accumulate as the Profiles page is viewed.</div>
         )}
       </div>
     </div>
