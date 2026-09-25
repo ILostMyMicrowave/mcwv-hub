@@ -5,7 +5,7 @@ import { formatCompact } from "@/lib/numbers";
 import Navbar from "@/components/Navbar";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import FlowNumber from "@/components/FlowNumber";
-import { fmtRacePph, fmtRacePts, flipDisplay, flipTone, raceWhatIf } from "@/lib/warRaceModel";
+import { fmtRacePph, fmtRacePts, flipDisplay, flipTone, medalForRank, nextLadder, primaryRewardName, raceWhatIf, rewardNames, slipDelta, tiersForRank, type RewardBoard } from "@/lib/warRaceModel";
 import type { RaceModelView } from "@/lib/warRaceModel";
 
 type NearbyClan = {
@@ -72,6 +72,7 @@ type BattleHqResponse = {
     uiTone: "success" | "warning" | "danger" | "info";
   };
   nearby: NearbyClan[];
+  rewards?: RewardBoard | null;
   summary: {
     overview: string;
     pace: string;
@@ -623,6 +624,88 @@ function ProbBar({ prob }: { prob: number | null }) {
   );
 }
 
+// ── rewards panel: per-battle placementRewards, straight from the public API
+// shape, so it adapts to every battle format (null meta -> no panel, ever).
+function RewardPanel({ rewards, rank, points, nearby, projBest, projWorst, gapBelow }: {
+  rewards: RewardBoard;
+  rank: number | null;
+  points: number;
+  nearby: NearbyClan[];
+  projBest: number | null;
+  projWorst: number | null;
+  gapBelow: number | null;
+}) {
+  if (rank === null || rewards.tiers.length === 0) return null;
+  const held = tiersForRank(rewards, rank);
+  const up = nextLadder(rewards, rank);
+  const occupant = up ? (nearby ?? []).find((c) => c.rank === up.targetRank) ?? null : null;
+  const slip = slipDelta(rewards, rank);
+  const medal = medalForRank(rank);
+  const contrib = held.map((t) => t.contributorWindow).find(Boolean) ?? null;
+  const bandText = (() => {
+    if (projBest === null || projWorst === null) return null;
+    const lo = Math.min(projBest, projWorst);
+    const hi = Math.max(projBest, projWorst);
+    const loNames = rewardNames(tiersForRank(rewards, lo));
+    const hiNames = rewardNames(tiersForRank(rewards, hi));
+    if (loNames === hiNames) {
+      return { band: `#${lo}-${hi}`, note: hiNames ? `every scenario still pays ${hiNames}` : "every scenario sits outside the ladder" };
+    }
+    return { band: `#${lo}-${hi}`, note: `best case pays ${loNames || "nothing"}; the floor is ${hiNames || "nothing"}` };
+  })();
+  return (
+    <Panel
+      title="Rewards"
+      delay="0.22s"
+      right={medal ? <Chip tone="good">{medal}</Chip> : null}
+    >
+      <div className="space-y-2">
+        <p className="text-sm leading-relaxed text-zinc-200">
+          {held.length > 0 ? (
+            <>
+              Holding <span className="font-bold text-white">#{rank}</span> locks in{" "}
+              <span className="font-bold text-emerald-300">{rewardNames(held)}</span>
+              {contrib ? <span className="text-zinc-400"> (top {contrib} of the clan receive them)</span> : null}
+            </>
+          ) : (
+            <>
+              At <span className="font-bold text-white">#{rank}</span> we are outside every reward tier of this battle.
+            </>
+          )}
+        </p>
+        {up ? (
+          <p className="text-sm leading-relaxed text-zinc-300">
+            Next rung: <span className="font-bold text-amber-200">{rewardNames(up.gains)}</span> for #{up.targetRank} or better
+            {occupant ? (
+              <>
+                {" - passing "}
+                <span className="font-bold text-white">{occupant.name}</span>
+                {" needs "}
+                <span className="font-bold text-amber-200">{fmtRacePts(Math.max(1, occupant.points - points + 1))} pts</span>
+              </>
+            ) : (
+              <> - #{up.targetRank} sits outside the live board window, so no exact gap is shown</>
+            )}
+          </p>
+        ) : null}
+        {slip && slip.losses.length > 0 ? (
+          <p className="text-[13px] leading-relaxed text-zinc-400">
+            Slip to #{rank + 1} and we give up{" "}
+            <span className="font-bold text-rose-300">{rewardNames(slip.losses)}</span>
+            {slip.gains.length > 0 ? <> - landing on {rewardNames(slip.gains)} instead</> : <> and fall out of every tier</>}
+            {gapBelow !== null && gapBelow > 0 ? <> (the clan below sits {fmtRacePts(gapBelow)} pts back)</> : null}.
+          </p>
+        ) : null}
+        {bandText ? (
+          <p className="text-[13px] leading-relaxed text-zinc-400">
+            Projection <span className="font-bold text-white/80">{bandText.band}</span>: {bandText.note}.
+          </p>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
 function RaceModelPanel({ model, clanKey, accent }: { model: RaceModel; clanKey: string; accent: string }) {
   const [boostPct, setBoostPct] = useState(0);
   const frac = boostPct / 100;
@@ -1142,6 +1225,18 @@ export default function BattleHQPage() {
               </div>
             </section>
 
+            {data.current && data.rewards && data.rewards.tiers.length > 0 ? (
+              <RewardPanel
+                rewards={data.rewards}
+                rank={data.current.rank}
+                points={data.current.points}
+                nearby={data.nearby ?? []}
+                projBest={data.stats.projectedBestPlacement ?? null}
+                projWorst={data.stats.projectedWorstPlacement ?? null}
+                gapBelow={data.stats.gapBelow ?? null}
+              />
+            ) : null}
+
             {/* ── race briefing ────────────────────────────────────── */}
             <Panel
               title="Race briefing"
@@ -1377,6 +1472,14 @@ export default function BattleHQPage() {
                       {odds.map((item) => (
                         <div key={item.rank} className="row-lift flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2">
                           <span className="w-10 shrink-0 text-sm font-bold text-[var(--foreground)]/70 sm:w-12">{rankLabel(item.rank)}</span>
+                          {data.rewards && primaryRewardName(data.rewards, item.rank) ? (
+                            <span
+                              className="hidden w-40 shrink-0 truncate text-[11px] text-zinc-400 lg:inline"
+                              title={`top reward for finishing #${item.rank} in this battle`}
+                            >
+                              {primaryRewardName(data.rewards, item.rank)}
+                            </span>
+                          ) : null}
                           <div className="h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-700/40">
                             <div
                               className="h-full rounded-full transition-all duration-700"
