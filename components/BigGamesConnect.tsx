@@ -102,7 +102,7 @@ export default function BigGamesConnect({ isMe }: { isMe: boolean }) {
             <p className="text-xs opacity-80">
               {status.connected
                 ? "Your profile now shows private account data (inventory, extended profile)."
-                : "Authorize the MCWV app to read your full profile, inventory and extended data — even if your public views are off."}
+                : "Authorize the MCWV app to read your full profile, inventory and extended data, even if your public views are off."}
             </p>
           </div>
         </div>
