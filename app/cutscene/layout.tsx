@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "MCWV — Cutscene",
+  title: "MCWV, Cutscene",
   description: "5-second cinematic intro concept for MCWV Hub",
 };
 
