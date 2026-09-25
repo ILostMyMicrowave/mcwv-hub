@@ -1616,7 +1616,7 @@ function StyleEditorModal({
           setFontPreset("default");
           setBio("");
           setSelectedBadges([]);
-          setStatus("No saved style yet — pick your first look.");
+          setStatus("No saved style yet. Pick your first look.");
           return;
         }
 
@@ -1846,7 +1846,7 @@ function StyleEditorModal({
                   {linkedPresets.length > 0 && (
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                       <div className="mb-2 text-xs text-zinc-500">
-                        🔗 Auto badges — synced from Discord roles. Members holding the role get them automatically; they can&apos;t be pinned by hand.
+                        🔗 Auto badges: synced from Discord roles. Members holding the role get them automatically; they can&apos;t be pinned by hand.
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {linkedPresets.map((badge) => (
@@ -2140,7 +2140,7 @@ export default function LeaderboardPage() {
                         historicalView ? "bg-sky-400" : active ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"
                       }`}
                     />
-                    {historicalView ? "Historical snapshot" : active ? "Live war tracking" : hasPointData ? "No active war — last war's final standings" : "No active war right now"}
+                    {historicalView ? "Historical snapshot" : active ? "Live war tracking" : hasPointData ? "No active war: last war's final standings" : "No active war right now"}
                   </div>
 
                   <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -2153,7 +2153,7 @@ export default function LeaderboardPage() {
                       : active
                       ? "Live updates refresh every 10 seconds. Roblox avatars and Discord-link badges appear automatically when the API provides them."
                       : hasPointData
-                      ? "No war is running right now — these are the final standings of the last war, exactly as it ended (including members who have left the clan since)."
+                      ? "No war is running right now. These are the final standings of the last war, exactly as it ended (including members who have left the clan since)."
                       : "No war is running right now. Standings will appear here as soon as the next war begins."}
                   </p>
                 </div>
