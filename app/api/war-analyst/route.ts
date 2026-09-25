@@ -1520,6 +1520,7 @@ async function buildFallbackPayload() {
       battleName: null,
       current: null,
       raceModel: null,
+      bridge: null,
       summary: "No saved battle snapshots yet.",
     };
   }
@@ -1528,12 +1529,53 @@ async function buildFallbackPayload() {
   const latest = latestRows[0] ?? null;
 
   if (!latest) {
+    // Tick rows are swept after four days; war_snapshots keeps the final
+    // standings, so serve them - Battle HQ stays truthful after the tick
+    // archive rolls over instead of dead-ending.
+    let bridge: Record<string, unknown> | null = null;
+    try {
+      const [finalRes, nameRes] = pool
+        ? await Promise.all([
+            pool
+              .query<{ rank: number | null; battle_points: number | null; captured_at: string | Date | null }>(
+                `SELECT rank, battle_points, captured_at
+                 FROM war_snapshots
+                 WHERE battle_id = $1 AND LOWER(clan_name) = LOWER($2)
+                 ORDER BY captured_at DESC
+                 LIMIT 1`,
+                [battleId, CLAN_NAME]
+              )
+              .catch(() => null),
+            pool
+              .query<{ battle_name: string | null; end_time: string | Date | null }>(
+                `SELECT battle_name, end_time FROM battles WHERE battle_id = $1 LIMIT 1`,
+                [battleId]
+              )
+              .catch(() => null),
+          ])
+        : [null, null];
+      const row = finalRes?.rows?.[0] ?? null;
+      const metaRow = nameRes?.rows?.[0] ?? null;
+      if (row || metaRow) {
+        bridge = {
+          battleId,
+          clan: CLAN_NAME,
+          battleName: metaRow?.battle_name ?? battleId,
+          endedAt: toDate(metaRow?.end_time ?? row?.captured_at ?? null)?.toISOString() ?? null,
+          rank: asNumber(row?.rank ?? null),
+          points: asNumber(row?.battle_points ?? null),
+        };
+      }
+    } catch {
+      bridge = null;
+    }
     return {
       success: true,
       active: false,
       battleId,
       battleName: null,
       current: null,
+      bridge,
       summary: "No snapshot rows available yet.",
     };
   }
