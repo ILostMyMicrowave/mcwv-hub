@@ -31,24 +31,24 @@ export default function PrivacyPage() {
         <Section title="Information we collect">
           <p>Only what the bot and website need to run the clan.</p>
           <Bullet>
-            <strong>Discord account data</strong> — your Discord user ID, username, and server roles,
+            <strong>Discord account data</strong>, your Discord user ID, username, and server roles,
             visible to the bot because it operates in the MCWV Discord server.
           </Bullet>
           <Bullet>
-            <strong>Roblox account data</strong> — your Roblox user ID, username, and in-game
+            <strong>Roblox account data</strong>, your Roblox user ID, username, and in-game
             clan/battle statistics, sourced from public APIs for roster members.
           </Bullet>
           <Bullet>
-            <strong>PS99 data via BIG Games (with your consent)</strong> — when you authorise the{" "}
+            <strong>PS99 data via BIG Games (with your consent)</strong>, when you authorise the{" "}
             <strong>MCWV Bot</strong> app, we read your Pet Simulator 99 profile, inventory, and
             gamepass data so we can verify your application. We only request scopes we actually use.
           </Bullet>
           <Bullet>
-            <strong>Application &amp; ticket data</strong> — answers you submit when applying
+            <strong>Application &amp; ticket data</strong>, answers you submit when applying
             (Roblox username, activity, gems, screenshots) used to review your application.
           </Bullet>
           <Bullet>
-            <strong>Points, donations &amp; war records</strong> — linked to Discord/Roblox accounts
+            <strong>Points, donations &amp; war records</strong>, linked to Discord/Roblox accounts
             for leaderboards and clan management.
           </Bullet>
         </Section>
@@ -156,7 +156,7 @@ function FooterContact() {
     >
       <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Questions about your data?</div>
       <div style={{ fontSize: 14.5, color: "#b9c0dd", lineHeight: 1.6 }}>
-        Reach any MCWV officer in the Discord server, or message <strong>@ilostmymicrowave</strong>.
+        Reach any MCWV officer in the Discord server, or message <strong>@ilostmymicrowave_</strong>.
         We'll help review or remove what we hold.
       </div>
     </div>
