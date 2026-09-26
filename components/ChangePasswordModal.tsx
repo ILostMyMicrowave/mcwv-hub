@@ -124,11 +124,11 @@ export default function ChangePasswordModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:px-4"
       onMouseDown={onClose}
     >
       <div
-        className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b0b0b] p-6 text-white shadow-2xl backdrop-blur"
+        className="w-full max-w-md max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-3xl border border-white/10 bg-[#0b0b0b] p-5 text-white shadow-2xl backdrop-blur sm:rounded-3xl sm:p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -156,7 +156,7 @@ export default function ChangePasswordModal({
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-emerald-400/40"
+              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition focus:border-emerald-400/40"
               placeholder="Current password"
             />
           </div>
@@ -169,7 +169,7 @@ export default function ChangePasswordModal({
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-emerald-400/40"
+              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition focus:border-emerald-400/40"
               placeholder="New password"
             />
 
@@ -196,7 +196,7 @@ export default function ChangePasswordModal({
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-emerald-400/40"
+              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition focus:border-emerald-400/40"
               placeholder="Confirm new password"
             />
           </div>
