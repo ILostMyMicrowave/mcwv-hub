@@ -106,7 +106,7 @@ function FieldBlock({
       <Pressable
         onClick={onSave}
         disabled={disabled || saving}
-        className="mt-3 inline-flex min-h-11 w-full touch-manipulation items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+        className="mt-3 inline-flex min-h-11 touch-manipulation items-center justify-center rounded-2xl bg-emerald-500 px-6 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Saving..." : saveLabel}
       </Pressable>
@@ -252,7 +252,7 @@ export default function Settings() {
       if (!res.ok) {
         throw new Error("save failed");
       }
-      setStatus("Saved â");
+      setStatus("Saved ✓");
     } catch {
       setStatus("Save failed");
     } finally {
@@ -310,7 +310,7 @@ export default function Settings() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error ?? "role update failed");
       }
-      setRolesStatus("Role updated â");
+      setRolesStatus("Role updated ✓");
       const refreshed = await fetch("/api/admin/users", { cache: "no-store" });
       if (refreshed.ok) {
         const data: AdminUsersResponse = await refreshed.json();
@@ -341,7 +341,7 @@ export default function Settings() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? "delete failed");
 
-      setRolesStatus(data?.message ?? `Website login for ${username} deleted â bot links stay intact.`);
+      setRolesStatus(data?.message ?? `Website login for ${username} deleted — bot links stay intact.`);
       const refreshed = await fetch("/api/admin/users", { cache: "no-store" });
       if (refreshed.ok) {
         const refreshedData: AdminUsersResponse = await refreshed.json();
@@ -378,7 +378,7 @@ export default function Settings() {
   return (
     <>
       <Navbar />
-      <main className="min-h-[100dvh] bg-black px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-8 text-white sm:px-6">
+      <main className="min-h-[100dvh] bg-black px-4 pb-[calc(2rem_+_env(safe-area-inset-bottom))] pt-8 text-white sm:px-6">
         <div className="mx-auto max-w-5xl">
           {/* Header */}
           <div className="st-rise mb-8">
@@ -398,7 +398,7 @@ export default function Settings() {
           </div>
 
           {/* Theme */}
-          <Section icon="ð¨" eyebrow="Appearance" title="Theme" status={theme ? `Active: ${theme}` : undefined} delay={0.05}>
+          <Section icon="🎨" eyebrow="Appearance" title="Theme" status={theme ? `Active: ${theme}` : undefined} delay={0.05}>
             <div className="grid gap-4 sm:grid-cols-3">
               {themes.map((t) => {
                 const active = theme === t.id;
@@ -427,7 +427,7 @@ export default function Settings() {
 
           {/* Experience */}
           <div className="mt-6">
-            <Section icon="â¡" eyebrow="Onboarding & Intro" title="Experience" status={!canEditGlobal ? status : undefined} delay={0.1}>
+            <Section icon="⚡" eyebrow="Onboarding & Intro" title="Experience" status={!canEditGlobal ? status : undefined} delay={0.1}>
               <div className="space-y-3">
                 <ActionRow
                   title="Boot intro"
@@ -459,7 +459,7 @@ export default function Settings() {
 
           {/* App & Alerts (installed PWA) */}
           <div id="install" className="mt-6 scroll-mt-24">
-            <Section icon="ð²" eyebrow="Installed App" title="App & Alerts" delay={0.12}>
+            <Section icon="📲" eyebrow="Installed App" title="App & Alerts" delay={0.12}>
               <div className="space-y-3">
                 <PwaInstallCard />
                 <PushCard />
@@ -467,7 +467,7 @@ export default function Settings() {
                   href="/notifications"
                   className="w-full rounded-2xl border border-white/10 bg-black/25 p-5 text-left"
                 >
-                  <p className="text-sm font-bold text-white">ð¬ Alert inbox</p>
+                  <p className="text-sm font-bold text-white">📬 Alert inbox</p>
                   <p className="mt-1 text-sm text-zinc-400">
                     Every alert with unread markers - war pings, broadcasts,
                     and personal nudges in one place.
@@ -479,7 +479,7 @@ export default function Settings() {
 
           {/* Account */}
           <div className="mt-6">
-            <Section icon="ð" eyebrow="Security" title="Account" delay={0.14}>
+            <Section icon="🔐" eyebrow="Security" title="Account" delay={0.14}>
               <div className="text-sm text-zinc-400">
                 {currentUser ? (
                   <p>
@@ -515,7 +515,7 @@ export default function Settings() {
           {/* Global settings (officer+) */}
           {canEditGlobal ? (
             <div className="mt-6">
-              <Section icon="ð°ï¸" eyebrow="Officer Controls" title="Global Settings" status={status} delay={0.18}>
+              <Section icon="🛰️" eyebrow="Officer Controls" title="Global Settings" status={status} delay={0.18}>
                 <div className="space-y-8">
                   <FieldBlock
                     label="Scrolling banner text"
@@ -589,8 +589,8 @@ export default function Settings() {
                     <textarea
                       value={requirementsText}
                       onChange={(e) => setRequirementsText(e.target.value)}
-                      rows={10}
-                      className={fieldClass}
+                      rows={8}
+                      className={`${fieldClass} max-h-72`}
                       placeholder={`# Heading\nSubheading\nbold\nitalic\nunderline`}
                     />
                   </FieldBlock>
@@ -602,7 +602,7 @@ export default function Settings() {
           {/* Officer management (owner) */}
           {canManageRoles ? (
             <div className="mt-6">
-              <Section icon="ð¥" eyebrow="Owner Only" title="Officer Management" status={rolesStatus} delay={0.22}>
+              <Section icon="👥" eyebrow="Owner Only" title="Officer Management" status={rolesStatus} delay={0.22}>
                 <p className="-mt-2 mb-4 text-sm text-zinc-400">
                   Promote or demote members. Only the owner can see this section.
                 </p>
@@ -627,7 +627,7 @@ export default function Settings() {
                           <div>
                             <p className="font-semibold text-white">{member.username}</p>
                             <p className="text-xs text-zinc-500">
-                              Discord ID: {member.discord_id ?? "-"} Â· Role:{" "}
+                              Discord ID: {member.discord_id ?? "-"} · Role:{" "}
                               <span className="text-zinc-300">{member.role}</span>
                             </p>
                           </div>
