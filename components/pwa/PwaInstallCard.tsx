@@ -110,7 +110,7 @@ export default function PwaInstallCard() {
             📲 How to install
           </button>
         ) : (
-          <div className="max-w-sm shrink-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-400">
+          <div className="w-full min-w-0 max-w-sm rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs leading-relaxed text-zinc-400">
             <p>
               Browser menu →{" "}
               <span className="font-semibold text-zinc-200">Install app</span>,{" "}
