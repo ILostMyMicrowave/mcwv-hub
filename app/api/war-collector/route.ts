@@ -25,9 +25,10 @@ function collectSecretFromRequest(request: Request): string {
     if (token) return token;
   }
 
-  // TEMP until 2026-09-16: old bot deploys send ?secret=. Remove this
-  // branch after hub + bot have both been on the header for two weeks.
-  return new URL(request.url).searchParams.get("secret")?.trim() ?? "";
+  // ?secret= query branch REMOVED 2026-09-26 (was TEMP until 2026-09-16;
+  // deployed bot has been header-only since well before). Query params
+  // leak into access logs and Referer headers - header/Bearer only now.
+  return "";
 }
 
 const PAGE_SIZE = 100;
