@@ -28,10 +28,11 @@ const loginSchema = z.object({
     .max(128, "Password must be at most 128 characters."),
 })
 
-// Real-format bcrypt hash compared against when the user doesn't exist, so
+// Real-format bcrypt hash (cost 12, same as live hashes since 2026-09-26) compared
+// against when the user doesn't exist, so
 // "unknown username" takes the same time as "wrong password" — closes the
 // response-timing account-enumeration oracle.
-const DUMMY_PASSWORD_HASH = "$2a$10$IcxHJrnJo1Q72QLmb0PFA.JX1jOGqBHjqlzZe3c.TJPd4O4lJIUT6"
+const DUMMY_PASSWORD_HASH = "$2a$12$O7P7U39KiULcUrpVfiIRge65hLZbbJ6l7fWnQW5vQIM9WFLAI.NdK"
 
 function waitLabel(resetMs: number) {
   const seconds = Math.max(1, Math.ceil((resetMs - Date.now()) / 1000))
