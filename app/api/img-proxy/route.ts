@@ -14,7 +14,16 @@ const MAX_REDIRECT_HOPS = 2;
 function isBlockedHost(hostname: string) {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host === "::1") return true;
+  // No dot = single-label hostname (search-domain tricks); a colon after
+  // bracket-stripping = IPv6 literal (::1, ::ffff:127.0.0.1, 6to4, ...).
+  // Real domains always contain at least one dot and never a colon.
+  if (!host.includes(".") || host.includes(":")) return true;
   if (host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".lan") || host.endsWith(".localhost")) return true;
+  // IP literal in ANY notation — decimal, octal (0177.0.0.1), hex
+  // (0x7f.0.0.1), or packed decimal (2130706433). If every dot-label is a
+  // pure number / 0x-hex token, this is not a domain, it is an address.
+  const labels = host.replace(/\.$/, "").split(".");
+  if (labels.every((l) => /^(0[0-7]*|0[xX][0-9a-fA-F]+|[1-9][0-9]*)$/.test(l))) return true;
   const match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (match) {
     const a = Number(match[1]);
