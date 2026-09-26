@@ -81,19 +81,32 @@ export type SharedWarContext = {
 type Json = Record<string, unknown>
 
 async function fetchJson(url: string): Promise<Json | null> {
-  try {
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
-      // 6s keeps the assistant route comfortably under Vercel's function
-      // timeout even with retries; a slower API just means "less data".
-      signal: AbortSignal.timeout(6000),
-    })
-    if (!res.ok) return null
-    return (await res.json()) as Json
-  } catch {
-    return null
+  // One-shot 429 backoff (mirrors scoutSync's proven pattern): respect
+  // Retry-After once, then degrade to the existing null path. Every caller
+  // already serves stale/empty on null, so the only new failure mode is
+  // "waited a little" - never "threw".
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        headers: { "User-Agent": "MCWV-Hub/1.0", Accept: "application/json" },
+        // 6s keeps the assistant route comfortably under Vercel's function
+        // timeout even with retries; a slower API just means "less data".
+        signal: AbortSignal.timeout(6000),
+      })
+      if (res.ok) return (await res.json()) as Json
+      if (res.status === 429 && attempt === 0) {
+        const ra = Number(res.headers.get("retry-after"))
+        const waitMs = Math.min(8000, (Number.isFinite(ra) && ra > 0 ? ra : 2) * 1000)
+        await new Promise((r) => setTimeout(r, waitMs))
+        continue
+      }
+      return null
+    } catch {
+      return null
+    }
   }
+  return null
 }
 
 function asNumber(value: unknown): number | null {
