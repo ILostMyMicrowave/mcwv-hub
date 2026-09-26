@@ -170,7 +170,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Incorrect verification code." }, { status: 400 })
     }
 
-    const passwordHash = await bcrypt.hash(password, 10)
+    const passwordHash = await bcrypt.hash(password, 12)
 
     await pool.query(
       `UPDATE users
