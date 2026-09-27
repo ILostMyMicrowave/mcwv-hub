@@ -168,10 +168,36 @@ export async function POST(req: Request) {
       sessionOptions
     )
 
+    // v2 "sign out everywhere": mint a device id and persist it BEFORE the
+    // cookie is saved. The row is what makes a cookie real - no login
+    // without proof. Old revoked rows are swept here too so the table stays
+    // tiny without needing a cron.
+    const sid = crypto.randomUUID()
+    try {
+      await pool.query(
+        `INSERT INTO mcwv_user_sessions (sid, user_id, user_agent)
+         VALUES ($1, $2, $3)`,
+        [sid, Number(user.id), req.headers.get("user-agent")?.slice(0, 500) ?? null]
+      )
+      void pool
+        .query(
+          `DELETE FROM mcwv_user_sessions
+           WHERE user_id = $1 AND revoked_at IS NOT NULL AND revoked_at < now() - interval '30 days'`,
+          [Number(user.id)]
+        )
+        .catch(() => null)
+    } catch (err) {
+      console.error("[login] session row failed:", err)
+      return NextResponse.json(
+        { error: "Could not start your session. Try again in a moment." },
+        { status: 500 }
+      )
+    }
+
     session.user = {
       id: Number(user.id),
       username: String(user.username),
-      loginAt: Math.floor(Date.now() / 1000),
+      sid,
       role: user.role ?? null,
       discordId:
         user.discord_id === null || user.discord_id === undefined
