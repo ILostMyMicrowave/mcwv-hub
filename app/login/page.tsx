@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthButton, AuthError, AuthField, AuthShell } from "@/components/AuthShell";
 
 export default function LoginPage() {
@@ -11,6 +11,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "signed-out") {
+      setError("You were signed out from all devices.");
+    }
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
