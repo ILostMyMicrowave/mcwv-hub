@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
-import { getIronSession } from "iron-session"
+import { getIronSession } from "@/lib/session"
 import { sessionOptions, type SessionData } from "@/lib/session"
 import { pool } from "@/lib/db"
 import { z } from "zod"
