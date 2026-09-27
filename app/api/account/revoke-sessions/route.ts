@@ -2,52 +2,68 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic"; // POST-only route; never build-time rendered
 import { cookies } from "next/headers";
-import { getIronSession as getIronSessionRaw } from "iron-session"; // RAW on purpose: the grace stamp must be written even while our own cutoff goes live mid-request
-import { getAuthenticatedUser, invalidateAuthenticatedUserCache } from "@/lib/authUser";
+import { getIronSession, sessionOptions, invalidateSessionCache, type SessionData } from "@/lib/session";
+import { getAuthenticatedUser } from "@/lib/authUser";
 import { pool } from "@/lib/db";
-import {
-  sessionOptions,
-  invalidateRevokedAtCache,
-  type SessionData,
-} from "@/lib/session";
+import { sendPushToUser } from "@/lib/pushServer";
 
 /**
- * "Sign out everywhere": bump this user's revocation cutoff. Every OTHER
- * device (older cookies) starts 401ing within the 10s cache TTL; THIS device
- * stays signed in — it re-signs its cookie with the cutoff as a grace token.
+ * "Sign out everywhere" v2: revoke every session row of this user EXCEPT the
+ * one behind this very cookie (matched by sid) — the row IS the grace, so no
+ * timestamp math, no re-stamping, no raw-decode exception. Then push the
+ * kick to every other subscribed device (the initiating device's endpoint is
+ * skipped when the client can name it), whose service worker bounces open
+ * tabs straight to /login even from a frozen/backgrounded state.
  */
-export async function POST() {
+export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const body = (await request.json().catch(() => null)) as
+    | { currentEndpoint?: unknown }
+    | null;
+  const currentEndpoint =
+    typeof body?.currentEndpoint === "string" ? body.currentEndpoint : null;
+
   try {
+    const cookieStore = await cookies();
+    const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
+    const ownSid = session.user?.sid ?? null;
+
     const result = await pool.query(
-      `UPDATE users
-       SET sessions_revoked_at = now()
-       WHERE id = $1
-       RETURNING floor(extract(epoch from sessions_revoked_at))::bigint AS revoked_at`,
-      [user.id]
+      `UPDATE mcwv_user_sessions
+       SET revoked_at = now()
+       WHERE user_id = $1
+         AND revoked_at IS NULL
+         AND ($2::uuid IS NULL OR sid <> $2::uuid)
+       RETURNING sid`,
+      [user.id, ownSid]
     );
-    const cutoff = Number(result.rows[0]?.revoked_at);
-    if (!Number.isFinite(cutoff)) {
-      return NextResponse.json({ error: "Could not revoke sessions." }, { status: 500 });
-    }
 
-    // Grace for the current device: stamp its session and re-save (raw —
-    // verified decode would already see the new cutoff without grace).
-    const session = await getIronSessionRaw<SessionData>(await cookies(), sessionOptions);
-    if (session.user?.id === user.id) {
-      session.user.revokets = cutoff;
-      await session.save();
-    }
+    invalidateSessionCache();
 
-    invalidateRevokedAtCache(user.id); // this isolate applies it immediately
-    invalidateAuthenticatedUserCache(user.id);
+    // Best-effort: a push failure must not fail the revoke (rows are the
+    // source of truth; watchdog + next navigation still land the logout).
+    void sendPushToUser(
+      user.id,
+      {
+        title: "Signed out of MCWV Hub",
+        body: "Your account was signed out from another device.",
+        url: "/login?reason=signed-out",
+        tag: "mcwv-kick",
+        action: "kick",
+        // Tells every kicked device which sid is the revoker's, so a stale
+        // worker that still receives a stray kick never bounces its own tab.
+        sid: ownSid ?? undefined,
+      },
+      { skipEndpoint: currentEndpoint }
+    ).catch((err) => console.error("[revoke] kick push failed:", err));
 
-    return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Could not revoke sessions." }, { status: 500 });
+    return NextResponse.json({ ok: true, kicked: result.rows.length });
+  } catch (err) {
+    console.error("[revoke] failed:", err);
+    return NextResponse.json({ error: "Could not sign out other devices." }, { status: 500 });
   }
 }
