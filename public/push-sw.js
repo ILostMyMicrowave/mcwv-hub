@@ -13,8 +13,14 @@
  *    v5/v6 answered via event.source, which lands on a channel the page
  *    never listened to, so the version check ALWAYS timed out and the
  *    "old worker" warning could never clear. Port first, source fallback.
+ *  - v8: "kick" control messages (sign-out-everywhere v2). The kick push
+ *    carries action:"kick" -> we postMessage every window client (pages
+ *    bounce THEMSELVES — the one navigation path that is reliable on every
+ *    build), best-effort client.navigate() as a bonus, and notify with a
+ *    "Log back in" action so even a device with no open window lands on
+ *    /login the moment it is tapped.
  */
-const SW_VERSION = "7";
+const SW_VERSION = "8";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -47,6 +53,55 @@ self.addEventListener("push", (event) => {
   } catch {
     data = {};
   }
+
+  // ---- v8: sign-out kick --------------------------------------------
+  // Server has already revoked this device's session row; our only job is
+  // to make that VISIBLE: bounce open pages, and for phones with no window
+  // open, notify -> tap -> /login. data.sid = sid of the device that
+  // PULLED THE TRIGGER (skip the bounce there; a stale worker may deliver
+  // the kick to the revoker's own tabs otherwise).
+  if (data.action === "kick") {
+    event.waitUntil(
+      (async () => {
+        let clients = [];
+        try {
+          clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        } catch {
+          /* no client access: the notification below still lands */
+        }
+        for (const client of clients) {
+          try {
+            client.postMessage({ type: "mcwv-kick", sid: data.sid ?? null });
+          } catch {
+            /* dead/frozen client - nothing to do */
+          }
+          try {
+            const here = new URL(client.url || self.location.href);
+            const onAuth = /\/(login|signup|forgot-password|reset-password)/.test(here.pathname);
+            if (!onAuth) {
+              // Bonus fast path; unreliable on some builds by design choice
+              // (see header), so never depended upon.
+              await client.navigate("/login?reason=signed-out");
+            }
+          } catch {
+            /* uncontrolled client: navigate() throws - fine, message + notify cover it */
+          }
+        }
+        await self.registration.showNotification(data.title || "Signed out of MCWV Hub", {
+          body: data.body || "Your account was signed out from another device.",
+          icon: "/icons/icon-512.png",
+          badge: "/icons/badge-96.png",
+          tag: "mcwv-kick",
+          renotify: true,
+          requireInteraction: true,
+          data: { url: data.url || "/login?reason=signed-out" },
+          actions: [{ action: "open", title: "Log back in" }],
+        });
+      })()
+    );
+    return;
+  }
+  // ---------------------------------------------------------------------
 
   const title = data.title || "MCWV Hub";
   const options = {
