@@ -370,15 +370,26 @@ export default function Settings() {
       // only stops the pointless "you were signed out" notification here).
       let currentEndpoint: string | null = null;
       try {
-        const reg = await navigator.serviceWorker?.getRegistration?.();
-        const sub = await reg?.pushManager?.getSubscription?.();
-        currentEndpoint = sub?.endpoint ?? null;
+        // v2.1: capped at 1.5s - a stuck/activating worker must never delay
+        // the button. Skipping this only means the server may notify this
+        // device too; the sid guard keeps that harmless.
+        currentEndpoint = await Promise.race([
+          (async () => {
+            const reg = await navigator.serviceWorker?.getRegistration?.();
+            const sub = await reg?.pushManager?.getSubscription?.();
+            return sub?.endpoint ?? null;
+          })(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
       } catch {
         /* no worker/subscription here: harmless - the sid guard covers it */
       }
       const res = await fetch("/api/account/revoke-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // v2.1: the server caps itself at 10s; this 15s backstop only fires
+        // on a true network black hole, so the button ALWAYS comes back.
+        signal: AbortSignal.timeout?.(15_000),
         body: JSON.stringify({ currentEndpoint }),
       });
       const data = await res.json().catch(() => ({}));
@@ -390,7 +401,27 @@ export default function Settings() {
           : "Signed out on all other devices \u2705"
       );
     } catch (err) {
-      setRevokeNote(err instanceof Error && err.message && err.message !== "failed" ? err.message : "Couldn't reach the hub \u2014 try again.");
+      const name = err instanceof Error ? err.name : "";
+      const msg = err instanceof Error ? err.message : "";
+      const timedOut =
+        name === "TimeoutError" ||
+        name === "AbortError" ||
+        (typeof DOMException !== "undefined" &&
+          err instanceof DOMException &&
+          (err.name === "TimeoutError" || err.name === "AbortError"));
+      // raw browser network failures read terribly ("Failed to fetch",
+      // "Load failed on iOS..."): map them to the doctrine phrase instead.
+      const networkish =
+        !msg ||
+        msg === "failed" ||
+        /^(failed to fetch|load failed|networkerror)/i.test(msg);
+      setRevokeNote(
+        timedOut
+          ? "No answer in time — nobody was signed out yet. Try again in a moment."
+          : networkish
+            ? "Couldn't reach the hub \u2014 try again."
+            : msg
+      );
     } finally {
       setRevokeBusy(false);
       window.setTimeout(() => setRevokeNote(""), 4000);
@@ -408,13 +439,30 @@ export default function Settings() {
       const res = await fetch("/api/admin/users/revoke-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout?.(15_000),
         body: JSON.stringify({ user_id: userId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? "revoke failed");
       setRolesStatus(`${username} was signed out everywhere \u2014 they can log in again any time.`);
     } catch (err) {
-      setRolesStatus(err instanceof Error ? err.message : "Sign-out failed");
+      const name = err instanceof Error ? err.name : "";
+      const msg = err instanceof Error ? err.message : "";
+      const timedOut =
+        name === "TimeoutError" ||
+        name === "AbortError" ||
+        (typeof DOMException !== "undefined" &&
+          err instanceof DOMException &&
+          (err.name === "TimeoutError" || err.name === "AbortError"));
+      const networkish =
+        !msg || msg === "revoke failed" || /^(failed to fetch|load failed|networkerror)/i.test(msg);
+      setRolesStatus(
+        timedOut
+          ? "No answer in time — nobody was signed out yet. Try again in a moment."
+          : networkish
+            ? "Couldn't reach the hub \u2014 try again."
+            : msg || "Sign-out failed"
+      );
     } finally {
       setRolesLoading(false);
       window.setTimeout(() => setRolesStatus(""), 2600);
