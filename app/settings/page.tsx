@@ -134,6 +134,16 @@ function ActionRow({
   );
 }
 
+function resolveMeUser(authData: AuthMeResponse): AppUser | null {
+  const resolvedUser =
+    authData && "user" in authData
+      ? authData.user ?? null
+      : authData && "role" in authData
+      ? (authData as AppUser)
+      : (authData as AppUser | null);
+  return resolvedUser && typeof resolvedUser === "object" ? resolvedUser : null;
+}
+
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const [role, setRole] = useState<AppUser["role"] | null>(null);
@@ -170,6 +180,32 @@ export default function Settings() {
   const canManageRoles = role === "owner";
 
   useEffect(() => {
+    let cancelled = false;
+    let authRetryQueued = false;
+
+    // One automatic re-check when auth/me blips (Supabase pooler storms make
+    // it slow/error even though the session is fine). Until it answers, the
+    // role stays UNKNOWN and the badge row simply hides - honest absence
+    // beats a wrong "member" chip. (prod 2026-09-27)
+    const queueAuthRetry = () => {
+      if (authRetryQueued || cancelled) return;
+      authRetryQueued = true;
+      window.setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const res = await fetch("/api/auth/me", { cache: "no-store" });
+          if (!res.ok) return; // still flaky: stay unknown, next navigation retries fresh
+          const u = resolveMeUser(await res.json());
+          if (u) {
+            setCurrentUser(u);
+            setRole(u.role ?? "member");
+          }
+        } catch {
+          /* hub still unreachable; nothing honest to show yet */
+        }
+      }, 2000);
+    };
+
     async function load() {
       try {
         const [settingsRes, authRes] = await Promise.all([
@@ -186,14 +222,8 @@ export default function Settings() {
         }
 
         if (authRes.ok) {
-          const authData: AuthMeResponse = await authRes.json();
-          const resolvedUser =
-            authData && "user" in authData
-              ? authData.user ?? null
-              : authData && "role" in authData
-              ? (authData as AppUser)
-              : (authData as AppUser | null);
-          if (resolvedUser && typeof resolvedUser === "object") {
+          const resolvedUser = resolveMeUser(await authRes.json());
+          if (resolvedUser) {
             setCurrentUser(resolvedUser);
             setRole(resolvedUser.role ?? "member");
           } else {
@@ -202,15 +232,19 @@ export default function Settings() {
           }
         } else {
           setCurrentUser(null);
-          setRole("member");
+          queueAuthRetry();
         }
         setLoaded(true);
       } catch {
         setStatus("Failed to load settings");
         setLoaded(true);
+        queueAuthRetry();
       }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -433,9 +467,11 @@ export default function Settings() {
             {currentUser && (
               <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                 Logged in as <span className="font-semibold text-zinc-300">{currentUser.username}</span>
-                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] ${roleBadge}`}>
-                  {role}
-                </span>
+                {role ? (
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] ${roleBadge}`}>
+                    {role}
+                  </span>
+                ) : null}
               </p>
             )}
           </div>
