@@ -171,6 +171,7 @@ export async function POST(req: Request) {
     session.user = {
       id: Number(user.id),
       username: String(user.username),
+      loginAt: Math.floor(Date.now() / 1000),
       role: user.role ?? null,
       discordId:
         user.discord_id === null || user.discord_id === undefined
