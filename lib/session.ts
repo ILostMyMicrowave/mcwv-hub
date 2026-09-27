@@ -14,9 +14,16 @@ export type SessionUser = {
   role?: string | null;
   discordId?: string | null;
   /**
-   * v1 "sign out everywhere" grace token: the revocation cutoff second this
-   * very device re-signed itself with (see /api/account/revoke-sessions).
-   * Legacy cookies simply lack it — treated as 0, i.e. no grace.
+   * v1 "sign out everywhere": unix seconds this credential was minted
+   * (written by /api/auth/login — iron-session v8 does NOT expose the seal's
+   * createdAt to us, proven in node_modules/iron-session/dist: no reference
+   * to it, so we stamp our own). Absent on legacy cookies => treated as
+   * pre-revocation, which is correct: those predate any cutoff you can set.
+   */
+  loginAt?: number;
+  /**
+   * v1 grace token: the revocation cutoff second this very device re-signed
+   * itself with (see /api/account/revoke-sessions). Legacy cookies lack it.
    */
   revokets?: number;
 };
@@ -97,8 +104,12 @@ export async function getIronSession<T extends SessionData = SessionData>(
       if (result.rows.length === 0) {
         resolved = Number.POSITIVE_INFINITY; // deleted user: fail closed
       } else {
-        const raw = Number(result.rows[0]?.revoked_at);
-        resolved = Number.isFinite(raw) ? raw : null;
+        // NULL/missing cell = never revoked. Do NOT Number() it: Number(null)===0
+        // would fake an epoch-0 cutoff and (prod incident 27 Sep) clear every
+        // healthy session. Only a real timestamp counts.
+        const cell = result.rows[0]?.revoked_at;
+        const raw = cell === null || cell === undefined ? null : Number(cell);
+        resolved = raw !== null && Number.isFinite(raw) ? raw : null;
       }
     } catch (err) {
       // DB blip doctrine (same as authUser/adminAuth): serve the signed
@@ -116,7 +127,7 @@ export async function getIronSession<T extends SessionData = SessionData>(
   const cutoff = revoked as number | null;
   if (
     !sessionSurvivesVerification(
-      (session as { createdAt?: number }).createdAt,
+      session.user?.loginAt,
       session.user?.revokets,
       cutoff
     )
