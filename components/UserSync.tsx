@@ -50,5 +50,66 @@ export default function UserSync() {
     load();
   }, []);
 
+  /*
+   * Session watchdog (27 Sep 2026) — completes "sign out everywhere".
+   * While THIS tab has seen a real login (armed), any later check that says
+   * logged out — confirmed by a clean 200, never a hiccup — bounces to
+   * /login so revoked devices visibly log out instead of sitting in limbo.
+   * Cadence: every 10s in the foreground, and instantly when a hidden tab
+   * becomes visible again (phone wakes -> bounce in ~1s). Auth pages are
+   * never watched (no bounce loops). Server errors / network drops NEVER
+   * log anyone out: same fail-open doctrine as everywhere else here.
+   */
+  useEffect(() => {
+    let armed = false;
+    let inflight = false;
+
+    const onAuthPage = () => {
+      const p = window.location.pathname;
+      return (
+        p === "/login" ||
+        p.startsWith("/login/") ||
+        p.startsWith("/signup") ||
+        p.startsWith("/forgot-password") ||
+        p.startsWith("/reset-password")
+      );
+    };
+
+    const check = async () => {
+      if (inflight || onAuthPage()) return;
+      inflight = true;
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        if (!res.ok) return; // hiccup: change nothing at all
+        let data: { user?: unknown } | null;
+        try {
+          data = await res.json();
+        } catch {
+          return; // 200 with an unparseable body is noise too - never bounce on it
+        }
+        if (data?.user) {
+          armed = true;
+        } else if (armed) {
+          window.location.href = "/login?reason=signed-out";
+        }
+      } catch {
+        /* network blip: never bounce on noise */
+      } finally {
+        inflight = false;
+      }
+    };
+
+    void check();
+    const every = window.setInterval(check, 10_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(every);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   return null;
 }
