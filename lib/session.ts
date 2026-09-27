@@ -132,10 +132,18 @@ export async function getIronSession<T extends SessionData = SessionData>(
       cutoff
     )
   ) {
-    // In-memory only: no cookie mutation on read paths (GET-safe routes stay
-    // side-effect free). The dead cookie just keeps 401ing until it is
-    // replaced by the next real login or cleared by logout.
     session.user = undefined;
+    // Visible logout: where cookies are writable (every route handler —
+    // incl. the auth/me call the nav makes on page load), evict the dead
+    // cookie so the very next navigation hits the middleware's no-cookie
+    // gate and lands on /login, matching the app's own 401 -> /login
+    // pattern (see notifications page). In RSC page renders cookie mutation
+    // throws; swallow it — the first API call of that page evicts instead.
+    try {
+      await session.destroy();
+    } catch {
+      /* read-only cookie context (page render) */
+    }
   }
 
   return session;
