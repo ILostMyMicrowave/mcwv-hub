@@ -75,6 +75,21 @@ export function invalidateRevokedAtCache(userId?: number): void {
   else revokedCache.delete(userId);
 }
 
+const REVOKED_QUERY_CAP_MS = 1_200;
+
+/** Row-shape decoder shared by fast and late paths. */
+function readRevokedCell(result: { rows?: Array<{ revoked_at?: string | number | null }> }): number | null {
+  const rows = result.rows ?? [];
+  if (rows.length === 0) return Number.POSITIVE_INFINITY; // deleted user: fail closed
+  // NULL/missing cell = never revoked. Do NOT Number() it: Number(null)===0
+  // would fake an epoch-0 cutoff and (prod incident 27 Sep) clear every
+  // healthy session. Only a real timestamp counts.
+  const cell = rows[0]?.revoked_at;
+  if (cell === null || cell === undefined) return null;
+  const n = Number(cell);
+  return Number.isFinite(n) ? n : null;
+}
+
 type CookieStore = Awaited<ReturnType<typeof nextCookies>>;
 
 export async function getIronSession<T extends SessionData = SessionData>(
@@ -93,31 +108,42 @@ export async function getIronSession<T extends SessionData = SessionData>(
   );
   if (revoked === "stale") {
     let resolved: number | null = null;
-    try {
-      const result = await pool.query(
-        `SELECT floor(extract(epoch from sessions_revoked_at))::bigint AS revoked_at
-         FROM users
-         WHERE id = $1
-         LIMIT 1`,
-        [userId]
-      );
-      if (result.rows.length === 0) {
-        resolved = Number.POSITIVE_INFINITY; // deleted user: fail closed
-      } else {
-        // NULL/missing cell = never revoked. Do NOT Number() it: Number(null)===0
-        // would fake an epoch-0 cutoff and (prod incident 27 Sep) clear every
-        // healthy session. Only a real timestamp counts.
-        const cell = result.rows[0]?.revoked_at;
-        const raw = cell === null || cell === undefined ? null : Number(cell);
-        resolved = raw !== null && Number.isFinite(raw) ? raw : null;
-      }
-    } catch (err) {
-      // DB blip doctrine (same as authUser/adminAuth): serve the signed
-      // session now; the revocation lands the moment the pooler answers.
-      // A revocation during a DB outage taking seconds-not-zero is an
-      // accepted trade — recorded in the kit MANIFEST.
+    // THE CAP (prod 2026-09-27): pool.query rides the shared 6x-retry wrapper
+    // (~60s worst case on a flapping Supabase pooler). A revocation check is
+    // a courtesy, not a gate - it must NEVER make a request slow. Cap at 1.2s:
+    // past that, fail-open NOW and keep the page instant; if the DB answers
+    // late, the real cutoff still lands in the cache for subsequent reads.
+    const q = pool.query(
+      `SELECT floor(extract(epoch from sessions_revoked_at))::bigint AS revoked_at
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [userId]
+    );
+    const settled = await Promise.race([
+      q.then(
+        (result: { rows?: Array<{ revoked_at?: string | number | null }> }) =>
+          ({ kind: "ok" as const, result })
+      ),
+      new Promise<{ kind: "timeout" }>((resolveTimeout) =>
+        setTimeout(() => resolveTimeout({ kind: "timeout" }), REVOKED_QUERY_CAP_MS)
+      ),
+    ]).catch((err) => {
       console.error("[session] revocation check failed, using signed session:", err);
-      resolved = null;
+      return { kind: "err" as const };
+    });
+    if (settled.kind === "ok") {
+      resolved = readRevokedCell(settled.result);
+    } else {
+      resolved = null; // fail-open (fast error or cap)
+      if (settled.kind === "timeout") {
+        void q
+          .then((late: { rows?: Array<{ revoked_at?: string | number | null }> }) => {
+            if (revokedCache.size >= REVOKED_MAX) revokedCache.clear();
+            revokedCache.set(userId, { revoked: readRevokedCell(late), at: Date.now() });
+          })
+          .catch(() => { /* retries eventually died too */ });
+      }
     }
     if (revokedCache.size >= REVOKED_MAX) revokedCache.clear();
     revokedCache.set(userId, { revoked: resolved, at: Date.now() });
