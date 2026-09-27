@@ -1,10 +1,24 @@
-import type { SessionOptions } from "iron-session";
+import type { SessionOptions, IronSession } from "iron-session";
+import { getIronSession as getIronSessionRaw } from "iron-session";
+import type { cookies as nextCookies } from "next/headers";
+import { pool } from "@/lib/db";
+import {
+  sessionSurvivesVerification,
+  pickFreshRevokedAt,
+  type RevokedAtEntry,
+} from "@/lib/sessionVerify";
 
 export type SessionUser = {
   id: number;
   username: string;
   role?: string | null;
   discordId?: string | null;
+  /**
+   * v1 "sign out everywhere" grace token: the revocation cutoff second this
+   * very device re-signed itself with (see /api/account/revoke-sessions).
+   * Legacy cookies simply lack it — treated as 0, i.e. no grace.
+   */
+  revokets?: number;
 };
 
 export type SessionData = {
@@ -34,3 +48,84 @@ export const sessionOptions: SessionOptions = {
     path: "/",
   },
 };
+
+/* ------------------------------------------------------------------ */
+/* v1: deny-existence companion — "sign out everywhere" enforcement. */
+/*                                                                   */
+/* ONE choke point for the whole app: every route already branches on */
+/* `session.user?.id`, so clearing `user` here when the cookie        */
+/* predates a per-user revocation cutoff makes every consumer 401    */
+/* naturally — no per-route logic changed anywhere.                  */
+/* ------------------------------------------------------------------ */
+
+const REVOKED_TTL_MS = 10_000; // same doctrine/latency as the authUser micro-cache
+const REVOKED_MAX = 400;
+const revokedCache = new Map<number, RevokedAtEntry>();
+
+/** Drop a user's cached cutoff (call right after revoking, self or admin). */
+export function invalidateRevokedAtCache(userId?: number): void {
+  if (userId === undefined) revokedCache.clear();
+  else revokedCache.delete(userId);
+}
+
+type CookieStore = Awaited<ReturnType<typeof nextCookies>>;
+
+export async function getIronSession<T extends SessionData = SessionData>(
+  cookieStore: CookieStore,
+  options: SessionOptions
+): Promise<IronSession<T>> {
+  const session = await getIronSessionRaw<T>(cookieStore, options);
+
+  const userId = Number(session.user?.id);
+  if (!Number.isFinite(userId) || userId <= 0) return session;
+
+  let revoked: number | null | "stale" = pickFreshRevokedAt(
+    revokedCache.get(userId),
+    Date.now(),
+    REVOKED_TTL_MS
+  );
+  if (revoked === "stale") {
+    let resolved: number | null = null;
+    try {
+      const result = await pool.query(
+        `SELECT floor(extract(epoch from sessions_revoked_at))::bigint AS revoked_at
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [userId]
+      );
+      if (result.rows.length === 0) {
+        resolved = Number.POSITIVE_INFINITY; // deleted user: fail closed
+      } else {
+        const raw = Number(result.rows[0]?.revoked_at);
+        resolved = Number.isFinite(raw) ? raw : null;
+      }
+    } catch (err) {
+      // DB blip doctrine (same as authUser/adminAuth): serve the signed
+      // session now; the revocation lands the moment the pooler answers.
+      // A revocation during a DB outage taking seconds-not-zero is an
+      // accepted trade — recorded in the kit MANIFEST.
+      console.error("[session] revocation check failed, using signed session:", err);
+      resolved = null;
+    }
+    if (revokedCache.size >= REVOKED_MAX) revokedCache.clear();
+    revokedCache.set(userId, { revoked: resolved, at: Date.now() });
+    revoked = resolved;
+  }
+
+  const cutoff = revoked as number | null;
+  if (
+    !sessionSurvivesVerification(
+      (session as { createdAt?: number }).createdAt,
+      session.user?.revokets,
+      cutoff
+    )
+  ) {
+    // In-memory only: no cookie mutation on read paths (GET-safe routes stay
+    // side-effect free). The dead cookie just keeps 401ing until it is
+    // replaced by the next real login or cleared by logout.
+    session.user = undefined;
+  }
+
+  return session;
+}
