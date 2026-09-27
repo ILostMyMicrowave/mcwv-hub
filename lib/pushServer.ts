@@ -28,6 +28,10 @@ export type PushPayload = {
   tag?: string;
   /** Optional big image — Android shows it big-picture style, inbox as banner. */
   image?: string;
+  /** v2: control message for the service worker (e.g. "kick" = force logout bounce). */
+  action?: string;
+  /** v2 kick: sid of the revoking session (devices matching it skip the bounce). */
+  sid?: string;
   /** Inbox row id — set server-side so taps deep-link /notifications?n=<id>. */
   notifId?: number | null;
 };
@@ -45,6 +49,8 @@ export type SendOptions = {
   userId?: number;
   /** Long-form body stored in `notifications` when the push body is truncated. */
   fullBody?: string;
+  /** v2 kick: never notify the device that initiated the action (its own endpoint). */
+  skipEndpoint?: string | null;
 };
 
 type SubRow = { endpoint: string; p256dh: string; auth: string };
@@ -320,7 +326,11 @@ export async function sendPushToUser(
     `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
     [userId]
   );
-  const result = await deliver(rows, finalPayload);
+  // v2: a kick must not ping the device that pulled the trigger.
+  const kept = opts.skipEndpoint
+    ? rows.filter((r) => r.endpoint !== opts.skipEndpoint)
+    : rows;
+  const result = await deliver(kept, finalPayload);
   return { ...result, notifId };
 }
 
