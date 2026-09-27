@@ -65,7 +65,7 @@ export const sessionOptions: SessionOptions = {
 /* naturally — no per-route logic changed anywhere.                  */
 /* ------------------------------------------------------------------ */
 
-const REVOKED_TTL_MS = 10_000; // same doctrine/latency as the authUser micro-cache
+const REVOKED_TTL_MS = 3_000; // revocations land in <=3s (user: "make it faster"); authUser cache stays 10s
 const REVOKED_MAX = 400;
 const revokedCache = new Map<number, RevokedAtEntry>();
 
@@ -133,17 +133,12 @@ export async function getIronSession<T extends SessionData = SessionData>(
     )
   ) {
     session.user = undefined;
-    // Visible logout: where cookies are writable (every route handler —
-    // incl. the auth/me call the nav makes on page load), evict the dead
-    // cookie so the very next navigation hits the middleware's no-cookie
-    // gate and lands on /login, matching the app's own 401 -> /login
-    // pattern (see notifications page). In RSC page renders cookie mutation
-    // throws; swallow it — the first API call of that page evicts instead.
-    try {
-      await session.destroy();
-    } catch {
-      /* read-only cookie context (page render) */
-    }
+    // DO NOT re-add cookie eviction here (27 Sep): destroying the cookie
+    // from this choke point took the site down on phones (RSC page renders
+    // share this function and Next 16 forbids the mutation mid-render).
+    // The dead cookie simply keeps 401ing; a real login replaces it, a real
+    // logout clears it. Visible-logout UX is a client-side job (401 ->
+    // /login redirect like the notifications page) if we ever want it.
   }
 
   return session;
