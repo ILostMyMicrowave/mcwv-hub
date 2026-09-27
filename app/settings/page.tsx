@@ -150,6 +150,9 @@ export default function Settings() {
   const [saving, setSaving] = useState<SaveKey | null>(null);
   const [status, setStatus] = useState<string>("");
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeNote, setRevokeNote] = useState("");
+  const [pendingKickId, setPendingKickId] = useState<number | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const themes: {
@@ -318,6 +321,46 @@ export default function Settings() {
       }
     } catch (err) {
       setRolesStatus(err instanceof Error && err.message ? err.message : "Role update failed");
+    } finally {
+      setRolesLoading(false);
+      window.setTimeout(() => setRolesStatus(""), 2600);
+    }
+  }
+
+  async function signOutEverywhere() {
+    setRevokeBusy(true);
+    setRevokeNote("");
+    try {
+      const res = await fetch("/api/account/revoke-sessions", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "failed");
+      setRevokeNote("Signed out on all other devices \u2705");
+    } catch (err) {
+      setRevokeNote(err instanceof Error && err.message && err.message !== "failed" ? err.message : "Couldn't reach the hub \u2014 try again.");
+    } finally {
+      setRevokeBusy(false);
+      window.setTimeout(() => setRevokeNote(""), 4000);
+    }
+  }
+
+  async function signOutUserDevices(userId: number, username: string) {
+    if (!canManageRoles) {
+      setRolesStatus("You do not have permission for that");
+      return;
+    }
+    setRolesLoading(true);
+    setRolesStatus("");
+    try {
+      const res = await fetch("/api/admin/users/revoke-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "revoke failed");
+      setRolesStatus(`${username} was signed out everywhere \u2014 they can log in again any time.`);
+    } catch (err) {
+      setRolesStatus(err instanceof Error ? err.message : "Sign-out failed");
     } finally {
       setRolesLoading(false);
       window.setTimeout(() => setRolesStatus(""), 2600);
@@ -497,6 +540,14 @@ export default function Settings() {
                   Change Password
                 </Pressable>
                 <Pressable
+                  onClick={() => void signOutEverywhere()}
+                  disabled={revokeBusy}
+                  title="Kicks every other device signed into your account. This one stays."
+                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {revokeBusy ? "Signing out devices\u2026" : "Sign Out Other Devices"}
+                </Pressable>
+                <Pressable
                   onClick={async () => {
                     try {
                       await fetch("/api/auth/logout", { method: "POST" });
@@ -508,7 +559,7 @@ export default function Settings() {
                   Log Out
                 </Pressable>
               </div>
-              <p className="mt-4 text-xs text-zinc-500">You will be signed out of this device only.</p>
+              <p className="mt-4 text-xs text-zinc-500">Log Out exits this device only. “Sign Out Other Devices” keeps you here and removes every other one — {revokeNote || "a stolen or forgotten session dies within seconds."}</p>
             </Section>
           </div>
 
@@ -648,6 +699,28 @@ export default function Settings() {
                                 className="min-h-11 whitespace-nowrap rounded-2xl bg-orange-400 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Demote to Member
+                              </Pressable>
+                            )}
+                            {!isOwner && (member.has_account ?? member.hasAccount) && (
+                              <Pressable
+                                onClick={() => {
+                                  if (pendingKickId !== member.id) {
+                                    setPendingKickId(member.id);
+                                    window.setTimeout(() => setPendingKickId((cur) => (cur === member.id ? null : cur)), 4000);
+                                    return;
+                                  }
+                                  setPendingKickId(null);
+                                  void signOutUserDevices(member.id, member.username);
+                                }}
+                                disabled={rolesLoading}
+                                title="Sign this member out on every device. They can log in again normally."
+                                className={`min-h-11 whitespace-nowrap rounded-2xl border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                                  pendingKickId === member.id
+                                    ? "border-amber-400/70 bg-amber-500/30 text-white"
+                                    : "border-amber-400/30 bg-amber-500/10 text-amber-200"
+                                }`}
+                              >
+                                {pendingKickId === member.id ? "Tap again to confirm" : "Sign Out Devices"}
                               </Pressable>
                             )}
                             {!isOwner && (member.has_account ?? member.hasAccount) && (
