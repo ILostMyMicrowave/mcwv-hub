@@ -2,11 +2,6 @@ import type { SessionOptions, IronSession } from "iron-session";
 import { getIronSession as getIronSessionRaw } from "iron-session";
 import type { cookies as nextCookies } from "next/headers";
 import { pool } from "@/lib/db";
-import {
-  sessionSurvivesVerification,
-  pickFreshRevokedAt,
-  type RevokedAtEntry,
-} from "@/lib/sessionVerify";
 
 export type SessionUser = {
   id: number;
@@ -14,18 +9,12 @@ export type SessionUser = {
   role?: string | null;
   discordId?: string | null;
   /**
-   * v1 "sign out everywhere": unix seconds this credential was minted
-   * (written by /api/auth/login — iron-session v8 does NOT expose the seal's
-   * createdAt to us, proven in node_modules/iron-session/dist: no reference
-   * to it, so we stamp our own). Absent on legacy cookies => treated as
-   * pre-revocation, which is correct: those predate any cutoff you can set.
+   * v2: device id minted at login (uuid, see /api/auth/login) and bound to a
+   * row in mcwv_user_sessions. THE ONLY thing that makes a cookie valid -
+   * no timestamps, no grace tokens, no legacy shapes. A cookie without a
+   * well-formed sid (e.g. everything minted before v2) is dead on read.
    */
-  loginAt?: number;
-  /**
-   * v1 grace token: the revocation cutoff second this very device re-signed
-   * itself with (see /api/account/revoke-sessions). Legacy cookies lack it.
-   */
-  revokets?: number;
+  sid?: string;
 };
 
 export type SessionData = {
@@ -57,37 +46,37 @@ export const sessionOptions: SessionOptions = {
 };
 
 /* ------------------------------------------------------------------ */
-/* v1: deny-existence companion — "sign out everywhere" enforcement. */
-/*                                                                   */
-/* ONE choke point for the whole app: every route already branches on */
-/* `session.user?.id`, so clearing `user` here when the cookie        */
-/* predates a per-user revocation cutoff makes every consumer 401    */
-/* naturally — no per-route logic changed anywhere.                  */
+/* v2 "sign out everywhere" — the whole mechanism in one choke point. */
+/*                                                                    */
+/* A session is real iff its sid row is unrevoked (and its user still */
+/* exists). Every page/API already branches on `session.user?.id`,    */
+/* so killing `user` here kills everything, with zero per-route code. */
+/* The row lookup is per-DEVICE and cached for 3s; during DB trouble  */
+/* the check is capped at 1.2s and fail-opens (site doctrine: a       */
+// /* blip must never log people out or make pages wait on the pooler). */
 /* ------------------------------------------------------------------ */
 
-const REVOKED_TTL_MS = 3_000; // revocations land in <=3s (user: "make it faster"); authUser cache stays 10s
-const REVOKED_MAX = 400;
-const revokedCache = new Map<number, RevokedAtEntry>();
+const SID_CHECK_TTL_MS = 3_000; // revocations land on other devices <= ~3s
+const SID_QUERY_CAP_MS = 1_200; // storm cap (prod 2026-09-27): never slow a page
+const SID_CACHE_MAX = 400;
 
-/** Drop a user's cached cutoff (call right after revoking, self or admin). */
-export function invalidateRevokedAtCache(userId?: number): void {
-  if (userId === undefined) revokedCache.clear();
-  else revokedCache.delete(userId);
+const sidCache = new Map<string, { alive: boolean; at: number }>();
+
+/** Force the next read for `sid` (or all) to re-check the database. */
+export function invalidateSessionCache(sid?: string): void {
+  if (sid === undefined) sidCache.clear();
+  else sidCache.delete(sid);
 }
 
-const REVOKED_QUERY_CAP_MS = 1_200;
+const SID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Row-shape decoder shared by fast and late paths. */
-function readRevokedCell(result: { rows?: Array<{ revoked_at?: string | number | null }> }): number | null {
-  const rows = result.rows ?? [];
-  if (rows.length === 0) return Number.POSITIVE_INFINITY; // deleted user: fail closed
-  // NULL/missing cell = never revoked. Do NOT Number() it: Number(null)===0
-  // would fake an epoch-0 cutoff and (prod incident 27 Sep) clear every
-  // healthy session. Only a real timestamp counts.
-  const cell = rows[0]?.revoked_at;
-  if (cell === null || cell === undefined) return null;
-  const n = Number(cell);
-  return Number.isFinite(n) ? n : null;
+type SidRow = { alive?: boolean | null; user_exists?: boolean | null } | undefined;
+
+function readSidRow(result: unknown): boolean {
+  const rows = (result as { rows?: SidRow[] } | null)?.rows;
+  if (!Array.isArray(rows) || rows.length === 0) return false; // row gone = dead
+  const row = rows[0];
+  return row?.alive === true && row?.user_exists === true;
 }
 
 type CookieStore = Awaited<ReturnType<typeof nextCookies>>;
@@ -98,73 +87,64 @@ export async function getIronSession<T extends SessionData = SessionData>(
 ): Promise<IronSession<T>> {
   const session = await getIronSessionRaw<T>(cookieStore, options);
 
-  const userId = Number(session.user?.id);
-  if (!Number.isFinite(userId) || userId <= 0) return session;
-
-  let revoked: number | null | "stale" = pickFreshRevokedAt(
-    revokedCache.get(userId),
-    Date.now(),
-    REVOKED_TTL_MS
-  );
-  if (revoked === "stale") {
-    let resolved: number | null = null;
-    // THE CAP (prod 2026-09-27): pool.query rides the shared 6x-retry wrapper
-    // (~60s worst case on a flapping Supabase pooler). A revocation check is
-    // a courtesy, not a gate - it must NEVER make a request slow. Cap at 1.2s:
-    // past that, fail-open NOW and keep the page instant; if the DB answers
-    // late, the real cutoff still lands in the cache for subsequent reads.
-    const q = pool.query(
-      `SELECT floor(extract(epoch from sessions_revoked_at))::bigint AS revoked_at
-       FROM users
-       WHERE id = $1
-       LIMIT 1`,
-      [userId]
-    );
-    const settled = await Promise.race([
-      q.then(
-        (result: { rows?: Array<{ revoked_at?: string | number | null }> }) =>
-          ({ kind: "ok" as const, result })
-      ),
-      new Promise<{ kind: "timeout" }>((resolveTimeout) =>
-        setTimeout(() => resolveTimeout({ kind: "timeout" }), REVOKED_QUERY_CAP_MS)
-      ),
-    ]).catch((err) => {
-      console.error("[session] revocation check failed, using signed session:", err);
-      return { kind: "err" as const };
-    });
-    if (settled.kind === "ok") {
-      resolved = readRevokedCell(settled.result);
-    } else {
-      resolved = null; // fail-open (fast error or cap)
-      if (settled.kind === "timeout") {
-        void q
-          .then((late: { rows?: Array<{ revoked_at?: string | number | null }> }) => {
-            if (revokedCache.size >= REVOKED_MAX) revokedCache.clear();
-            revokedCache.set(userId, { revoked: readRevokedCell(late), at: Date.now() });
-          })
-          .catch(() => { /* retries eventually died too */ });
-      }
-    }
-    if (revokedCache.size >= REVOKED_MAX) revokedCache.clear();
-    revokedCache.set(userId, { revoked: resolved, at: Date.now() });
-    revoked = resolved;
+  const sid = session.user?.sid;
+  if (typeof sid !== "string" || !SID_RE.test(sid)) {
+    // Legacy/v1 cookie or tampered shape: no sid row can vouch for it -> dead.
+    session.user = undefined;
+    return session;
   }
 
-  const cutoff = revoked as number | null;
-  if (
-    !sessionSurvivesVerification(
-      session.user?.loginAt,
-      session.user?.revokets,
-      cutoff
-    )
-  ) {
+  const now = Date.now();
+  const cached = sidCache.get(sid);
+  let alive: boolean;
+
+  if (cached && now - cached.at < SID_CHECK_TTL_MS) {
+    alive = cached.alive;
+  } else {
+    const q = pool.query(
+      `SELECT s.revoked_at IS NULL AS alive,
+              u.id IS NOT NULL AS user_exists
+       FROM mcwv_user_sessions s
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.sid = $1
+       LIMIT 1`,
+      [sid]
+    );
+    const settled = await Promise.race([
+      q.then((result) => ({ kind: "ok" as const, result })),
+      new Promise<{ kind: "timeout" }>((resolveTimeout) =>
+        setTimeout(() => resolveTimeout({ kind: "timeout" }), SID_QUERY_CAP_MS)
+      ),
+    ]).catch((err) => {
+      console.error("[session] sid check failed, trusting cookie briefly:", err);
+      return { kind: "error" as const };
+    });
+
+    if (settled.kind === "ok") {
+      alive = readSidRow(settled.result);
+      if (sidCache.size > SID_CACHE_MAX) sidCache.clear();
+      sidCache.set(sid, { alive, at: Date.now() });
+    } else {
+      // DB blip or storm: let this request through NOW, cache the mercy
+      // briefly, and let the late answer (if any) correct the cache - the
+      // revocation then lands the moment the pooler breathes.
+      alive = true;
+      if (sidCache.size > SID_CACHE_MAX) sidCache.clear();
+      sidCache.set(sid, { alive: true, at: Date.now() });
+      void q
+        .then((result) => {
+          sidCache.set(sid, { alive: readSidRow(result), at: Date.now() });
+        })
+        .catch(() => {
+          /* retries eventually died too; next request tries again */
+        });
+    }
+  }
+
+  if (!alive) {
+    // In-memory only on read paths; the kick itself (route side) plus the
+    // push->service-worker bounce handle the visible logout.
     session.user = undefined;
-    // DO NOT re-add cookie eviction here (27 Sep): destroying the cookie
-    // from this choke point took the site down on phones (RSC page renders
-    // share this function and Next 16 forbids the mutation mid-render).
-    // The dead cookie simply keeps 401ing; a real login replaces it, a real
-    // logout clears it. Visible-logout UX is a client-side job (401 ->
-    // /login redirect like the notifications page) if we ever want it.
   }
 
   return session;
