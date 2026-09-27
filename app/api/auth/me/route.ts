@@ -34,6 +34,10 @@ export async function GET() {
     )
 
     const user = result.rows[0] ?? null
+    // v2: the page needs to RECOGNISE its own session id — a kick push that
+    // names this sid came FROM this device and must not bounce it. Harmless
+    // to expose: it is only ever readable by whoever already holds the cookie.
+    if (user) user.sid = session.user?.sid ?? null
 
     return NextResponse.json({ user })
   } catch {
@@ -47,7 +51,7 @@ export async function GET() {
       const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
       const u = session?.user
       return NextResponse.json({
-        user: u ? { id: u.id, username: u.username, role: u.role ?? null } : null,
+        user: u ? { id: u.id, username: u.username, role: u.role ?? null, sid: u.sid ?? null } : null,
       })
     } catch {
       return NextResponse.json({ user: null }, { status: 500 })
