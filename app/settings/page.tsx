@@ -365,10 +365,30 @@ export default function Settings() {
     setRevokeBusy(true);
     setRevokeNote("");
     try {
-      const res = await fetch("/api/account/revoke-sessions", { method: "POST" });
+      // v2: name THIS device's push endpoint so the hub's kick push skips it
+      // (the server-side own-sid exclusion already protects the session; this
+      // only stops the pointless "you were signed out" notification here).
+      let currentEndpoint: string | null = null;
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration?.();
+        const sub = await reg?.pushManager?.getSubscription?.();
+        currentEndpoint = sub?.endpoint ?? null;
+      } catch {
+        /* no worker/subscription here: harmless - the sid guard covers it */
+      }
+      const res = await fetch("/api/account/revoke-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentEndpoint }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? "failed");
-      setRevokeNote("Signed out on all other devices \u2705");
+      const kicked = Number(data?.kicked);
+      setRevokeNote(
+        Number.isFinite(kicked) && kicked > 0
+          ? `Signed out ${kicked} other device${kicked === 1 ? "" : "s"} \u2705`
+          : "Signed out on all other devices \u2705"
+      );
     } catch (err) {
       setRevokeNote(err instanceof Error && err.message && err.message !== "failed" ? err.message : "Couldn't reach the hub \u2014 try again.");
     } finally {
