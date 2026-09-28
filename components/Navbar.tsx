@@ -412,6 +412,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
           label: "Clan",
           icon: "🏕",
           links: [
+            { href: "/announcements", label: "Announcements", icon: "📣", description: "Clan news — pinned, reactions, scheduled" },
             { href: "/servers", label: "Private Servers", icon: "🔗", description: "Live join links + who's around" },
           ],
         },
