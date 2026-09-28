@@ -408,6 +408,15 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
         },
         {
           type: "group",
+          id: "clan",
+          label: "Clan",
+          icon: "🏕",
+          links: [
+            { href: "/servers", label: "Private Servers", icon: "🔗", description: "Live join links + who's around" },
+          ],
+        },
+        {
+          type: "group",
           id: "staff",
           label: "Staff",
           icon: "🛠",
