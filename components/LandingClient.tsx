@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import AnnouncementTicker from "./AnnouncementTicker";
 import Navbar from "@/components/Navbar";
 import type { LandingInitial } from "@/lib/landingInitial";
 import AnimatedBackground from "@/components/AnimatedBackground";
@@ -595,6 +596,7 @@ export default function LandingClient({ initial }: { initial: LandingInitial | n
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden"><AnimatedBackground /></div>
       <div className="relative z-10">
         <Navbar initialUser={initial?.user ?? null} />
+        <AnnouncementTicker />
         {bannerText.trim() !== "" && (
           <section className="mx-auto max-w-6xl px-4 pt-4 sm:px-6 lg:px-10">
             <div className="mcwv-home-enter overflow-hidden rounded-2xl border" style={{ background: "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.07), rgba(255,255,255,0.03))", borderColor: "var(--border)" }}>
