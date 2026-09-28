@@ -57,6 +57,11 @@ export async function GET() {
              ) < now() - interval '24 hours'`
     )
     .catch(() => null);
+  // Rolling window on the tap log itself: stats live in months, not years —
+  // rows older than 180 days are dead weight. Same fire-and-forget deal.
+  void pool
+    .query(`DELETE FROM mcwv_privserver_taps WHERE tapped_at < now() - interval '180 days'`)
+    .catch(() => null);
 
   try {
     const [board, around] = await Promise.all([
