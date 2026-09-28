@@ -413,6 +413,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
           icon: "🏕",
           links: [
             { href: "/announcements", label: "Announcements", icon: "📣", description: "Clan news — pinned, reactions, scheduled" },
+            { href: "/strategy", label: "Strategy", icon: "🧠", description: "Tactics queue — fix & approve, war-scoped" },
             { href: "/servers", label: "Private Servers", icon: "🔗", description: "Live join links + who's around" },
           ],
         },
