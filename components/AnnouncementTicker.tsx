@@ -44,11 +44,11 @@ export default function AnnouncementTicker() {
   return (
     <a
       href="/announcements"
-      className="mx-auto mb-3 flex w-full max-w-3xl items-center gap-2 rounded-2xl border border-yellow-400/30 bg-yellow-400/[0.08] px-4 py-2 text-[13px] text-yellow-100 transition hover:bg-yellow-400/[0.14]"
+      className="mx-auto mb-3 flex w-full max-w-3xl items-center gap-2 rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.08] px-4 py-2 text-[13px] text-[var(--foreground)] transition hover:bg-[var(--accent)]/[0.14]"
     >
       <span aria-hidden>📌</span>
       <span className="min-w-0 flex-1 truncate">{text}</span>
-      <span className="shrink-0 text-yellow-200/70">view →</span>
+      <span className="shrink-0 text-[var(--foreground)]/60">view →</span>
     </a>
   );
 }
