@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import Navbar from "@/components/Navbar";
 
 /*
  * /strategy — the tactics board (slice C, plan v2).
@@ -378,7 +379,9 @@ export default function StrategyPage() {
   const openWar = wars.find((w) => w.open);
 
   return (
-    <main className="mx-auto w-full max-w-2xl space-y-3 px-4 py-6">
+    <>
+      <Navbar />
+      <main className="mx-auto w-full max-w-2xl space-y-3 px-4 py-6">
       <div className="mcwv-home-enter rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5 backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
@@ -506,6 +509,7 @@ export default function StrategyPage() {
           )}
         </div>
       )}
-    </main>
+          </main>
+    </>
   );
 }
