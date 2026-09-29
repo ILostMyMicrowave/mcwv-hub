@@ -113,7 +113,7 @@ function DesktopLinkItem({
       {badge && badge > 0 ? (
         <span
           aria-hidden
-          className="ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-emerald-500 px-1.5 py-[3px] text-[10px] font-black leading-none text-black shadow-[0_0_12px_rgba(52,211,153,0.35)]"
+          className="ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--primary)] px-1.5 py-[3px] text-[10px] font-black leading-none text-black shadow-[0_0_12px_var(--glow)]"
         >
           {badge > 99 ? "99+" : badge}
         </span>
@@ -237,7 +237,7 @@ function DesktopGroupItem({
           style={{
             background: "rgba(6,6,8,0.94)",
             borderColor: "var(--border)",
-            boxShadow: "0 22px 70px rgba(0,0,0,0.5), 0 0 28px rgba(255,255,255,0.04)",
+            boxShadow: "0 22px 70px rgba(0,0,0,0.5), 0 0 28px var(--glow)",
             opacity: isOpen ? 1 : 0,
             transform: isOpen ? "translateY(0) scale(1)" : "translateY(6px) scale(0.97)",
             transformOrigin: "top center",
@@ -253,7 +253,7 @@ function DesktopGroupItem({
                 "linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 70%, transparent), transparent)",
             }}
           />
-          <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
+          <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--foreground)]/55">
             {item.icon} {item.label}
           </div>
           <div className="grid gap-1">
@@ -273,7 +273,7 @@ function DesktopGroupItem({
                   className="group rounded-2xl border px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-white/10 focus-visible:outline-none focus-visible:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60"
                   style={{
                     borderColor: activeLink ? "var(--border)" : "transparent",
-                    background: activeLink ? "rgba(255,255,255,0.08)" : "transparent",
+                    background: activeLink ? "color-mix(in srgb, var(--primary) 13%, transparent)" : "transparent",
                     animation:
                       isOpen && !reduceMotion
                         ? `nav-drop-item-in 280ms ${SPRING} ${50 + index * 35}ms backwards`
@@ -307,14 +307,14 @@ function DesktopGroupItem({
                     ) : (
                       <span
                         aria-hidden
-                        className="text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-zinc-300"
+                        className="text-[var(--foreground)]/40 transition group-hover:translate-x-0.5 group-hover:text-[var(--foreground)]"
                       >
                         →
                       </span>
                     )}
                   </div>
                   {link.description && (
-                    <p className="mt-1 text-xs leading-5 text-zinc-500">{link.description}</p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--foreground)]/55">{link.description}</p>
                   )}
                 </Link>
               );
@@ -322,7 +322,7 @@ function DesktopGroupItem({
           </div>
           <div
             aria-hidden
-            className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600"
+            className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/45"
           >
             ↑↓ move · esc close
           </div>
@@ -1161,7 +1161,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                         style={{
                           ...cascadeStyle,
                           color: active ? "var(--accent)" : "var(--foreground)",
-                          background: active ? "rgba(255,255,255,0.07)" : "transparent",
+                          background: active ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
                           border: `1px solid ${active ? "var(--border)" : "transparent"}`,
                         }}
                       >
@@ -1176,7 +1176,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                         {item.id === "inbox" && unreadAlerts > 0 ? (
                           <span
                             aria-label={`${unreadAlerts} unread alerts`}
-                            className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-emerald-500 px-2 py-1 text-[10px] font-black leading-none text-white shadow-[0_0_14px_rgba(52,211,153,0.35)]"
+                            className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-[var(--primary)] px-2 py-1 text-[10px] font-black leading-none text-black shadow-[0_0_14px_var(--glow)]"
                           >
                             {unreadAlerts > 99 ? "99+" : unreadAlerts}
                           </span>
@@ -1189,13 +1189,13 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                   return (
                     <div
                       key={item.id}
-                      className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]"
+                      className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card)]"
                       style={cascadeStyle}
                     >
                       <button
                         type="button"
                         onClick={() => setMobileGroup((current) => (current === item.id ? null : item.id))}
-                        className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left transition duration-200 hover:bg-white/[0.04] active:scale-[0.99]"
+                        className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left transition duration-200 hover:bg-[var(--foreground)]/[0.05] active:scale-[0.99]"
                         aria-expanded={groupOpen}
                       >
                         <span className="flex items-center gap-3">
@@ -1205,7 +1205,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                           </span>
                         </span>
                         <span
-                          className="grid h-6 w-6 place-items-center rounded-full border text-[10px] text-zinc-400"
+                          className="grid h-6 w-6 place-items-center rounded-full border text-[10px] text-[var(--foreground)]/60"
                           style={{
                             borderColor: "var(--border)",
                             transform: groupOpen ? "rotate(180deg)" : "rotate(0deg)",
@@ -1235,7 +1235,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                                   className="relative flex min-h-[48px] flex-col justify-center rounded-2xl px-4 py-2.5 text-sm transition-all duration-200 ease-out active:scale-[0.98]"
                                   style={{
                                     color: active ? "var(--accent)" : "var(--foreground)",
-                                    background: active ? "rgba(255,255,255,0.07)" : "transparent",
+                                    background: active ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
                                     border: `1px solid ${active ? "var(--border)" : "transparent"}`,
                                     opacity: groupOpen ? 1 : 0,
                                     transform: groupOpen ? "translateY(0)" : "translateY(-4px)",
@@ -1251,7 +1251,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                                   )}
                                   <span className="font-semibold">{link.label}</span>
                                   {link.description && (
-                                    <span className="mt-0.5 text-xs leading-5 text-zinc-500">{link.description}</span>
+                                    <span className="mt-0.5 text-xs leading-5 text-[var(--foreground)]/55">{link.description}</span>
                                   )}
                                 </Link>
                               );
@@ -1276,7 +1276,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
                 transition: `opacity 260ms ease 260ms, transform 380ms ${SPRING} 260ms`,
               }}
             >
-              <div className="flex items-center justify-between text-xs text-zinc-500">
+              <div className="flex items-center justify-between text-xs text-[var(--foreground)]/55">
                 <span className="font-semibold uppercase tracking-[0.2em]">MCWV Hub</span>
                 {isOfficer && (
                   <span
