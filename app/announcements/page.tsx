@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 /*
  * /announcements — the Clan feed (slice B, plan v2).
@@ -29,7 +30,7 @@ export type Item = {
 };
 
 const INPUT =
-  "w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 focus:bg-black/50 touch-manipulation";
+  "w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/50 px-4 py-3 text-base text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground)]/40 focus:border-[var(--primary)]/60 focus:shadow-[0_0_0_3px_var(--glow)] focus:bg-[var(--background)]/60 touch-manipulation";
 const EMOJIS = ["👍", "🔥", "👀"];
 
 function normTime(iso: string | null): string {
@@ -57,7 +58,7 @@ function Pfp({ member, size = 28 }: { member: Member; size?: number }) {
     return (
       <span
         aria-hidden
-        className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/40 text-[10px] font-bold text-zinc-300"
+        className="inline-flex shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--background)]/50 text-[10px] font-bold text-[var(--foreground)]/70"
         style={{ width: size, height: size }}
         title={member.username}
       >
@@ -73,7 +74,7 @@ function Pfp({ member, size = 28 }: { member: Member; size?: number }) {
       title={member.username}
       loading="lazy"
       onError={() => setBroken(true)}
-      className="shrink-0 rounded-full border border-white/15 bg-black/40 object-cover"
+      className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)]/50 object-cover"
       style={{ width: size, height: size }}
     />
   );
@@ -149,7 +150,7 @@ export default function AnnouncementsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setLoadErr(data?.error ?? "The hub didn't take that — try again.");
+        setLoadErr(data?.error ?? "That didn't go through — try again.");
         return false;
       }
       setLoadErr(null);
@@ -235,46 +236,47 @@ export default function AnnouncementsPage() {
     await act({ action: "delete", id: item.id });
   };
 
-  const ItemCard = (props: { item: Item; faded?: boolean }) => {
-    const { item, faded } = props;
+  const ItemCard = (props: { item: Item; faded?: boolean; i?: number }) => {
+    const { item, faded, i = 0 } = props;
     return (
       <div
-        className={`st-rise rounded-3xl border p-4 sm:p-5 ${
+        style={{ "--i": Math.min(i, 8) } as CSSProperties}
+        className={`stagger-in rounded-3xl border p-4 sm:p-5 ${
           item.pinned && !faded
-            ? "border-yellow-400/40 bg-yellow-400/[0.06]"
+            ? "border-[var(--accent)]/40 bg-[var(--accent)]/[0.06]"
             : item.scheduled
-              ? "border-emerald-400/30 bg-emerald-400/[0.05]"
-              : "border-white/10 bg-white/[0.04]"
-        } ${faded ? "opacity-70" : ""}`}
+              ? "border-[var(--primary)]/35 bg-[var(--primary)]/[0.05]"
+              : "border-[var(--border)] bg-[var(--card)]"
+        } ${faded ? "opacity-70" : "card-hover"}`}
       >
         <div className="flex items-start gap-3">
           <Pfp member={item.author} />
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-zinc-400">
-              <span className="font-bold text-zinc-200">{item.author.username}</span>
-              {item.pinned && <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-2 py-px text-[10px] font-bold uppercase text-yellow-200">📌 pinned</span>}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[var(--foreground)]/60">
+              <span className="font-bold text-[var(--foreground)]/85">{item.author.username}</span>
+              {item.pinned && <span className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-2 py-px text-[10px] font-bold uppercase text-[var(--accent)]">📌 pinned</span>}
               {item.scheduled && (
-                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-px text-[10px] font-bold uppercase text-emerald-200">
+                <span className="rounded-full border border-[var(--primary)]/35 bg-[var(--primary)]/10 px-2 py-px text-[10px] font-bold uppercase text-[var(--primary)]">
                   ⏳ scheduled · {inTime(item.showAt)}
                 </span>
               )}
-              <span>· {item.scheduled ? "will post " : ""}{normTime(item.createdAt)}</span>
+              <span>· {normTime(item.createdAt)}</span>
               {item.editedAt && <span className="italic">· edited {normTime(item.editedAt)}</span>}
             </div>
             {editId === item.id ? (
               <div className="mt-2 space-y-2">
                 <textarea className={`${INPUT} min-h-24 resize-y`} value={editBody} onChange={(e) => setEditBody(e.target.value)} maxLength={2000} />
                 <div className="flex gap-2">
-                  <button type="button" disabled={busy} onClick={() => void submitEdit(item)} className="min-h-11 rounded-2xl bg-emerald-500 px-5 text-sm font-bold text-black disabled:opacity-50">
+                  <button type="button" disabled={busy} onClick={() => void submitEdit(item)} className="min-h-11 rounded-2xl bg-[var(--primary)] px-5 text-sm font-bold text-black disabled:opacity-50">
                     Save
                   </button>
-                  <button type="button" onClick={() => setEditId(null)} className="min-h-11 rounded-2xl border border-white/15 px-4 text-sm text-zinc-300">
+                  <button type="button" onClick={() => setEditId(null)} className="min-h-11 rounded-2xl border border-[var(--border)] px-4 text-sm text-[var(--foreground)]/70">
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
-              <p className="mt-1.5 whitespace-pre-wrap text-[14.5px] leading-relaxed text-zinc-100">{item.body}</p>
+              <p className="mt-1.5 whitespace-pre-wrap text-[14.5px] leading-relaxed text-[var(--foreground)]">{item.body}</p>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               {EMOJIS.map((e) => {
@@ -285,7 +287,7 @@ export default function AnnouncementsPage() {
                     type="button"
                     onClick={() => void react(item, e)}
                     className={`min-h-9 rounded-full border px-2.5 text-[13px] transition active:scale-95 ${
-                      r?.mine ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-100" : "border-white/15 bg-black/25 text-zinc-300 hover:bg-white/10"
+                      r?.mine ? "border-[var(--primary)]/50 bg-[var(--primary)]/15 text-[var(--foreground)]" : "border-[var(--border)] bg-[var(--background)]/40 text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]"
                     }`}
                     title={r?.mine ? "Take your reaction back" : "React"}
                   >
@@ -298,7 +300,7 @@ export default function AnnouncementsPage() {
                 <button
                   type="button"
                   onClick={() => { setEditId(item.id); setEditBody(item.body); }}
-                  className="min-h-9 rounded-full border border-white/15 px-3 text-[12px] text-zinc-300 hover:bg-white/10"
+                  className="min-h-9 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]"
                 >
                   Edit
                 </button>
@@ -309,7 +311,7 @@ export default function AnnouncementsPage() {
                   disabled={busy}
                   onClick={() => void handleDelete(item)}
                   className={`min-h-9 rounded-full border px-3 text-[12px] transition ${
-                    confirmDelId === item.id ? "border-red-400/50 bg-red-500/20 text-red-200" : "border-white/15 text-zinc-400 hover:bg-white/10"
+                    confirmDelId === item.id ? "border-red-400/50 bg-red-500/20 text-red-200" : "border-[var(--border)] text-[var(--foreground)]/60 hover:bg-[var(--foreground)]/[0.07]"
                   }`}
                 >
                   {confirmDelId === item.id ? "Sure?" : "Delete"}
@@ -320,8 +322,8 @@ export default function AnnouncementsPage() {
                   type="button"
                   disabled={busy}
                   onClick={() => void act({ action: item.pinned ? "unpin" : "pin", id: item.id })}
-                  className="min-h-9 rounded-full border border-white/15 px-3 text-[12px] text-zinc-300 hover:bg-white/10"
-                  title={item.pinned ? "Unpin — the feed has no sticky until the next one" : "Pin to top of feed + home strip"}
+                  className="min-h-9 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]"
+                  title={item.pinned ? "Unpin it" : "Stays on top of the feed and shows on Home"}
                 >
                   {item.pinned ? "Unpin" : "📌 Pin"}
                 </button>
@@ -335,78 +337,82 @@ export default function AnnouncementsPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-3 px-4 py-6">
-      <div className="st-rise flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur">
+      <div className="mcwv-home-enter flex items-center justify-between rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5 backdrop-blur">
         <div>
-          <h1 className="text-xl font-black text-white">📣 Announcements</h1>
-          <p className="text-[12.5px] text-zinc-400">Clan news. React so the officers know you saw it — 👍 takes one tap.</p>
+          <h1 className="text-xl font-black text-[var(--foreground)]">📣 Announcements</h1>
+          <p className="text-[12.5px] text-[var(--foreground)]/60">Clan news. Tap a reaction so officers know you saw it.</p>
         </div>
-        <button type="button" onClick={() => void load()} disabled={busy} className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-zinc-200 transition hover:bg-white/10 disabled:opacity-40">
+        <button type="button" onClick={() => void load()} disabled={busy} className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.05] px-4 text-sm text-[var(--foreground)]/85 transition hover:bg-[var(--foreground)]/[0.07] disabled:opacity-40">
           {busy ? "…" : "↻"}
         </button>
       </div>
 
       {needLogin && (
-        <div className="rounded-3xl border border-yellow-400/30 bg-yellow-400/10 p-5 text-sm text-yellow-100">
-          Log in to read the clan&apos;s announcements — <a className="underline" href="/login">go to login</a>.
+        <div className="rounded-3xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.07] p-5 text-sm text-[var(--foreground)]">
+          You need to be <a className="underline" href="/login">logged in</a> to read announcements.
         </div>
       )}
       {loadErr && (
-        <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-2.5 text-[13px] text-yellow-200">
+        <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.07] px-4 py-2.5 text-[13px] text-[var(--foreground)]">
           {loadErr}
-          {feed.length > 0 && <span className="text-yellow-200/70"> · showing the last feed I have.</span>}
+          {feed.length > 0 && <span className="text-[var(--foreground)]/60"> · showing the last one that loaded.</span>}
         </div>
       )}
       {note && (
-        <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-2.5 text-[13px] text-yellow-200">
+        <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.07] px-4 py-2.5 text-[13px] text-[var(--foreground)]">
           {note}
         </div>
       )}
 
       {me?.isOfficer && (
-        <div className="st-rise rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+        <div className="mcwv-home-enter rounded-3xl border border-[var(--border)] bg-[var(--card)] p-4">
           {composeOpen ? (
             <div className="space-y-3">
-              <textarea className={`${INPUT} min-h-28 resize-y`} placeholder="What's the word? (2000 chars max — markdown-free honesty beats formatting)" value={cBody} onChange={(e) => setCBody(e.target.value)} maxLength={2000} />
-              <div className="flex flex-wrap items-center gap-3 text-[13px] text-zinc-300">
+              <textarea className={`${INPUT} min-h-28 resize-y`} placeholder="Write the announcement. Up to 2000 characters." value={cBody} onChange={(e) => setCBody(e.target.value)} maxLength={2000} />
+              <div className="flex flex-wrap items-center gap-3 text-[13px] text-[var(--foreground)]/70">
                 <label className="flex items-center gap-2">
                   Show at
-                  <input type="datetime-local" className="min-h-11 rounded-xl border border-white/10 bg-black/40 px-2 py-1 text-[13px] text-white" value={cWhen} onChange={(e) => setCWhen(e.target.value)} />
+                  <input type="datetime-local" className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--background)]/50 px-2 py-1 text-[13px] text-[var(--foreground)]" value={cWhen} onChange={(e) => setCWhen(e.target.value)} />
                 </label>
                 <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={cPin} onChange={(e) => setCPin(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
+                  <input type="checkbox" checked={cPin} onChange={(e) => setCPin(e.target.checked)} className="h-4 w-4 accent-[var(--primary)]" />
                   Pin it
                 </label>
-                {cWhen && <span className="text-emerald-300">{inTime(new Date(cWhen).toISOString())}</span>}
+                {cWhen && <span className="text-[var(--primary)]">{inTime(new Date(cWhen).toISOString())}</span>}
               </div>
               {cErr && <p className="text-[13px] text-red-300">{cErr}</p>}
               <div className="flex gap-2">
-                <button type="button" disabled={busy} onClick={() => void submitCompose()} className="min-h-11 rounded-2xl bg-emerald-500 px-6 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" disabled={busy} onClick={() => void submitCompose()} className="min-h-11 rounded-2xl bg-[var(--primary)] px-6 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50">
                   {busy ? "Posting…" : cWhen ? "Schedule" : "Post now"}
                 </button>
-                <button type="button" onClick={() => { setComposeOpen(false); setCErr(""); }} className="min-h-11 rounded-2xl border border-white/15 px-4 text-sm text-zinc-300">
+                <button type="button" onClick={() => { setComposeOpen(false); setCErr(""); }} className="min-h-11 rounded-2xl border border-[var(--border)] px-4 text-sm text-[var(--foreground)]/70">
                   Cancel
                 </button>
               </div>
             </div>
           ) : (
-            <button type="button" onClick={() => setComposeOpen(true)} className="min-h-11 w-full rounded-2xl border border-dashed border-emerald-400/40 px-4 text-sm text-emerald-300 transition hover:bg-emerald-400/10">
-              + New announcement {feed.some((f) => !f.scheduled && !f.pinned) ? "" : "(the clan is quiet — good time)"}
+            <button type="button" onClick={() => setComposeOpen(true)} className="min-h-11 w-full rounded-2xl border border-dashed border-[var(--primary)]/40 px-4 text-sm text-[var(--primary)] transition hover:bg-[var(--primary)]/10">
+              + New announcement
             </button>
           )}
         </div>
       )}
 
-      {!me && !needLogin && !loadErr && <p className="px-2 text-sm text-zinc-500">Loading the feed…</p>}
-      {me && feed.length === 0 && !composeOpen && <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center text-sm text-zinc-400">Nothing posted yet. When there&apos;s news, it lands here.</div>}
+      {!me && !needLogin && !loadErr && <div className="space-y-3" aria-hidden>
+        <div className="skeleton-shimmer h-36 rounded-3xl border border-[var(--border)] bg-[var(--card)] sm:h-44" />
+        <div className="skeleton-shimmer h-16 rounded-2xl border border-[var(--border)] bg-[var(--card)]" />
+        <div className="skeleton-shimmer h-16 rounded-2xl border border-[var(--border)] bg-[var(--card)]" />
+      </div>}
+      {me && feed.length === 0 && !composeOpen && <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">Nothing posted yet.</div>}
 
-      {feed.map((item) => <ItemCard key={item.id} item={item} />)}
+      {feed.map((item, idx) => <ItemCard key={item.id} item={item} i={idx} />)}
 
       {earlier.length > 0 && (
         <div className="pt-2">
-          <button type="button" onClick={() => setShowEarlier((v) => !v)} className="min-h-11 w-full rounded-2xl border border-white/10 bg-black/20 px-4 text-[13px] text-zinc-400 transition hover:text-zinc-200">
-            {showEarlier ? "▲ Hide earlier" : `▾ Earlier (${earlier.length}) — the last 30 days of news`}
+          <button type="button" onClick={() => setShowEarlier((v) => !v)} className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-black/20 px-4 text-[13px] text-[var(--foreground)]/60 transition hover:text-[var(--foreground)]/85">
+            {showEarlier ? "▲ Hide older posts" : `▾ Earlier (${earlier.length}) — older than a week`}
           </button>
-          {showEarlier && <div className="mt-2 space-y-3">{earlier.map((item) => <ItemCard key={item.id} item={item} faded />)}</div>}
+          {showEarlier && <div className="mt-2 space-y-3">{earlier.map((item, idx) => <ItemCard key={item.id} item={item} faded i={idx} />)}</div>}
         </div>
       )}
     </main>
