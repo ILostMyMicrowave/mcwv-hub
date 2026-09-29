@@ -5,6 +5,7 @@ export const maxDuration = 60; // page-data route: ride short pooler blips like 
 import { getAuthenticatedUser } from "@/lib/authUser";
 import { requireAdminUser } from "@/lib/adminAuth";
 import { pool } from "@/lib/db";
+import { getInGameCheck } from "@/lib/presence";
 import { withDeadline, kickCapMs } from "@/lib/deadline";
 
 /*
@@ -51,7 +52,13 @@ function parseRobloxLink(raw: string): { url: string; code: string } | null {
 }
 
 type ServerRow = Record<string, unknown>;
-type TapRow = { server_id: string | number; username: string | null; roblox_id: string | null };
+type TapRow = { server_id: string | number; username: string | null; roblox_id: string | null 
+  last_tap?: string | Date | null;};
+
+function placeIdOf(url: string): number | null {
+  const m = /\/games\/(\d+)/.exec(url) || /[?&]placeId=(\d+)/.exec(url);
+  return m ? Number(m[1]) : null;
+}
 
 export async function GET() {
   const user = await getAuthenticatedUser();
@@ -105,21 +112,47 @@ export async function GET() {
       ),
       pool.query<TapRow>(
         `SELECT DISTINCT ON (x.server_id, x.user_id)
-                x.server_id, u.username, u.roblox_id
+                x.server_id, u.username, u.roblox_id, x.tapped_at AS last_tap
          FROM mcwv_privserver_taps x
          JOIN users u ON u.id = x.user_id
-         WHERE x.tapped_at > now() - interval '15 minutes'
+         WHERE x.tapped_at > now() - interval '90 minutes'
            AND x.server_id IN (SELECT id FROM mcwv_privservers WHERE status = 'live')
          ORDER BY x.server_id, x.user_id, x.tapped_at DESC`
       ),
     ]);
 
-    const inNow = new Map<string, { username: string; robloxId: string | null }[]>();
-    for (const row of around.rows) {
-      const key = String(row.server_id);
-      const list = inNow.get(key) ?? [];
-      list.push({ username: String(row.username ?? "?"), robloxId: row.roblox_id ? String(row.roblox_id) : null });
-      inNow.set(key, list);
+    type Around = { key: string; username: string; robloxId: string | null; ageMin: number };
+    const aroundRows: Around[] = around.rows.map((row) => {
+      const tapMs = row.last_tap ? new Date(row.last_tap).getTime() : 0;
+      return {
+        key: String(row.server_id),
+        username: String(row.username ?? "?"),
+        robloxId: row.roblox_id ? String(row.roblox_id) : null,
+        ageMin: Number.isFinite(tapMs) && tapMs > 0 ? (Date.now() - tapMs) / 60000 : 0,
+      };
+    });
+    // Presence tier: a tap older than 15 min keeps its slot only while Roblox
+    // says the member is still in this game; long sessions stay on the board.
+    // If the check fails (any reason), behavior degrades to the old tap-only
+    // 15-minute rule — never a blank board, never a fake "around".
+    const staleIds = aroundRows.filter((m) => m.ageMin > 15 && m.robloxId).map((m) => m.robloxId as string);
+    let presence: Map<string, boolean> | null = null;
+    if (staleIds.length > 0) {
+      const places = new Set(
+        board.rows
+          .filter((srow) => String(srow.status ?? "live") === "live")
+          .map((srow) => placeIdOf(String(srow.url ?? "")))
+          .filter((n): n is number => n !== null),
+      );
+      presence = await getInGameCheck(staleIds, places.size === 1 ? [...places][0] : null).catch(() => null);
+    }
+    const inNow = new Map<string, { username: string; robloxId: string | null; verified: boolean }[]>();
+    for (const m of aroundRows) {
+      const inGame = m.robloxId !== null && presence !== null && presence.get(m.robloxId) === true;
+      if (m.ageMin > 15 && !inGame) continue;
+      const list = inNow.get(m.key) ?? [];
+      list.push({ username: m.username, robloxId: m.robloxId, verified: inGame });
+      inNow.set(m.key, list);
     }
 
     return NextResponse.json({
