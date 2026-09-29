@@ -106,8 +106,8 @@ export default function StrategyPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [confirmDelId, setConfirmDelId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setBusy(true);
     try {
       const res = await fetch(`/api/strategy${tag ? `?tag=${encodeURIComponent(tag)}` : ""}`, { cache: "no-store" });
       if (res.status === 401) {
@@ -131,17 +131,17 @@ export default function StrategyPage() {
     } catch {
       setLoadErr("Couldn't reach the hub — try again.");
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   }, [tag]);
 
   useEffect(() => {
     void load();
     const onVis = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(true);
     };
     const tick = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(true);
     }, 60_000);
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -164,7 +164,7 @@ export default function StrategyPage() {
         return false;
       }
       setLoadErr(null);
-      await load();
+      await load(true); // silent: act() already owns the busy flag
       return true;
     } catch {
       setLoadErr("Couldn't reach the hub — try again.");
@@ -202,11 +202,11 @@ export default function StrategyPage() {
         setNote(null);
       } else if (!res.ok) {
         setNote(data?.error ?? "That reaction didn't land.");
-        void load();
+        void load(true);
       }
     } catch {
       setNote("Couldn't reach the hub — that chip may be lying.");
-      void load();
+      void load(true);
     }
   };
 
@@ -256,12 +256,13 @@ export default function StrategyPage() {
     await act({ action: "reject", id: item.id, reason: saved.trim() });
   };
 
-  const Card = (props: { item: Item; section: "board" | "queue" | "mine" | "past"; i?: number }) => {
-    const { item, section, i = 0 } = props;
+  // Render helper, not a <Component> — see the same note on /announcements:
+  // an inline component type re-created each render remounts every card.
+  const card = (item: Item, section: "board" | "queue" | "mine" | "past", i = 0) => {
     const faded = section === "past";
     const editing = editor && editor.id === item.id;
     return (
-      <div style={{ "--i": Math.min(i, 8) } as CSSProperties} className={`stagger-in rounded-3xl border p-4 sm:p-5 ${item.pinned && section === "board" ? "border-[var(--accent)]/40 bg-[var(--accent)]/[0.06]" : "border-[var(--border)] bg-[var(--card)]"} ${faded ? "opacity-70" : "card-hover"}`}>
+      <div key={item.id} style={{ "--i": Math.min(i, 8) } as CSSProperties} className={`stagger-in rounded-3xl border p-4 sm:p-5 ${item.pinned && section === "board" ? "border-[var(--accent)]/40 bg-[var(--accent)]/[0.06]" : "border-[var(--border)] bg-[var(--card)]"} ${faded ? "opacity-70" : "card-hover"}`}>
         <div className="flex items-start gap-3">
           <Pfp member={item.author} />
           <div className="min-w-0 flex-1">
@@ -477,14 +478,14 @@ export default function StrategyPage() {
         <div className="skeleton-shimmer h-16 rounded-2xl border border-[var(--border)] bg-[var(--card)]" />
       </div>
           )}
-          {board.map((item, idx) => <Card key={item.id} item={item} section="board" i={idx} />)}
+          {board.map((item, idx) => card(item, "board", idx))}
 
           {past.length > 0 && (
             <div className="pt-1">
               <button type="button" onClick={() => setShowPast((v) => !v)} className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-black/20 px-4 text-[13px] text-[var(--foreground)]/60 hover:text-[var(--foreground)]/85">
                 {showPast ? "▲ Hide past" : `▾ Past (${past.length}) — old wars and anything past 60 days`}
               </button>
-              {showPast && <div className="mt-2 space-y-2">{past.map((item, idx) => <Card key={item.id} item={item} section="past" i={idx} />)}</div>}
+              {showPast && <div className="mt-2 space-y-2">{past.map((item, idx) => card(item, "past", idx))}</div>}
             </div>
           )}
         </>
@@ -495,7 +496,7 @@ export default function StrategyPage() {
           {queue.length === 0 ? (
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">Nothing in the queue.</div>
           ) : (
-            queue.map((item, idx) => <Card key={item.id} item={item} section="queue" i={idx} />)
+            queue.map((item, idx) => card(item, "queue", idx))
           )}
         </div>
       )}
@@ -505,7 +506,7 @@ export default function StrategyPage() {
           {mine.length === 0 ? (
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">You haven&apos;t proposed anything yet.</div>
           ) : (
-            mine.map((item, idx) => <Card key={item.id} item={item} section="mine" i={idx} />)
+            mine.map((item, idx) => card(item, "mine", idx))
           )}
         </div>
       )}
