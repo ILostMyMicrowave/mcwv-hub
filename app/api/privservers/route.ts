@@ -189,10 +189,10 @@ async function mutate(request: Request): Promise<Response> {
     // Rotation merge: same LIVE server → refresh its row (stats/history stay).
     const merged = await pool.query(
       `UPDATE mcwv_privservers
-       SET title = $2, note = NULLIF($3, ''), url = $4, created_at = now()
-       WHERE link_code = $5 AND status = 'live'
+       SET title = $1, note = NULLIF($2, ''), url = $3, created_at = now()
+       WHERE link_code = $4 AND status = 'live'
        RETURNING id`,
-      [code, title, note, url, code]
+      [title, note, url, code]
     );
     if (merged.rows.length > 0) {
       return NextResponse.json({ ok: true, id: Number(merged.rows[0].id), merged: true });
@@ -209,9 +209,9 @@ async function mutate(request: Request): Promise<Response> {
       // raced another officer posting the same live server → merge instead
       if ((err as { code?: string })?.code === "23505") {
         const again = await pool.query(
-          `UPDATE mcwv_privservers SET title=$2, note=NULLIF($3,''), url=$4, created_at=now()
-           WHERE link_code=$5 AND status='live' RETURNING id`,
-          [code, title, note, url, code]
+          `UPDATE mcwv_privservers SET title=$1, note=NULLIF($2,''), url=$3, created_at=now()
+           WHERE link_code=$4 AND status='live' RETURNING id`,
+          [title, note, url, code]
         );
         if (again.rows.length > 0) {
           return NextResponse.json({ ok: true, id: Number(again.rows[0].id), merged: true });
