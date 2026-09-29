@@ -92,3 +92,41 @@ export async function getLivePresence(robloxId: string) {
     return null;
   }
 }
+
+/**
+ * Batch check: are these members IN THIS GAME right now?
+ * One POST to the anonymous Roblox presence endpoint (their 100-id cap, our
+ * around-lists are tiny). `placeId` is enforced when known — "in game" in a
+ * different place counts as out. Fail-soft: any error/timeout returns null so
+ * callers can fall back to tap-only behavior; a presence outage must never
+ * blank the board or fake a "nobody around".
+ */
+export async function getInGameCheck(
+  robloxIds: (string | null)[],
+  placeId: number | null,
+): Promise<Map<string, boolean> | null> {
+  const ids = [...new Set(robloxIds.filter(Boolean))].map(Number).filter(Number.isInteger).slice(0, 100);
+  if (ids.length === 0) return new Map();
+  try {
+    const res = await fetch(ROBLOX_PRESENCE_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userIds: ids }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const list = Array.isArray(json?.userPresences) ? json.userPresences : null;
+    if (!list) return null;
+    const out = new Map<string, boolean>();
+    for (const p of list) {
+      if (p?.userId === undefined) continue;
+      const inGame = p.userPresenceType === 2 && (placeId === null || Number(p.placeId) === placeId);
+      out.set(String(p.userId), inGame);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
