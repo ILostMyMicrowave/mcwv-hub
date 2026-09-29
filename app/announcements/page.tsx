@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import Navbar from "@/components/Navbar";
 
 /*
  * /announcements — the Clan feed (slice B, plan v2).
@@ -336,7 +337,9 @@ export default function AnnouncementsPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-2xl space-y-3 px-4 py-6">
+    <>
+      <Navbar />
+      <main className="mx-auto w-full max-w-2xl space-y-3 px-4 py-6">
       <div className="mcwv-home-enter flex items-center justify-between rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5 backdrop-blur">
         <div>
           <h1 className="text-xl font-black text-[var(--foreground)]">📣 Announcements</h1>
@@ -415,6 +418,7 @@ export default function AnnouncementsPage() {
           {showEarlier && <div className="mt-2 space-y-3">{earlier.map((item, idx) => <ItemCard key={item.id} item={item} faded i={idx} />)}</div>}
         </div>
       )}
-    </main>
+          </main>
+    </>
   );
 }
