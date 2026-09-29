@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 /*
  * /strategy — the tactics board (slice C, plan v2).
@@ -39,7 +40,7 @@ type Item = {
 type War = { id: string; name: string; open: boolean };
 
 const INPUT =
-  "w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 focus:bg-black/50 touch-manipulation";
+  "w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/50 px-4 py-3 text-base text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground)]/40 focus:border-[var(--primary)]/60 focus:shadow-[0_0_0_3px_var(--glow)] focus:bg-[var(--background)]/60 touch-manipulation";
 const EMOJIS = ["👍", "🔥", "👀"];
 
 function ago(iso: string | null): string {
@@ -59,7 +60,7 @@ function Pfp({ member, size = 26 }: { member: Member; size?: number }) {
     return (
       <span
         aria-hidden
-        className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/40 text-[10px] font-bold text-zinc-300"
+        className="inline-flex shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--background)]/50 text-[10px] font-bold text-[var(--foreground)]/70"
         style={{ width: size, height: size }}
         title={member.username}
       >
@@ -75,7 +76,7 @@ function Pfp({ member, size = 26 }: { member: Member; size?: number }) {
       title={member.username}
       loading="lazy"
       onError={() => setBroken(true)}
-      className="shrink-0 rounded-full border border-white/15 bg-black/40 object-cover"
+      className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--background)]/50 object-cover"
       style={{ width: size, height: size }}
     />
   );
@@ -158,7 +159,7 @@ export default function StrategyPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setLoadErr(data?.error ?? "The hub didn't take that — try again.");
+        setLoadErr(data?.error ?? "That didn't go through — try again.");
         return false;
       }
       setLoadErr(null);
@@ -230,8 +231,8 @@ export default function StrategyPage() {
     if (ok) {
       setEditor(null);
       setEditorErr("");
-      if (editor.mode === "propose") setNote("Queued — officers will see it in the queue tab.");
-      if (editor.mode === "revise") setNote("Back in the queue. Revision counts — the officers see you did the work.");
+      if (editor.mode === "propose") setNote("Sent to the queue.");
+      if (editor.mode === "revise") setNote("Back in the queue.");
       window.setTimeout(() => setNote(null), 5000);
     }
   };
@@ -254,30 +255,30 @@ export default function StrategyPage() {
     await act({ action: "reject", id: item.id, reason: saved.trim() });
   };
 
-  const Card = (props: { item: Item; section: "board" | "queue" | "mine" | "past" }) => {
-    const { item, section } = props;
+  const Card = (props: { item: Item; section: "board" | "queue" | "mine" | "past"; i?: number }) => {
+    const { item, section, i = 0 } = props;
     const faded = section === "past";
     const editing = editor && editor.id === item.id;
     return (
-      <div className={`rounded-3xl border p-4 sm:p-5 ${item.pinned && section === "board" ? "border-yellow-400/40 bg-yellow-400/[0.06]" : "border-white/10 bg-white/[0.04]"} ${faded ? "opacity-70" : ""}`}>
+      <div style={{ "--i": Math.min(i, 8) } as CSSProperties} className={`stagger-in rounded-3xl border p-4 sm:p-5 ${item.pinned && section === "board" ? "border-[var(--accent)]/40 bg-[var(--accent)]/[0.06]" : "border-[var(--border)] bg-[var(--card)]"} ${faded ? "opacity-70" : "card-hover"}`}>
         <div className="flex items-start gap-3">
           <Pfp member={item.author} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 className="text-[16px] font-black text-white">{item.title}</h3>
-              {item.pinned && section === "board" && <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-2 py-px text-[10px] font-bold uppercase text-yellow-200">📌 pinned</span>}
+              <h3 className="text-[16px] font-black text-[var(--foreground)]">{item.title}</h3>
+              {item.pinned && section === "board" && <span className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-2 py-px text-[10px] font-bold uppercase text-[var(--accent)]">📌 pinned</span>}
               {item.war && (
-                <span className={`rounded-full border px-2 py-px text-[10px] font-bold ${item.war.closed ? "border-white/15 text-zinc-500" : "border-amber-400/40 bg-amber-400/10 text-amber-200"}`}>
+                <span className={`rounded-full border px-2 py-px text-[10px] font-bold ${item.war.closed ? "border-[var(--border)] text-[var(--foreground)]/50" : "border-[var(--accent)]/40 bg-[var(--accent)]/10 text-[var(--accent)]"}`}>
                   ⚔ {item.war.name}{item.war.closed ? " · archived" : ""}
                 </span>
               )}
-              {item.revision > 1 && <span className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-px text-[10px] font-bold text-sky-200" title="Revised and resubmitted">v{item.revision}</span>}
-              {section === "mine" && item.status === "pending" && <span className="rounded-full border border-white/15 px-2 py-px text-[10px] uppercase text-zinc-400">⏳ in queue</span>}
+              {item.revision > 1 && <span className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-2 py-px text-[10px] font-bold text-[var(--accent)]" title="Revised and resubmitted">v{item.revision}</span>}
+              {section === "mine" && item.status === "pending" && <span className="rounded-full border border-[var(--border)] px-2 py-px text-[10px] uppercase text-[var(--foreground)]/60">⏳ in queue</span>}
               {section === "mine" && item.status === "rejected" && <span className="rounded-full border border-red-400/40 bg-red-400/10 px-2 py-px text-[10px] uppercase text-red-200">✋ needs changes</span>}
             </div>
-            <div className="mt-0.5 text-[12px] text-zinc-500">
+            <div className="mt-0.5 text-[12px] text-[var(--foreground)]/50">
               {item.author.username} · {ago(section === "board" || faded ? item.approvedAt : item.updatedAt)}
-              {item.polishedBy && <span className="text-sky-300/80"> · polished by {item.polishedBy}</span>}
+              {item.polishedBy && <span className="text-[var(--accent)]/80"> · polished by {item.polishedBy}</span>}
             </div>
 
             {editing ? (
@@ -286,19 +287,19 @@ export default function StrategyPage() {
                 <textarea className={`${INPUT} min-h-32 resize-y`} value={editor.body} onChange={(e) => setEditor({ ...editor, body: e.target.value })} maxLength={4000} />
                 {editorErr && <p className="text-[13px] text-red-300">{editorErr}</p>}
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" disabled={busy} onClick={() => void submitEditor()} className="min-h-11 rounded-2xl bg-emerald-500 px-5 text-sm font-bold text-black disabled:opacity-50">
+                  <button type="button" disabled={busy} onClick={() => void submitEditor()} className="min-h-11 rounded-2xl bg-[var(--primary)] px-5 text-sm font-bold text-black disabled:opacity-50">
                     {editor.mode === "fix" ? "✓ Save & approve" : editor.mode === "revise" ? "↻ Resubmit" : "Save"}
                   </button>
-                  <button type="button" onClick={() => { setEditor(null); setEditorErr(""); }} className="min-h-11 rounded-2xl border border-white/15 px-4 text-sm text-zinc-300">Cancel</button>
+                  <button type="button" onClick={() => { setEditor(null); setEditorErr(""); }} className="min-h-11 rounded-2xl border border-[var(--border)] px-4 text-sm text-[var(--foreground)]/70">Cancel</button>
                 </div>
               </div>
             ) : (
               <>
-                <p className="mt-1.5 whitespace-pre-wrap text-[14px] leading-relaxed text-zinc-100">{item.body}</p>
+                <p className="mt-1.5 whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--foreground)]">{item.body}</p>
                 {item.tags.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {item.tags.map((t) => (
-                      <button key={t} type="button" onClick={() => { setTag(t); setTab("board"); }} className="rounded-full border border-white/10 bg-black/30 px-2 py-px text-[11px] text-zinc-400 hover:text-emerald-300">
+                      <button key={t} type="button" onClick={() => { setTag(t); setTab("board"); }} className="rounded-full border border-[var(--border)] bg-[var(--background)]/40 px-2 py-px text-[11px] text-[var(--foreground)]/60 hover:text-[var(--primary)]">
                         #{t}
                       </button>
                     ))}
@@ -322,7 +323,7 @@ export default function StrategyPage() {
                         key={e}
                         type="button"
                         onClick={() => void react(item, e)}
-                        className={`min-h-9 rounded-full border px-2.5 text-[13px] transition active:scale-95 ${r?.mine ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-100" : "border-white/15 bg-black/25 text-zinc-300 hover:bg-white/10"}`}
+                        className={`min-h-9 rounded-full border px-2.5 text-[13px] transition active:scale-95 ${r?.mine ? "border-[var(--primary)]/50 bg-[var(--primary)]/15 text-[var(--foreground)]" : "border-[var(--border)] bg-[var(--background)]/40 text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]"}`}
                         title={r?.mine ? "Take it back" : "React"}
                       >
                         {e} {r?.count ? r.count : ""}
@@ -332,37 +333,37 @@ export default function StrategyPage() {
                 <span className="flex-1" />
                 {section === "queue" && (
                   <>
-                    <button type="button" disabled={busy} onClick={() => void act({ action: "approve", id: item.id })} className="min-h-9 rounded-full bg-emerald-500 px-4 text-[12.5px] font-bold text-black disabled:opacity-50">
+                    <button type="button" disabled={busy} onClick={() => void act({ action: "approve", id: item.id })} className="min-h-9 rounded-full bg-[var(--primary)] px-4 text-[12.5px] font-bold text-black disabled:opacity-50">
                       ✓ Approve
                     </button>
-                    <button type="button" onClick={() => setEditor({ mode: "fix", id: item.id, title: item.title, body: item.body, warId: "", tags: item.tags })} className="min-h-9 rounded-full border border-white/15 px-3 text-[12px] text-zinc-200 hover:bg-white/10">
+                    <button type="button" onClick={() => setEditor({ mode: "fix", id: item.id, title: item.title, body: item.body, warId: "", tags: item.tags })} className="min-h-9 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)]/85 hover:bg-[var(--foreground)]/[0.07]">
                       ✎ Fix &amp; approve
                     </button>
                     {rejectFor === item.id ? (
                       <span className="flex items-center gap-1.5">
-                        <input className="min-h-9 w-40 rounded-full border border-white/15 bg-black/40 px-3 text-[12.5px] text-white outline-none" placeholder="What to fix (required)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} maxLength={300} />
+                        <input className="min-h-9 w-40 rounded-full border border-[var(--border)] bg-[var(--background)]/50 px-3 text-[12.5px] text-[var(--foreground)] outline-none" placeholder="What to fix (required)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} maxLength={300} />
                         <button type="button" onClick={() => void submitReject(item)} className="min-h-9 rounded-full border border-red-400/50 bg-red-500/20 px-3 text-[12px] text-red-200">Send</button>
-                        <button type="button" onClick={() => { setRejectFor(null); setRejectReason(""); }} className="min-h-9 rounded-full px-2 text-[12px] text-zinc-400">✕</button>
+                        <button type="button" onClick={() => { setRejectFor(null); setRejectReason(""); }} className="min-h-9 rounded-full px-2 text-[12px] text-[var(--foreground)]/60">✕</button>
                       </span>
                     ) : (
-                      <button type="button" onClick={() => { setRejectFor(item.id); setRejectReason(""); }} className="min-h-9 rounded-full border border-white/15 px-3 text-[12px] text-zinc-300 hover:bg-white/10">
+                      <button type="button" onClick={() => { setRejectFor(item.id); setRejectReason(""); }} className="min-h-9 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]">
                         Reject
                       </button>
                     )}
                   </>
                 )}
                 {item.canEdit && section !== "queue" && (
-                  <button type="button" onClick={() => setEditor({ mode: "revise", id: item.id, title: item.title, body: item.body, warId: "", tags: item.tags })} className="min-h-9 rounded-full border border-white/15 px-3 text-[12px] text-zinc-300 hover:bg-white/10">
+                  <button type="button" onClick={() => setEditor({ mode: "revise", id: item.id, title: item.title, body: item.body, warId: "", tags: item.tags })} className="min-h-9 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]">
                     {item.status === "rejected" ? "Revise & resubmit" : "Edit"}
                   </button>
                 )}
                 {item.canPin && (
-                  <button type="button" disabled={busy} onClick={() => void act({ action: item.pinned ? "unpin" : "pin", id: item.id })} className="min-h-9 rounded-full border border-white/15 px-3 text-[12px] text-zinc-300 hover:bg-white/10">
+                  <button type="button" disabled={busy} onClick={() => void act({ action: item.pinned ? "unpin" : "pin", id: item.id })} className="min-h-9 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]">
                     {item.pinned ? "Unpin" : "📌 Pin"}
                   </button>
                 )}
                 {item.canDelete && (
-                  <button type="button" disabled={busy} onClick={() => void handleDelete(item)} className={`min-h-9 rounded-full border px-3 text-[12px] transition ${confirmDelId === item.id ? "border-red-400/50 bg-red-500/20 text-red-200" : "border-white/15 text-zinc-400 hover:bg-white/10"}`}>
+                  <button type="button" disabled={busy} onClick={() => void handleDelete(item)} className={`min-h-9 rounded-full border px-3 text-[12px] transition ${confirmDelId === item.id ? "border-red-400/50 bg-red-500/20 text-red-200" : "border-[var(--border)] text-[var(--foreground)]/60 hover:bg-[var(--foreground)]/[0.07]"}`}>
                     {confirmDelId === item.id ? "Sure?" : "Delete"}
                   </button>
                 )}
@@ -378,102 +379,109 @@ export default function StrategyPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-3 px-4 py-6">
-      <div className="st-rise rounded-3xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur">
+      <div className="mcwv-home-enter rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5 backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-black text-white">🧠 Strategy Board</h1>
-            <p className="text-[12.5px] text-zinc-400">Tactics go through the queue so what&apos;s on the board is trustworthy. Rejected means &quot;fix and resubmit&quot;, never &quot;no&quot;.</p>
+            <h1 className="text-xl font-black text-[var(--foreground)]">🧠 Strategy Board</h1>
+            <p className="text-[12.5px] text-[var(--foreground)]/60">Tactics go through a queue first, so the board is trustworthy. A rejection comes with a reason — edit and resubmit.</p>
           </div>
-          <button type="button" onClick={() => void load()} disabled={busy} className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
+          <button type="button" onClick={() => void load()} disabled={busy} className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.05] px-4 text-sm text-[var(--foreground)]/85 hover:bg-[var(--foreground)]/[0.07] disabled:opacity-40">
             {busy ? "…" : "↻"}
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <button type="button" onClick={() => setTab("board")} className={`min-h-10 rounded-full px-4 text-[13px] font-bold ${tab === "board" ? "bg-emerald-500 text-black" : "border border-white/15 text-zinc-300"}`}>Board</button>
+          <button type="button" onClick={() => setTab("board")} className={`min-h-10 rounded-full px-4 text-[13px] font-bold ${tab === "board" ? "bg-[var(--primary)] text-black" : "border border-[var(--border)] text-[var(--foreground)]/70"}`}>Board</button>
           {me?.isOfficer && (
-            <button type="button" onClick={() => setTab("queue")} className={`min-h-10 rounded-full px-4 text-[13px] font-bold ${tab === "queue" ? "bg-emerald-500 text-black" : "border border-white/15 text-zinc-300"}`}>
+            <button type="button" onClick={() => setTab("queue")} className={`min-h-10 rounded-full px-4 text-[13px] font-bold ${tab === "queue" ? "bg-[var(--primary)] text-black" : "border border-[var(--border)] text-[var(--foreground)]/70"}`}>
               Queue{queue.length > 0 ? ` (${queue.length})` : ""}
             </button>
           )}
-          <button type="button" onClick={() => setTab("mine")} className={`min-h-10 rounded-full px-4 text-[13px] font-bold ${tab === "mine" ? "bg-emerald-500 text-black" : "border border-white/15 text-zinc-300"}`}>My posts{mine.length > 0 ? ` (${mine.length})` : ""}</button>
+          <button type="button" onClick={() => setTab("mine")} className={`min-h-10 rounded-full px-4 text-[13px] font-bold ${tab === "mine" ? "bg-[var(--primary)] text-black" : "border border-[var(--border)] text-[var(--foreground)]/70"}`}>My posts{mine.length > 0 ? ` (${mine.length})` : ""}</button>
         </div>
       </div>
 
       {needLogin && (
-        <div className="rounded-3xl border border-yellow-400/30 bg-yellow-400/10 p-5 text-sm text-yellow-100">
-          Log in to read and propose tactics — <a className="underline" href="/login">go to login</a>.
+        <div className="rounded-3xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.07] p-5 text-sm text-[var(--foreground)]">
+          You need to be <a className="underline" href="/login">logged in</a> to read the board and post tactics.
         </div>
       )}
       {loadErr && (
-        <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-2.5 text-[13px] text-yellow-200">
+        <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.07] px-4 py-2.5 text-[13px] text-[var(--foreground)]">
           {loadErr}
-          {board.length > 0 && <span className="text-yellow-200/70"> · showing the last board I have.</span>}
+          {board.length > 0 && <span className="text-[var(--foreground)]/60"> · showing the last one that loaded.</span>}
         </div>
       )}
-      {note && <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2.5 text-[13px] text-emerald-100">{note}</div>}
+      {note && <div className="rounded-2xl border border-[var(--primary)]/35 bg-[var(--primary)]/10 px-4 py-2.5 text-[13px] text-[var(--foreground)]">{note}</div>}
 
       {tab === "board" && (
         <>
           {tagCloud.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <button type="button" onClick={() => setTag("")} className={`min-h-9 rounded-full px-3 text-[12px] ${tag === "" ? "bg-emerald-500 font-bold text-black" : "border border-white/15 text-zinc-300"}`}>All</button>
+              <button type="button" onClick={() => setTag("")} className={`min-h-9 rounded-full px-3 text-[12px] ${tag === "" ? "bg-[var(--primary)] font-bold text-black" : "border border-[var(--border)] text-[var(--foreground)]/70"}`}>All</button>
               {tagCloud.map((t) => (
-                <button key={t.tag} type="button" onClick={() => setTag(tag === t.tag ? "" : t.tag)} className={`min-h-9 rounded-full px-3 text-[12px] ${tag === t.tag ? "bg-emerald-500 font-bold text-black" : "border border-white/15 text-zinc-300 hover:bg-white/10"}`}>
+                <button key={t.tag} type="button" onClick={() => setTag(tag === t.tag ? "" : t.tag)} className={`min-h-9 rounded-full px-3 text-[12px] ${tag === t.tag ? "bg-[var(--primary)] font-bold text-black" : "border border-[var(--border)] text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.07]"}`}>
                   #{t.tag} {t.n}
                 </button>
               ))}
             </div>
           )}
 
-          <button type="button" onClick={() => setEditor({ mode: "propose", title: "", body: "", warId: "", tags: [] })} className="min-h-11 w-full rounded-2xl border border-dashed border-emerald-400/40 px-4 text-sm text-emerald-300 transition hover:bg-emerald-400/10">
-            + Propose a tactic {tag ? <span className="text-emerald-200/70">(it&apos;ll carry #{tag})</span> : ""}
+          <button type="button" onClick={() => setEditor({ mode: "propose", title: "", body: "", warId: "", tags: [] })} className="min-h-11 w-full rounded-2xl border border-dashed border-[var(--primary)]/40 px-4 text-sm text-[var(--primary)] transition hover:bg-[var(--primary)]/10">
+            + Propose a tactic {tag ? <span className="text-[var(--primary)]/70">(it&apos;ll carry #{tag})</span> : ""}
           </button>
 
           {editor?.mode === "propose" && (
-            <div className="st-rise space-y-2 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-              <input className={INPUT} placeholder="Title — say the what (e.g. Defense swap on 3rd wave)" value={editor.title} onChange={(e) => setEditor({ ...editor, title: e.target.value })} maxLength={100} />
-              <textarea className={`${INPUT} min-h-32 resize-y`} placeholder="Body — the how. Plain words. #hashtags anywhere in here become tags." value={editor.body} onChange={(e) => setEditor({ ...editor, body: e.target.value })} maxLength={4000} />
-              <div className="flex flex-wrap items-center gap-2 text-[13px] text-zinc-300">
+            <div className="mcwv-home-enter space-y-2 rounded-3xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <input className={INPUT} placeholder="Title (e.g. Defense swap on 3rd wave)" value={editor.title} onChange={(e) => setEditor({ ...editor, title: e.target.value })} maxLength={100} />
+              <textarea className={`${INPUT} min-h-32 resize-y`} placeholder="How it works. #hashtags anywhere in here become tags." value={editor.body} onChange={(e) => setEditor({ ...editor, body: e.target.value })} maxLength={4000} />
+              <div className="flex flex-wrap items-center gap-2 text-[13px] text-[var(--foreground)]/70">
                 <label className="flex items-center gap-1.5">Attach to war:
-                  <select className="min-h-10 rounded-xl border border-white/10 bg-black/40 px-2 text-[13px] text-white" value={editor.warId} onChange={(e) => setEditor({ ...editor, warId: e.target.value })}>
+                  <select className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--background)]/50 px-2 text-[13px] text-[var(--foreground)]" value={editor.warId} onChange={(e) => setEditor({ ...editor, warId: e.target.value })}>
                     <option value="">— none —</option>
                     {wars.filter((w) => w.open || w.id === editor.warId).map((w) => (
                       <option key={w.id} value={w.id}>{w.name}{w.open ? "" : " (closed)"}</option>
                     ))}
                   </select>
                 </label>
-                {!openWar && <span className="text-zinc-500">no open war — attach later?</span>}
+                {!openWar && <span className="text-[var(--foreground)]/50">no war is open right now</span>}
               </div>
               <div className="flex flex-wrap gap-1.5 text-[12px]">
                 {["farming", "defense", "gems", "rules"].map((t) => {
                   const active = editor.tags.includes(t) || detectedTags(editor.body).includes(t);
                   return (
-                    <button key={t} type="button" onClick={() => setEditor({ ...editor, tags: active ? editor.tags.filter((x) => x !== t) : [...editor.tags, t] })} className={`min-h-8 rounded-full border px-2.5 ${active ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-100" : "border-white/15 text-zinc-400"}`}>
+                    <button key={t} type="button" onClick={() => setEditor({ ...editor, tags: active ? editor.tags.filter((x) => x !== t) : [...editor.tags, t] })} className={`min-h-8 rounded-full border px-2.5 ${active ? "border-[var(--primary)]/50 bg-[var(--primary)]/15 text-[var(--foreground)]" : "border-[var(--border)] text-[var(--foreground)]/60"}`}>
                       #{t}
                     </button>
                   );
                 })}
                 {detectedTags(editor.body).filter((t) => !["farming", "defense", "gems", "rules"].includes(t)).map((t) => (
-                  <span key={t} className="min-h-8 rounded-full border border-white/10 bg-black/30 px-2.5 leading-8 text-zinc-400">#{t} from your text</span>
+                  <span key={t} className="min-h-8 rounded-full border border-[var(--border)] bg-[var(--background)]/40 px-2.5 leading-8 text-[var(--foreground)]/60">#{t} from your text</span>
                 ))}
               </div>
               {editorErr && <p className="text-[13px] text-red-300">{editorErr}</p>}
               <div className="flex gap-2">
-                <button type="button" disabled={busy} onClick={() => void submitEditor()} className="min-h-11 rounded-2xl bg-emerald-500 px-6 text-sm font-bold text-black disabled:opacity-50">{busy ? "Sending…" : "Submit for review"}</button>
-                <button type="button" onClick={() => setEditor(null)} className="min-h-11 rounded-2xl border border-white/15 px-4 text-sm text-zinc-300">Cancel</button>
+                <button type="button" disabled={busy} onClick={() => void submitEditor()} className="min-h-11 rounded-2xl bg-[var(--primary)] px-6 text-sm font-bold text-black disabled:opacity-50">{busy ? "Sending…" : "Submit for review"}</button>
+                <button type="button" onClick={() => setEditor(null)} className="min-h-11 rounded-2xl border border-[var(--border)] px-4 text-sm text-[var(--foreground)]/70">Cancel</button>
               </div>
             </div>
           )}
 
-          {board.length === 0 && !editor && <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center text-sm text-zinc-400">{tag ? `Nothing tagged #${tag} on the board yet.` : "The board is empty. First tactic that survives the queue owns it."}</div>}
-          {board.map((item) => <Card key={item.id} item={item} section="board" />)}
+          {board.length === 0 && !editor && !busy && <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">{tag ? `Nothing tagged #${tag} on the board yet.` : "Nothing approved yet."}</div>}
+          {board.length === 0 && !editor && busy && !loadErr && (
+            <div className="space-y-3" aria-hidden>
+        <div className="skeleton-shimmer h-36 rounded-3xl border border-[var(--border)] bg-[var(--card)] sm:h-44" />
+        <div className="skeleton-shimmer h-16 rounded-2xl border border-[var(--border)] bg-[var(--card)]" />
+        <div className="skeleton-shimmer h-16 rounded-2xl border border-[var(--border)] bg-[var(--card)]" />
+      </div>
+          )}
+          {board.map((item, idx) => <Card key={item.id} item={item} section="board" i={idx} />)}
 
           {past.length > 0 && (
             <div className="pt-1">
-              <button type="button" onClick={() => setShowPast((v) => !v)} className="min-h-11 w-full rounded-2xl border border-white/10 bg-black/20 px-4 text-[13px] text-zinc-400 hover:text-zinc-200">
-                {showPast ? "▲ Hide past" : `▾ Past (${past.length}) — old wars & older tactics, still searchable by the chips above`}
+              <button type="button" onClick={() => setShowPast((v) => !v)} className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-black/20 px-4 text-[13px] text-[var(--foreground)]/60 hover:text-[var(--foreground)]/85">
+                {showPast ? "▲ Hide past" : `▾ Past (${past.length}) — old wars and anything past 60 days`}
               </button>
-              {showPast && <div className="mt-2 space-y-2">{past.map((item) => <Card key={item.id} item={item} section="past" />)}</div>}
+              {showPast && <div className="mt-2 space-y-2">{past.map((item, idx) => <Card key={item.id} item={item} section="past" i={idx} />)}</div>}
             </div>
           )}
         </>
@@ -482,9 +490,9 @@ export default function StrategyPage() {
       {tab === "queue" && me?.isOfficer && (
         <div className="space-y-2">
           {queue.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center text-sm text-zinc-400">Queue clear. Remember: fixing a good post beats rejecting a sloppy one.</div>
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">Nothing in the queue.</div>
           ) : (
-            queue.map((item) => <Card key={item.id} item={item} section="queue" />)
+            queue.map((item, idx) => <Card key={item.id} item={item} section="queue" i={idx} />)
           )}
         </div>
       )}
@@ -492,9 +500,9 @@ export default function StrategyPage() {
       {tab === "mine" && (
         <div className="space-y-2">
           {mine.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center text-sm text-zinc-400">You haven&apos;t proposed anything yet. The board started with one brave post.</div>
+            <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">You haven&apos;t proposed anything yet.</div>
           ) : (
-            mine.map((item) => <Card key={item.id} item={item} section="mine" />)
+            mine.map((item, idx) => <Card key={item.id} item={item} section="mine" i={idx} />)
           )}
         </div>
       )}
