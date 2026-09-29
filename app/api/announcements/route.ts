@@ -88,22 +88,22 @@ export async function GET() {
                 u.username AS author, u.roblox_id AS author_roblox
          FROM mcwv_announcements a
          LEFT JOIN users u ON u.id = a.author_id
-         WHERE ($2::boolean OR a.show_at <= now())
+         WHERE ($1::boolean OR a.show_at <= now())
            AND (a.pinned OR a.show_at > now() - interval '7 days')
          ORDER BY a.pinned DESC, a.show_at DESC
          LIMIT 25`,
-        [1, isOfficer]
+        [isOfficer]
       ),
       pool.query<Row>(
         `SELECT a.id, a.body, a.pinned, a.show_at, a.created_at, a.edited_at, a.author_id,
                 u.username AS author, u.roblox_id AS author_roblox
          FROM mcwv_announcements a
          LEFT JOIN users u ON u.id = a.author_id
-         WHERE ($2::boolean OR a.show_at <= now())
+         WHERE ($1::boolean OR a.show_at <= now())
            AND NOT a.pinned AND a.show_at <= now() - interval '7 days'
          ORDER BY a.show_at DESC
          LIMIT 30`,
-        [1, isOfficer]
+        [isOfficer]
       ),
     ]);
     const ids = [...current.rows, ...earlier.rows].map((r) => Number(r.id)).filter(Number.isInteger);
