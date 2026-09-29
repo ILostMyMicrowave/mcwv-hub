@@ -22,14 +22,32 @@ import { withDeadline, kickCapMs } from "@/lib/deadline";
  *        are idempotent).
  */
 
-const ROBLEX_GAME_URL = /^https:\/\/(www\.)?roblox\.com\/games\/\d{3,20}\/?[^\s]*$/;
-const LINK_CODE = /privateServerLinkCode=([A-Za-z0-9_-]{4,200})/;
+/**
+ * Any Roblox http(s) link pointing at a game or the share handler counts —
+ * people paste from the website (roblox.com/games/...) and from the mobile
+ * app's share sheet (roblox.com/share?...linkCode=...), in either protocol,
+ * with or without www. What matters is the HOST is genuinely roblox.com
+ * (subdomains allowed; "roblox.com.evil.tld" is not) and the path is one of
+ * those two. The server's identity is privateServerLinkCode / linkCode when
+ * present, else the normalized URL itself.
+ */
+const LINK_HINT = "Paste the link from the server's Copy Link button — it starts with roblox.com/games or roblox.com/share.";
 
-function linkCodeOf(url: string): string {
-  const m = url.match(LINK_CODE);
-  if (m) return m[1];
-  // a plain games URL is still a usable identity — normalize lightly
-  return "u:" + url.replace(/\/+$/, "").slice(0, 180);
+function parseRobloxLink(raw: string): { url: string; code: string } | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  const host = u.hostname.toLowerCase();
+  if (host !== "roblox.com" && !host.endsWith(".roblox.com")) return null;
+  if (!/^\/(games|share)(\/|$)/i.test(u.pathname)) return null;
+  const code =
+    u.searchParams.get("privateServerLinkCode") || u.searchParams.get("linkCode") || "";
+  const clean = code.trim() || "u:" + raw.replace(/\/+$/, "").slice(0, 180);
+  return { url: raw, code: clean.slice(0, 200) };
 }
 
 type ServerRow = Record<string, unknown>;
@@ -128,7 +146,7 @@ export async function GET() {
     });
   } catch (err) {
     console.error("[privservers] board failed:", err);
-    return NextResponse.json({ error: "Couldn't load the board — the hub's database is having a moment." }, { status: 500 });
+    return NextResponse.json({ error: "Couldn't load the board — database hiccup, try again in a moment." }, { status: 500 });
   }
 }
 
@@ -137,12 +155,12 @@ export async function POST(request: Request) {
   if (!raced.ok) {
     if (raced.timedOut) {
       return NextResponse.json(
-        { error: "The hub's database didn't answer in time — nothing changed yet. Try again in a moment." },
+        { error: "The database didn't answer in time — nothing changed yet. Try again in a moment." },
         { status: 503 }
       );
     }
     console.error("[privservers] mutation failed:", raced.error);
-    return NextResponse.json({ error: "Couldn't update the board. Try again." }, { status: 500 });
+    return NextResponse.json({ error: "Couldn't save that. Try again." }, { status: 500 });
   }
   return raced.value;
 }
@@ -159,12 +177,14 @@ async function mutate(request: Request): Promise<Response> {
   if (body.action === "create") {
     const title = typeof body.title === "string" ? body.title.trim().slice(0, 80) : "";
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 140) : "";
-    const url = typeof body.url === "string" ? body.url.trim() : "";
-    if (!title) return NextResponse.json({ error: "Give it a name so members know what it is." }, { status: 400 });
-    if (!ROBLEX_GAME_URL.test(url)) {
-      return NextResponse.json({ error: "That's not a Roblox game link — paste the full games link from the private server invite." }, { status: 400 });
+    let url = typeof body.url === "string" ? body.url.trim() : "";
+    if (!title) return NextResponse.json({ error: "Give it a name so people know what it is for." }, { status: 400 });
+    const parsed = parseRobloxLink(url);
+    if (!parsed) {
+      return NextResponse.json({ error: LINK_HINT }, { status: 400 });
     }
-    const code = linkCodeOf(url);
+    const code = parsed.code;
+    url = parsed.url;
 
     // Rotation merge: same LIVE server → refresh its row (stats/history stay).
     const merged = await pool.query(
@@ -213,7 +233,7 @@ async function mutate(request: Request): Promise<Response> {
     );
     return r.rows.length
       ? NextResponse.json({ ok: true })
-      : NextResponse.json({ error: "That one isn't live anymore — refresh?" }, { status: 409 });
+      : NextResponse.json({ error: "That one isn't live anymore." }, { status: 409 });
   }
 
   if (body.action === "reopen") {
@@ -224,11 +244,11 @@ async function mutate(request: Request): Promise<Response> {
       );
       return r.rows.length
         ? NextResponse.json({ ok: true })
-        : NextResponse.json({ error: "Nothing to reopen there — refresh?" }, { status: 409 });
+        : NextResponse.json({ error: "Nothing to reopen there." }, { status: 409 });
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {
         return NextResponse.json(
-          { error: "A newer live post already uses that same link — close it first if you meant to move this one back." },
+          { error: "That link is already posted live — close that one first if you meant to reopen this." },
           { status: 409 }
         );
       }
