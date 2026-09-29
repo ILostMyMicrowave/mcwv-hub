@@ -165,7 +165,7 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     console.error("[strategy] board failed:", err);
-    return NextResponse.json({ error: "Couldn't load strategy — the hub's database is having a moment." }, { status: 500 });
+    return NextResponse.json({ error: "Couldn't load strategy — database hiccup, try again in a moment." }, { status: 500 });
   }
 }
 
@@ -174,12 +174,12 @@ export async function POST(request: Request) {
   if (!raced.ok) {
     if (raced.timedOut) {
       return NextResponse.json(
-        { error: "The hub's database didn't answer in time — nothing changed yet. Try again in a moment." },
+        { error: "The database didn't answer in time — nothing changed yet. Try again in a moment." },
         { status: 503 }
       );
     }
     console.error("[strategy] mutation failed:", raced.error);
-    return NextResponse.json({ error: "Couldn't update strategy. Try again." }, { status: 500 });
+    return NextResponse.json({ error: "Couldn't save that. Try again." }, { status: 500 });
   }
   return raced.value;
 }
@@ -209,9 +209,9 @@ async function mutate(request: Request): Promise<Response> {
   if (body.action === "create") {
     const title = typeof body.title === "string" ? body.title.trim().slice(0, TITLE_MAX) : "";
     const text = typeof body.body === "string" ? body.body.trim().slice(0, BODY_MAX) : "";
-    if (title.length < TITLE_MIN) return NextResponse.json({ error: `Give it a clear title (${TITLE_MIN}+ characters).` }, { status: 400 });
+    if (title.length < TITLE_MIN) return NextResponse.json({ error: `Give it a title people can scan (${TITLE_MIN}+ characters).` }, { status: 400 });
     if (text.length < BODY_MIN) {
-      return NextResponse.json({ error: `A tactic worth pinning deserves ${BODY_MIN}+ characters — say what to do and when.` }, { status: 400 });
+      return NextResponse.json({ error: `Body needs ${BODY_MIN}+ characters — say what to do and when.` }, { status: 400 });
     }
     let warId: string | null = null;
     if (typeof body.warId === "string" && body.warId.trim()) {
@@ -224,7 +224,7 @@ async function mutate(request: Request): Promise<Response> {
       [actorId, `${Math.ceil(RATE_MS / 1000)} seconds`]
     );
     if (rapid.rows.length > 0) {
-      return NextResponse.json({ error: "One new tactic every 2 minutes — quality over volume." }, { status: 429 });
+      return NextResponse.json({ error: "One post every 2 minutes." }, { status: 429 });
     }
     const tags = parseTags(text, body.tags);
     const ins = await pool.query(
@@ -254,7 +254,7 @@ async function mutate(request: Request): Promise<Response> {
     );
     return r.rows.length
       ? NextResponse.json({ ok: true, revision: Number(r.rows[0].revision) })
-      : NextResponse.json({ error: "Can't revise that one — it's either approved, gone, or not yours." }, { status: 409 });
+      : NextResponse.json({ error: "Can't change that one — it's approved, deleted, or not yours." }, { status: 409 });
   }
 
   if (body.action === "delete") {
@@ -265,7 +265,7 @@ async function mutate(request: Request): Promise<Response> {
       [id, isOfficer, actorId]
     );
     if (!r.rows.length) {
-      return NextResponse.json({ error: "Only the writer can pull a post before approval — officers can step in. Refresh?" }, { status: 403 });
+      return NextResponse.json({ error: "Before approval only the writer can delete — otherwise ask an officer." }, { status: 403 });
     }
     await pool.query(`DELETE FROM mcwv_strategy_reacts WHERE post_id = $1`, [id]).catch(() => null);
     return NextResponse.json({ ok: true });
@@ -281,13 +281,13 @@ async function mutate(request: Request): Promise<Response> {
     );
     return r.rows.length
       ? NextResponse.json({ ok: true })
-      : NextResponse.json({ error: "Someone already handled that one — refresh the queue." }, { status: 409 });
+      : NextResponse.json({ error: "Someone already handled that one." }, { status: 409 });
   }
 
   if (body.action === "reject") {
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
     if (reason.length < 3) {
-      return NextResponse.json({ error: "Rejections need a reason — that's how posts come back better." }, { status: 400 });
+      return NextResponse.json({ error: "Give a short reason so they know what to fix." }, { status: 400 });
     }
     const r = await pool.query(
       `UPDATE mcwv_strategy_posts
@@ -298,7 +298,7 @@ async function mutate(request: Request): Promise<Response> {
     );
     return r.rows.length
       ? NextResponse.json({ ok: true })
-      : NextResponse.json({ error: "That one isn't waiting in the queue anymore — refresh." }, { status: 409 });
+      : NextResponse.json({ error: "That one isn't in the queue anymore." }, { status: 409 });
   }
 
   if (body.action === "approveEdit") {
@@ -320,7 +320,7 @@ async function mutate(request: Request): Promise<Response> {
     );
     return r.rows.length
       ? NextResponse.json({ ok: true, polished: Boolean(r.rows[0].was_polished) })
-      : NextResponse.json({ error: "Someone already handled that one — refresh the queue." }, { status: 409 });
+      : NextResponse.json({ error: "Someone already handled that one." }, { status: 409 });
   }
 
   if (body.action === "pin") {
@@ -335,7 +335,7 @@ async function mutate(request: Request): Promise<Response> {
     );
     if (eligible.rows.length === 0) {
       return NextResponse.json(
-        { error: "Can't pin that — only current approved posts take the pin (finished-war and 60-day-old ones live in Past)." },
+        { error: "Can't pin that — only recent approved posts take the pin." },
         { status: 409 }
       );
     }
@@ -347,7 +347,7 @@ async function mutate(request: Request): Promise<Response> {
     const r = await pool.query(`UPDATE mcwv_strategy_posts SET pinned = false WHERE id = $1 AND pinned = true RETURNING id`, [id]);
     return r.rows.length
       ? NextResponse.json({ ok: true })
-      : NextResponse.json({ error: "That one isn't pinned anymore — refresh?" }, { status: 409 });
+      : NextResponse.json({ error: "That one isn't pinned anymore." }, { status: 409 });
   }
 
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
