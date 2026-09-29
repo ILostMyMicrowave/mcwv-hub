@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import Navbar from "@/components/Navbar";
 
 /*
  * /servers — the Clan private-server board (slice A, plan 2026-09-27).
@@ -220,7 +221,9 @@ export default function ServersPage() {
   const isOfficer = board?.me.isOfficer === true;
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
+    <>
+      <Navbar />
+      <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
       <div className="mcwv-home-enter flex items-center justify-between rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5 backdrop-blur">
         <div>
           <h1 className="text-xl font-black text-[var(--foreground)]">Private Servers</h1>
@@ -389,7 +392,8 @@ export default function ServersPage() {
       {updatedAt && (
         <p className="text-center text-[11.5px] text-[var(--foreground)]/40">updated {timeAgo(new Date(updatedAt).toISOString())}</p>
       )}
-    </main>
+          </main>
+    </>
   );
 }
 
