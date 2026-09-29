@@ -89,8 +89,8 @@ export default function ServersPage() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setBusy(true);
     try {
       const res = await fetch("/api/privservers", { cache: "no-store" });
       if (res.status === 401) {
@@ -109,7 +109,7 @@ export default function ServersPage() {
     } catch {
       setLoadErr("Couldn't reach the hub — try again.");
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   }, []);
 
@@ -118,10 +118,10 @@ export default function ServersPage() {
     // gentle freshness: only when the tab is actually open, and never
     // more than once a minute; manual refresh button covers the rest.
     const onVis = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(true);
     };
     const tick = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(true);
     }, 60_000);
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -144,7 +144,7 @@ export default function ServersPage() {
         return false;
       }
       setLoadErr(null);
-      await load();
+      await load(true); // silent: act() already owns the busy flag
       return true;
     } catch {
       setLoadErr("Couldn't reach the hub — try again.");
