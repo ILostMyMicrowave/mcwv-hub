@@ -101,8 +101,8 @@ export default function AnnouncementsPage() {
   const [editBody, setEditBody] = useState("");
   const [confirmDelId, setConfirmDelId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setBusy(true);
     try {
       const res = await fetch("/api/announcements", { cache: "no-store" });
       if (res.status === 401) {
@@ -122,17 +122,17 @@ export default function AnnouncementsPage() {
     } catch {
       setLoadErr("Couldn't reach the hub — try again.");
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
     const onVis = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(true);
     };
     const tick = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(true);
     }, 60_000);
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -155,7 +155,7 @@ export default function AnnouncementsPage() {
         return false;
       }
       setLoadErr(null);
-      await load();
+      await load(true); // silent: act() already owns the busy flag
       return true;
     } catch {
       setLoadErr("Couldn't reach the hub — try again.");
@@ -195,11 +195,11 @@ export default function AnnouncementsPage() {
         setNote(null);
       } else if (!res.ok) {
         setNote(data?.error ?? "That reaction didn't land.");
-        void load(); // refresh counts underneath while the note stays up
+        void load(true); // refresh counts underneath while the note stays up
       }
     } catch {
       setNote("Couldn't reach the hub — that chip may be lying.");
-      void load();
+      void load(true);
     }
   };
 
@@ -237,10 +237,14 @@ export default function AnnouncementsPage() {
     await act({ action: "delete", id: item.id });
   };
 
-  const ItemCard = (props: { item: Item; faded?: boolean; i?: number }) => {
-    const { item, faded, i = 0 } = props;
+  // Render helper, intentionally NOT a <Component>: an inline-defined
+  // component type changes identity on every parent render, so React would
+  // remount the whole feed on each keystroke/poll — entry animations replay,
+  // avatar error states reset, the edit textarea loses focus mid-typing.
+  const card = (item: Item, faded = false, i = 0) => {
     return (
       <div
+        key={item.id}
         style={{ "--i": Math.min(i, 8) } as CSSProperties}
         className={`stagger-in rounded-3xl border p-4 sm:p-5 ${
           item.pinned && !faded
@@ -408,14 +412,14 @@ export default function AnnouncementsPage() {
       </div>}
       {me && feed.length === 0 && !composeOpen && <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">Nothing posted yet.</div>}
 
-      {feed.map((item, idx) => <ItemCard key={item.id} item={item} i={idx} />)}
+      {feed.map((item, idx) => card(item, false, idx))}
 
       {earlier.length > 0 && (
         <div className="pt-2">
           <button type="button" onClick={() => setShowEarlier((v) => !v)} className="min-h-11 w-full rounded-2xl border border-[var(--border)] bg-black/20 px-4 text-[13px] text-[var(--foreground)]/60 transition hover:text-[var(--foreground)]/85">
             {showEarlier ? "▲ Hide older posts" : `▾ Earlier (${earlier.length}) — older than a week`}
           </button>
-          {showEarlier && <div className="mt-2 space-y-3">{earlier.map((item, idx) => <ItemCard key={item.id} item={item} faded i={idx} />)}</div>}
+          {showEarlier && <div className="mt-2 space-y-3">{earlier.map((item, idx) => card(item, true, idx))}</div>}
         </div>
       )}
           </main>
