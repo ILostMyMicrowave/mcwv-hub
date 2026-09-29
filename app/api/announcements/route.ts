@@ -39,8 +39,8 @@ function isOfficerRole(user: { role?: string | null } | null): boolean {
   return user?.role === "officer" || user?.role === "owner";
 }
 
-/* shared by GET here and the home ticker — maps joined rows + react agg into feed items */
-export function shapeItems(rows: Row[], reactAgg: ReactRow[], viewerId: string, isOfficer: boolean) {
+/* maps joined rows + react agg into the feed item shape the page renders */
+function shapeItems(rows: Row[], reactAgg: ReactRow[], viewerId: string, isOfficer: boolean) {
   const byAnn = new Map<string, { emoji: string; count: number; mine: boolean }[]>();
   for (const r of reactAgg) {
     const k = String(r.ann_id);
@@ -127,7 +127,7 @@ export async function GET() {
     });
   } catch (err) {
     console.error("[announcements] feed failed:", err);
-    return NextResponse.json({ error: "Couldn't load the feed — the hub's database is having a moment." }, { status: 500 });
+    return NextResponse.json({ error: "Couldn't load the feed — database hiccup, try again in a moment." }, { status: 500 });
   }
 }
 
@@ -136,12 +136,12 @@ export async function POST(request: Request) {
   if (!raced.ok) {
     if (raced.timedOut) {
       return NextResponse.json(
-        { error: "The hub's database didn't answer in time — nothing changed yet. Try again in a moment." },
+        { error: "The database didn't answer in time — nothing changed yet. Try again in a moment." },
         { status: 503 }
       );
     }
     console.error("[announcements] mutation failed:", raced.error);
-    return NextResponse.json({ error: "Couldn't update announcements. Try again." }, { status: 500 });
+    return NextResponse.json({ error: "Couldn't save that. Try again." }, { status: 500 });
   }
   return raced.value;
 }
@@ -173,14 +173,14 @@ async function mutate(request: Request): Promise<Response> {
     const text = typeof body.body === "string" ? body.body.trim() : "";
     if (text.length < MIN_LEN) return NextResponse.json({ error: `Write at least ${MIN_LEN} characters.` }, { status: 400 });
     if (text.length > MAX_LEN) {
-      return NextResponse.json({ error: `Announcements cap at ${MAX_LEN} characters — this is ${text.length}.` }, { status: 400 });
+      return NextResponse.json({ error: `Too long — the limit is ${MAX_LEN} characters (this is ${text.length}).` }, { status: 400 });
     }
     let showAt: Date | null = null;
     if (typeof body.showAt === "string" && body.showAt.trim()) {
       const t = Date.parse(body.showAt.trim());
-      if (!Number.isFinite(t)) return NextResponse.json({ error: "That date didn't parse — use the picker." }, { status: 400 });
+      if (!Number.isFinite(t)) return NextResponse.json({ error: "That date didn't come through — use the picker." }, { status: 400 });
       const now = Date.now();
-      if (t > now + 30 * 86_400_000) return NextResponse.json({ error: "Scheduling tops out at 30 days ahead." }, { status: 400 });
+      if (t > now + 30 * 86_400_000) return NextResponse.json({ error: "You can schedule up to 30 days ahead." }, { status: 400 });
       // a past time just means "now" — don't fail a post over a clock
       showAt = t > now ? new Date(t) : null;
     }
@@ -190,7 +190,7 @@ async function mutate(request: Request): Promise<Response> {
       [actorId, `${Math.ceil(RATE_MS / 1000)} seconds`]
     );
     if (rapid.rows.length > 0) {
-      return NextResponse.json({ error: "Easy — one announcement every 2 minutes." }, { status: 429 });
+      return NextResponse.json({ error: "One announcement every 2 minutes." }, { status: 429 });
     }
 
     const ins = await pool.query(
@@ -223,7 +223,7 @@ async function mutate(request: Request): Promise<Response> {
     );
     return r.rows.length
       ? NextResponse.json({ ok: true })
-      : NextResponse.json({ error: "That window closed — the edit window is 15 min (delete + repost for real changes)." }, { status: 409 });
+      : NextResponse.json({ error: "The 15 minute edit window has passed — delete and repost if it needs fixing." }, { status: 409 });
   }
 
   if (body.action === "delete") {
