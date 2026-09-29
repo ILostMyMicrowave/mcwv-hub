@@ -17,7 +17,7 @@ import Navbar from "@/components/Navbar";
  * has an honest busy/error state, and nothing polls while the tab is hidden.
  */
 
-type Member = { username: string; robloxId: string | null };
+type Member = { username: string; robloxId: string | null; verified?: boolean };
 type Server = {
   id: number;
   title: string;
@@ -218,6 +218,7 @@ export default function ServersPage() {
   const live = board?.servers.filter((s) => s.status === "live") ?? [];
   const closed = board?.servers.filter((s) => s.status !== "live") ?? [];
   const hero = live[0];
+  const heroVerified = hero ? hero.inNow.filter((m) => m.verified).length : 0;
   const isOfficer = board?.me.isOfficer === true;
 
   return (
@@ -312,19 +313,19 @@ export default function ServersPage() {
 
           <div className="mt-4 border-t border-[var(--border)] pt-3">
             <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--foreground)]/50">
-              In the last 15 min
+              Around now{heroVerified > 0 ? ` · ${heroVerified} confirmed in game` : ""}
             </div>
             {hero.inNow.length > 0 ? (
               <div className="mt-2 flex items-center gap-3">
                 <div className="flex -space-x-2.5">
                   {hero.inNow.slice(0, 8).map((m) => (
-                    <span key={m.username} className="rounded-full ring-2 ring-[var(--background)]">
+                    <span key={m.username} title={m.verified ? "tapped in · still in game" : "tapped in recently"} className={`rounded-full ring-2 ${m.verified ? "ring-[var(--primary)]" : "ring-[var(--background)]"}`}>
                       <Pfp member={m} size={30} />
                     </span>
                   ))}
                 </div>
                 <span className="text-[13px] text-[var(--foreground)]/80">
-                  {hero.inNow.length === 1 ? hero.inNow[0].username : `${hero.inNow[0].username} +${hero.inNow.length - 1}`}
+                  {hero.inNow.length === 1 ? hero.inNow[0].username : `${hero.inNow[0].username} +${hero.inNow.length - 1}`}{hero.inNow[0].verified ? " · in game" : ""}
                 </span>
               </div>
             ) : (
