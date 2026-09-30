@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-09-30 15:39
+;  MCWV event macros — single-file build, generated 2026-09-30 17:22
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -778,133 +778,189 @@ CycleOnce() {
 
 ; ──────────────────── from ui.ahk ────────────────────
 ; ═══════════════════════════════════════════════════════════════════════
-;  CONTROL PANEL — dark, live, generated from the TASKS registry.
-;  Rows appear/disappear when event files change — the panel is never
-;  edited to add a macro. Hotkeys keep working regardless; this is the
-;  comfortable surface, not the only one.
-;  Colors: 0x12161f night · 0x22c5aa signal green · 0x22d3ee armed blue
-;          0x9aa4b2 mute grey · 0xff5c5c panic red · 0xf0b429 amber
+;  CONTROL PANEL v2.1 — polished, natural wording, closure-safe
+;  - No loop-variable capture bug (factory functions)
+;  - Natural labels: "Test mode" not "dry", "Watch" not "arm", "Setup" not "cal"
+;  - Dark, spacious, readable — built for members who never read README
 ; ═══════════════════════════════════════════════════════════════════════
 
 UI     := false
 UIUp   := false
 global LogBox   := false
 global ProgBar  := false
-global DryBtn   := false
+global ProgText := false
+global TestBtn  := false
 global ModeLbl  := false
-global RunBtn   := false
 global LicLbl   := false
 
+; ── closure factories — AHK v2 loop var must be captured by value ──────
+MakeRunHandler(taskName) {
+    return (*) => RunFromPanel(taskName)
+}
+MakeWatchHandler(taskName) {
+    return (*) => ArmTask(taskName)
+}
+MakeSetupHandler(taskName) {
+    return (*) => StartCalib(taskName)
+}
+MakeRunTaskClosure(taskName, fn) {
+    return () => RunTask(taskName, fn)
+}
+
 BuildUI() {
-    global UI, UIUp, LogBox, ProgBar, DryBtn, ModeLbl, RunBtn, LicLbl, TASKS, PTotal
-    global MEMBER, MEMBER_KEY, LICENSE_STATUS
-    UI := Gui("+AlwaysOnTop -MinimizeBox", "MCWV MACROS")
+    global UI, UIUp, LogBox, ProgBar, ProgText, TestBtn, ModeLbl, LicLbl, TASKS
+    global MEMBER, MEMBER_KEY, LICENSE_STATUS, MACRO_VERSION, DryRun
+
+    UI := Gui("+AlwaysOnTop -MinimizeBox +Resize", "MCWV Macros")
     UI.BackColor := "12161F"
-    UI.MarginX := 14, UI.MarginY := 12
+    UI.MarginX := 16
+    UI.MarginY := 14
     UI.SetFont("s10", "Segoe UI")
 
-    hdr := UI.Add("Text", "x14 y12 c00E5A2", "▮ MCWV MACROS")
-    hdr.SetFont("s13 bold", "Segoe UI")
-    ver := UI.Add("Text", "x300 y16 c6B7694", "v" MACRO_VERSION)
+    ; Header
+    hdr := UI.Add("Text", "x16 y12 c00E5A2", "▮ MCWV MACROS")
+    hdr.SetFont("s14 bold", "Segoe UI")
+    ver := UI.Add("Text", "x320 y14 c6B7694", "v" MACRO_VERSION)
     ver.SetFont("s8", "Consolas")
 
-    ; License / member line
-    licTxt := (MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,8) "…" : "no key — /macros"))
-    licCol := (LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : LICENSE_STATUS = "nokey" ? "c9AA4B2" : LICENSE_STATUS = "revoked" ? "cFF5C5C" : "c9AA4B2")
-    LicLbl := UI.Add("Text", "x14 y32 w352 " licCol, "🔑 " licTxt " · " LICENSE_STATUS)
+    ; Member line — natural
+    who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "not signed in")
+    statusWord := LICENSE_STATUS = "ok" ? "✓ Active" : LICENSE_STATUS = "offline" ? "◐ Offline — works 3 days" : LICENSE_STATUS = "nokey" ? "— get file at /macros" : LICENSE_STATUS = "revoked" ? "✕ Revoked" : LICENSE_STATUS
+    licCol := LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : LICENSE_STATUS = "revoked" ? "cFF5C5C" : "c9AA4B2"
+    LicLbl := UI.Add("Text", "x16 y36 w360 " licCol, "👤 " who " · " statusWord)
     LicLbl.SetFont("s8", "Consolas")
 
-    y := 52
-    for name, t in TASKS {
-        b := UI.Add("Button", "x14 y" y " w140 h26", "▶  " name)
-        b.OnEvent("Click", (*) => RunFromPanel(name))
-        s := UI.Add("Text", "x164 y" (y + 5) " w86 c9AA4B2", "idle")
-        s.SetFont("s8", "Consolas")
-        a := UI.Add("Button", "x258 y" y " w52 h26", t.HasProp("arm") ? "◉ arm" : "—")
-        a.OnEvent("Click", (*) => ArmTask(name))
-        c := UI.Add("Button", "x316 y" y " w50 h26", "cal")
-        c.OnEvent("Click", (*) => StartCalib(name))
-        t.row := { st: s }
-        y += 32
+    y := 62
+    if TASKS.Count() = 0 {
+        UI.Add("Text", "x16 y" y " w360 c9AA4B2", "No macros found — add an event file and re-pack").SetFont("s9 italic")
+        y += 30
     }
 
-    UI.Add("Text", "x14 y" y " w60 c9AA4B2", "progress").SetFont("s8", "Consolas")
-    ProgBar := UI.Add("Progress", "x80 y" (y + 3) " w286 h10 c00E5A2 Range0-100", 0)
-    y += 22
+    for taskName, t in TASKS {
+        ; Card background
+        ; Row: big play + name + status + watch + setup
+        b := UI.Add("Button", "x16 y" y " w48 h32", "▶")
+        b.SetFont("s11 bold")
+        b.OnEvent("Click", MakeRunHandler(taskName))
 
-    DryBtn := UI.Add("Button", "x14 y" y " w92 h26", "dry: off")
-    DryBtn.OnEvent("Click", (*) => ToggleDry())
-    stop := UI.Add("Button", "x112 y" y " w92 h26", "✖ stop all")
+        nm := UI.Add("Text", "x72 y" (y+2) " w150 cE6EAF5", taskName)
+        nm.SetFont("s10 bold", "Segoe UI")
+
+        st := UI.Add("Text", "x72 y" (y+18) " w150 c9AA4B2", "Idle")
+        st.SetFont("s8", "Consolas")
+
+        hasArm := t.HasProp("arm")
+        aTxt := hasArm ? "◉ Watch" : "—"
+        a := UI.Add("Button", "x230 y" y " w70 h32", aTxt)
+        a.SetFont("s8")
+        if hasArm
+            a.OnEvent("Click", MakeWatchHandler(taskName))
+
+        c := UI.Add("Button", "x308 y" y " w64 h32", "⚙ Setup")
+        c.SetFont("s8")
+        c.OnEvent("Click", MakeSetupHandler(taskName))
+
+        t.row := { st: st, name: nm, play: b }
+        y += 44
+    }
+
+    y += 6
+    ; Progress section
+    UI.Add("Text", "x16 y" y " w70 c9AA4B2", "Progress").SetFont("s8", "Consolas")
+    ProgText := UI.Add("Text", "x90 y" y " w80 c6B7694", "")
+    ProgText.SetFont("s8", "Consolas")
+    y += 18
+    ProgBar := UI.Add("Progress", "x16 y" y " w356 h12 c00E5A2 Range0-100", 0)
+    y += 26
+
+    ; Controls — natural wording
+    TestBtn := UI.Add("Button", "x16 y" y " w110 h32", DryRun ? "🧪 Test: ON" : "🧪 Test: OFF")
+    TestBtn.SetFont("s9 bold")
+    TestBtn.OnEvent("Click", (*) => ToggleTest())
+
+    stop := UI.Add("Button", "x134 y" y " w90 h32", "✖ Stop")
+    stop.SetFont("s9 bold")
     stop.OnEvent("Click", (*) => StopAll())
-    ModeLbl := UI.Add("Text", "x214 y" (y + 5) " w152 c9AA4B2",
-        DryRun ? "DRY RUN · no clicks" : (TELEMETRY_URL != "" ? "fleet telemetry on" : "reporting local only"))
-    ModeLbl.SetFont("s8", "Consolas")
-    y += 32
 
-    LogBox := UI.Add("Edit", "x14 y" y " w352 h118 ReadOnly Background1A2030", TailLog(7))
+    ModeLbl := UI.Add("Text", "x234 y" (y+6) " w138 c9AA4B2", DryRun ? "Test mode — no clicks, just checks" : "Ready — clicks are live")
+    ModeLbl.SetFont("s8", "Consolas")
+    y += 44
+
+    ; Log — natural title
+    UI.Add("Text", "x16 y" y " w120 c9AA4B2", "Recent activity").SetFont("s8", "Consolas")
+    y += 16
+    LogBox := UI.Add("Edit", "x16 y" y " w356 h110 ReadOnly Background1A2030 cCBD5E8", TailLog(8))
     LogBox.SetFont("s8", "Consolas")
-    UI.Show("w380 h" (y + 134))
+
+    UI.Show("w388 h" (y + 126))
     UIUp := true
     SetTimer(RefreshUI, 400)
 }
 
-RunFromPanel(name) {
-    global TASKS, Running, Armed, ArmJob
+RunFromPanel(taskName) {
+    global TASKS, Running, Armed
     if Running {
         StopAll()
         return
     }
-    if Armed {
-        Disarm()   ; don't double-trigger the task we're watching for
-    }
-    SetTimer(() => RunTask(name, TASKS[name].fn), -10)
+    if Armed
+        Disarm()
+    ; Capture fn now, not inside timer closure over loop var
+    if !TASKS.Has(taskName)
+        return
+    fn := TASKS[taskName].fn
+    SetTimer(MakeRunTaskClosure(taskName, fn), -10)
 }
 
-ToggleDry() {
-    global DryRun, DryBtn
+ToggleTest() {
+    global DryRun, TestBtn, ModeLbl
     DryRun := !DryRun
-    DryBtn.Text := DryRun ? "dry: ON" : "dry: off"
-    Log("dry-run " (DryRun ? "engaged — detection runs, clicks are logged not sent" : "off"))
+    TestBtn.Text := DryRun ? "🧪 Test: ON" : "🧪 Test: OFF"
+    ModeLbl.Text := DryRun ? "Test mode — no clicks, just checks" : "Ready — clicks are live"
+    Log("test mode " (DryRun ? "ON — safe to try, no clicks sent" : "OFF — live clicks"))
 }
 
 RefreshUI() {
-    global UIUp, TASKS, Running, CurrentTask, Armed, ArmJob, PDone, PTotal, ProgBar, LogBox, ModeLbl, DryRun
+    global UIUp, TASKS, Running, CurrentTask, Armed, ArmJob, PDone, PTotal, ProgBar, ProgText, LogBox, ModeLbl, DryRun
     global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS
     if !UIUp
         return
-    for name, t in TASKS {
+    for taskName, t in TASKS {
         if !t.HasProp("row")
             continue
-        if Running && CurrentTask = name {
-            st  := PTotal > 0 ? ">" PDone "/" PTotal : "> running"
+        if Running && CurrentTask = taskName {
+            st := PTotal > 0 ? "Running " PDone "/" PTotal : "Running…"
             col := "c00E5A2"
-        } else if Armed && IsObject(ArmJob) && ArmJob.name = name {
-            st  := "◉ watching"
+        } else if Armed && IsObject(ArmJob) && ArmJob.name = taskName {
+            st := "◉ Watching — will start automatically"
             col := "c22D3EE"
         } else {
-            st  := "idle"
+            st := "Idle"
             col := "c9AA4B2"
         }
         if t.row.st.Text != st {
             t.row.st.Text := st
-            t.row.st.SetFont(col, "Consolas")
+            try t.row.st.SetFont(col, "Consolas")
         }
     }
     ProgBar.Value := (PTotal > 0) ? Round(100 * PDone / PTotal) : 0
-    v := TailLog(7)
+    if ProgText {
+        ProgText.Text := (PTotal > 0) ? PDone "/" PTotal " — " PNote : PNote
+    }
+    v := TailLog(8)
     static seen := ""
     if v != seen {
         LogBox.Value := v
         seen := v
     }
-    ; license line live update
     if LicLbl {
-        licTxt := (MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,8) "…" : "no key — /macros"))
-        full := "🔑 " licTxt " · " LICENSE_STATUS
+        who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "not signed in")
+        statusWord := LICENSE_STATUS = "ok" ? "✓ Active" : LICENSE_STATUS = "offline" ? "◐ Offline — works 3 days" : LICENSE_STATUS = "nokey" ? "— get file at /macros" : LICENSE_STATUS = "revoked" ? "✕ Revoked" : LICENSE_STATUS = "invalid" ? "✕ Invalid" : LICENSE_STATUS
+        full := "👤 " who " · " statusWord
         if LicLbl.Text != full {
             LicLbl.Text := full
-            col := (LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : LICENSE_STATUS = "nokey" ? "c9AA4B2" : LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid" ? "cFF5C5C" : "c9AA4B2")
-            LicLbl.SetFont(col, "Consolas")
+            col := LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid" ? "cFF5C5C" : "c9AA4B2"
+            try LicLbl.SetFont(col, "Consolas")
         }
     }
 }
