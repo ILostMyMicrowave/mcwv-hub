@@ -2,50 +2,57 @@ import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { getIronSession } from "@/lib/session"
 import { sessionOptions, type SessionData } from "@/lib/session"
+import { getAuthenticatedUser } from "@/lib/authUser"
 import { pool } from "@/lib/db"
 
-// War-day resilience: ride out pooler episodes (up to 60s) instead of
-// being killed at the default cap — a killed function makes Vercel serve
-// its plain-text "An error occurred with this application" page, which
-// breaks client res.json() parsing.
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const cookieStore = await cookies()
-
-    const session = await getIronSession<SessionData>(
-      cookieStore,
-      sessionOptions
-    )
-
-    if (!session.user?.id) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return NextResponse.json({ user: null })
     }
-
-    const result = await pool.query(
-      `
-        SELECT id, username, roblox_id, discord_id, role, theme
-        FROM users
-        WHERE id = $1
-        LIMIT 1
-      `,
-      [session.user.id]
-    )
-
-    const user = result.rows[0] ?? null
-    // v2: the page needs to RECOGNISE its own session id — a kick push that
-    // names this sid came FROM this device and must not bounce it. Harmless
-    // to expose: it is only ever readable by whoever already holds the cookie.
-    if (user) user.sid = session.user?.sid ?? null
-
-    return NextResponse.json({ user })
+    // Try to enrich with theme/sid from DB, but don't block on failure
+    try {
+      const cookieStore = await cookies()
+      const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
+      // If cache already gave us full data, try to get theme in background, but serve now
+      // For speed, only query theme if we have time — otherwise return what we have
+      const result = await pool.query(
+        `SELECT theme FROM users WHERE id = $1 LIMIT 1`,
+        [user.id]
+      )
+      const theme = result.rows[0]?.theme ?? null
+      return NextResponse.json({
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          roblox_id: user.robloxId,
+          discord_id: user.discordId,
+          theme,
+          sid: session.user?.sid ?? null,
+        },
+      })
+    } catch {
+      // DB blip — serve what getAuthenticatedUser already gave (session or stale cache)
+      const cookieStore = await cookies()
+      const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
+      return NextResponse.json({
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          roblox_id: user.robloxId,
+          discord_id: user.discordId,
+          theme: null,
+          sid: session.user?.sid ?? null,
+        },
+      })
+    }
   } catch {
-    // DB blip (pooler saturation, cold connect timeout): a 500 here reads as
-    // "logged out" to every page and the whole site flickers. The signed
-    // session already carries id/username/role — serve that (possibly stale)
-    // instead. Full fields (roblox_id, discord_id, theme) need the DB and
-    // come back on the next healthy poll.
     try {
       const cookieStore = await cookies()
       const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
@@ -54,7 +61,7 @@ export async function GET() {
         user: u ? { id: u.id, username: u.username, role: u.role ?? null, sid: u.sid ?? null } : null,
       })
     } catch {
-      return NextResponse.json({ user: null }, { status: 500 })
+      return NextResponse.json({ user: null })
     }
   }
 }
