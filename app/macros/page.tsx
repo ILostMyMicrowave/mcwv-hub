@@ -12,10 +12,26 @@ type MeState = {
   hasKey: boolean;
 };
 
+type VersionInfo = {
+  version: string;
+  changelog?: Record<string,string>;
+};
+
+type CalibMeta = {
+  task_name: string;
+  member_name: string;
+  created_at: string;
+  is_official: boolean;
+  checks: any;
+};
+
 export default function MacrosPage() {
   const [me, setMe] = useState<MeState>({ loading: true, error: null, username: "", role: "member", keyPreview: null, hasKey: false });
   const [downloading, setDownloading] = useState(false);
   const [gate, setGate] = useState<"none" | "login">("none");
+  const [ver, setVer] = useState<VersionInfo | null>(null);
+  const [calibs, setCalibs] = useState<CalibMeta[]>([]);
+  const [calibLoading, setCalibLoading] = useState(false);
 
   const load = useCallback(async () => {
     setMe((s) => ({ ...s, loading: true, error: null }));
@@ -24,7 +40,6 @@ export default function MacrosPage() {
       if (res.status === 401) { setGate("login"); return; }
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        // fallback to app-status for username
         const sres = await fetch("/api/app-status", { cache: "no-store" });
         const sdata = await sres.json().catch(() => null);
         if (!sdata?.authenticated) { setGate("login"); return; }
@@ -51,7 +66,27 @@ export default function MacrosPage() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadVersion = useCallback(async () => {
+    try {
+      const r = await fetch("/api/macro-version", { cache: "no-store" });
+      const j = await r.json();
+      if (j?.version) setVer({ version: j.version, changelog: j.changelog });
+    } catch {}
+  }, []);
+
+  const loadCalibs = useCallback(async () => {
+    setCalibLoading(true);
+    try {
+      // we don't have list endpoint yet, but we can try to fetch via macro-calib?task= (need list)
+      // For now, try to get from macro-report stats or just leave empty — show how sharing works
+      // Future: add /api/macro-calib/list
+      const r = await fetch("/api/macro-report", { cache: "no-store" });
+      // not needed for v2.8, calibs shown per task via manual query
+    } catch {}
+    setCalibLoading(false);
+  }, []);
+
+  useEffect(() => { void load(); void loadVersion(); void loadCalibs(); }, [load, loadVersion, loadCalibs]);
 
   const doDownload = async () => {
     setDownloading(true);
@@ -105,6 +140,7 @@ export default function MacrosPage() {
         <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Your macros</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/60">
           This is your personal file — made just for you. Double-click it and press Ctrl+Alt+M for the panel. That's it.
+          {ver ? <span className="ml-2 inline-flex rounded-full bg-[var(--primary)]/15 px-2 py-0.5 text-[11px] font-bold text-[var(--primary)]">v{ver.version} latest</span> : null}
         </p>
 
         {me.error && (
@@ -142,9 +178,17 @@ export default function MacrosPage() {
               </div>
             </div>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-              <div className="text-xs font-semibold text-[var(--foreground)]/80">Works even offline</div>
+              <div className="text-xs font-semibold text-[var(--foreground)]/80">Auto-updates + queue</div>
               <div className="mt-1 text-xs leading-5 text-[var(--foreground)]/60">
-                Your file checks in when you have internet, but keeps working for 3 days without it. No stress if your WiFi drops mid-war.
+                Your file checks for updates every hour and tells you when there's a new version. You can also queue tasks — they run one after another, no more skipping.
+                If something fails, it saves a screenshot to <span className="font-mono text-[11px]">%USERPROFILE%\MCWV\fail-*.png</span> so you can send it to officers.
+              </div>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+              <div className="text-xs font-semibold text-[var(--foreground)]/80">Share your setup with the clan</div>
+              <div className="mt-1 text-xs leading-5 text-[var(--foreground)]/60">
+                Set up a task with F1, then in the Settings tab hit <span className="text-[var(--foreground)]/80">Share your setup</span>. Officers can make it official so everyone gets a more reliable version.
+                Works even offline — file checks in when you have internet but keeps working for 3 days.
               </div>
             </div>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
@@ -156,16 +200,36 @@ export default function MacrosPage() {
           </div>
         </div>
 
+        {ver?.changelog && (
+          <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.02] p-4">
+            <div className="text-xs font-semibold text-[var(--foreground)]/70">What's new</div>
+            <div className="mt-2 space-y-1.5">
+              {Object.entries(ver.changelog).slice(0,4).map(([v, note]) => (
+                <div key={v} className="flex gap-2 text-xs">
+                  <span className="font-mono font-bold text-[var(--primary)]">v{v}</span>
+                  <span className="text-[var(--foreground)]/60">{note}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {isOfficer && (
           <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.02] p-4">
             <div className="text-xs font-semibold text-[var(--foreground)]/70">Officer tools</div>
-            <div className="mt-1 text-xs text-[var(--foreground)]/50">You can see everyone's keys and health over on the Macro Health page.</div>
-            <a href="/macro-health" className="mt-3 inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">Open Macro Health →</a>
+            <div className="mt-1 text-xs text-[var(--foreground)]/50">You can see everyone's keys, health, and shared calibrations.</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a href="/macro-health" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">Macro Health →</a>
+              <a href="/members" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">Members →</a>
+            </div>
+            <div className="mt-3 rounded-xl bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-[11px] leading-4 text-[var(--foreground)]/50">
+              Shared calibrations land in <span className="font-mono">mcwv_macro_calibs</span>. To make one official: <span className="font-mono">UPDATE ... SET is_official=true WHERE id=...</span> or use the POST with <span className="font-mono">isOfficial:true</span> (officer only). Official calibs are preferred when loading.
+            </div>
           </div>
         )}
 
         <div className="mt-8 text-center text-[11px] text-[var(--foreground)]/30">
-          v2.1 • personal file • works with AHK v2 • if it doesn't download, tell an officer — the template might be missing on the server
+          v{ver?.version ?? "2.8"} • personal file • works with AHK v2 • {me.hasKey ? "your file is personal" : "get yours above"}
         </div>
       </div>
     </main>
