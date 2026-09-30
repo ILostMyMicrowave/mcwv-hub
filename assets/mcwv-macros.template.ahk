@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-09-30 17:22
+;  MCWV event macros — single-file build, generated 2026-09-30 18:19
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -218,7 +218,7 @@ SeeNow(check) {
     return false
 }
 Probe(check) {
-    try return Boolean(SeeNow(check))
+    try return SeeNow(check) ? true : false
     return false
 }
 See(check, timeoutS := DEFAULT_TIMEOUT, desc := "") {
@@ -256,7 +256,7 @@ Tap(hit, desc := "") {
 ; Dry: report current state, never fail (nothing was clicked, after all).
 Confirm(cond, timeoutS := 8, desc := "confirm") {
     global DryRun
-    fn := IsFunc(cond) ? cond : () => SeeNow(cond)
+    fn := (cond is Func) ? cond : () => SeeNow(cond)
     if DryRun {
         Log("DRY  confirm '" desc "' right now: " (fn() ? "already true" : "false (expected — no click was sent)"))
         return
@@ -439,7 +439,7 @@ LicenseCheck(showUI := false) {
     try {
         fp := A_UserName "|" A_ComputerName
         body := '{"k":"' JsonEsc(MEMBER_KEY) '","m":"' JsonEsc(A_UserName) '","v":"' JsonEsc(MACRO_VERSION) '","pc":"' JsonEsc(A_ComputerName) '","fp":"' JsonEsc(fp) '"}'
-        w := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+        w := ComObject("WinHttp.WinHttpRequest.5.1")
         w.SetTimeouts(4000, 4000, 6000, 6000)
         w.Open("POST", AUTH_URL, false)
         w.SetRequestHeader("Content-Type", "application/json")
@@ -549,7 +549,7 @@ TelemetryPost(name, result, secs) {
         static keep := []
         if keep.Count() > 12
             keep.RemoveAt(1, keep.Count() - 12)   ; prune old handles; a few held is fine
-        w := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+        w := ComObject("WinHttp.WinHttpRequest.5.1")
         keep.Push(w)                              ; keep alive while async send completes
         w.Open("POST", TELEMETRY_URL, true)       ; async — fire and forget, never blocks a run
         w.SetTimeouts(3000, 3000, 5000, 5000)    ; resolve/connect/send/receive ms
@@ -1011,10 +1011,10 @@ F12:: {
 }
 
 A_IconTip := "MCWV macros — Ctrl+Alt+M for the panel"
-A_IconMenu.Add("Show/hide panel", (*) => ToggleUI())
-A_IconMenu.Add("Stop task", (*) => StopAll())
-A_IconMenu.Add()
-A_IconMenu.Add("Quit", (*) => ExitApp())
+A_TrayMenu.Add("Show/hide panel", (*) => ToggleUI())
+A_TrayMenu.Add("Stop task", (*) => StopAll())
+A_TrayMenu.Add()
+A_TrayMenu.Add("Quit", (*) => ExitApp())
 
 ToggleUI()   ; panel on load; hotkeys work without it
 
