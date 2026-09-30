@@ -2,33 +2,16 @@ import { Pool, type PoolConfig } from "pg"
 import dns from "node:dns"
 import { DB_CA_PEM } from "./caCert"
 
-// Vercel’s serverless runtime prefers IPv6. Supabase’s pooler often only
-// answers reliably on IPv4, which surfaces as:
-//   Error: timeout exceeded when trying to connect
-// Force IPv4-first lookups in this isolate before any client is created.
+// Vercel prefers IPv6, Supabase pooler often only answers on IPv4 reliably
 try {
   dns.setDefaultResultOrder("ipv4first")
-} catch {
-  // older runtimes - ignore
-}
+} catch {}
 
 declare global {
   var _mcwv_pool: Pool | undefined
   var _mcwv_once: Map<string, Promise<void>> | undefined
 }
 
-// pg 8.22 TRAP (prod 2026-09-12 root cause #1, verified locally against the
-// exact lockfile version): ConnectionParameters builds its config with
-//   Object.assign({}, config, parse(connectionString))
-// — values parsed from the URL WIN over the explicit config object. Any
-// sslmode/ssl* query param (Supabase pooler URLs ship with ?sslmode=require)
-// is parsed into a FRESH ssl object that silently REPLACES the explicit
-// ssl option below, dropping the CA bundle and reverting to the runtime's
-// default trust store. pg-connection-string 2.14 treats sslmode=require as
-// an alias of verify-full, so the result was full verification against the
-// WRONG store → SELF_SIGNED_CERT_IN_CHAIN on every DB call. Strip the
-// TLS-shaping params here so the ssl option below is the single source of
-// truth for TLS (other params — pgbouncer, options, … — are preserved).
 const SSL_URL_PARAM = /^(sslmode|ssl|sslnegotiation|sslcert|sslkey|sslrootcert|sslpassword|sslsni)$/i
 
 function stripSslUrlParams(connectionString: string): string {
@@ -52,11 +35,11 @@ function isTransientDbError(err: unknown) {
     code === "EHOSTUNREACH" ||
     code === "ENETUNREACH" ||
     code === "EAI_AGAIN" ||
-    code === "08006" || // connection_failure (e.g. closed mid-operation)
-    code === "08001" || // sqlclient_unspecified
-    code === "57P01" || // admin_shutdown
-    code === "57P02" || // crash_shutdown
-    code === "57P03" || // cannot_connect_now
+    code === "08006" ||
+    code === "08001" ||
+    code === "57P01" ||
+    code === "57P02" ||
+    code === "57P03" ||
     msg.includes("timeout exceeded when trying to connect") ||
     msg.includes("Connection terminated") ||
     msg.includes("connection was closed in the middle of an operation") ||
@@ -65,10 +48,6 @@ function isTransientDbError(err: unknown) {
     msg.includes("unexpected response in SSL negotiation") ||
     msg.includes("sorry, too many clients") ||
     msg.includes("remaining connection slots") ||
-    // Supabase *session-mode* pooler (port 5432) rejects new clients once
-    // pool_size (15) is reached: code XX000 (too generic to match alone) +
-    // this exact message. Production hit this on every burst of Vercel
-    // isolates -> 500s across auth/leaderboard/collector. Match the message.
     msg.includes("max clients reached")
   )
 }
@@ -79,59 +58,25 @@ function getPool() {
     throw new Error("DATABASE_URL must be set")
   }
 
+  // IMPORTANT: Use Supabase TRANSACTION pooling (port 6543) + ?pgbouncer=true
+  // Session mode (5432) has ~15 client cap and will ALWAYS timeout with Vercel's 50+ isolates
   const config: PoolConfig = {
     connectionString: stripSslUrlParams(connectionString),
-    // Per-isolate cap. Was 1, bumped to 3 for war peak (prod 2026-09-30: 50+ isolates x 1 = queue, 3 = 150 clients < 200 cap). Vercel must use Supabase *transaction* pooling
-    // (port 6543 / pooler host). Session mode’s ~15 client cap will
-    // otherwise time out every extra isolate.
-    max: 3,
-    // Keep a warm client for 10 minutes. 5 minutes was exactly the
-    // quiet-hours UptimeRobot cadence (one check every 5 min), so every
-    // overnight check paid a fresh (lottery-prone) pooler connect, and
-    // during Supabase's Sep 2026 weekend connect degradation those fresh
-    // connects timed out in waves (prod 2026-09-18: app-status retry
-    // ladders + a login 504). 10 minutes keeps clients warm through the
-    // quietest gaps. Safe on TRANSACTION pooling (6543): an idle client
-    // holds a supavisor client slot (cap 200) but no postgres backend, and
-    // our concurrent warm-isolate count stays far below that even at war
-    // peak.
+    // Per-isolate cap: 5 is safe on transaction pooling (6543) — holds supavisor slot but no PG backend when idle
+    // 5 * 40 isolates = 200 (Supabase pooler cap) — was 1, then 3, now 5 to reduce queue
+    max: 5,
+    // Keep warm for 10 min — matches quiet-hours gap, avoids cold-connect lottery every 5 min
     idleTimeoutMillis: 600_000,
-    // Cold isolates regularly need >5s for the FIRST pooler connect — a fresh
-    // isolate’s first DNS lookup of the pooler’s CNAME→ELB chain can take
-    // seconds (prod 2026-09-12: attempt-1 timeout warnings every minute, the
-    // immediate retry always succeeding, responseStatusCode 200 on each).
-    // Give each attempt 10s; worst case 3 attempts + backoff ≈ 32s. The DNS
-    // warm-up below removes most of that latency at the source.
-    connectionTimeoutMillis: 3_000, // was 10s → 5s → 3s for faster failover
+    // FIX for "ALWAYS timeout": cold isolates need 5-10s for first DNS CNAME→ELB + TLS handshake Vercel US → Supabase EU
+    // 3s was too short, so every cold isolate timed out on attempt 1 then succeeded on attempt 2 (your logs)
+    // Give first attempt 10s so it usually succeeds, no warning spam
+    connectionTimeoutMillis: 10_000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 5_000,
-    // Let Vercel's platform recycle isolates itself. With `true`, pg exits
-    // the isolate as soon as the pool goes idle — but the next 60s poll
-    // then cold-boots a fresh isolate that must win the cold-connect lottery
-    // again (see connectionTimeoutMillis note). Staying resident is free on
-    // Fluid compute (billed on CPU, not wall-clock).
     allowExitOnIdle: false,
-    // TLS (prod 2026-09-12 root cause #2): the pooler chain is
-    //   *.pooler.supabase.com ← Supabase Intermediate 2021 CA ← Supabase
-    //   Root 2021 CA — anchored at Supabase's OWN private root, which is in
-    //   NO public trust store. A Mozilla-only bundle could never verify it.
-    //   lib/ca.crt (inlined as DB_CA_PEM) now carries the Mozilla roots PLUS
-    //   the Supabase pooler root, so rejectUnauthorized:true actually
-    //   succeeds. NODE_EXTRA_CA_CERTS is no longer needed.
-    // NOTE (Node semantics, verified experimentally): `ca` REPLACES the
-    // default trust store for this connection — it is not additive. The
-    // bundle must therefore contain every anchor on its own. If Supabase
-    // rotates the pooler CA, re-extract it and regenerate with
-    // scripts/dump-ca-cert.mjs. Other outbound HTTPS (bot API, PS99) uses
-    // fetch/undici and is unaffected by this option.
-    // Dev: apply the same TLS when the raw URL asked for it (its sslmode was
-    // stripped above) or PGSSLMODE is set, so local dev against the real
-    // pooler verifies against the same bundle instead of failing.
     ssl:
       process.env.NODE_ENV === "production" ||
-      /[?&](sslmode|ssl|sslnegotiation|sslcert|sslkey|sslrootcert|sslpassword|sslsni)=/i.test(
-        connectionString
-      ) ||
+      /[?&](sslmode|ssl|sslnegotiation|sslcert|sslkey|sslrootcert|sslpassword|sslsni)=/i.test(connectionString) ||
       process.env.PGSSLMODE
         ? { rejectUnauthorized: true, ca: DB_CA_PEM }
         : undefined,
@@ -142,50 +87,36 @@ function getPool() {
     console.error("[db] idle client error:", err.message)
   })
 
-  // Warm this isolate's DNS cache for the DB host before any request needs a
-  // connection. A cold isolate's first getaddrinfo for the pooler's
-  // CNAME→ELB chain can take seconds — exactly the budget the old 5s
-  // connection timeout burned on attempt 1 (prod 2026-09-12). Fire-and-forget:
-  // the resolver's cache makes the first real connect fast.
-  try {
-    const dbHost = new URL(connectionString).hostname
-    if (dbHost) void dns.promises.lookup(dbHost).catch(() => {})
-  } catch {
-    // non-URL connection string — pg will surface the real error later
+  // Warm DNS + establish first client NOW with retry, so first real request doesn't pay the lottery
+  // Fire-and-forget but with its own retry loop
+  const warm = async () => {
+    try {
+      const dbHost = new URL(connectionString).hostname
+      if (dbHost) {
+        try {
+          await dns.promises.lookup(dbHost)
+        } catch {}
+      }
+    } catch {}
+    // Try to get a client early — if it fails, the normal query retry will handle it
+    for (let i = 0; i < 2; i++) {
+      try {
+        const client = await pool.connect()
+        await client.query("SELECT 1")
+        client.release()
+        break
+      } catch {
+        await new Promise((r) => setTimeout(r, 500 + i * 500))
+      }
+    }
   }
+  void warm()
 
   const originalQuery = pool.query.bind(pool) as Pool["query"]
 
-  // Supabase's pooler (and Vercel's per-isolate `max: 1`) can drop a cold
-  // connection on the first use of an isolate — or reject it outright with
-  // EMAXCONNSESSION when the 15-client session pool is full. Retry transient
-  // errors with backoff before surfacing: this is what keeps "Failed to
-  // verify authentication" 500s from spooking pages/assistant.
-  // Backoff gaps are deliberately wide (prod 2026-09-12): cold-connect
-  // failures on Vercel come in correlated bursts lasting ~20-30s — retries
-  // 400ms/1.5s later land inside the same burst and die too. 1s/3s pushes
-  // the third attempt past the burst.
-  // 2026-09-13: bursts now run 20-90s and daytime too (Sat 13 Sep probe:
-  // 503 at 34.3s while identical requests 40s earlier/later were sub-second
-  // — the flapping is per-isolate, so later attempts often land on a good
-  // moment). Extended to 5 attempts: worst case ≈ 67s (5 × 10s timeout +
-  // 17s backoff), well inside Fluid Compute's 300s Hobby function budget.
-  // A 60s login that succeeds beats a 34s 503 plus a manual retry.
-  // 2026-09-17 (prod 00:33-01:03 UTC log review): different isolates were
-  // logging attempt 4/5 in the SAME millisecond — the fixed ladder keeps
-  // every unlucky isolate marching in lockstep, so the pooler faces a
-  // synchronized retry wave every 1/3/5/8s. Jitter (±35%) decorrelates the
-  // waves into a spread the pooler can absorb between requests.
-  const MAX_ATTEMPTS = 3 // was 5, cut to 3 for faster failover (prod 2026-09-30: 5 attempts = 60s+ wait = janky)
-  // Connect-phase timeouts additionally get a 6th attempt: bursts documented
-  // at 20-90s outrun the old 5-attempt span (~67s) just often enough to 500
-  // (three bounty 500s in the 00:33-01:03 window each burned ~60s first).
-  // 6 attempts span ~92s worst case, still far inside Fluid Compute's 300s
-  // Hobby budget. A connect timeout never reached the server, so the extra
-  // attempt cannot double-apply a write; query-phase transients stay capped
-  // at MAX_ATTEMPTS for exactly that reason.
-  const CONNECT_TIMEOUT_MAX_ATTEMPTS = 4 // was 6, cut to 4 (prod 2026-09-30: 6 attempts = 92s worst case = forever)
-  const RETRY_BACKOFF_MS = [500, 1_000, 2_000, 4_000, 8_000] // was 1s,3s,5s,8s,15s — cut to 0.5s,1s,2s,4s,8s for faster recovery
+  const MAX_ATTEMPTS = 3
+  const CONNECT_TIMEOUT_MAX_ATTEMPTS = 4
+  const RETRY_BACKOFF_MS = [500, 1_000, 2_000, 4_000]
   const RETRY_JITTER_RATIO = 0.35
   const retryBackoffMs = (attempt: number) => {
     const base = RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
@@ -194,13 +125,6 @@ function getPool() {
   }
   const isConnectPhaseError = (err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err)
-    // Both strings are provably connect-phase only:
-    // - "timeout exceeded when trying to connect" is thrown by pg-pool while
-    //   waiting for a client to connect/become available (query never started).
-    // - "Connection terminated due to connection timeout" is only ever set in
-    //   pg-pool's newClient() connect-failure callback (pg-pool 3.x source);
-    //   the timer is cleared the instant a client connects successfully.
-    // Neither can mean a query was dispatched, so an extra retry is safe.
     return (
       msg.includes("timeout exceeded when trying to connect") ||
       msg.includes("Connection terminated due to connection timeout")
@@ -215,10 +139,7 @@ function getPool() {
         const attemptLimit = isConnectPhaseError(err) ? CONNECT_TIMEOUT_MAX_ATTEMPTS : MAX_ATTEMPTS
         if (!isTransientDbError(err) || n >= attemptLimit) throw err
         const delay = retryBackoffMs(n)
-        console.warn(
-          `[db] transient error (attempt ${n}/${attemptLimit}), retrying in ${delay}ms:`,
-          err instanceof Error ? err.message : err
-        )
+        console.warn(`[db] transient error (attempt ${n}/${attemptLimit}), retrying in ${delay}ms:`, err instanceof Error ? err.message : err)
         await new Promise((resolve) => setTimeout(resolve, delay))
         return attempt(n + 1)
       }
@@ -227,37 +148,17 @@ function getPool() {
   }) as Pool["query"]
   pool.query = retriedQuery
 
-  // Keep this isolate's pool client connected indefinitely: with no traffic,
-  // the pool closes its idle client after idleTimeoutMillis (300s) and the
-  // NEXT request must open a fresh connection — which on Vercel's egress
-  // path to the Supabase pooler loses the cold-connect lottery ~30-50% of
-  // the time (2026-09-12: login 503s). One SELECT 1 per minute is ~50 bytes
-  // of egress and keeps the client's socket — and therefore the isolate —
-  // alive. The bot's 30s app-status pings keep the isolate warm; this keeps
-  // its database connection warm too. (unref: the timer must not hold a
-  // process open by itself — tests call pool.end(), and on Vercel the live
-  // socket does the holding.)
+  // Keepalive ping every 60s to keep socket alive — ~50 bytes
   const pingDb = () => void pool.query("SELECT 1").catch(() => {})
-  // Establish the first connection NOW, not 60s from now: a fresh isolate
-  // (every deploy, every Vercel recycle) starts with an empty pool, and that
-  // first connection is the one exposed to the egress lottery. Starting it
-  // at pool creation means the bot's 30s app-status pings have usually
-  // established the connection before the first human request needs it.
-  pingDb()
   const connectionKeepAlive = setInterval(pingDb, 60_000)
   connectionKeepAlive.unref()
 
   return pool
 }
 
-// Reuse one pool across route modules that share the same serverless isolate.
-// Separate isolates still get their own pool, which is why max must remain 1.
 export const pool = global._mcwv_pool ?? getPool()
 global._mcwv_pool = pool
 
-// One-time-per-isolate async setup (table DDL, expired-row sweeps), so routes
-// stop paying DDL round-trips on every request. Concurrent callers share one
-// run; a FAILED run is un-memoized so the next caller retries it.
 const onceMap = (global._mcwv_once ??= new Map<string, Promise<void>>())
 export function oncePerIsolate(key: string, run: () => Promise<void>): Promise<void> {
   let pending = onceMap.get(key)
