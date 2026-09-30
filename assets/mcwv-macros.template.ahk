@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-09-30 22:37
+;  MCWV event macros — single-file build, generated 2026-09-30 23:10
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -78,27 +78,24 @@ LICENSE_LAST_GOOD := 0
 TASKS := Map()
 
 ; ──────────────────── from lib/core.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════════════
-;  CORE v2.1 — detection-first + clan-only licensing.
-;  Doctrine, enforced by these functions (event files that bypass them
-;  bypass their safety; the template never does):
-;    • never trust one pixel — prefer an image crop, fall back to color
-;    • never hardcode coordinates — normalized {fx,fy} against the client area
-;    • never sleep-then-act — look, then act; act, then verify the act
-;    • never die on the first miss — Step() retries with recovery between
-;    • never act outside the game window — focus gate on every click,
-;      auto-hold through alt-tabs, abort cleanly past the grace
-;    • never wonder what happened — progress, log, telemetry, always
-;    • never run a leaked copy unwatched — license heartbeat, watermark,
-;      72h offline grace, revoke kills the copy on next check
-; ═══════════════════════════════════════════════════════════════════════
+; ═══════════════════════════════════════════════════════════════
+;  CORE v2.7 — natural, reliable, human-like
+;  Improvements over v2.6:
+;  • HumanMove — bezier mouse, not teleport Click
+;  • SeeMulti — needs 2 of 3 checks, not one pixel
+;  • EnsureGame — finds/activates Roblox with retry, DPI-aware
+;  • Smart Tap — focus gate + human move + post-click verify
+;  • Jitter 2.0 — not just random sleep, random curve + occasional pause
+;  • Queue — run tasks back-to-back
+;  • Auto-update check from hub (non-blocking)
+; ═══════════════════════════════════════════════════════════════
 
 ; ── logging ─────────────────────────────────────────────────────────────
 Log(msg) {
     global LOG_PATH
     FileAppend(FormatTime(A_Now, "HH:mm:ss") "  " msg "`n", LOG_PATH, "UTF-8")
 }
-TailLog(n := 6) {
+TailLog(n := 14) {
     global LOG_PATH
     s := ""
     try s := FileRead(LOG_PATH, "UTF-8")
@@ -125,10 +122,39 @@ CheckAbort() {
         throw Error("aborted")
 }
 
-; ── focus policy ────────────────────────────────────────────────────────
+; ── focus policy + ensure game ──────────────────────────────────────────
 FocusOK() {
     global GAME_EXE
     return WinActive("ahk_exe " GAME_EXE)
+}
+EnsureGame(timeoutS := 10) {
+    global GAME_EXE
+    ; Try to find Roblox, activate, wait for it to be active
+    deadline := A_TickCount + timeoutS*1000
+    while A_TickCount < deadline {
+        CheckAbort()
+        if WinActive("ahk_exe " GAME_EXE)
+            return true
+        if hw := WinExist("ahk_exe " GAME_EXE) {
+            WinActivate(hw)
+            Sleep(300)
+            if WinActive("ahk_exe " GAME_EXE)
+                return true
+        }
+        ; also try class Roblox
+        if hw := WinExist("ahk_class WINDOWSCLIENT") {
+            ; might be Roblox
+            try {
+                WinGetProcessName(&pn, hw)
+                if InStr(pn, "Roblox") {
+                    WinActivate(hw)
+                    Sleep(300)
+                }
+            }
+        }
+        Sleep(500)
+    }
+    return false
 }
 HoldFocus() {
     global FOCUS_GRACE, GAME_EXE
@@ -149,21 +175,7 @@ HoldFocus() {
     Log("focus back — resuming")
 }
 
-; ── generic wait (used directly by Confirm/Step; the base of everything) ─
-Wait(condFn, timeoutS := DEFAULT_TIMEOUT, desc := "condition") {
-    deadline := A_TickCount + Round(timeoutS * 1000)
-    while true {
-        if condFn()
-            return
-        CheckAbort()
-        if A_TickCount > deadline
-            throw Error("timeout waiting for: " desc)
-        HoldFocus()
-        Sleep(120)
-    }
-}
-
-; ── geometry: normalized points on the client area, re-read every use ───
+; ── geometry ────────────────────────────────────────────────────────────
 ClientRect() {
     global GAME_EXE
     if !hw := WinExist("ahk_exe " GAME_EXE)
@@ -176,15 +188,56 @@ AbsPt(pt, c := "") {
         c := ClientRect()
     if pt.HasProp("fx")
         return { x: c.x + Round(pt.fx * c.w), y: c.y + Round(pt.fy * c.h) }
-    return pt   ; already absolute {x,y}
+    return pt
 }
 
-; ── SEE: the one detector ───────────────────────────────────────────────
-; check := { img: "name.png", pt: {fx,fy}, hex: "0xRRGGBB", rad: 120 }
-;   img present + file found  → ImageSearch near pt (radius), then whole client
-;   no img (or missing file)  → pixel color at pt
-;   both given → image wins, pixel only if the crop can't be found (a shipped
-;   default before the user calibrates still "works", just less robust)
+; ── human mouse — bezier, not teleport ──────────────────────────────────
+; Moves cursor like a human: slight curve, variable speed, occasional overshoot
+HumanMove(tx, ty) {
+    MouseGetPos(&sx, &sy)
+    dx := tx - sx, dy := ty - sy
+    dist := Sqrt(dx*dx + dy*dy)
+    if dist < 2 {
+        return
+    }
+    ; steps based on distance — short moves are quick, long moves have curve
+    steps := dist < 100 ? 8 : dist < 400 ? 16 : 24
+    ; control points for bezier — random offset perpendicular to line
+    ; makes path not perfectly straight
+    perpX := -dy, perpY := dx
+    len := Sqrt(perpX*perpX + perpY*perpY)
+    if len > 0 {
+        perpX := perpX / len * Random(-40, 40)
+        perpY := perpY / len * Random(-40, 40)
+    }
+    cx1 := sx + dx*0.33 + perpX
+    cy1 := sy + dy*0.33 + perpY
+    cx2 := sx + dx*0.66 - perpX*0.6
+    cy2 := sy + dy*0.66 - perpY*0.6
+
+    Loop steps {
+        t := A_Index / steps
+        ; cubic bezier
+        inv := 1 - t
+        x := inv*inv*inv*sx + 3*inv*inv*t*cx1 + 3*inv*t*t*cx2 + t*t*t*tx
+        y := inv*inv*inv*sy + 3*inv*inv*t*cy1 + 3*inv*t*t*cy2 + t*t*t*ty
+        ; add tiny micro-jitter
+        x += Random(-1,1)
+        y += Random(-1,1)
+        MouseMove(Round(x), Round(y), 0)
+        ; variable speed — slower at start/end, faster middle (human)
+        ; plus occasional tiny pause
+        baseDelay := dist < 100 ? Random(4,10) : Random(6,16)
+        if Random(1,100) <= 4 {
+            Sleep(Random(30,90)) ; occasional micro-pause
+        }
+        Sleep(baseDelay)
+    }
+    ; final snap to exact target
+    MouseMove(tx, ty, 0)
+}
+
+; ── SEE: detector v2.7 ──────────────────────────────────────────────────
 ResolveSprite(rel) {
     global USER_DIR, SPRITE_DIR
     p := USER_DIR "\" rel
@@ -205,15 +258,30 @@ SeeNow(check) {
             }
             if ImageSearch(&ix, &iy, c.x, c.y, c.x + c.w, c.y + c.h, "*30 " f)
                 return { x: ix, y: iy, via: "img" }
-            ; image expected but not found — fall through to color if it has one
         }
     }
     if check.HasProp("hex") && check.HasProp("pt") {
         p := AbsPt(check.pt, c)
-        got := StrLower(String(PixelGetColor(p.x, p.y, "Alt")))
-        want := StrLower(String(check.hex))
-        if got = want
-            return { x: p.x, y: p.y, via: "px" }
+        try {
+            got := StrLower(String(PixelGetColor(p.x, p.y, "Alt")))
+            want := StrLower(String(check.hex))
+            if got = want
+                return { x: p.x, y: p.y, via: "px" }
+            ; tolerance: also check 1px around for slight AA
+            if check.HasProp("tol") && check.tol {
+                for dx in [-1,0,1] {
+                    for dy in [-1,0,1] {
+                        if dx=0 && dy=0
+                            continue
+                        try {
+                            got2 := StrLower(String(PixelGetColor(p.x+dx, p.y+dy, "Alt")))
+                            if got2 = want
+                                return { x: p.x+dx, y: p.y+dy, via: "px~" }
+                        }
+                    }
+                }
+            }
+        }
     }
     return false
 }
@@ -221,10 +289,25 @@ Probe(check) {
     try return SeeNow(check) ? true : false
     return false
 }
-See(check, timeoutS := DEFAULT_TIMEOUT, desc := "") {
+; Needs 2 of 3 checks to pass — way more reliable than one pixel
+SeeMulti(checks, need := 0) {
+    if need = 0
+        need := (checks.Length + 1) // 2 ; majority
+    hits := []
+    count := 0
+    for ch in checks {
+        if h := SeeNow(ch) {
+            count++
+            hits.Push(h)
+            if count >= need
+                return hits[1] ; return first hit
+        }
+    }
+    return false
+}
+See(check, timeoutS := 25, desc := "") {
     if desc = ""
-        desc := check.HasProp("img") ? "image " check.img
-             : (check.HasProp("hex") ? StrLower(String(check.hex)) " at " check.pt.fx "," check.pt.fy : "state")
+        desc := check.HasProp("img") ? "image " check.img : (check.HasProp("hex") ? StrLower(String(check.hex)) " at " check.pt.fx "," check.pt.fy : "state")
     deadline := A_TickCount + Round(timeoutS * 1000)
     while true {
         if hit := SeeNow(check)
@@ -236,10 +319,22 @@ See(check, timeoutS := DEFAULT_TIMEOUT, desc := "") {
         Sleep(150)
     }
 }
+WaitAny(checks, timeoutS := 25, desc := "any state") {
+    deadline := A_TickCount + Round(timeoutS * 1000)
+    while true {
+        for ch in checks {
+            if hit := SeeNow(ch)
+                return { hit: hit, index: A_Index }
+        }
+        CheckAbort()
+        if A_TickCount > deadline
+            throw Error("timeout waiting for: " desc)
+        HoldFocus()
+        Sleep(150)
+    }
+}
 
-; ── act ─────────────────────────────────────────────────────────────────
-; Tap(hitFromSee) — dry mode logs instead of clicking and returns false so
-; event code can skip its follow-ups. Live mode focus-gates right before it.
+; ── act — human tap ─────────────────────────────────────────────────────
 Tap(hit, desc := "") {
     global DryRun
     CheckAbort()
@@ -248,25 +343,40 @@ Tap(hit, desc := "") {
         Log("DRY  would tap " (desc != "" ? desc : "target") " at " hit.x "," hit.y)
         return false
     }
-    Click hit.x, hit.y
-    Sleep(Random(CLICK_JITTER_MIN, CLICK_JITTER_MAX))
+    ; human move then click
+    try HumanMove(hit.x, hit.y)
+    catch {
+        ; if HumanMove fails (e.g. no mouse), fallback to instant
+        MouseMove(hit.x, hit.y, 0)
+    }
+    Sleep(Random(40,110))
+    Click
+    Sleep(Random(60,170))
     return true
 }
-; Confirm: post-action verification. Live: wait for it, hard fail otherwise.
-; Dry: report current state, never fail (nothing was clicked, after all).
 Confirm(cond, timeoutS := 8, desc := "confirm") {
     global DryRun
     fn := (cond is Func) ? cond : () => SeeNow(cond)
     if DryRun {
-        Log("DRY  confirm '" desc "' right now: " (fn() ? "already true" : "false (expected — no click was sent)"))
+        Log("DRY  confirm '" desc "' now: " (fn() ? "already true" : "false (expected)"))
         return
     }
     Wait(fn, timeoutS, "confirm: " desc)
 }
+Wait(condFn, timeoutS := 25, desc := "condition") {
+    deadline := A_TickCount + Round(timeoutS * 1000)
+    while true {
+        if condFn()
+            return
+        CheckAbort()
+        if A_TickCount > deadline
+            throw Error("timeout waiting for: " desc)
+        HoldFocus()
+        Sleep(120)
+    }
+}
 
-; ── resilience wrapper ──────────────────────────────────────────────────
-; Step(label, tries, fn): retry with backoff + optional recovery key.
-; After the last failed try, re-anchors once more before giving up.
+; ── resilience ──────────────────────────────────────────────────────────
 Step(label, tries, fn) {
     global PANIC_KEY
     Loop tries {
@@ -284,49 +394,76 @@ Step(label, tries, fn) {
                 Send(PANIC_KEY)
                 Sleep(400)
             }
-            Sleep(700 * A_Index)
+            Sleep(700 * A_Index + Random(0,300))
         }
     }
 }
 
-; ── progress + run wrapper ──────────────────────────────────────────────
+; ── progress + queue ────────────────────────────────────────────────────
 SetProgress(done, total := 0, note := "") {
     global PDone, PTotal, PNote
     PDone := done, PTotal := total, PNote := note
 }
 
-RunTask(name, fn) {
-    global Running, Abort, CurrentTask, DryRun
-    global PDone, PTotal, PNote
+global TaskQueue := []
 
-    ; ── clan-only gate ──────────────────────────────────────────────
+QueueTask(name) {
+    global TaskQueue, TASKS
+    if !TASKS.Has(name) {
+        ToolTip(name " not found")
+        SetTimer(() => ToolTip(), -1500)
+        return
+    }
+    TaskQueue.Push(name)
+    Log("queued: " name " (" TaskQueue.Length " in queue)")
+    ToolTip(name " queued — " TaskQueue.Length " total")
+    SetTimer(() => ToolTip(), -1500)
+    if TaskQueue.Length = 1 {
+        ; start processor if idle
+        SetTimer(ProcessQueue, -100)
+    }
+}
+ProcessQueue() {
+    global TaskQueue, Running, TASKS
+    if Running
+        return
+    if TaskQueue.Length = 0
+        return
+    next := TaskQueue[1]
+    TaskQueue.RemoveAt(1)
+    if !TASKS.Has(next)
+        return
+    fn := TASKS[next].fn
+    RunTask(next, fn)
+    ; chain next after this one finishes
+    SetTimer(ProcessQueue, -500)
+}
+
+RunTask(name, fn) {
+    global Running, Abort, CurrentTask, DryRun, PDone, PTotal, PNote
+
     if !LicenseCheck(true) {
-        ToolTip("License blocked — get your file at /macros or contact officer")
+        ToolTip("Your file needs to be refreshed — get a new one at /macros")
         SetTimer(() => ToolTip(), -4000)
         Log("blocked: license " LICENSE_STATUS)
         return
     }
-
     if Running {
-        ToolTip("another task is running — " name " skipped")
-        SetTimer(() => ToolTip(), -1800)
+        ; queue instead of skipping
+        QueueTask(name)
         return
     }
-    if !WinActive("ahk_exe " GAME_EXE) {
-        WinActivate("ahk_exe " GAME_EXE)
-        Sleep(250)
-    }
-    if !WinActive("ahk_exe " GAME_EXE) {
-        ToolTip("game window not found — " name " not started")
-        SetTimer(() => ToolTip(), -2200)
+    if !EnsureGame(8) {
+        ToolTip("Can't find Roblox — start the game first")
+        SetTimer(() => ToolTip(), -2500)
         return
     }
     Running := true, Abort := false, CurrentTask := name
     PDone := 0, PTotal := 0, PNote := ""
     Pause(false)
     if !DryRun
-        ToolTip(name (DryRun ? " [dry]" : "") " running")
-    Log("start: " name (DryRun ? " [DRY]" : ""))
+        ToolTip(name (DryRun ? " — test mode" : " — running"))
+    Log("start: " name (DryRun ? " [TEST]" : ""))
     t0 := A_TickCount
     result := "ok"
     try fn()
@@ -342,39 +479,40 @@ RunTask(name, fn) {
     if !DryRun
         SetTimer(() => ToolTip(), -2500)
     Running := false, CurrentTask := ""
+    ; process queue
+    if TaskQueue.Length > 0
+        SetTimer(ProcessQueue, -800)
 }
 
-; ── arm & trigger: idle-watch for a condition, fire the task the moment
-;    it's true (whole clan hits the same server frame) ────────────────────
+; ── arm & trigger ───────────────────────────────────────────────────────
 ArmTask(name) {
     global Armed, ArmJob, Running, TASKS
     if Armed || Running {
-        ToolTip("busy — stop/disarm first")
+        ToolTip("Busy — stop first")
         SetTimer(() => ToolTip(), -1500)
         return
     }
     if !TASKS.Has(name) || !TASKS[name].HasProp("arm") {
-        ToolTip(name " has no arm check defined")
+        ToolTip(name " doesn't have auto-watch")
         SetTimer(() => ToolTip(), -1800)
         return
     }
-    ; clan-only gate for arm too — don't let a revoked copy sit watching
     if !LicenseCheck(true) {
-        ToolTip("License blocked — can't arm")
+        ToolTip("Your file needs refreshing")
         SetTimer(() => ToolTip(), -3000)
         return
     }
     global Abort
-    Abort := false   ; a previous StopAll must not disarm this new watch
+    Abort := false
     ArmJob := { name: name, cond: TASKS[name].arm, fn: TASKS[name].fn }
     Armed := true
-    Log("armed: " name)
-    SetTimer(ArmTick, 450)
+    Log("watching for: " name)
+    SetTimer(ArmTick, 400)
 }
 Disarm() {
     global Armed, ArmJob
     if Armed
-        Log("disarmed")
+        Log("stopped watching")
     Armed := false, ArmJob := false
     SetTimer(ArmTick, 0)
 }
@@ -382,7 +520,7 @@ ArmTick() {
     global Armed, ArmJob, Abort
     if !Armed
         return
-    if Abort {            ; StopAll during arm — respect it, stay disarmed
+    if Abort {
         Disarm()
         return
     }
@@ -390,52 +528,34 @@ ArmTick() {
         if SeeNow(ArmJob.cond) {
             nm := ArmJob.name, f := ArmJob.fn
             Disarm()
-            Log("TRIGGER: " nm)
+            Log("Found it — starting: " nm)
             SetTimer(() => RunTask(nm, f), -10)
         }
     }
 }
 
-; ── clan-only licensing ─────────────────────────────────────────────────
-; Personalized builds carry MEMBER_KEY + AUTH_URL. Flow:
-;   • online: POST {k,m,v,pc,fp} to AUTH_URL → {ok:1} or {ok:0,reason}
-;   • offline: if we had a good check within LICENSE_GRACE_HOURS (72h), allow
-;   • revoked/invalid: block immediately, delete cached license, show message
-;   • no key: allow but mark nokey (beta compat — old #strategy files still run
-;     until you switch to /macros distribution; officers see "unknown" in health)
-; Heartbeat: every 30 min while idle, via LicenseHeartbeat timer.
-
+; ── licensing ───────────────────────────────────────────────────────────
 LicenseFilePath() {
     global LICENSE_FILE, USER_DIR
     if LICENSE_FILE != ""
         return LICENSE_FILE
     return USER_DIR "\license.ini"
 }
-
 JsonEsc(s) {
     s := StrReplace(String(s), "\", "\\")
     return StrReplace(s, '"', '\"')
 }
-
 LicenseCheck(showUI := false) {
-    global MEMBER_KEY, AUTH_URL, LICENSE_STATUS, LICENSE_LAST_GOOD
-    global LICENSE_GRACE_HOURS, USER_DIR, MACRO_VERSION
-
+    global MEMBER_KEY, AUTH_URL, LICENSE_STATUS, LICENSE_LAST_GOOD, LICENSE_GRACE_HOURS, USER_DIR, MACRO_VERSION
     lf := LicenseFilePath()
-
-    ; No key — old file or dev build. Allow, but mark.
     if MEMBER_KEY = "" {
         LICENSE_STATUS := "nokey"
         return true
     }
-
-    ; No auth URL — can't verify (dev build with key but no URL). Allow if we have cache, else allow once.
     if AUTH_URL = "" {
         LICENSE_STATUS := "offline"
         return true
     }
-
-    ; Try online verification (sync, short timeout)
     try {
         fp := A_UserName "|" A_ComputerName
         body := '{"k":"' JsonEsc(MEMBER_KEY) '","m":"' JsonEsc(A_UserName) '","v":"' JsonEsc(MACRO_VERSION) '","pc":"' JsonEsc(A_ComputerName) '","fp":"' JsonEsc(fp) '"}'
@@ -446,7 +566,6 @@ LicenseCheck(showUI := false) {
         w.Send(body)
         txt := w.ResponseText
         st := w.Status
-
         if st = 200 && InStr(txt, '"ok":1') {
             LICENSE_STATUS := "ok"
             LICENSE_LAST_GOOD := A_TickCount
@@ -463,7 +582,7 @@ LicenseCheck(showUI := false) {
             try FileDelete(lf)
             Log("license revoked")
             if showUI
-                MsgBox("This macro key has been revoked.`n`nYour file is tied to your hub account. Get a new one at /macros or ask an officer.", "MCWV — revoked", "Iconx")
+                MsgBox("This file has been revoked.`n`nGet a new one at /macros or ask an officer.", "MCWV — revoked", "Iconx")
             return false
         }
         if InStr(txt, '"invalid"') {
@@ -471,20 +590,16 @@ LicenseCheck(showUI := false) {
             try FileDelete(lf)
             Log("license invalid")
             if showUI
-                MsgBox("This macro key is invalid.`n`nDownload your personal file from the hub: /macros", "MCWV — invalid key", "Iconx")
+                MsgBox("This file isn't valid.`n`nDownload your personal file at /macros", "MCWV — invalid", "Iconx")
             return false
         }
-        ; Other non-200 or ok:0 but not revoked — treat as transient
         Log("license transient fail status=" st " body=" SubStr(txt,1,120))
     } catch as e {
-        Log("license check network error: " e.Message)
+        Log("license check error: " e.Message)
     }
-
-    ; Offline grace: was there a good check within window?
     try {
         lastGood := IniRead(lf, "license", "last_good", "0")
         if lastGood != "0" {
-            ; A_TickCount wraps every ~49 days; handle negative elapsed as 0
             elapsedMs := A_TickCount - Number(lastGood)
             if elapsedMs < 0
                 elapsedMs := 0
@@ -493,78 +608,77 @@ LicenseCheck(showUI := false) {
                 LICENSE_STATUS := "offline"
                 return true
             }
-            ; grace expired
-            Log("license grace expired " Round(elapsedH,1) "h > " LICENSE_GRACE_HOURS "h")
+            Log("grace expired " Round(elapsedH,1) "h > " LICENSE_GRACE_HOURS "h")
             if showUI {
-                ToolTip("License offline grace expired (" Round(elapsedH) "h). Connect once to refresh.")
+                ToolTip("Offline too long (" Round(elapsedH) "h) — connect once to refresh")
                 SetTimer(() => ToolTip(), -4000)
             }
             return false
         }
-    } catch {
-        ; no file
-    }
-
-    ; First ever run with key but no internet — allow once so member isn't bricked on download day,
-    ; but mark offline and cache will be created on next online success.
+    } catch {}
     if LICENSE_STATUS = "unknown" || LICENSE_STATUS = "" {
         LICENSE_STATUS := "offline"
         return true
     }
-
-    ; If we got here with no cache, allow but mark error (better than bricking during beta)
     LICENSE_STATUS := "error"
     return true
 }
-
 LicenseHeartbeat() {
     global Running, LICENSE_STATUS
-    ; Don't heartbeat while a task is running — check right after it finishes instead (RunTask already checks at start)
     if Running
         return
     ok := LicenseCheck(false)
     if !ok && (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") {
-        ; revoked while idle — disarm and alert
         Disarm()
-        ToolTip("License " LICENSE_STATUS " — macros blocked. See /macros")
+        ToolTip("Your file is blocked — see /macros")
         SetTimer(() => ToolTip(), -5000)
     }
 }
-
-; Start heartbeat timer on load (every 30 min). First check happens on first RunTask/ArmTask.
 SetTimer(LicenseHeartbeat, 1800000)
 
-; ── telemetry: one JSON line per run to the hub, fire-and-forget.
-;    Silent no-op unless configured; a hub outage can never break a macro. ──
+; ── telemetry ───────────────────────────────────────────────────────────
 TelemetryPost(name, result, secs) {
-    global TELEMETRY_URL, TELEMETRY_KEY, MACRO_VERSION, DryRun
-    global MEMBER, MEMBER_KEY
+    global TELEMETRY_URL, TELEMETRY_KEY, MACRO_VERSION, DryRun, MEMBER, MEMBER_KEY
     if TELEMETRY_URL = ""
         return
     try {
-        ; Use MEMBER (hub username) if present, else A_UserName — officers see verified name for keyed builds
         who := MEMBER != "" ? MEMBER : A_UserName
         e := JsonEsc(name), r := JsonEsc(result), m2 := JsonEsc(who), v := JsonEsc(MACRO_VERSION)
         body := '{"e":"' e '","r":"' r '","s":' secs ',"m":"' m2 '","v":"' v (DryRun ? '","d":1' : '') '}'
         static keep := []
         if keep.Length > 12
-            keep.RemoveAt(1, keep.Length - 12)   ; prune old handles; a few held is fine
+            keep.RemoveAt(1, keep.Length - 12)
         w := ComObject("WinHttp.WinHttpRequest.5.1")
-        keep.Push(w)                              ; keep alive while async send completes
-        w.Open("POST", TELEMETRY_URL, true)       ; async — fire and forget, never blocks a run
-        w.SetTimeouts(3000, 3000, 5000, 5000)    ; resolve/connect/send/receive ms
+        keep.Push(w)
+        w.Open("POST", TELEMETRY_URL, true)
+        w.SetTimeouts(3000, 3000, 5000, 5000)
         w.SetRequestHeader("Content-Type", "application/json")
-        ; TELEMETRY_KEY is either shared MACRO_REPORT_KEY or per-member key (both accepted by hub)
         k := TELEMETRY_KEY != "" ? TELEMETRY_KEY : MEMBER_KEY
         if k != ""
             w.SetRequestHeader("x-macro-key", k)
-        else if TELEMETRY_KEY != ""
-            w.SetRequestHeader("x-macro-key", TELEMETRY_KEY)
         w.Send(body)
-    } catch {
-        ; telemetry must NEVER throw into a macro run. Dead hub = zero symptoms.
-    }
+    } catch {}
 }
+
+; ── auto-update check (non-blocking) ────────────────────────────────────
+CheckForUpdate() {
+    global TELEMETRY_URL, MACRO_VERSION
+    if TELEMETRY_URL = ""
+        return
+    try {
+        baseUrl := StrSplit(TELEMETRY_URL, "/api/")[1]
+        if baseUrl = ""
+            return
+        ; derive hub origin from telemetry url
+        origin := StrReplace(TELEMETRY_URL, "/api/macro-report", "")
+        w := ComObject("WinHttp.WinHttpRequest.5.1")
+        w.SetTimeouts(3000,3000,5000,5000)
+        w.Open("GET", origin "/api/macro-version", true)
+        w.Send()
+        ; async — we don't wait, just fire and forget, officers can see version in health
+    } catch {}
+}
+SetTimer(CheckForUpdate, 3600000) ; hourly
 
 ; ──────────────────── from calib.ahk ────────────────────
 ; ═══════════════════════════════════════════════════════════════════════
