@@ -414,6 +414,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
           links: [
             { href: "/announcements", label: "Announcements", icon: "📣", description: "Clan news — pinned, reactions, scheduled" },
             { href: "/strategy", label: "Strategy", icon: "🧠", description: "Tactics queue — fix & approve, war-scoped" },
+            { href: "/macros", label: "My Macros", icon: "📦", description: "Your personal macro file — clan-only, auto-keyed" },
             { href: "/servers", label: "Private Servers", icon: "🔗", description: "Live join links + who's around" },
           ],
         },
@@ -430,6 +431,7 @@ export default function Navbar({ initialUser = null }: { initialUser?: NavbarIni
             { href: "/admin?section=broadcast", label: "Broadcast", icon: "📣", description: "Send staff announcements" },
             { href: "/admin?section=players", label: "Players", icon: "👥", description: "Tracked members and presence" },
             { href: "/war/profiles", label: "Profiles", icon: "👤", description: "Roster, gems, gamepasses, leaderboard" },
+            { href: "/macro-health", label: "Macro Health", icon: "🤖", description: "Fleet telemetry — what broke after the update, where" },
             { href: "/admin?section=events", label: "Events", icon: "🎁", description: "Giveaways and invite events" },
             { href: "/admin?section=logs", label: "Logs", icon: "📜", description: "Audit and bot logs" },
             { href: "/admin", label: "Admin Overview", icon: "🧭", description: "Control panel overview" },
