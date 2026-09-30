@@ -31,7 +31,7 @@ function normalizeRole(role: unknown): AuthenticatedUser["role"] {
 // role/username change landing up to AUTH_CACHE_TTL_MS late on a warm
 // isolate, which is an acceptable trade against 30-60s hangs for a
 // 65-member clan hub.
-const AUTH_CACHE_TTL_MS = 60_000; // was 10s, bumped to 60s for pooler wave (prod 2026-09-30: auth/me hit every request, 10s cache still hammered pooler)
+const AUTH_CACHE_TTL_MS = 300_000; // was 10s → 60s → 300s (5min) for pooler wave — auth/me hit every request // was 10s, bumped to 60s for pooler wave (prod 2026-09-30: auth/me hit every request, 10s cache still hammered pooler)
 const AUTH_CACHE_MAX = 200;
 const authCache = new Map<number, { user: AuthenticatedUser; at: number }>();
 
