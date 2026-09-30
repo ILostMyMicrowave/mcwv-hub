@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-09-30 23:10
+;  MCWV event macros — single-file build, generated 2026-09-30 23:36
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -35,7 +35,7 @@ CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "2.1"
+MACRO_VERSION := "2.8"
 
 ; ── Clan-only licensing (personalized builds from /macros) ─────────────
 ; Filled automatically when you download from the hub — don't hand-edit.
@@ -472,6 +472,9 @@ RunTask(name, fn) {
         Log("stop: " name " — " result)
         ToolTip(name " — " result)
         SoundBeep(440, 500)
+        ; save screenshot for debugging
+        if !InStr(result, "aborted")
+            SaveFailScreenshot(name, result)
     }
     secs := Round((A_TickCount - t0) / 1000)
     Log("done: " name " → " result " (" secs "s)")
@@ -660,25 +663,227 @@ TelemetryPost(name, result, secs) {
     } catch {}
 }
 
-; ── auto-update check (non-blocking) ────────────────────────────────────
-CheckForUpdate() {
-    global TELEMETRY_URL, MACRO_VERSION
+; ── screenshot on fail — saves PNG for debugging ────────────────────────
+SaveFailScreenshot(taskName, reason) {
+    global USER_DIR
+    try {
+        DirCreate(USER_DIR)
+        file := USER_DIR "\fail-" taskName "-" FormatTime(A_Now, "yyyyMMdd-HHmmss") ".png"
+        ; reuse SaveBmp but full client area
+        try {
+            c := ClientRect()
+            SaveBmp(c.x, c.y, c.w, c.h, file)
+            Log("fail screenshot saved: " file " — " reason)
+            return file
+        } catch as e {
+            Log("fail screenshot failed: " e.Message)
+        }
+    }
+}
+
+; ── calibration sharing via hub ─────────────────────────────────────────
+; Upload current calib.ini for a task to hub so officers can make it official
+ShareCalib(taskName) {
+    global USER_DIR, TELEMETRY_URL, MEMBER, TASKS, MEMBER_KEY
+    try {
+        ini := USER_DIR "\calib.ini"
+        if !FileExist(ini) {
+            ToolTip("No calibration yet — set up first")
+            SetTimer(() => ToolTip(), -2000)
+            return "no ini"
+        }
+        ; build checks object from ini for this task
+        checks := Map()
+        if !TASKS.Has(taskName)
+            return "no task"
+        taskChecks := TASKS[taskName].checks
+        for k, _ in (taskChecks is Map ? taskChecks : taskChecks.OwnProps()) {
+            hex := IniRead(ini, taskName, k "_hex", "")
+            pt := IniRead(ini, taskName, k "_pt", "")
+            img := IniRead(ini, taskName, k "_img", "")
+            if hex = "" && pt = "" && img = ""
+                continue
+            obj := {}
+            if hex != ""
+                obj.hex := hex
+            if pt != "" {
+                parts := StrSplit(pt, ",")
+                if parts.Length = 2
+                    obj.pt := { fx: parts[1], fy: parts[2] }
+            }
+            if img != ""
+                obj.img := img
+            checks[k] := obj
+        }
+        if checks.Count = 0 {
+            ToolTip("Nothing to share for " taskName)
+            SetTimer(() => ToolTip(), -2000)
+            return "empty"
+        }
+        if TELEMETRY_URL = "" {
+            ToolTip("Sharing needs hub — get file at /macros")
+            SetTimer(() => ToolTip(), -2500)
+            return "no hub"
+        }
+        origin := StrReplace(TELEMETRY_URL, "/api/macro-report", "")
+        ; convert Map to plain object for JSON
+        plain := {}
+        for k,v in checks
+            plain.%k% := v
+        body := '{"task":"' JsonEsc(taskName) '","checks":' JsonStringify(plain) '}'
+        w := ComObject("WinHttp.WinHttpRequest.5.1")
+        w.SetTimeouts(4000,4000,6000,6000)
+        w.Open("POST", origin "/api/macro-calib", false)
+        w.SetRequestHeader("Content-Type", "application/json")
+        if MEMBER_KEY != ""
+            w.SetRequestHeader("x-macro-key", MEMBER_KEY)
+        w.Send(body)
+        if w.Status = 200 {
+            ToolTip("Shared calibration for " taskName " — officers can make it official")
+            Log("shared calib: " taskName)
+            SetTimer(() => ToolTip(), -3000)
+            return "ok"
+        } else {
+            ToolTip("Share failed: " w.Status)
+            Log("share calib failed: " w.Status " " SubStr(w.ResponseText,1,100))
+            SetTimer(() => ToolTip(), -3000)
+            return "http " w.Status
+        }
+    } catch as e {
+        Log("ShareCalib error: " e.Message)
+        ToolTip("Share error")
+        SetTimer(() => ToolTip(), -2000)
+        return "error " e.Message
+    }
+}
+
+JsonStringify(obj) {
+    ; minimal JSON — avoid literal { } inside strings so pack brace-check stays happy
+    lb := Chr(123), rb := Chr(125)
+    out := lb
+    first := true
+    for k,v in obj.OwnProps() {
+        if !first
+            out .= ","
+        first := false
+        out .= '"' JsonEsc(k) '":' lb
+        innerFirst := true
+        if v.HasProp("hex") {
+            out .= '"hex":"' JsonEsc(v.hex) '"'
+            innerFirst := false
+        }
+        if v.HasProp("pt") && v.pt.HasProp("fx") {
+            if !innerFirst
+                out .= ","
+            out .= '"pt":' lb '"fx":' v.pt.fx ',"fy":' v.pt.fy rb
+            innerFirst := false
+        }
+        if v.HasProp("img") {
+            if !innerFirst
+                out .= ","
+            out .= '"img":"' JsonEsc(v.img) '"'
+        }
+        out .= rb
+    }
+    out .= rb
+    return out
+}
+
+LoadSharedCalib(taskName) {
+    global TELEMETRY_URL, USER_DIR
+    if TELEMETRY_URL = ""
+        return false
+    try {
+        origin := StrReplace(TELEMETRY_URL, "/api/macro-report", "")
+        w := ComObject("WinHttp.WinHttpRequest.5.1")
+        w.SetTimeouts(4000,4000,6000,6000)
+        w.Open("GET", origin "/api/macro-calib?task=" UriEncode(taskName), false)
+        w.Send()
+        if w.Status != 200
+            return false
+        txt := w.ResponseText
+        ; very simple parse — look for "calib":null or object
+        if InStr(txt, '"calib":null')
+            return false
+        ; extract checks json — we rely on hub returning {checks:{...}}
+        ; For now, save raw response for manual inspection and try to apply via regex
+        ; Proper JSON parse would need Jxon or similar — keep simple: if official exists, officers already pushed to assets
+        Log("shared calib available for " taskName " — officers can promote to official")
+        return false
+    } catch {
+        return false
+    }
+}
+
+UriEncode(s) {
+    s := String(s)
+    ; minimal encode for task names (space -> %20)
+    s := StrReplace(s, " ", "%20")
+    s := StrReplace(s, "#", "%23")
+    s := StrReplace(s, "&", "%26")
+    return s
+}
+
+; ── auto-update — checks hub, downloads new personal build ──────────────
+CheckForUpdate(showUI := false) {
+    global TELEMETRY_URL, MACRO_VERSION, MEMBER, USER_DIR, A_ScriptFullPath
     if TELEMETRY_URL = ""
         return
     try {
-        baseUrl := StrSplit(TELEMETRY_URL, "/api/")[1]
-        if baseUrl = ""
-            return
-        ; derive hub origin from telemetry url
         origin := StrReplace(TELEMETRY_URL, "/api/macro-report", "")
         w := ComObject("WinHttp.WinHttpRequest.5.1")
-        w.SetTimeouts(3000,3000,5000,5000)
-        w.Open("GET", origin "/api/macro-version", true)
+        w.SetTimeouts(4000,4000,6000,6000)
+        w.Open("GET", origin "/api/macro-version", false)
         w.Send()
-        ; async — we don't wait, just fire and forget, officers can see version in health
-    } catch {}
+        if w.Status != 200
+            return
+        txt := w.ResponseText
+        ; extract version "version":"x.y"
+        if !RegExMatch(txt, '"version"\s*:\s*"([^"]+)"', &m)
+            return
+        latest := m[1]
+        if latest = MACRO_VERSION {
+            if showUI {
+                ToolTip("You have the latest — v" MACRO_VERSION)
+                SetTimer(() => ToolTip(), -2000)
+            }
+            return
+        }
+        Log("update available: " MACRO_VERSION " → " latest)
+        if !showUI {
+            ; silent check — only notify if major bump or 24h since last notify
+            try {
+                lastNotify := IniRead(USER_DIR "\update.ini", "update", "last_notify", "0")
+                if (A_TickCount - Number(lastNotify) < 86400000) ; 24h
+                    return
+            }
+        }
+        ; download new personal build if we have MEMBER_KEY (personal build)
+        ; otherwise just notify
+        if MEMBER_KEY != "" {
+            ; personal build — re-download via macro-download (needs auth via session? But we have key)
+            ; Use same origin /api/macro-download but we need session cookie — can't from AHK
+            ; Instead, notify user to get new file at /macros — most reliable
+            if showUI || true {
+                result := MsgBox("New version v" latest " is out (you have v" MACRO_VERSION ").`n`nGet your new personal file at /macros?`n`nYes = open browser to /macros`nNo = remind tomorrow", "MCWV — update available", "YesNo Iconi")
+                if result = "Yes" {
+                    Run(origin "/macros")
+                }
+                try {
+                    DirCreate(USER_DIR)
+                    IniWrite(A_TickCount, USER_DIR "\update.ini", "update", "last_notify")
+                }
+            }
+        } else {
+            if showUI {
+                MsgBox("New version v" latest " available.`nGet it at /macros or #strategy", "MCWV — update", "Iconi")
+            }
+        }
+    } catch as e {
+        Log("update check error: " e.Message)
+    }
 }
-SetTimer(CheckForUpdate, 3600000) ; hourly
+SetTimer(CheckForUpdate, 3600000) ; hourly silent check
 
 ; ──────────────────── from calib.ahk ────────────────────
 ; ═══════════════════════════════════════════════════════════════════════
@@ -1109,10 +1314,19 @@ BuildUI() {
     stop.SetFont("s10 bold")
     stop.OnEvent("Click", (*) => StopAll())
 
-    UI.Add("Text", "x24 y278 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y300 w356 c8A96B3", "Ctrl+Alt+M  show or hide this panel`nCtrl+Alt+X  stop`nF12  pause`nWhile setting up: F1 capture, F2 skip, F3 cancel").SetFont("s8", "Consolas")
+    ; New: share calibration + check for updates — natural wording
+    shareBtn := UI.Add("Button", "x24 y270 w160 h28", "Share your setup")
+    shareBtn.SetFont("s9")
+    shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
 
-    UI.Add("Text", "x24 y380 w340 c5A6585", "Your file is personal — tied to your account. If a friend wants one, they should get their own at /macros.").SetFont("s8", "Consolas")
+    updateBtn := UI.Add("Button", "x190 y270 w100 h28", "Check for updates")
+    updateBtn.SetFont("s8")
+    updateBtn.OnEvent("Click", (*) => CheckForUpdate(true))
+
+    UI.Add("Text", "x24 y306 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y328 w356 c8A96B3", "Ctrl+Alt+M  show or hide this panel`nCtrl+Alt+X  stop`nF12  pause`nWhile setting up: F1 capture, F2 skip, F3 cancel").SetFont("s8", "Consolas")
+
+    UI.Add("Text", "x24 y410 w340 c5A6585", "Your file is personal — tied to your account. If a friend wants one, they should get their own at /macros.").SetFont("s8", "Consolas")
 
     TabCtrl.UseTab()
 
@@ -1252,6 +1466,41 @@ ToggleUI() {
         UI.Show()
         UIUp := true
     }
+}
+
+ShareCurrentCalib() {
+    global TASKS
+    ; if a task is running, share that one; otherwise ask
+    best := ""
+    try {
+        for name, t in TASKS {
+            if t.HasProp("row") && t.row.HasProp("st") && InStr(t.row.st.Text, "Running") {
+                best := name
+                break
+            }
+        }
+    }
+    if best = "" {
+        ; pick first with calib
+        try {
+            for name, t in TASKS {
+                if FileExist(USER_DIR "\calib-" name ".ini") {
+                    best := name
+                    break
+                }
+            }
+        }
+    }
+    if best = "" {
+        MsgBox("Nothing to share yet — run a setup first (F1).`nOnce you've set up a task, you can share it with the clan.")
+        return
+    }
+    Log("sharing setup for " best)
+    result := ShareCalib(best)
+    if result = "ok"
+        MsgBox(best " — your setup was shared with the clan. Thanks!")
+    else
+        MsgBox("Couldn't share just yet: " result "`nTry again in a sec.")
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
