@@ -13,7 +13,6 @@ function ahkEsc(s: string): string {
   return String(s).replace(/"/g, '""');
 }
 
-// Performance: cache template in memory after first read
 let cachedTpl: string | null = null;
 let cachedMtime: number = 0;
 function getTemplate(): string {
@@ -26,11 +25,9 @@ function getTemplate(): string {
     cachedMtime = stat.mtimeMs;
     return content;
   } catch {
-    // Fallback: try public assets or dist
     const altPaths = [
       path.join(process.cwd(), "public", "mcwv-macros.template.ahk"),
       path.join(process.cwd(), "assets", "mcwv-macros.ahk"),
-      path.join(process.cwd(), "..", "finished-files", "ahk-base-2026-09-29", "dist", "mcwv-macros.ahk"),
     ];
     for (const p of altPaths) {
       try {
@@ -46,6 +43,8 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Please sign in to get your macros" }, { status: 401 });
 
   let keyRow: { id: number; key: string; member_name: string } | null = null;
+  let dbDown = false;
+
   try {
     const { rows } = await pool.query(
       `select id, key, member_name from mcwv_macro_keys where member_id = $1 and revoked_at is null order by last_seen desc nulls last, issued_at desc limit 1`,
@@ -61,27 +60,45 @@ export async function GET(req: NextRequest) {
       keyRow = ins[0];
     }
   } catch (e) {
-    console.error("[macro-download] key issue failed:", (e as Error).message?.slice(0, 200));
-    return NextResponse.json({ error: "Having trouble reaching the database — try again in a moment" }, { status: 503 });
+    console.error("[macro-download] db blip on key lookup/issue:", (e as Error).message?.slice(0, 200));
+    dbDown = true;
+    // Don't fail yet — we'll serve a temporary unpersonalized file so member isn't blocked mid-war
   }
-
-  if (!keyRow) return NextResponse.json({ error: "Couldn't create your personal file — try again" }, { status: 503 });
 
   let tpl: string;
   try {
     tpl = getTemplate();
   } catch {
-    console.error("[macro-download] template missing at", path.join(process.cwd(), "assets", "mcwv-macros.template.ahk"));
+    console.error("[macro-download] template missing");
     return NextResponse.json({ 
-      error: "Macro file not ready yet — the template is missing on the server. An officer needs to upload assets/mcwv-macros.template.ahk (copy dist/mcwv-macros.ahk there).",
-      hint: "Officer fix: copy finished-files/ahk-base-2026-09-29/dist/mcwv-macros.ahk to hub-deployed/assets/mcwv-macros.template.ahk and redeploy"
+      error: "Macro file isn't ready on the server yet. An officer needs to upload assets/mcwv-macros.template.ahk",
     }, { status: 503 });
   }
 
   const origin = req.nextUrl.origin;
+
+  // If DB down, serve temporary file (nokey mode) with clear watermark — member can re-download later for personal key
+  if (dbDown || !keyRow) {
+    const watermark = `; ───────────────────────────────────────────────────────────
+;  Temporary build for ${user.username} — DB was having a moment, so this is unpersonalized
+;  It works fine, but please re-download from ${origin}/macros later to get your personal key
+;  Generated ${new Date().toISOString().slice(0, 10)}
+; ───────────────────────────────────────────────────────────
+`;
+    const out = tpl.replace(/(#Requires AutoHotkey v2\.0[^\n]*\n)/, `$1${watermark}\n`);
+    return new NextResponse(out, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": `attachment; filename="mcwv-macros-${user.username}-temp.ahk"`,
+        "Cache-Control": "no-store",
+        "X-MCWV-DB-Down": "1",
+      },
+    });
+  }
+
   const memberKey = keyRow.key;
   const memberName = user.username;
-
   let out = tpl;
   if (out.includes("MEMBER_KEY")) {
     out = out.replace(/MEMBER_KEY\s*:=\s*".*?"/, `MEMBER_KEY := "${ahkEsc(memberKey)}"`);
@@ -121,8 +138,7 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Content-Disposition": `attachment; filename="mcwv-macros-${memberName}.ahk"`,
-      "Cache-Control": "no-store, no-cache, must-revalidate",
-      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store",
     },
   });
 }
