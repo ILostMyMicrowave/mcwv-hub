@@ -23,6 +23,8 @@ const PUBLIC_PAGES = new Set(["/privacy", "/terms", "/bounty"])
 // own WAR_COLLECT_SECRET or BOT_ADMIN_API_KEY after middleware passes it.
 const MACHINE_API_PATHS = new Set([
   "/api/war-collector",
+  "/api/macro-report", // AHK fleet telemetry: x-macro-key (shared OR per-member) auth lives IN the route; members' machines have no session cookie
+  "/api/macro-activate", // AHK license heartbeat: per-member key in JSON body, no session cookie
   "/api/internal/badge-role-sync",
   "/api/internal/biggames-connected",
   "/api/internal/discord-guild-check",
