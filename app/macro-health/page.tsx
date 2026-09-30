@@ -54,7 +54,6 @@ export default function MacroHealthPage() {
   const [err, setErr] = useState<string | null>(null);
   const [gate, setGate] = useState<"none" | "login" | "officer">("none");
   const [issueName, setIssueName] = useState("");
-  const [issueBusy, setIssueBusy] = useState(false);
 
   const loadHealth = useCallback(async (h: number) => {
     setBusy(true);
@@ -62,9 +61,9 @@ export default function MacroHealthPage() {
       const res = await fetch(`/api/macro-report?hours=${h}`, { cache: "no-store" });
       if (res.status === 401) { setGate("login"); return; }
       if (res.status === 403) { setGate("officer"); return; }
-      if (res.status === 503) { setErr("telemetry disabled — run the migration and set MACRO_REPORT_KEY"); return; }
+      if (res.status === 503) { setErr("Can't reach the database right now — try again in a moment."); return; }
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) { setErr(data?.error ?? "Couldn't reach the hub — try again."); return; }
+      if (!res.ok || !data?.ok) { setErr(data?.error ?? "Couldn't load the data — try refreshing."); return; }
       setEvents(data.events ?? []);
       setFails(data.recent_failures ?? []);
       setErr(null);
@@ -104,7 +103,7 @@ export default function MacroHealthPage() {
         body: JSON.stringify({ action, id, reason }),
       });
       const j = await res.json().catch(() => null);
-      if (!res.ok) setErr(j?.error ?? `${action} failed`);
+      if (!res.ok) setErr(j?.error ?? `Couldn't ${action} that key`);
       else await loadKeys();
     } finally {
       setBusy(false);
@@ -113,7 +112,7 @@ export default function MacroHealthPage() {
 
   const issue = async () => {
     if (!issueName.trim()) return;
-    setIssueBusy(true);
+    setBusy(true);
     try {
       const res = await fetch("/api/macro-keys", {
         method: "POST",
@@ -121,22 +120,37 @@ export default function MacroHealthPage() {
         body: JSON.stringify({ action: "issue", memberName: issueName.trim() }),
       });
       const j = await res.json().catch(() => null);
-      if (!res.ok) setErr(j?.error ?? "issue failed");
+      if (!res.ok) setErr(j?.error ?? "Couldn't create that key");
       else {
         setIssueName("");
         await loadKeys();
       }
     } finally {
-      setIssueBusy(false);
+      setBusy(false);
     }
   };
 
-  if (gate !== "none") {
+  if (gate === "login") {
     return (
       <main className="min-h-screen bg-[var(--background)] pb-16">
         <Navbar />
-        <div className="mx-auto mt-24 max-w-lg rounded-2xl border border-[var(--border)] px-6 py-10 text-center text-sm text-[var(--foreground)]/70">
-          {gate === "login" ? "Sign in to see fleet health." : "Macro Health is an officers-only view."}
+        <div className="mx-auto mt-24 max-w-lg rounded-2xl border border-[var(--border)] px-6 py-10 text-center">
+          <div className="text-2xl mb-2">🔒</div>
+          <div className="text-sm font-semibold">Please sign in</div>
+          <div className="mt-2 text-sm text-[var(--foreground)]/60">You need to be signed in as an officer to see this page.</div>
+          <a href="/login" className="mt-5 inline-flex min-h-11 items-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-bold text-black">Sign in</a>
+        </div>
+      </main>
+    );
+  }
+  if (gate === "officer") {
+    return (
+      <main className="min-h-screen bg-[var(--background)] pb-16">
+        <Navbar />
+        <div className="mx-auto mt-24 max-w-lg rounded-2xl border border-[var(--border)] px-6 py-10 text-center">
+          <div className="text-2xl mb-2">🛡️</div>
+          <div className="text-sm font-semibold">Officers only</div>
+          <div className="mt-2 text-sm text-[var(--foreground)]/60">This area is just for officers — it shows everyone's macro health and keys. If you're a member, your own macros are at <a href="/macros" className="underline">/macros</a>.</div>
         </div>
       </main>
     );
@@ -151,52 +165,51 @@ export default function MacroHealthPage() {
       <Navbar />
       <div className="mx-auto max-w-5xl px-4 pt-8">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">🤖 Macro Health</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Macro health</h1>
           <div className="flex overflow-hidden rounded-2xl border border-[var(--border)] text-sm">
-            <button type="button" onClick={() => setTab("health")} className={`min-h-11 px-4 transition ${tab === "health" ? "bg-[var(--primary)] font-bold text-black" : "text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]"}`}>Fleet</button>
-            <button type="button" onClick={() => setTab("keys")} className={`min-h-11 px-4 transition ${tab === "keys" ? "bg-[var(--primary)] font-bold text-black" : "text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]"}`}>Keys</button>
+            <button type="button" onClick={() => setTab("health")} className={`min-h-11 px-4 transition ${tab === "health" ? "bg-[var(--primary)] font-bold text-black" : "text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]"}`}>Overview</button>
+            <button type="button" onClick={() => setTab("keys")} className={`min-h-11 px-4 transition ${tab === "keys" ? "bg-[var(--primary)] font-bold text-black" : "text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]"}`}>Members & keys</button>
           </div>
-          {tab === "health" && (
+          {tab === "health" ? (
             <>
               <div className="flex overflow-hidden rounded-2xl border border-[var(--border)] text-sm">
                 {[24, 168].map((h) => (
                   <button key={h} type="button" disabled={busy} onClick={() => setHours(h)}
                     className={`min-h-11 px-4 transition ${hours === h ? "bg-[var(--primary)] font-bold text-black" : "text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]"}`}>
-                    {h === 24 ? "24h" : "7d"}
+                    {h === 24 ? "Last 24h" : "Last 7 days"}
                   </button>
                 ))}
               </div>
               <button type="button" disabled={busy} onClick={() => void loadHealth(hours)}
                 className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.05] px-4 text-sm text-[var(--foreground)]/85 transition hover:bg-[var(--foreground)]/[0.07] disabled:opacity-40">
-                {busy ? "refreshing…" : "refresh"}
+                {busy ? "Refreshing…" : "Refresh"}
               </button>
               {health !== null && (
                 <span className={`min-h-11 inline-flex items-center rounded-2xl px-4 text-sm font-bold ${health >= 98 ? "bg-[var(--primary)]/15 text-[var(--primary)]" : health >= 90 ? "bg-[var(--accent)]/15 text-[var(--accent)]" : "bg-red-500/15 text-red-400"}`}>
-                  {health}% clean
+                  {health}% working
                 </span>
               )}
             </>
-          )}
-          {tab === "keys" && (
+          ) : (
             <button type="button" disabled={busy} onClick={() => void loadKeys()}
               className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.05] px-4 text-sm text-[var(--foreground)]/85 transition hover:bg-[var(--foreground)]/[0.07] disabled:opacity-40">
-              {busy ? "refreshing…" : "refresh"}
+              {busy ? "Refreshing…" : "Refresh"}
             </button>
           )}
         </div>
 
         <p className="mt-2 text-sm text-[var(--foreground)]/50">
-          {tab === "health" ? "One line per macro run per member · manual stops don't count · dry-runs tagged." : "Per-member keys · same key on 3+ IPs in 24h = sharing flag · revoked keys block macros immediately (3-day offline grace)."}
+          {tab === "health" ? "See how everyone's macros are doing. If something breaks after a game update, you'll see it here first." : "Everyone's personal keys. If someone's key shows up on lots of different IPs, it might be getting shared."}
         </p>
 
-        {err && <div className="mt-4 rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/[0.07] px-4 py-2.5 text-[13px] text-[var(--foreground)]">{err}</div>}
+        {err && <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-[13px] text-[var(--foreground)]">{err}</div>}
 
         {tab === "health" ? (
           events === null && !err ? (
-            <div className="mt-10 text-center text-sm text-[var(--foreground)]/50">loading fleet…</div>
+            <div className="mt-10 text-center text-sm text-[var(--foreground)]/50">Loading…</div>
           ) : events?.length === 0 ? (
             <div className="mt-10 rounded-2xl border border-[var(--border)] px-6 py-10 text-center text-sm text-[var(--foreground)]/60">
-              No runs in this window yet. Telemetry is dark until personalized builds from <a href="/macros" className="underline decoration-[var(--primary)]/40 underline-offset-4">/macros</a> are in use — then every run appears within seconds.
+              No runs yet. Once people start using their files from <a href="/macros" className="underline">/macros</a>, you'll see everything here.
             </div>
           ) : (
             <>
@@ -204,14 +217,14 @@ export default function MacroHealthPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-[var(--foreground)]/[0.03] text-xs uppercase tracking-wide text-[var(--foreground)]/50">
                     <tr>
-                      <th className="px-4 py-3">event</th>
-                      <th className="px-4 py-3 text-right">runs</th>
-                      <th className="px-4 py-3 text-right">ok</th>
-                      <th className="px-4 py-3 text-right">failed</th>
-                      <th className="px-4 py-3 text-right">members</th>
-                      <th className="px-4 py-3 text-right">avg s</th>
-                      <th className="px-4 py-3">last run</th>
-                      <th className="px-4 py-3">who&apos;s failing</th>
+                      <th className="px-4 py-3">What</th>
+                      <th className="px-4 py-3 text-right">Runs</th>
+                      <th className="px-4 py-3 text-right">Working</th>
+                      <th className="px-4 py-3 text-right">Issues</th>
+                      <th className="px-4 py-3 text-right">People</th>
+                      <th className="px-4 py-3 text-right">Avg time</th>
+                      <th className="px-4 py-3">Last seen</th>
+                      <th className="px-4 py-3">Who's having trouble</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -222,7 +235,7 @@ export default function MacroHealthPage() {
                         <td className="px-4 py-3 text-right tabular-nums text-[var(--primary)]">{e.ok}</td>
                         <td className={`px-4 py-3 text-right font-bold tabular-nums ${e.failed > 0 ? "text-red-400" : "text-[var(--foreground)]/30"}`}>{e.failed}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{e.members}</td>
-                        <td className="px-4 py-3 text-right tabular-nums">{e.avg_s === null ? "—" : Number(e.avg_s).toFixed(1)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">{e.avg_s === null ? "—" : Number(e.avg_s).toFixed(1)}s</td>
                         <td className="px-4 py-3 text-[var(--foreground)]/60">{ago(e.last_run)}</td>
                         <td className="px-4 py-3">
                           <span className="flex flex-wrap gap-1">
@@ -237,9 +250,9 @@ export default function MacroHealthPage() {
                 </table>
               </div>
 
-              <h2 className="mt-10 text-lg font-bold text-[var(--foreground)]">Recent failures</h2>
+              <h2 className="mt-10 text-[15px] font-bold text-[var(--foreground)]">Recent issues</h2>
               {fails.length === 0 ? (
-                <div className="mt-3 rounded-2xl border border-[var(--border)] px-4 py-6 text-center text-sm text-[var(--foreground)]/50">nothing red — the clan&apos;s screens are fine.</div>
+                <div className="mt-3 rounded-2xl border border-[var(--border)] px-4 py-6 text-center text-sm text-[var(--foreground)]/50">All good — no issues lately.</div>
               ) : (
                 <div className="mt-3 space-y-2">
                   {fails.map((f, i) => (
@@ -258,34 +271,34 @@ export default function MacroHealthPage() {
         ) : (
           <>
             <div className="mt-6 flex flex-wrap gap-2">
-              <input value={issueName} onChange={(e) => setIssueName(e.target.value)} placeholder="member name (for manual issue)"
+              <input value={issueName} onChange={(e) => setIssueName(e.target.value)} placeholder="Member name to create a key for"
                 className="min-h-11 w-64 rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]/50" />
-              <button disabled={issueBusy || !issueName.trim()} onClick={() => void issue()}
+              <button disabled={busy || !issueName.trim()} onClick={() => void issue()}
                 className="min-h-11 rounded-2xl bg-[var(--primary)] px-4 text-sm font-bold text-black transition hover:brightness-110 disabled:opacity-40">
-                {issueBusy ? "issuing…" : "Issue key"}
+                {busy ? "Creating…" : "Create key"}
               </button>
-              <span className="self-center text-xs text-[var(--foreground)]/40">Members auto-get a key on first download at /macros — this is for pre-creating or for alt names.</span>
+              <span className="self-center text-xs text-[var(--foreground)]/40">Most people get a key automatically when they download — this is just for manual creation.</span>
             </div>
 
             {keys === null ? (
-              <div className="mt-10 text-center text-sm text-[var(--foreground)]/50">loading keys…</div>
+              <div className="mt-10 text-center text-sm text-[var(--foreground)]/50">Loading keys…</div>
             ) : keys.length === 0 ? (
               <div className="mt-10 rounded-2xl border border-[var(--border)] px-6 py-10 text-center text-sm text-[var(--foreground)]/60">
-                No keys yet. Members get one automatically when they hit <code className="text-[var(--primary)]">/macros</code> → Download.
+                No keys yet. People get one automatically when they visit <code className="text-[var(--primary)]">/macros</code> and download.
               </div>
             ) : (
               <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--border)]">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-[var(--foreground)]/[0.03] text-xs uppercase tracking-wide text-[var(--foreground)]/50">
                     <tr>
-                      <th className="px-3 py-3">member</th>
-                      <th className="px-3 py-3">key</th>
-                      <th className="px-3 py-3">last seen</th>
-                      <th className="px-3 py-3">IPs 24h</th>
-                      <th className="px-3 py-3">runs</th>
-                      <th className="px-3 py-3">last IP / PC</th>
-                      <th className="px-3 py-3">status</th>
-                      <th className="px-3 py-3">actions</th>
+                      <th className="px-3 py-3">Member</th>
+                      <th className="px-3 py-3">Key</th>
+                      <th className="px-3 py-3">Last active</th>
+                      <th className="px-3 py-3">IPs (24h)</th>
+                      <th className="px-3 py-3">Runs</th>
+                      <th className="px-3 py-3">Last location</th>
+                      <th className="px-3 py-3">Status</th>
+                      <th className="px-3 py-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -296,7 +309,6 @@ export default function MacroHealthPage() {
                         <tr key={k.id} className={`border-t border-[var(--border)]/60 ${revoked ? "opacity-50" : ""} ${sharing && !revoked ? "bg-red-500/[0.06]" : ""}`}>
                           <td className="px-3 py-2.5 font-medium text-[var(--foreground)]">
                             {k.member_username ?? k.member_name}
-                            <span className="ml-2 text-xs text-[var(--foreground)]/40">{k.issued_by_name ? `by ${k.issued_by_name}` : ""}</span>
                           </td>
                           <td className="px-3 py-2.5 font-mono text-xs text-[var(--foreground)]/70">{k.key.slice(0, 8)}…{k.key.slice(-4)}</td>
                           <td className="px-3 py-2.5 text-xs text-[var(--foreground)]/60">{ago(k.last_seen)}</td>
@@ -304,13 +316,13 @@ export default function MacroHealthPage() {
                           <td className="px-3 py-2.5 text-center tabular-nums text-[var(--foreground)]/60">{k.runs}</td>
                           <td className="px-3 py-2.5 text-xs text-[var(--foreground)]/50 max-w-[160px] truncate">{k.last_ip ?? "—"} {k.last_pc ? `· ${k.last_pc}` : ""}</td>
                           <td className="px-3 py-2.5">
-                            {revoked ? <span className="rounded-lg bg-[var(--foreground)]/10 px-2 py-0.5 text-xs text-[var(--foreground)]/50">revoked</span> : sharing ? <span className="rounded-lg bg-red-500/15 px-2 py-0.5 text-xs font-bold text-red-300">sharing?</span> : <span className="rounded-lg bg-[var(--primary)]/15 px-2 py-0.5 text-xs text-[var(--primary)]">active</span>}
+                            {revoked ? <span className="rounded-lg bg-[var(--foreground)]/10 px-2 py-0.5 text-xs text-[var(--foreground)]/50">Revoked</span> : sharing ? <span className="rounded-lg bg-red-500/15 px-2 py-0.5 text-xs font-bold text-red-300">Might be shared</span> : <span className="rounded-lg bg-[var(--primary)]/15 px-2 py-0.5 text-xs text-[var(--primary)]">Active</span>}
                           </td>
                           <td className="px-3 py-2.5">
                             {revoked ? (
-                              <button disabled={busy} onClick={() => void act("restore", k.id)} className="rounded-xl border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]">restore</button>
+                              <button disabled={busy} onClick={() => void act("restore", k.id)} className="rounded-xl border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.05]">Restore</button>
                             ) : (
-                              <button disabled={busy} onClick={() => { const r = prompt(`Revoke ${k.member_name}? reason:`); if (r !== null) void act("revoke", k.id, r || "revoked"); }} className="rounded-xl border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/15">revoke</button>
+                              <button disabled={busy} onClick={() => { const r = prompt(`Revoke ${k.member_name}? You can add a reason:`); if (r !== null) void act("revoke", k.id, r || "revoked"); }} className="rounded-xl border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/15">Revoke</button>
                             )}
                           </td>
                         </tr>
@@ -320,17 +332,6 @@ export default function MacroHealthPage() {
                 </table>
               </div>
             )}
-
-            <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.02] p-4 text-xs leading-5 text-[var(--foreground)]/50">
-              <div className="font-semibold text-[var(--foreground)]/70">How this stops sharing</div>
-              <ul className="mt-1 list-disc pl-5">
-                <li>Every personalized file carries <code className="text-[var(--primary)]">MEMBER_KEY</code> + <code className="text-[var(--primary)]">MEMBER</code> in its header — visible watermark.</li>
-                <li>On start + every 30 min it POSTs to <code>/api/macro-activate</code>. Officer sees last IP/PC and distinct IP count.</li>
-                <li>3+ IPs in 24h = red flag. One click revoke — the next heartbeat blocks that copy with &quot;key revoked&quot;.</li>
-                <li>Offline grace 72h so a Vercel hiccup or member&apos;s bad WiFi never locks the clan out mid-war.</li>
-                <li>Tell members: don&apos;t forward the file, send them to <code>/macros</code>. Forwarded copies still phone home with the original key.</li>
-              </ul>
-            </div>
           </>
         )}
       </div>
