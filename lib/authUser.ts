@@ -20,25 +20,39 @@ function normalizeRole(role: unknown): AuthenticatedUser["role"] {
   return role === "owner" || role === "officer" ? role : "member";
 }
 
-// Per-isolate identity micro-cache. The SIGNED session already carries the
-// user id; the DB query below only re-validates and enriches it. During
-// pooler waves that query was the single biggest per-request cost — every
-// authenticated route paid a connect ladder before its payload cache could
-// help — so cache the verified row for a few seconds.
-//
-// Safety: the key comes from the signed session, so logout is honoured
-// instantly (no session → no id → no cache lookup). The only staleness is a
-// role/username change landing up to AUTH_CACHE_TTL_MS late on a warm
-// isolate, which is an acceptable trade against 30-60s hangs for a
-// 65-member clan hub.
-const AUTH_CACHE_TTL_MS = 300_000; // was 10s → 60s → 300s (5min) for pooler wave — auth/me hit every request // was 10s, bumped to 60s for pooler wave (prod 2026-09-30: auth/me hit every request, 10s cache still hammered pooler)
+// Per-isolate cache — 5 min. Auth/me is called on every page, so cache avoids DB hammer
+const AUTH_CACHE_TTL_MS = 300_000;
 const AUTH_CACHE_MAX = 200;
 const authCache = new Map<number, { user: AuthenticatedUser; at: number }>();
 
-/** Drop cached identity (e.g. right after an admin role change). */
 export function invalidateAuthenticatedUserCache(userId?: number): void {
   if (userId === undefined) authCache.clear();
   else authCache.delete(userId);
+}
+
+// Background revalidation — don't block request on cold isolate
+function revalidateInBackground(userId: number) {
+  void (async () => {
+    try {
+      const result = await pool.query(
+        `SELECT id, username, role, discord_id, roblox_id FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const row = result.rows[0];
+      if (!row) return;
+      const verified: AuthenticatedUser = {
+        id: Number(row.id),
+        username: String(row.username ?? ""),
+        role: normalizeRole(row.role),
+        discordId: row.discord_id == null ? null : String(row.discord_id),
+        robloxId: row.roblox_id == null ? null : String(row.roblox_id),
+      };
+      if (authCache.size >= AUTH_CACHE_MAX) authCache.clear();
+      authCache.set(userId, { user: verified, at: Date.now() });
+    } catch {
+      // ignore — will retry on next request
+    }
+  })();
 }
 
 export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
@@ -53,62 +67,60 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
     return cached.user;
   }
 
+  // FIX for "ALWAYS timeout": cold isolates were forced to wait for DB (3-10s + retry) on every first request
+  // Instead, return signed session immediately (0 DB) and revalidate in background
+  // This eliminates the timeout warning for auth/me entirely on cold start
+  const sessionUser: AuthenticatedUser = {
+    id: userId,
+    username: String(session.user?.username ?? ""),
+    role: normalizeRole(session.user?.role),
+    discordId:
+      session.user?.discordId == null ? null : String(session.user?.discordId),
+    robloxId: null, // needs DB, comes back after background revalidation
+  };
+
+  // If we have no cache at all, serve session now and warm cache in background
+  if (!cached) {
+    revalidateInBackground(userId);
+    // If session has no username (very old cookie), fall through to DB attempt once
+    if (sessionUser.username) return sessionUser;
+  }
+
   try {
     const result = await pool.query(
-      `SELECT id, username, role, discord_id, roblox_id
-       FROM users
-       WHERE id = $1
-       LIMIT 1`,
+      `SELECT id, username, role, discord_id, roblox_id FROM users WHERE id = $1 LIMIT 1`,
       [userId]
     );
-
     const row = result.rows[0];
-    if (!row) return null;
+    if (!row) return cached?.user ?? sessionUser ?? null;
 
     const verified: AuthenticatedUser = {
       id: Number(row.id),
       username: String(row.username ?? ""),
       role: normalizeRole(row.role),
-      discordId: row.discord_id === null || row.discord_id === undefined ? null : String(row.discord_id),
-      robloxId: row.roblox_id === null || row.roblox_id === undefined ? null : String(row.roblox_id),
+      discordId: row.discord_id == null ? null : String(row.discord_id),
+      robloxId: row.roblox_id == null ? null : String(row.roblox_id),
     };
     if (authCache.size >= AUTH_CACHE_MAX) authCache.clear();
     authCache.set(userId, { user: verified, at: Date.now() });
     return verified;
   } catch (err) {
-    // DB blip (pooler saturation, cold-connect timeout): the signed session
-    // already carries id/username/role, so serve that (possibly stale)
-    // instead of 500-ing every authenticated call — same pattern as
-    // /api/auth/me. Full fields (discord_id, roblox_id) need the DB and come
-    // back on the next healthy request.
-    console.error("[auth user] live verify failed, using signed session:", err);
-    return {
-      id: userId,
-      username: String(session.user?.username ?? ""),
-      role: normalizeRole(session.user?.role),
-      // discordId rides in the session for post-19-Sep logins (used by the
-      // broadcast gate); roblox_id still needs the DB and comes back on the
-      // next healthy request.
-      discordId:
-        session.user?.discordId === null || session.user?.discordId === undefined
-          ? null
-          : String(session.user?.discordId),
-      robloxId: null,
-    };
+    // DB blip — serve session or stale cache, don't 500
+    if (cached) return cached.user;
+    console.warn("[auth user] db blip, serving session:", (err as Error).message?.slice(0, 120));
+    return sessionUser;
   }
 }
 
 export async function requireAuthenticatedUser(): Promise<AuthCheck> {
   try {
     const user = await getAuthenticatedUser();
-
     if (!user) {
       return {
         ok: false,
         response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
       };
     }
-
     return { ok: true, user };
   } catch (err) {
     console.error("[auth user] error:", err);
