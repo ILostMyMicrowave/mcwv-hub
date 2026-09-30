@@ -102,7 +102,7 @@ function getPool() {
     // immediate retry always succeeding, responseStatusCode 200 on each).
     // Give each attempt 10s; worst case 3 attempts + backoff ≈ 32s. The DNS
     // warm-up below removes most of that latency at the source.
-    connectionTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 3_000, // was 10s → 5s → 3s for faster failover
     keepAlive: true,
     keepAliveInitialDelayMillis: 5_000,
     // Let Vercel's platform recycle isolates itself. With `true`, pg exits
@@ -176,7 +176,7 @@ function getPool() {
   // every unlucky isolate marching in lockstep, so the pooler faces a
   // synchronized retry wave every 1/3/5/8s. Jitter (±35%) decorrelates the
   // waves into a spread the pooler can absorb between requests.
-  const MAX_ATTEMPTS = 5
+  const MAX_ATTEMPTS = 3 // was 5, cut to 3 for faster failover (prod 2026-09-30: 5 attempts = 60s+ wait = janky)
   // Connect-phase timeouts additionally get a 6th attempt: bursts documented
   // at 20-90s outrun the old 5-attempt span (~67s) just often enough to 500
   // (three bounty 500s in the 00:33-01:03 window each burned ~60s first).
@@ -184,8 +184,8 @@ function getPool() {
   // Hobby budget. A connect timeout never reached the server, so the extra
   // attempt cannot double-apply a write; query-phase transients stay capped
   // at MAX_ATTEMPTS for exactly that reason.
-  const CONNECT_TIMEOUT_MAX_ATTEMPTS = 6
-  const RETRY_BACKOFF_MS = [1_000, 3_000, 5_000, 8_000, 15_000]
+  const CONNECT_TIMEOUT_MAX_ATTEMPTS = 4 // was 6, cut to 4 (prod 2026-09-30: 6 attempts = 92s worst case = forever)
+  const RETRY_BACKOFF_MS = [500, 1_000, 2_000, 4_000, 8_000] // was 1s,3s,5s,8s,15s — cut to 0.5s,1s,2s,4s,8s for faster recovery
   const RETRY_JITTER_RATIO = 0.35
   const retryBackoffMs = (attempt: number) => {
     const base = RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
