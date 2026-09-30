@@ -81,10 +81,10 @@ function getPool() {
 
   const config: PoolConfig = {
     connectionString: stripSslUrlParams(connectionString),
-    // Per-isolate cap. Vercel must use Supabase *transaction* pooling
+    // Per-isolate cap. Was 1, bumped to 3 for war peak (prod 2026-09-30: 50+ isolates x 1 = queue, 3 = 150 clients < 200 cap). Vercel must use Supabase *transaction* pooling
     // (port 6543 / pooler host). Session mode’s ~15 client cap will
     // otherwise time out every extra isolate.
-    max: 1,
+    max: 3,
     // Keep a warm client for 10 minutes. 5 minutes was exactly the
     // quiet-hours UptimeRobot cadence (one check every 5 min), so every
     // overnight check paid a fresh (lottery-prone) pooler connect, and
@@ -102,9 +102,9 @@ function getPool() {
     // immediate retry always succeeding, responseStatusCode 200 on each).
     // Give each attempt 10s; worst case 3 attempts + backoff ≈ 32s. The DNS
     // warm-up below removes most of that latency at the source.
-    connectionTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 5_000,
     keepAlive: true,
-    keepAliveInitialDelayMillis: 10_000,
+    keepAliveInitialDelayMillis: 5_000,
     // Let Vercel's platform recycle isolates itself. With `true`, pg exits
     // the isolate as soon as the pool goes idle — but the next 60s poll
     // then cold-boots a fresh isolate that must win the cold-connect lottery
