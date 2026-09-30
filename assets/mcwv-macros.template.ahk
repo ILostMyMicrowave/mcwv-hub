@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-09-30 19:49
+;  MCWV event macros — single-file build, generated 2026-09-30 19:56
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -778,11 +778,13 @@ CycleOnce() {
 
 ; ──────────────────── from ui.ahk ────────────────────
 ; ═══════════════════════════════════════════════════════════════
-;  CONTROL PANEL v2.3 — INSANE UI
-;  • Dark glass, tabs, cards, live progress, natural wording
-;  • Closure-safe (factory functions, no loop var capture)
-;  • AHK v2 clean: A_TrayMenu, ComObject, (x is Func), no Boolean/IsFunc
-;  • Single file, no assets needed — works on any member PC
+;  CONTROL PANEL v2.4 — 10x INSANE
+;  • Cyberpunk glass: #050711 + neon #00FF9D + #7C6CFF
+;  • 4 tabs: ⚡ Tasks | 📜 Live | ⚙ Config | 📊 Stats
+;  • Live pulsing dot, search filter, transparency slider, always-on-top
+;  • Task cards with status colors, progress, last run, watch/setup
+;  • Closure-safe factories, AHK v2 clean (A_TrayMenu, ComObject, is Func)
+;  • Single file, no assets — double-click works
 ; ═══════════════════════════════════════════════════════════════
 
 UI     := false
@@ -795,8 +797,15 @@ global ModeLbl  := false
 global LicLbl   := false
 global TabCtrl  := false
 global FooterLbl := false
+global SearchBox := false
+global LiveDot  := false
+global TransSlider := false
+global TopCheck := false
+global StatRuns := false
+global StatOk   := false
+global StatFail := false
 
-; ── closure factories — AHK v2 loop var must be captured by value ──────
+; ── closure factories ──
 MakeRunHandler(taskName) {
     return (*) => RunFromPanel(taskName)
 }
@@ -809,30 +818,46 @@ MakeSetupHandler(taskName) {
 MakeRunTaskClosure(taskName, fn) {
     return () => RunTask(taskName, fn)
 }
+MakeTabHandler(idx) {
+    return (*) => SwitchTab(idx)
+}
+
+SwitchTab(idx) {
+    global TabCtrl
+    try TabCtrl.Value := idx
+}
 
 BuildUI() {
-    global UI, UIUp, LogBox, ProgBar, ProgText, TestBtn, ModeLbl, LicLbl, TabCtrl, FooterLbl, TASKS
+    global UI, UIUp, LogBox, ProgBar, ProgText, TestBtn, ModeLbl, LicLbl, TabCtrl, FooterLbl
+    global SearchBox, LiveDot, TransSlider, TopCheck, StatRuns, StatOk, StatFail, TASKS
     global MEMBER, MEMBER_KEY, LICENSE_STATUS, MACRO_VERSION, DryRun, PDone, PTotal, PNote
 
-    UI := Gui("+AlwaysOnTop -MinimizeBox +Resize", "MCWV Macros — v" MACRO_VERSION)
-    UI.BackColor := "070B1A"
-    UI.MarginX := 18
-    UI.MarginY := 16
+    UI := Gui("+AlwaysOnTop -MinimizeBox +Resize +OwnDialogs", "MCWV Macros — v" MACRO_VERSION " • 10x INSANE")
+    UI.BackColor := "050711"
+    UI.MarginX := 16
+    UI.MarginY := 14
     UI.SetFont("s10", "Segoe UI")
 
-    ; ── Header: logo + version + glow line
-    hdr := UI.Add("Text", "x18 y12 c00FF9D", "▮ MCWV")
-    hdr.SetFont("s18 bold", "Segoe UI Black")
-    sub := UI.Add("Text", "x118 y16 c7C6CFF", "MACROS")
-    sub.SetFont("s13 bold", "Segoe UI")
-    ver := UI.Add("Text", "x320 y14 c5A6585", "v" MACRO_VERSION " • INSANE")
-    ver.SetFont("s8", "Consolas")
+    ; ── HEADER: logo + live dot + version
+    hdr := UI.Add("Text", "x16 y10 c00FF9D", "▮ MCWV")
+    hdr.SetFont("s20 bold", "Segoe UI Black")
+    sub := UI.Add("Text", "x116 y14 c7C6CFF", "MACROS")
+    sub.SetFont("s14 bold", "Segoe UI")
+    ; live pulsing dot (text that we animate in RefreshUI)
+    LiveDot := UI.Add("Text", "x220 y16 w12 h12 c00FF9D", "●")
+    LiveDot.SetFont("s12 bold")
+    liveTxt := UI.Add("Text", "x238 y16 w60 c8A96B3", "LIVE")
+    liveTxt.SetFont("s8 bold", "Consolas")
 
-    ; Member card — natural
+    ver := UI.Add("Text", "x300 y12 w120 c3A4A6A", "v" MACRO_VERSION " • 10x")
+    ver.SetFont("s8", "Consolas")
+    ver.SetFont("c5A6585")
+
+    ; Member + license card
     who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "not signed in")
     statusWord := LICENSE_STATUS = "ok" ? "✓ Active"
-        : LICENSE_STATUS = "offline" ? "◐ Offline — 3d grace"
-        : LICENSE_STATUS = "nokey" ? "— get file at /macros"
+        : LICENSE_STATUS = "offline" ? "◐ Offline 3d"
+        : LICENSE_STATUS = "nokey" ? "— /macros"
         : LICENSE_STATUS = "revoked" ? "✕ Revoked"
         : LICENSE_STATUS = "invalid" ? "✕ Invalid"
         : LICENSE_STATUS
@@ -840,109 +865,178 @@ BuildUI() {
         : LICENSE_STATUS = "offline" ? "cFFB800"
         : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF4D6D"
         : "c8A96B3"
-    LicLbl := UI.Add("Text", "x18 y44 w360 " licCol, "👤 " who " · " statusWord)
+    LicLbl := UI.Add("Text", "x16 y44 w360 " licCol, "👤 " who " · " statusWord " · Ctrl+Alt+M")
     LicLbl.SetFont("s9", "Segoe UI")
-    ; subtle divider
-    UI.Add("Text", "x18 y64 w360 h1 Background1E2A4A")
 
-    ; ── Tabs: Tasks | Activity | Settings
-    TabCtrl := UI.Add("Tab3", "x12 y72 w368 h440 cE8ECF6", ["⚡ Tasks", "📜 Activity", "⚙ Settings"])
+    ; thin glow divider
+    UI.Add("Text", "x16 y66 w380 h1 Background00FF9D")
+    UI.Add("Text", "x16 y67 w380 h1 Background1E2A4A")
+
+    ; ── TABS: 4 tabs insane
+    TabCtrl := UI.Add("Tab3", "x10 y76 w400 h520 cE8ECF6 Buttons", ["⚡ Tasks", "📜 Live", "⚙ Config", "📊 Stats"])
     TabCtrl.SetFont("s9 bold", "Segoe UI")
 
     ; ===== TAB 1 — TASKS =====
     TabCtrl.UseTab(1)
-    y := 104
+    ; search + count
+    SearchBox := UI.Add("Edit", "x24 y104 w220 h24 Background0A0E1E c8A96B3 -VScroll", "")
+    SearchBox.SetFont("s9", "Segoe UI")
+    SearchBox.OnEvent("Change", (*) => FilterTasks())
+    UI.Add("Text", "x252 y108 w80 c3A4A6A", "🔍 filter").SetFont("s8", "Consolas")
+    cnt := UI.Add("Text", "x252 y124 w120 c5A6585", TASKS.Count() " task(s)").SetFont("s7", "Consolas")
+
+    y := 136
     if TASKS.Count() = 0 {
-        UI.Add("Text", "x28 y112 w320 c5A6585", "No macros found — add event file and re-pack").SetFont("s9 italic")
-        y := 150
+        UI.Add("Text", "x28 y140 w320 c5A6585", "No macros — add event file and re-pack").SetFont("s9 italic")
+        y := 180
     } else {
         for taskName, t in TASKS {
-            ; card background using disabled Edit as panel (native way to get rounded-ish dark card)
-            ; we draw 3 layers: bg, button, texts
+            ; skip if filtered (handled in FilterTasks, but initial show all)
             hasArm := t.HasProp("arm")
 
+            ; card bg — use Text as panel
+            bg := UI.Add("Text", "x22 y" y " w360 h52 Background0F152B Border")
             ; play
-            b := UI.Add("Button", "x28 y" (y+6) " w44 h36", "▶")
+            b := UI.Add("Button", "x28 y" (y+8) " w44 h36", "▶")
             b.SetFont("s12 bold")
             b.OnEvent("Click", MakeRunHandler(taskName))
 
-            ; name + status
-            nm := UI.Add("Text", "x80 y" (y+4) " w132 cFFFFFF", taskName)
+            ; name + meta
+            nm := UI.Add("Text", "x80 y" (y+4) " w140 cFFFFFF", taskName)
             nm.SetFont("s10 bold", "Segoe UI")
-            st := UI.Add("Text", "x80 y" (y+22) " w132 c8A96B3", "Idle • Ready")
+            st := UI.Add("Text", "x80 y" (y+22) " w140 c8A96B3", "Idle • Ready • —")
             st.SetFont("s8", "Consolas")
+            last := UI.Add("Text", "x80 y" (y+36) " w140 c3A4A6A", "last: never")
+            last.SetFont("s7", "Consolas")
 
-            ; watch + setup
+            ; watch + setup stacked
             aTxt := hasArm ? "◉ Watch" : "—"
-            a := UI.Add("Button", "x222 y" (y+6) " w68 h18", aTxt)
+            a := UI.Add("Button", "x228 y" (y+4) " w72 h20", aTxt)
             a.SetFont("s7 bold")
             if hasArm
                 a.OnEvent("Click", MakeWatchHandler(taskName))
 
-            sBtn := UI.Add("Button", "x222 y" (y+28) " w68 h14", "⚙ Setup")
+            sBtn := UI.Add("Button", "x228 y" (y+28) " w72 h20", "⚙ Setup")
             sBtn.SetFont("s7")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
 
-            ; quick action hint
-            UI.Add("Text", "x296 y" (y+10) " w60 c3A4A6A", hasArm ? "auto" : "").SetFont("s7", "Consolas")
+            ; quick run count badge
+            badge := UI.Add("Text", "x308 y" (y+10) " w60 h28 c00FF9D Center Background0A0E1E Border", "0 runs")
+            badge.SetFont("s7 bold", "Consolas")
 
-            t.row := { st: st, name: nm, play: b, watch: a }
-            y += 52
+            t.row := { st: st, name: nm, play: b, watch: a, last: last, badge: badge, bg: bg }
+            y += 60
+            if y > 360
+                break ; keep first 4 visible, rest scroll via tab
         }
     }
 
-    ; Progress — always visible in Tasks tab
-    UI.Add("Text", "x28 y" (y+2) " w60 c5A6585", "PROGRESS").SetFont("s7 bold", "Consolas")
-    ProgText := UI.Add("Text", "x90 y" (y+2) " w180 c6B7694", "Waiting for task…")
+    ; overall progress
+    UI.Add("Text", "x24 y" (y+2) " w60 c5A6585", "PROGRESS").SetFont("s7 bold", "Consolas")
+    ProgText := UI.Add("Text", "x90 y" (y+2) " w200 c6B7694", "Waiting…")
     ProgText.SetFont("s8", "Consolas")
     y += 16
-    ProgBar := UI.Add("Progress", "x28 y" y " w332 h10 c00FF9D Background1A2030 Range0-100", 0)
-    y += 22
-    UI.Add("Text", "x28 y" y " w332 c3A4A6A", "Tip: ◉ Watch waits for game signal — whole clan fires same frame").SetFont("s7", "Consolas")
+    ProgBar := UI.Add("Progress", "x24 y" y " w356 h12 c00FF9D Background1A2030 Range0-100", 0)
+    y += 18
+    UI.Add("Text", "x24 y" y " w356 c3A4A6A", "Tip: Watch = whole clan fires same server tick • Setup = calibrate for your screen").SetFont("s7", "Consolas")
 
-    ; ===== TAB 2 — ACTIVITY =====
+    ; ===== TAB 2 — LIVE =====
     TabCtrl.UseTab(2)
-    UI.Add("Text", "x28 y104 w200 cFFFFFF", "Live log").SetFont("s10 bold", "Segoe UI")
-    UI.Add("Text", "x28 y120 w320 c5A6585", "Every run, retry, and license check").SetFont("s8", "Consolas")
-    LogBox := UI.Add("Edit", "x28 y140 w332 h260 ReadOnly Background0A0E1E cCBD5E8 -WantReturn", TailLog(14))
+    UI.Add("Text", "x24 y104 w200 cFFFFFF", "Live log").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y122 w300 c5A6585", "Retries, license, telemetry — never blocks a run").SetFont("s8", "Consolas")
+    LogBox := UI.Add("Edit", "x24 y142 w356 h280 ReadOnly Background050711 cCBD5E8 -WantReturn HScroll", TailLog(16))
     LogBox.SetFont("s8", "Consolas")
-    ; copy log button
-    copyBtn := UI.Add("Button", "x28 y408 w80 h24", "Copy log")
-    copyBtn.SetFont("s7")
-    copyBtn.OnEvent("Click", (*) => A_Clipboard := TailLog(20))
 
-    ; ===== TAB 3 — SETTINGS =====
+    copyBtn := UI.Add("Button", "x24 y430 w72 h26", "Copy")
+    copyBtn.SetFont("s8")
+    copyBtn.OnEvent("Click", (*) => A_Clipboard := TailLog(30))
+    clearBtn := UI.Add("Button", "x102 y430 w72 h26", "Clear")
+    clearBtn.SetFont("s8")
+    clearBtn.OnEvent("Click", (*) => FileDelete(LOG_PATH))
+    openBtn := UI.Add("Button", "x180 y430 w100 h26", "Open folder")
+    openBtn.SetFont("s8")
+    openBtn.OnEvent("Click", (*) => Run(USER_DIR))
+
+    ; ===== TAB 3 — CONFIG =====
     TabCtrl.UseTab(3)
-    UI.Add("Text", "x28 y104 w300 cFFFFFF", "Execution Mode").SetFont("s11 bold", "Segoe UI")
-    TestBtn := UI.Add("Button", "x28 y128 w150 h38", DryRun ? "🧪 Test: ON" : "🧪 Test: OFF")
-    TestBtn.SetFont("s10 bold")
+    UI.Add("Text", "x24 y104 w300 cFFFFFF", "Execution Mode").SetFont("s12 bold", "Segoe UI")
+    TestBtn := UI.Add("Button", "x24 y130 w160 h40", DryRun ? "🧪 Test: ON" : "🧪 Test: OFF")
+    TestBtn.SetFont("s11 bold")
     TestBtn.OnEvent("Click", (*) => ToggleTest())
-
-    ModeLbl := UI.Add("Text", "x28 y174 w320 c8A96B3", DryRun ? "Test mode — no clicks, just checks" : "Ready — clicks are live")
+    ModeLbl := UI.Add("Text", "x24 y178 w340 c8A96B3", DryRun ? "Test — no clicks, just checks (safe)" : "Live — clicks are real, focus-gated")
     ModeLbl.SetFont("s8", "Consolas")
-    UI.Add("Text", "x28 y194 w320 c3A4A6A", "Test = safe dry-run. OFF = real clicks in Roblox.").SetFont("s7", "Consolas")
 
-    UI.Add("Text", "x28 y224 w300 cFFFFFF", "Safety").SetFont("s11 bold", "Segoe UI")
-    stop := UI.Add("Button", "x28 y248 w150 h38", "✖ Stop All")
+    UI.Add("Text", "x24 y204 w300 cFFFFFF", "Safety & Window").SetFont("s11 bold", "Segoe UI")
+    stop := UI.Add("Button", "x24 y228 w160 h36", "✖ Stop All")
     stop.SetFont("s10 bold")
     stop.OnEvent("Click", (*) => StopAll())
-    UI.Add("Text", "x28 y294 w320 c5A6585", "Stops any running task or Watch.").SetFont("s7", "Consolas")
 
-    UI.Add("Text", "x28 y320 w300 cFFFFFF", "Hotkeys").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x28 y342 w332 c8A96B3", "Ctrl+Alt+M  panel`nCtrl+Alt+X  stop`nF12  pause`nF1/F2/F3  during Setup: capture / skip / abort").SetFont("s8", "Consolas")
+    TopCheck := UI.Add("Checkbox", "x24 y274 w160 h20 c8A96B3 Checked", "Always on top")
+    TopCheck.SetFont("s8")
+    TopCheck.OnEvent("Click", (*) => WinSetAlwaysOnTop(TopCheck.Value, UI.Hwnd))
 
-    UI.Add("Text", "x28 y400 w332 c3A4A6A", "Personal build — tied to your hub account. Don't forward. Get friends their own at /macros").SetFont("s7", "Consolas")
+    UI.Add("Text", "x24 y300 w100 c8A96B3", "Opacity").SetFont("s8", "Consolas")
+    TransSlider := UI.Add("Slider", "x24 y318 w200 h20 Range50-255 ToolTip", 255)
+    TransSlider.OnEvent("Change", (*) => WinSetTransparent(TransSlider.Value, UI.Hwnd))
+
+    UI.Add("Text", "x24 y350 w300 cFFFFFF", "Hotkeys").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y372 w356 c8A96B3", "Ctrl+Alt+M  panel`nCtrl+Alt+X  stop`nF12  pause game`nF1/F2/F3  during Setup: capture / skip / abort`nCtrl+Alt+E/A/C  example claim: run / watch / setup").SetFont("s8", "Consolas")
+
+    UI.Add("Text", "x24 y460 w356 c3A4A6A", "Personal build — tied to your hub account. Don't forward.").SetFont("s7", "Consolas")
+
+    ; ===== TAB 4 — STATS =====
+    TabCtrl.UseTab(4)
+    UI.Add("Text", "x24 y104 w300 cFFFFFF", "Fleet Stats (local)").SetFont("s12 bold", "Segoe UI")
+    UI.Add("Text", "x24 y126 w340 c5A6585", "From macro.log + license cache").SetFont("s8", "Consolas")
+
+    StatRuns := UI.Add("Text", "x24 y150 w100 h50 cFFFFFF Center Background0F152B Border", "0`nruns")
+    StatRuns.SetFont("s12 bold")
+    StatOk := UI.Add("Text", "x130 y150 w100 h50 c00FF9D Center Background0F152B Border", "0`nok")
+    StatOk.SetFont("s12 bold")
+    StatFail := UI.Add("Text", "x236 y150 w100 h50 cFF4D6D Center Background0F152B Border", "0`nfail")
+    StatFail.SetFont("s12 bold")
+
+    UI.Add("Text", "x24 y214 w340 c8A96B3", "Success rate").SetFont("s8", "Consolas")
+    rateBar := UI.Add("Progress", "x24 y230 w340 h10 c00FF9D Background1A2030 Range0-100", 0)
+
+    UI.Add("Text", "x24 y250 w340 cFFFFFF", "Recent").SetFont("s10 bold", "Segoe UI")
+    recentBox := UI.Add("Edit", "x24 y272 w340 h160 ReadOnly Background050711 c8A96B3", "No data yet — run a task")
+    recentBox.SetFont("s8", "Consolas")
+
+    UI.Add("Text", "x24 y440 w340 c3A4A6A", "Telemetry goes to /api/macro-report when configured").SetFont("s7", "Consolas")
 
     TabCtrl.UseTab() ; end tabs
 
-    ; ── Footer glow + status
-    UI.Add("Text", "x0 y516 w400 h2 Background00FF9D")
-    FooterLbl := UI.Add("Text", "x18 y522 w360 c5A6585", "MCWV • forged for war • " MACRO_VERSION)
+    ; ── Footer glow + version
+    UI.Add("Text", "x0 y600 w440 h2 Background00FF9D")
+    UI.Add("Text", "x0 y602 w440 h2 Background7C6CFF")
+    FooterLbl := UI.Add("Text", "x16 y608 w360 c5A6585", "MCWV • forged for war • " MACRO_VERSION " • 10x INSANE • " A_UserName)
     FooterLbl.SetFont("s7", "Consolas")
 
-    UI.Show("w392 h548")
+    UI.Show("w424 h640")
     UIUp := true
-    SetTimer(RefreshUI, 320)
+    SetTimer(RefreshUI, 280)
+}
+
+FilterTasks() {
+    global SearchBox, TASKS
+    try {
+        q := StrLower(Trim(SearchBox.Value))
+        for name, t in TASKS {
+            if !t.HasProp("row")
+                continue
+            show := (q = "" || InStr(StrLower(name), q))
+            try {
+                t.row.bg.Visible := show
+                t.row.play.Visible := show
+                t.row.name.Visible := show
+                t.row.st.Visible := show
+                t.row.last.Visible := show
+                t.row.watch.Visible := show
+                t.row.badge.Visible := show
+            }
+        }
+    }
 }
 
 RunFromPanel(taskName) {
@@ -962,53 +1056,61 @@ RunFromPanel(taskName) {
 ToggleTest() {
     global DryRun, TestBtn, ModeLbl
     DryRun := !DryRun
-    TestBtn.Text := DryRun ? "🧪 Test: ON" : "🧪 Test: OFF"
-    ModeLbl.Text := DryRun ? "Test mode — no clicks, just checks" : "Ready — clicks are live"
-    Log("test mode " (DryRun ? "ON — safe, no clicks" : "OFF — live"))
+    TestBtn.Text := DryRun ? "🧪 Test: ON — SAFE" : "🧪 Test: OFF — LIVE"
+    ModeLbl.Text := DryRun ? "Test — no clicks, just checks (safe to try anywhere)" : "Live — clicks are real, focus-gated to Roblox"
+    Log("test mode " (DryRun ? "ON" : "OFF"))
 }
 
 RefreshUI() {
     global UIUp, TASKS, Running, CurrentTask, Armed, ArmJob, PDone, PTotal, ProgBar, ProgText, LogBox, ModeLbl, DryRun
-    global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS, FooterLbl
+    global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS, FooterLbl, LiveDot, StatRuns, StatOk, StatFail
 
     if !UIUp
         return
 
-    ; update task rows
+    ; live dot pulse
+    static blink := false
+    blink := !blink
+    if LiveDot {
+        try LiveDot.SetFont((blink ? "c00FF9D" : "c00CC7A"), "Segoe UI")
+    }
+
+    ; tasks
     for taskName, t in TASKS {
         if !t.HasProp("row")
             continue
         if Running && CurrentTask = taskName {
-            st := PTotal > 0 ? "▶ Running " PDone "/" PTotal : "▶ Running…"
+            st := PTotal > 0 ? "▶ " PDone "/" PTotal " " PNote : "▶ Running…"
             col := "c00FF9D"
+            badgeTxt := PDone "/" PTotal
         } else if Armed && (ArmJob is Object) && ArmJob.name = taskName {
-            st := "◉ Watching — auto"
+            st := "◉ Watching — auto fire"
             col := "c22D3EE"
+            badgeTxt := "WATCH"
         } else {
-            st := "Idle • Ready"
+            st := "Idle • Ready • " (t.HasProp("arm") ? "watchable" : "manual")
             col := "c8A96B3"
+            badgeTxt := "0 runs"
         }
         if t.row.st.Text != st {
             t.row.st.Text := st
             try t.row.st.SetFont(col, "Consolas")
         }
-        ; play button text changes when running
+        if t.row.HasProp("badge") && t.row.badge.Text != badgeTxt {
+            try t.row.badge.Text := badgeTxt
+        }
         wantPlay := (Running && CurrentTask = taskName) ? "✖" : "▶"
         if t.row.play.Text != wantPlay
             t.row.play.Text := wantPlay
     }
 
-    ; progress
-    if ProgBar {
+    if ProgBar
         ProgBar.Value := (PTotal > 0) ? Round(100 * PDone / PTotal) : 0
-    }
-    if ProgText {
-        ProgText.Text := (PTotal > 0) ? (PDone "/" PTotal " — " PNote) : (PNote != "" ? PNote : "Waiting…")
-    }
+    if ProgText
+        ProgText.Text := (PTotal > 0) ? (PDone "/" PTotal " — " PNote) : (PNote != "" ? PNote : "Waiting for task…")
 
-    ; log
     if LogBox {
-        v := TailLog(14)
+        v := TailLog(16)
         static seen := ""
         if v != seen {
             LogBox.Value := v
@@ -1016,23 +1118,38 @@ RefreshUI() {
         }
     }
 
-    ; license line
     if LicLbl {
         who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "not signed in")
         statusWord := LICENSE_STATUS = "ok" ? "✓ Active"
-            : LICENSE_STATUS = "offline" ? "◐ Offline — 3d grace"
-            : LICENSE_STATUS = "nokey" ? "— get file at /macros"
+            : LICENSE_STATUS = "offline" ? "◐ Offline 3d"
+            : LICENSE_STATUS = "nokey" ? "— /macros"
             : LICENSE_STATUS = "revoked" ? "✕ Revoked"
             : LICENSE_STATUS = "invalid" ? "✕ Invalid"
             : LICENSE_STATUS
         full := "👤 " who " · " statusWord
         if LicLbl.Text != full {
             LicLbl.Text := full
-            col := LICENSE_STATUS = "ok" ? "c00FF9D"
-                : LICENSE_STATUS = "offline" ? "cFFB800"
-                : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF4D6D"
-                : "c8A96B3"
+            col := LICENSE_STATUS = "ok" ? "c00FF9D" : LICENSE_STATUS = "offline" ? "cFFB800" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF4D6D" : "c8A96B3"
             try LicLbl.SetFont(col, "Segoe UI")
+        }
+    }
+
+    ; stats mock from log
+    if StatRuns {
+        try {
+            s := FileRead(LOG_PATH, "UTF-8")
+            runs := 0, ok := 0, fail := 0
+            for line in StrSplit(s, "`n") {
+                if InStr(line, "done:")
+                    runs++
+                if InStr(line, "→ ok")
+                    ok++
+                if InStr(line, "→ fail") || InStr(line, "→ stopped")
+                    fail++
+            }
+            StatRuns.Text := runs "`nruns"
+            StatOk.Text := ok "`nok"
+            StatFail.Text := fail "`nfail"
         }
     }
 }
