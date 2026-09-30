@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-09-30 20:02
+;  MCWV event macros — single-file build, generated 2026-09-30 22:37
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -104,10 +104,10 @@ TailLog(n := 6) {
     try s := FileRead(LOG_PATH, "UTF-8")
     lines := StrSplit(Trim(s), "`n")
     out := ""
-    i := lines.Count() - n + 1
+    i := lines.Length - n + 1
     if i < 1
         i := 1
-    while i <= lines.Count() {
+    while i <= lines.Length {
         out .= lines[i] "`n"
         i++
     }
@@ -547,8 +547,8 @@ TelemetryPost(name, result, secs) {
         e := JsonEsc(name), r := JsonEsc(result), m2 := JsonEsc(who), v := JsonEsc(MACRO_VERSION)
         body := '{"e":"' e '","r":"' r '","s":' secs ',"m":"' m2 '","v":"' v (DryRun ? '","d":1' : '') '}'
         static keep := []
-        if keep.Count() > 12
-            keep.RemoveAt(1, keep.Count() - 12)   ; prune old handles; a few held is fine
+        if keep.Length > 12
+            keep.RemoveAt(1, keep.Length - 12)   ; prune old handles; a few held is fine
         w := ComObject("WinHttp.WinHttpRequest.5.1")
         keep.Push(w)                              ; keep alive while async send completes
         w.Open("POST", TELEMETRY_URL, true)       ; async — fire and forget, never blocks a run
@@ -579,6 +579,25 @@ TelemetryPost(name, result, secs) {
 
 global CalibJob := false
 
+GetCheckKeys(checks) {
+    arr := []
+    if (checks is Map) {
+        for k, v in checks
+            arr.Push(k)
+    } else {
+        ; Object — OwnProps() returns its keys
+        try {
+            for k, v in checks.OwnProps()
+                arr.Push(k)
+        } catch {
+            ; fallback: try for..in
+            for k in checks
+                arr.Push(k)
+        }
+    }
+    return arr
+}
+
 StartCalib(taskName) {
     global CalibJob, TASKS, USER_DIR
     if !TASKS.Has(taskName) || !TASKS[taskName].HasProp("checks") {
@@ -587,7 +606,7 @@ StartCalib(taskName) {
         return
     }
     DirCreate(USER_DIR)
-    CalibJob := { name: taskName, keys: TASKS[taskName].checks.Keys(), i: 0, done: 0, skipped: 0 }
+    CalibJob := { name: taskName, keys: GetCheckKeys(TASKS[taskName].checks), i: 0, done: 0, skipped: 0 }
     Log("calibrate: start " taskName)
     CalibNext()
 }
@@ -596,7 +615,7 @@ CalibNext() {
     global CalibJob, TASKS
     if !CalibJob
         return
-    if CalibJob.i >= CalibJob.keys.Count() {
+    if CalibJob.i >= CalibJob.keys.Length {
         ApplyCalib(CalibJob.name, TASKS[CalibJob.name].checks)
         ToolTip("calibrated " CalibJob.done " (" CalibJob.skipped " skipped) — live now")
         SetTimer(() => ToolTip(), -2500)
@@ -605,7 +624,7 @@ CalibNext() {
         return
     }
     key := CalibJob.keys[CalibJob.i + 1]
-    ToolTip("[" (CalibJob.i + 1) "/" CalibJob.keys.Count() "] " key "`nhover it exactly · F1 capture · F2 skip · F3 abort")
+    ToolTip("[" (CalibJob.i + 1) "/" CalibJob.keys.Length "] " key "`nhover it exactly · F1 capture · F2 skip · F3 abort")
 }
 
 CalibGrab() {
@@ -708,7 +727,7 @@ ApplyCalib(taskName, checks) {
         }
         if v := IniRead(ini, taskName, key "_pt", "") {
             p := StrSplit(v, ",")
-            if p.Count() = 2 {
+            if p.Length = 2 {
                 ch.pt := { fx: p[1], fy: p[2] }
                 n++
             }
@@ -907,7 +926,7 @@ BuildUI() {
     UI.Add("Text", "x232 y106 w100 c5A6585", "Search your tasks").SetFont("s8", "Consolas")
 
     y := 136
-    if TASKS.Count() = 0 {
+    if TASKS.Count = 0 {
         UI.Add("Text", "x28 y140 w320 c8A96B3", "No tasks yet — add an event file and re-pack").SetFont("s9 italic")
         y := 180
     } else {
