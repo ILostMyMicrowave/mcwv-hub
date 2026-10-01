@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 07:21
+;  MCWV event macros — single-file build, generated 2026-10-01 18:28
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -268,7 +268,7 @@ ProtectKeyAtRest() {
         } catch as e {
             Log("protect key failed: " e.Message)
         }
-    } catch {}
+    } catch as _ {}
 }
 ; call once on load
 SetTimer(ProtectKeyAtRest, -2000)
@@ -293,7 +293,7 @@ Toast(msg, title := "MCWV") {
     try {
         ToolTip(title ": " msg)
         SetTimer(() => ToolTip(), -2500)
-    } catch {
+    } catch as _ {
         ToolTip(title ": " msg)
         SetTimer(() => ToolTip(), -2500)
     }
@@ -373,7 +373,7 @@ class ScreenBuffer {
                 DllCall("gdi32\DeleteDC", "Ptr", this.hdcMem)
             if this.hdcScreen
                 DllCall("ReleaseDC", "Ptr", 0, "Ptr", this.hdcScreen)
-        } catch {}
+        } catch as _ {}
         this.hdcScreen := 0, this.hdcMem := 0, this.hbm := 0, this.hbmOld := 0, this.buf := 0, this.captured := false
     }
 }
@@ -391,7 +391,7 @@ FastColorMatch(c1, c2, tolerance := 0) {
         r1 := Integer("0x" SubStr(c1,3,2)), g1 := Integer("0x" SubStr(c1,5,2)), b1 := Integer("0x" SubStr(c1,7,2))
         r2 := Integer("0x" SubStr(c2,3,2)), g2 := Integer("0x" SubStr(c2,5,2)), b2 := Integer("0x" SubStr(c2,7,2))
         return Abs(r1-r2) <= tolerance && Abs(g1-g2) <= tolerance && Abs(b1-b2) <= tolerance
-    } catch {
+    } catch as _ {
         return false
     }
 }
@@ -572,7 +572,7 @@ SeeNow(check, expandRad := 0) {
                     return false
                 }
             }
-        } catch {}
+        } catch as _ {}
         ; fallback: PixelGetColor
         try {
             got := StrLower(String(PixelGetColor(p.x, p.y, "Alt")))
@@ -611,7 +611,7 @@ SeeMulti(checks, need := 0, attempt := 0) {
             if ScreenBuffer.Capture(c)
                 useBuf := true
         }
-    } catch {}
+    } catch as _ {}
     hits := []
     count := 0
     for ch in checks {
@@ -670,7 +670,7 @@ Tap(hit, desc := "") {
         c := ClientRect()
         clamped := ClampToClient(hit.x, hit.y, c)
         hit := clamped
-    } catch {}
+    } catch as _ {}
     if DryRun {
         Log("DRY  would tap " (desc != "" ? desc : "target") " at " hit.x "," hit.y)
         WatchdogLastProgress := A_TickCount
@@ -678,7 +678,7 @@ Tap(hit, desc := "") {
     }
     ; human move then click
     try HumanMove(hit.x, hit.y)
-    catch {
+catch as _ {
         MouseMove(hit.x, hit.y, 0)
     }
     Sleep(Random(40,110))
@@ -972,7 +972,7 @@ LicenseCheck(showUI := false) {
             }
             return false
         }
-    } catch {}
+    } catch as _ {}
     if LICENSE_STATUS = "unknown" || LICENSE_STATUS = "" {
         LICENSE_STATUS := "offline"
         return true
@@ -1014,7 +1014,7 @@ TelemetryPost(name, result, secs) {
         if k != ""
             w.SetRequestHeader("x-macro-key", k)
         w.Send(body)
-    } catch {}
+    } catch as _ {}
 }
 
 ; ── screenshot on fail — rate-limited to avoid disk fill ────────────────
@@ -1178,7 +1178,7 @@ LoadSharedCalib(taskName) {
         ; Proper JSON parse would need Jxon or similar — keep simple: if official exists, officers already pushed to assets
         Log("shared calib available for " taskName " — officers can promote to official")
         return false
-    } catch {
+    } catch as _ {
         return false
     }
 }
@@ -1286,7 +1286,7 @@ GetCheckKeys(checks) {
         try {
             for k, v in checks.OwnProps()
                 arr.Push(k)
-        } catch {
+        } catch as _ {
             ; fallback: try for..in
             for k in checks
                 arr.Push(k)
@@ -1508,7 +1508,7 @@ BuildUI() {
     if logoPath != "" {
         try {
             LogoPic := UI.Add("Picture", "x16 y10 w28 h28", logoPath)
-        } catch {
+        } catch as _ {
             logoPath := ""
         }
     }
@@ -1538,7 +1538,7 @@ BuildUI() {
     if avatarPath != "" {
         try {
             AvatarPic := UI.Add("Picture", "x16 y42 w22 h22", avatarPath)
-        } catch {
+        } catch as _ {
             avatarPath := ""
         }
     }
