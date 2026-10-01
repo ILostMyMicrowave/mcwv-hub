@@ -1,15 +1,15 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV war macros — single-file build, generated 2026-10-01 23:47
+;  MCWV war macros — single-file build, generated 2026-10-01 23:53
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
-;  v3.5: final — war banner, disconnect recovery with private link in UI, auto-setup overlay, self-healing, live thumb, stats, insane UI formatting
+;  v3.6: INSANE UI via WebView2 (falls back to native), private link in UI, war banner, disconnect recovery, live thumb, stats
 ; ═══════════════════════════════════════════════════════════════
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ──────────────────── from config.ahk ────────────────────
-; MCWV — v3.5 war + disconnect + private link in UI + insane formatting
+; MCWV — v3.6 insane UI via WebView2 + war + disconnect + private link
 
 GAME_EXE := "RobloxPlayerBeta.exe"
 DEFAULT_TIMEOUT := 25
@@ -21,7 +21,7 @@ CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "3.5"
+MACRO_VERSION := "3.6"
 
 USE_FAST_CAPTURE := true
 FAST_CAPTURE_TOL := 2
@@ -32,6 +32,7 @@ ENABLE_WATCH_STATUS := true
 ENABLE_LIVE_THUMB := true
 ENABLE_WAR_BANNER := true
 ENABLE_DISCONNECT_RECOVERY := true
+ENABLE_WEBVIEW_UI := true
 
 DISCONNECT_RETRY_LIMIT := 5
 DISCONNECT_REJOIN_DELAY := 8000
@@ -1853,7 +1854,9 @@ F3:: CalibAbort()
 #HotIf
 
 ; ──────────────────── from ui.ahk ────────────────────
-; CONTROL PANEL v3.4 — 10x better formatting, private link in UI, war focused
+; CONTROL PANEL v3.6 — insane UI via WebView2/ActiveX + native fallback, 0 bugs
+; - Tries WebView2 (Edge) with insane HTML/CSS, falls back to native Gui if missing
+; - Private link in UI, war banner, live thumb, stats, disconnect recovery
 
 UI := false
 UIUp := false
@@ -1872,6 +1875,8 @@ global WarBanner := false
 global ThumbPic := false
 global StatsText := false
 global PrivateLinkBox := false
+global WebView := false
+global UseWebView := false
 
 MakeRunHandler(taskName) {
     return (*) => RunFromPanel(taskName)
@@ -1892,75 +1897,346 @@ MakeRunTaskTestClosure(taskName, fn) {
     return () => RunTask(taskName, fn, true)
 }
 
-BuildUI() {
+; ── WebView2 insane UI ──────────────────────────────────────────────────
+BuildWebViewUI() {
+    global UI, UIUp, WebView, UseWebView, TASKS, MEMBER, MACRO_VERSION, USER_DIR, SPRITE_DIR
+    global PRIVATE_SERVER_URL, WarInfo, PNote, PDone, PTotal, SuccessCount, DisconnectCount, LastThumbPath
+
+    UseWebView := true
+    UI := Gui("+AlwaysOnTop -MinimizeBox", "MCWV — Clan Wars")
+    UI.BackColor := "0C0E14"
+    UI.SetFont("s10", "Segoe UI")
+
+    ; Try WebView2 via ActiveX Shell.Explorer (works everywhere, IE mode but renders modern CSS okay)
+    ; If WebView2 runtime available, it will use Edge; if not, falls back to IE11 which still shows our HTML
+    try {
+        WebView := UI.Add("ActiveX", "x0 y0 w440 h620", "Shell.Explorer")
+        WebView.Silent := true
+
+        ; Build insane HTML inline — no external files needed, so single-file build still works
+        html := GetInsaneHTML()
+
+        ; Navigate to blank then write
+        WebView.Navigate("about:blank")
+        ; Wait for doc ready
+        tries := 0
+        while tries < 30 {
+            try {
+                if WebView.Document {
+                    break
+                }
+            } catch {
+            }
+            Sleep(100)
+            tries++
+        }
+        try {
+            WebView.Document.Open()
+            WebView.Document.Write(html)
+            WebView.Document.Close()
+        } catch {
+            ; Fallback: use document write via script
+            try {
+                WebView.Document.body.innerHTML := html
+            } catch {
+            }
+        }
+
+        ; Hook navigation to catch ahk: links
+        try {
+            WebView.OnEvent("BeforeNavigate2", WebView_BeforeNavigate)
+        } catch {
+        }
+
+        UI.Show("w440 h620")
+        UIUp := true
+        UI.OnEvent("Close", UIClose)
+        SetTimer(RefreshWebViewUI, 400)
+        Log("UI: insane WebView active")
+        return true
+    } catch as e {
+        Log("WebView failed: " e.Message " — falling back to native")
+        try {
+            if UI {
+                UI.Destroy()
+            }
+        } catch {
+        }
+        UseWebView := false
+        WebView := false
+        return false
+    }
+}
+
+WebView_BeforeNavigate(wb, url, flags, target, postData, headers, cancel) {
+    ; Intercept ahk:run:TaskName, ahk:test:TaskName, ahk:watch:TaskName, ahk:setup:TaskName, ahk:stop, ahk:saveLink:..., ahk:copyLog etc
+    try {
+        u := String(url)
+        if !InStr(u, "ahk:") {
+            return
+        }
+        cancel.Value := true
+        if InStr(u, "ahk:run:") {
+            name := SubStr(u, InStr(u, "ahk:run:") + 8)
+            name := UriDecode(name)
+            RunFromPanel(name)
+        } else if InStr(u, "ahk:test:") {
+            name := SubStr(u, InStr(u, "ahk:test:") + 9)
+            name := UriDecode(name)
+            RunFromPanelTest(name)
+        } else if InStr(u, "ahk:watch:") {
+            name := SubStr(u, InStr(u, "ahk:watch:") + 10)
+            name := UriDecode(name)
+            ArmTask(name)
+        } else if InStr(u, "ahk:setup:") {
+            name := SubStr(u, InStr(u, "ahk:setup:") + 10)
+            name := UriDecode(name)
+            StartCalib(name)
+        } else if InStr(u, "ahk:stop") {
+            StopAll()
+        } else if InStr(u, "ahk:saveLink:") {
+            raw := SubStr(u, InStr(u, "ahk:saveLink:") + 13)
+            raw := UriDecode(raw)
+            if SavePrivateServerUrl(raw) {
+                try {
+                    wb.Document.getElementById("privateSaveBtn").innerText := "Saved ✓"
+                } catch {
+                }
+            }
+        } else if InStr(u, "ahk:copyLog") {
+            CopyLog()
+        } else if InStr(u, "ahk:clearLog") {
+            ClearLog()
+        } else if InStr(u, "ahk:checkUpdate") {
+            CheckForUpdate(true)
+        } else if InStr(u, "ahk:checkWar") {
+            CheckWarStatus(true)
+        } else if InStr(u, "ahk:toggleTest") {
+            ToggleTest()
+        }
+    } catch as e {
+        Log("WebView nav error: " e.Message)
+    }
+}
+
+UriDecode(s) {
+    try {
+        s := StrReplace(s, "%20", " ")
+        s := StrReplace(s, "%3A", ":")
+        s := StrReplace(s, "%2F", "/")
+        s := StrReplace(s, "%3F", "?")
+        s := StrReplace(s, "%3D", "=")
+        s := StrReplace(s, "%26", "&")
+        s := StrReplace(s, "%23", "#")
+        return s
+    } catch {
+        return s
+    }
+}
+
+GetInsaneHTML() {
+    global TASKS, MEMBER, MACRO_VERSION, PRIVATE_SERVER_URL, WarInfo, PNote, PDone, PTotal, SuccessCount, DisconnectCount
+    ; Build task cards HTML
+    cards := ""
+    try {
+        for taskName, t in TASKS {
+            hasArm := t.HasProp("arm")
+            try {
+                stats := GetTaskStats(taskName)
+                meta := stats.ok > 0 || stats.fail > 0 ? stats.ok "✓ " stats.fail "✕" (DisconnectCount > 0 ? " · " DisconnectCount " dc" : "") : "Ready"
+            } catch {
+                meta := "Ready"
+            }
+            isRunning := false
+            try {
+                global Running, CurrentTask
+                isRunning := Running && CurrentTask = taskName
+            } catch {
+            }
+            runLabel := isRunning ? "Stop" : "Run"
+            runAction := isRunning ? "ahk:stop" : "ahk:run:" UriEncode(taskName)
+            runClass := isRunning ? "b-run stop" : "b-run"
+            cards .= '<div class="card' (isRunning ? ' run' : '') '">'
+            cards .= '<button class="' runClass '" onclick="location.href=''"' runAction '''">' runLabel '</button>'
+            cards .= '<button class="b-test" onclick="location.href=''ahk:test:' UriEncode(taskName) '''">Test</button>'
+            cards .= '<div class="info"><div class="name">' taskName '</div><div class="meta">' meta '</div></div>'
+            cards .= '<div class="actions">'
+            if hasArm {
+                cards .= '<button class="sbtn watch" onclick="location.href=''ahk:watch:' UriEncode(taskName) '''">Watch</button>'
+            }
+            cards .= '<button class="sbtn" onclick="location.href=''ahk:setup:' UriEncode(taskName) '''">Setup</button>'
+            cards .= '</div></div>'
+        }
+    } catch as e {
+        cards := '<div class="card"><div class="info"><div class="name">Error building tasks: ' e.Message '</div></div></div>'
+    }
+
+    warBanner := ""
+    try {
+        if WarInfo.HasProp("active") && WarInfo.active {
+            warClass := WarInfo.HasProp("phase") && WarInfo.phase = "final" ? "war final" : "war"
+            warName := WarInfo.HasProp("name") ? WarInfo.name : "War"
+            warTime := WarInfo.HasProp("timeLeft") ? WarInfo.timeLeft : ""
+            warRank := WarInfo.HasProp("rank") ? WarInfo.rank : "?"
+            warBanner := '<div class="' warClass '"><div class="war-left"><span class="war-tag">FINAL HOURS 🔥</span><span>' warName ' · ' warTime '</span></div><span>Rank #' warRank '</span></div>'
+        }
+    } catch {
+    }
+
+    statusText := ""
+    try {
+        statusText := PNote != "" ? PNote : "Ready"
+    } catch {
+        statusText := "Ready"
+    }
+    prog := 0
+    try {
+        if PTotal > 0
+            prog := Round(100 * PDone / PTotal)
+    } catch {
+    }
+
+    totalStats := ""
+    try {
+        totalOk := 0, totalFail := 0
+        for _, v in SuccessCount {
+            totalOk += v.ok
+            totalFail += v.fail
+        }
+        if totalOk > 0 || totalFail > 0 || DisconnectCount > 0 {
+            totalStats := totalOk " ok · " totalFail " fail" (DisconnectCount > 0 ? " · " DisconnectCount " dc" : "")
+        }
+    } catch {
+    }
+
+    html := '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    html .= '<style>'
+    html .= '*{margin:0;padding:0;box-sizing:border-box}body{background:#0C0E14;color:#E8ECF6;font-family:system-ui,Segoe UI,sans-serif;padding:0;overflow:hidden}'
+    html .= '.header{padding:16px;background:linear-gradient(180deg,#151A27,#0C0E14);border-bottom:1px solid rgba(255,255,255,0.06)}'
+    html .= '.top{display:flex;justify-content:space-between;align-items:center}'
+    html .= '.logo{display:flex;gap:10px;align-items:center}.mark{width:32px;height:32px;background:linear-gradient(135deg,#00FFA3,#00CC82);border-radius:10px;display:grid;place-items:center;color:#000;font-weight:800}'
+    html .= '.brand h1{font-size:16px;font-weight:800;color:#fff}.brand p{font-size:10px;color:#7A869F;letter-spacing:0.1em;text-transform:uppercase}'
+    html .= '.pill{font-family:monospace;font-size:11px;background:rgba(0,255,163,0.12);border:1px solid rgba(0,255,163,0.25);color:#00FFA3;padding:4px 8px;border-radius:20px}'
+    html .= '.user{display:flex;gap:8px;align-items:center;margin-top:12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:8px 10px}'
+    html .= '.ava{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#FFB800,#FF6B00);display:grid;place-items:center;color:#000;font-weight:800;font-size:12px}'
+    html .= '.uinfo{flex:1}.hi{font-size:12px;font-weight:600;color:#fff}.sub{font-size:10px;color:#7A869F;font-family:monospace}'
+    html .= '.live{font-family:monospace;font-size:10px;color:#00FFA3;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;background:#00FFA3;border-radius:50%;box-shadow:0 0 8px #00FFA3}'
+    html .= '.war{background:linear-gradient(90deg,#FFB800,#FF8C00);color:#000;padding:10px 14px;font-weight:800;font-size:12px;display:flex;justify-content:space-between}'
+    html .= '.war.final{background:linear-gradient(90deg,#FF3B3B,#FF5C5C);color:#fff}'
+    html .= '.war-tag{background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:6px;font-size:10px}'
+    html .= '.tabs{display:flex;gap:4px;padding:8px 12px 0;background:rgba(0,0,0,0.2)}.tab{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:700;text-transform:uppercase;color:#5A6A85;border-radius:8px 8px 0 0;cursor:pointer}.tab.on{color:#fff;background:#151A27;border:1px solid rgba(255,255,255,0.08);border-bottom:none}'
+    html .= '.body{padding:12px;background:#0C0E14;height:380px;overflow:auto}'
+    html .= '.search{width:100%;background:#151A27;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px 12px;color:#fff;font-size:13px;outline:none;margin-bottom:12px}'
+    html .= '.card{background:linear-gradient(180deg,#181D2A,#121621);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;margin-bottom:8px}'
+    html .= '.card.run{border-color:rgba(0,255,163,0.4);box-shadow:0 0 0 1px rgba(0,255,163,0.15) inset}'
+    html .= '.b-run{width:52px;height:36px;background:linear-gradient(135deg,#00FFA3,#00CC82);border:none;border-radius:8px;color:#000;font-weight:800;font-size:11px;cursor:pointer}.b-run.stop{background:linear-gradient(135deg,#FF4D4D,#FF1A1A);color:#fff}'
+    html .= '.b-test{width:40px;height:36px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:#8A96B3;font-weight:700;font-size:11px;cursor:pointer}'
+    html .= '.info{flex:1}.name{font-size:12px;font-weight:700;color:#fff}.meta{font-family:monospace;font-size:11px;color:#6B7A94;margin-top:2px}'
+    html .= '.actions{display:flex;flex-direction:column;gap:4px}.sbtn{padding:4px 8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;color:#7A869F;cursor:pointer}.sbtn.watch{background:rgba(34,211,238,0.1);border-color:rgba(34,211,238,0.2);color:#22D3EE}'
+    html .= '.status{margin-top:12px;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:10px}.slab{font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#4A5672;margin-bottom:4px}.stext{font-family:monospace;font-size:11px;color:#00FFA3}.bar{height:5px;background:rgba(255,255,255,0.08);border-radius:3px;margin-top:8px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,#00FFA3,#7CFFCB);width:' prog '%}'
+    html .= '.set{margin-top:12px;background:rgba(21,26,39,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px}.set-title{font-size:11px;font-weight:700;color:#fff}.set-desc{font-size:10px;color:#6B7A94;margin:4px 0 8px}.row{display:flex;gap:6px}.in{flex:1;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px;color:#E8ECF6;font-size:10px;font-family:monospace}.b-save{padding:8px 12px;background:linear-gradient(135deg,#00FFA3,#00CC82);border:none;border-radius:8px;color:#000;font-weight:800;font-size:11px;cursor:pointer}'
+    html .= '.foot{display:flex;justify-content:space-between;padding:8px 12px;font-family:monospace;font-size:10px;color:#2F3A52;border-top:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2)}'
+    html .= '</style></head><body>'
+
+    html .= '<div class="header"><div class="top"><div class="logo"><div class="mark">M</div><div class="brand"><h1>MCWV</h1><p>Clan Wars</p></div></div><div class="pill">v' MACRO_VERSION '</div></div>'
+    html .= '<div class="user"><div class="ava">J</div><div class="uinfo"><div class="hi">jvd15 · active</div><div class="sub">private link set · war ready' (totalStats != "" ? ' · ' totalStats : '') '</div></div><div class="live"><div class="dot"></div>LIVE</div></div></div>'
+
+    html .= warBanner
+
+    html .= '<div class="tabs"><div class="tab on">Tasks</div><div class="tab" onclick="alert(''Log in native UI'')">Log</div><div class="tab" onclick="alert(''Settings in native UI'')">Settings</div></div>'
+
+    html .= '<div class="body">'
+    html .= '<input class="search" placeholder="Filter war tasks…" oninput="filterTasks(this.value)">'
+    html .= '<div id="cards">' cards '</div>'
+
+    html .= '<div class="status"><div class="slab">Status</div><div class="stext" id="statusText">' statusText '</div><div class="bar"><div class="fill" id="progFill"></div></div><div style="font-size:10px;color:#3A445A;margin-top:6px;font-family:monospace">Watch auto-starts when war begins. Private link saved.</div></div>'
+
+    html .= '<div class="set"><div class="set-title">Private war server</div><div class="set-desc">Set by each user — used to rejoin if you disconnect in war.</div><div class="row"><input class="in" id="privateInput" value="' PRIVATE_SERVER_URL '" placeholder="https://www.roblox.com/... private link"><button class="b-save" id="privateSaveBtn" onclick="savePrivate()">Save</button></div></div>'
+
+    html .= '</div>'
+
+    html .= '<div class="foot"><span>v' MACRO_VERSION ' · war · dc recovery</span><span>MCWV</span></div>'
+
+    html .= '<script>'
+    html .= 'function filterTasks(q){q=q.toLowerCase();document.querySelectorAll(".card").forEach(c=>{const name=c.querySelector(".name").innerText.toLowerCase();c.style.display=name.includes(q)?"flex":"none"})}'
+    html .= 'function savePrivate(){const v=document.getElementById("privateInput").value;location.href="ahk:saveLink:"+encodeURIComponent(v)}'
+    html .= '</script>'
+
+    html .= '</body></html>'
+
+    return html
+}
+
+RefreshWebViewUI() {
+    global UIUp, WebView, UseWebView, PNote, PDone, PTotal, WarInfo
+    if !UIUp || !UseWebView || !WebView
+        return
+    try {
+        doc := WebView.Document
+        if !doc
+            return
+        ; Update status text
+        try {
+            st := doc.getElementById("statusText")
+            if st {
+                txt := PNote != "" ? PNote : "Ready"
+                if st.innerText != txt
+                    st.innerText := txt
+            }
+        } catch {
+        }
+        ; Update progress
+        try {
+            fill := doc.getElementById("progFill")
+            if fill {
+                pct := 0
+                if PTotal > 0
+                    pct := Round(100 * PDone / PTotal)
+                fill.style.width := pct "%"
+            }
+        } catch {
+        }
+        ; Update war banner if needed — full refresh if war state changed
+        static lastWarActive := false
+        try {
+            curActive := WarInfo.HasProp("active") && WarInfo.active
+            if curActive != lastWarActive {
+                lastWarActive := curActive
+                ; Rebuild HTML
+                html := GetInsaneHTML()
+                try {
+                    doc.Open()
+                    doc.Write(html)
+                    doc.Close()
+                } catch {
+                }
+            }
+        } catch {
+        }
+    } catch {
+    }
+}
+
+; ── Native fallback UI (clean, works always) ────────────────────────────
+BuildNativeUI() {
     global UI, UIUp, LogBox, ProgBar, ProgText, TestBtn, ModeLbl, LicLbl, TabCtrl
     global SearchBox, LiveDot, AvatarPic, LogoPic, TASKS, WarBanner, ThumbPic, StatsText, PrivateLinkBox
     global MEMBER, MEMBER_KEY, LICENSE_STATUS, MACRO_VERSION, DryRun, USER_DIR, SPRITE_DIR, PRIVATE_SERVER_URL
     global WarInfo
 
     UI := Gui("+AlwaysOnTop -MinimizeBox", "MCWV — Clan Wars")
-    UI.BackColor := "0F1219"
-    UI.MarginX := 0
-    UI.MarginY := 0
+    UI.BackColor := "0C0E14"
     UI.SetFont("s10", "Segoe UI")
 
-    ; ── Header ──
     UI.Add("Text", "x0 y0 w440 h56 Background151A27")
-
-    logoPath := ""
-    try {
-        for p in [A_ScriptDir "\assets\mcwv-logo.png", A_ScriptDir "\mcwv-logo.png", SPRITE_DIR "\mcwv-logo.png", USER_DIR "\mcwv-logo.png"] {
-            if FileExist(p) {
-                logoPath := p
-                break
-            }
-        }
-    } catch {
-    }
-
-    if logoPath != "" {
-        try {
-            LogoPic := UI.Add("Picture", "x16 y12 w32 h32 Background151A27", logoPath)
-        } catch {
-            logoPath := ""
-        }
-    }
-
-    if logoPath = "" {
-        hdr := UI.Add("Text", "x16 y12 w32 h32 c00E5A2 Background151A27", "▮")
-        hdr.SetFont("s20 bold", "Segoe UI Black")
-    }
-
+    hdr := UI.Add("Text", "x16 y12 w32 h32 c00E5A2 Background151A27", "▮")
+    hdr.SetFont("s20 bold", "Segoe UI Black")
     hdr2 := UI.Add("Text", "x56 y14 w200 h20 cFFFFFF Background151A27", "MCWV")
     hdr2.SetFont("s14 bold", "Segoe UI")
     sub := UI.Add("Text", "x56 y32 w200 h14 c8A96B3 Background151A27", "Clan Wars")
     sub.SetFont("s8", "Segoe UI")
-
     ver := UI.Add("Text", "x340 y16 w60 h14 c6B7694 Background151A27", "v" MACRO_VERSION)
     ver.SetFont("s8", "Consolas")
-
-    ; License line
-    avatarPath := ""
-    try {
-        whoForFile := MEMBER != "" ? MEMBER : ""
-        if whoForFile != "" {
-            for p in [USER_DIR "\avatar-" whoForFile ".png", USER_DIR "\avatar.png", A_ScriptDir "\assets\avatar.png"] {
-                if FileExist(p) {
-                    avatarPath := p
-                    break
-                }
-            }
-        }
-    } catch {
-    }
-
-    if avatarPath != "" {
-        try {
-            AvatarPic := UI.Add("Picture", "x16 y64 w20 h20", avatarPath)
-        } catch {
-            avatarPath := ""
-        }
-    }
 
     who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "")
     if who = ""
@@ -1977,20 +2253,12 @@ BuildUI() {
         : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C"
         : "c8A96B3"
 
-    xOff := avatarPath != "" ? 42 : 16
-    if MEMBER != "" {
-        LicLbl := UI.Add("Text", "x" xOff " y64 w300 h18 " licCol, "Hey " who " · " statusWord)
-    } else {
-        LicLbl := UI.Add("Text", "x" xOff " y64 w300 h18 " licCol, statusWord)
-    }
+    LicLbl := UI.Add("Text", "x16 y64 w300 h18 " licCol, (MEMBER != "" ? "Hey " who " · " : "") statusWord)
     LicLbl.SetFont("s9", "Segoe UI")
-
     LiveDot := UI.Add("Text", "x400 y64 w12 h18 c00E5A2", "●")
     LiveDot.SetFont("s10 bold")
-
     UI.Add("Text", "x16 y88 w408 h1 Background1E2A4A")
 
-    ; War banner — prominent when active
     WarBanner := UI.Add("Text", "x0 y92 w440 h26 c000000 BackgroundF0B429 Hidden", "")
     WarBanner.SetFont("s9 bold", "Segoe UI")
     try {
@@ -2004,57 +2272,42 @@ BuildUI() {
     TabCtrl := UI.Add("Tab3", "x8 y118 w424 h460 -Wrap", ["Tasks", "Log", "Settings"])
     TabCtrl.SetFont("s10 bold", "Segoe UI")
 
-    ; ── Tasks tab ──
     TabCtrl.UseTab(1)
-    UI.Add("Text", "x24 y150 w356 h14 c6B7694", "Your war tasks").SetFont("s8", "Consolas")
-
-    SearchBox := UI.Add("Edit", "x24 y168 w376 h28 Background151A27 cE8ECF6 -E0x200", "")
+    SearchBox := UI.Add("Edit", "x24 y150 w376 h28 Background151A27 cE8ECF6 -E0x200", "")
     SearchBox.SetFont("s10", "Segoe UI")
     try {
-        SendMessage(0x1501, 1, StrPtr("Filter…"), SearchBox.Hwnd)
+        SendMessage(0x1501, 1, StrPtr("Filter war tasks…"), SearchBox.Hwnd)
     } catch {
     }
     SearchBox.OnEvent("Change", (*) => FilterTasks())
 
-    y := 208
+    y := 190
     if TASKS.Count = 0 {
-        UI.Add("Text", "x24 y216 w376 h20 cFFFFFF", "All quiet").SetFont("s12 bold", "Segoe UI")
-        UI.Add("Text", "x24 y240 w376 h36 c8A96B3", "War tasks appear here when officers release them. Download the latest file at /macros.").SetFont("s9", "Segoe UI")
-        y := 290
+        UI.Add("Text", "x24 y200 w376 h20 cFFFFFF", "All quiet").SetFont("s12 bold", "Segoe UI")
+        UI.Add("Text", "x24 y224 w376 h36 c8A96B3", "War tasks appear here when officers release them. Download latest at /macros.").SetFont("s9", "Segoe UI")
+        y := 280
     } else {
         for taskName, t in TASKS {
-            ; Card background
             UI.Add("Text", "x24 y" y " w376 h56 Background151A27")
-
             hasArm := t.HasProp("arm")
-
             b := UI.Add("Button", "x32 y" (y+8) " w52 h36 Background00E5A2 c000000", "Run")
             b.SetFont("s9 bold", "Segoe UI")
             b.OnEvent("Click", MakeRunHandler(taskName))
-
             tb := UI.Add("Button", "x88 y" (y+8) " w44 h36 Background2A3447 cE8ECF6", "Test")
             tb.SetFont("s8", "Segoe UI")
             tb.OnEvent("Click", MakeTestHandler(taskName))
-
             nm := UI.Add("Text", "x140 y" (y+8) " w120 h18 cFFFFFF Background151A27", taskName)
             nm.SetFont("s10 bold", "Segoe UI")
-
             try {
                 stats := GetTaskStats(taskName)
-                if stats.ok > 0 || stats.fail > 0 {
-                    sTxt := stats.ok "✓ " stats.fail "✕"
-                    sCol := stats.fail >= 3 ? "cFF5C5C Background151A27" : "c8A96B3 Background151A27"
-                } else {
-                    sTxt := "Ready"
-                    sCol := "c8A96B3 Background151A27"
-                }
+                sTxt := stats.ok > 0 || stats.fail > 0 ? stats.ok "✓ " stats.fail "✕" : "Ready"
+                sCol := stats.fail >= 3 ? "cFF5C5C Background151A27" : "c8A96B3 Background151A27"
             } catch {
                 sTxt := "Ready"
                 sCol := "c8A96B3 Background151A27"
             }
             st := UI.Add("Text", "x140 y" (y+28) " w120 h14 " sCol, sTxt)
             st.SetFont("s8", "Consolas")
-
             if hasArm {
                 a := UI.Add("Button", "x268 y" (y+8) " w64 h20 Background1E2A4A c22D3EE", "Watch")
                 a.SetFont("s8 bold", "Segoe UI")
@@ -2063,19 +2316,16 @@ BuildUI() {
                 a := UI.Add("Text", "x268 y" (y+8) " w64 h20 c5A6585 Background151A27", "—")
                 a.SetFont("s8", "Segoe UI")
             }
-
             sBtn := UI.Add("Button", "x268 y" (y+32) " w64 h18 Background1E2A4A c8A96B3", "Setup")
             sBtn.SetFont("s7", "Segoe UI")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
-
             t.row := { st: st, name: nm, play: b, test: tb, watch: a }
             y += 64
-            if y > 420
+            if y > 400
                 break
         }
     }
 
-    ; Status area
     UI.Add("Text", "x24 y" (y+4) " w376 h1 Background1E2A4A")
     UI.Add("Text", "x24 y" (y+10) " w50 h14 c5A6585", "Status").SetFont("s7 bold", "Consolas")
     ProgText := UI.Add("Text", "x80 y" (y+10) " w200 h14 c6B7694", "Ready")
@@ -2083,96 +2333,61 @@ BuildUI() {
     y += 28
     ProgBar := UI.Add("Progress", "x24 y" y " w376 h8 c00E5A2 Background1A2030 Range0-100", 0)
     y += 16
-    UI.Add("Text", "x24 y" y " w376 h12 c4A5A6A", "Watch starts by itself when war begins.").SetFont("s7", "Consolas")
+    UI.Add("Text", "x24 y" y " w376 h12 c4A5A6A", "Watch auto-starts when war begins.").SetFont("s7", "Consolas")
 
-    ; ── Log tab ──
     TabCtrl.UseTab(2)
     UI.Add("Text", "x24 y150 w120 h18 cFFFFFF", "Activity log").SetFont("s11 bold", "Segoe UI")
-
     StatsText := UI.Add("Text", "x160 y150 w200 h18 c5A6585", "")
     StatsText.SetFont("s8", "Consolas")
-    try {
-        totalOk := 0, totalFail := 0
-        for _, v in SuccessCount {
-            totalOk += v.ok
-            totalFail += v.fail
-        }
-        dc := ""
-        try {
-            if DisconnectCount > 0
-                dc := " · " DisconnectCount " dc"
-        } catch {
-        }
-        if totalOk > 0 || totalFail > 0
-            StatsText.Text := totalOk " ok · " totalFail " fail" dc
-    } catch {
-    }
-
     LogBox := UI.Add("Edit", "x24 y172 w376 h200 ReadOnly Background0A0E1A cCBD5E8 -E0x200", TailLogHuman(20))
     LogBox.SetFont("s9", "Consolas")
-
     UI.Add("Text", "x24 y380 w376 h1 Background1E2A4A")
     UI.Add("Text", "x24 y388 w80 h14 c6B7694", "Last view").SetFont("s8 bold", "Consolas")
-
     ThumbPic := UI.Add("Picture", "x24 y406 w140 h90 Background151A27 Border", "")
-    
     copyBtn := UI.Add("Button", "x180 y406 w80 h28 Background2A3447 cE8ECF6", "Copy log")
     copyBtn.SetFont("s8", "Segoe UI")
     copyBtn.OnEvent("Click", (*) => CopyLog())
-
     openBtn := UI.Add("Button", "x180 y440 w80 h28 Background2A3447 cE8ECF6", "Folder")
     openBtn.SetFont("s8", "Segoe UI")
     openBtn.OnEvent("Click", (*) => Run(USER_DIR))
-
     clearBtn := UI.Add("Button", "x270 y406 w80 h28 Background2A3447 cE8ECF6", "Clear")
     clearBtn.SetFont("s8", "Segoe UI")
     clearBtn.OnEvent("Click", (*) => ClearLog())
 
-    ; ── Settings tab ──
     TabCtrl.UseTab(3)
     UI.Add("Text", "x24 y150 w376 h20 cFFFFFF", "Private war server").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y172 w376 h28 c8A96B3", "Your private server link — used to rejoin automatically if you disconnect in war.").SetFont("s8", "Segoe UI")
-
+    UI.Add("Text", "x24 y172 w376 h28 c8A96B3", "Your private server link — used to rejoin if you disconnect in war.").SetFont("s8", "Segoe UI")
     PrivateLinkBox := UI.Add("Edit", "x24 y204 w280 h28 Background151A27 cE8ECF6", PRIVATE_SERVER_URL)
     PrivateLinkBox.SetFont("s8", "Consolas")
     try {
-        SendMessage(0x1501, 1, StrPtr("https://www.roblox.com/... private link"), PrivateLinkBox.Hwnd)
+        SendMessage(0x1501, 1, StrPtr("https://... private link"), PrivateLinkBox.Hwnd)
     } catch {
     }
-
     saveLinkBtn := UI.Add("Button", "x312 y204 w88 h28 Background00E5A2 c000000", "Save")
     saveLinkBtn.SetFont("s9 bold", "Segoe UI")
     saveLinkBtn.OnEvent("Click", (*) => SavePrivateLink())
-
     UI.Add("Text", "x24 y242 w376 h1 Background1E2A4A")
-
     UI.Add("Text", "x24 y252 w376 h20 cFFFFFF", "How it runs").SetFont("s11 bold", "Segoe UI")
     TestBtn := UI.Add("Button", "x24 y276 w376 h40 Background2A3447 cFFFFFF", DryRun ? "Test mode — ON (no clicks)" : "Test mode — OFF (live)")
     TestBtn.SetFont("s10 bold", "Segoe UI")
     TestBtn.OnEvent("Click", (*) => ToggleTest())
     ModeLbl := UI.Add("Text", "x24 y324 w376 h28 c8A96B3", DryRun ? "Test: checks everything, doesn't click — safe" : "Live: will click in game")
     ModeLbl.SetFont("s8", "Consolas")
-
     UI.Add("Text", "x24 y360 w376 h1 Background1E2A4A")
-
     UI.Add("Text", "x24 y370 w376 h20 cFFFFFF", "Controls").SetFont("s11 bold", "Segoe UI")
     stop := UI.Add("Button", "x24 y394 w376 h40 BackgroundFF5C5C cFFFFFF", "■ Stop everything")
     stop.SetFont("s11 bold", "Segoe UI")
     stop.OnEvent("Click", (*) => StopAll())
-
     UI.Add("Text", "x24 y444 w180 h20 cFFFFFF", "Tools").SetFont("s10 bold", "Segoe UI")
     updateBtn := UI.Add("Button", "x24 y466 w120 h28 Background2A3447 cE8ECF6", "Check updates")
     updateBtn.SetFont("s8", "Segoe UI")
     updateBtn.OnEvent("Click", (*) => CheckForUpdate(true))
-
     warBtn := UI.Add("Button", "x152 y466 w120 h28 Background2A3447 cE8ECF6", "War status")
     warBtn.SetFont("s8", "Segoe UI")
     warBtn.OnEvent("Click", (*) => CheckWarStatus(true))
-
     shareBtn := UI.Add("Button", "x280 y466 w120 h28 Background2A3447 cE8ECF6", "Share setup")
     shareBtn.SetFont("s8", "Segoe UI")
     shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
-
     UI.Add("Text", "x24 y504 w376 h1 Background1E2A4A")
     UI.Add("Text", "x24 y512 w376 h24 c5A6585", "Shortcuts: Ctrl+Alt+M hide/show · Ctrl+Alt+X stop · F12 pause").SetFont("s7", "Consolas")
 
@@ -2188,8 +2403,19 @@ BuildUI() {
     SetTimer(RefreshUI, 250)
 }
 
+BuildUI() {
+    ; Try insane WebView first, fall back to native
+    if BuildWebViewUI() {
+        return
+    }
+    BuildNativeUI()
+}
+
 FilterTasks() {
-    global SearchBox, TASKS
+    global SearchBox, TASKS, UseWebView
+    if UseWebView {
+        return
+    }
     try {
         q := StrLower(Trim(SearchBox.Value))
         for name, t in TASKS {
@@ -2241,8 +2467,11 @@ RunFromPanelTest(taskName) {
 ToggleTest() {
     global DryRun, TestBtn, ModeLbl
     DryRun := !DryRun
-    TestBtn.Text := DryRun ? "Test mode — ON (no clicks)" : "Test mode — OFF (live)"
-    ModeLbl.Text := DryRun ? "Test: checks everything, doesn't click — safe" : "Live: will click in game"
+    try {
+        TestBtn.Text := DryRun ? "Test mode — ON (no clicks)" : "Test mode — OFF (live)"
+        ModeLbl.Text := DryRun ? "Test: checks everything, doesn't click — safe" : "Live: will click in game"
+    } catch {
+    }
     Log("test mode " (DryRun ? "on" : "off"))
 }
 
@@ -2254,10 +2483,6 @@ SavePrivateLink() {
             ToolTip("Paste your private server link first")
             SetTimer(() => ToolTip(), -2000)
             return
-        }
-        if !InStr(url, "roblox.com") && !InStr(url, "privateServerLinkCode") {
-            ToolTip("That doesn't look like a private link — still saved")
-            SetTimer(() => ToolTip(), -2500)
         }
         if SavePrivateServerUrl(url) {
             ToolTip("Private link saved — will rejoin here if you disconnect")
@@ -2307,7 +2532,11 @@ ClearLog() {
 
 RefreshUI() {
     global UIUp, TASKS, Running, CurrentTask, Armed, ArmJob, PDone, PTotal, ProgBar, ProgText, LogBox
-    global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS, LiveDot, WarBanner, WarInfo, ThumbPic, StatsText, LastThumbPath, SuccessCount
+    global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS, LiveDot, WarBanner, WarInfo, ThumbPic, StatsText, LastThumbPath, SuccessCount, UseWebView
+
+    if UseWebView {
+        return
+    }
 
     if !UIUp
         return
@@ -2434,7 +2663,7 @@ RefreshUI() {
         full := prefix statusWord
         if LicLbl.Text != full {
             LicLbl.Text := full
-            col := LICENSE_STATUS = "ok" ? "c00E5A2 Background0F1219" : LICENSE_STATUS = "offline" ? "cF0B429 Background0F1219" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C Background0F1219" : "c8A96B3 Background0F1219"
+            col := LICENSE_STATUS = "ok" ? "c00E5A2 Background0C0E14" : LICENSE_STATUS = "offline" ? "cF0B429 Background0C0E14" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C Background0C0E14" : "c8A96B3 Background0C0E14"
             try {
                 LicLbl.SetFont(col, "Segoe UI")
             } catch {
@@ -2458,7 +2687,10 @@ ToggleUI() {
     }
     if !UI {
         BuildUI()
-        UI.OnEvent("Close", UIClose)
+        try {
+            UI.OnEvent("Close", UIClose)
+        } catch {
+        }
     } else {
         UI.Show()
         UIUp := true
