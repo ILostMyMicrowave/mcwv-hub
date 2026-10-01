@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 00:11
+;  MCWV event macros — single-file build, generated 2026-10-01 07:21
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -1447,88 +1447,6 @@ F2:: CalibSkip()
 F3:: CalibAbort()
 #HotIf
 
-; ──────────────────── from events/example.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════════════
-;  EVENT TEMPLATE v2 — copy per event.
-;  Constants come in two shapes, BOTH resolution-proof:
-;    • pt: normalized fraction of the CLIENT area (works at any res/window)
-;    • checks: { img, pt, hex } — image crop first, pixel color fallback.
-;  Every value below is a 1080p-derived PLACEHOLDER: replace from your clip
-;  (see README recording spec) or let members self-serve with Ctrl+Alt+C.
-; ═══════════════════════════════════════════════════════════════════════
-
-EXC := {   ; the CHECKS map — only check objects live here (calib walks it)
-    ready: { img: "ex-ready.png", pt: { fx: 0.665, fy: 0.740 }, hex: "0x2ecc71" },
-    done:  { img: "ex-done.png",  pt: { fx: 0.665, fy: 0.740 }, hex: "0x1e2a38" }
-}
-EX := { ready: EXC.ready, done: EXC.done, cycles: 5 }   ; runtime knobs + refs
-ApplyCalib("example claim", EXC)   ; member calibration overrides, when present
-
-TASKS["example claim"] := { fn: ExampleClaim, arm: EXC.ready, checks: EXC }
-Hotkey("^!e", (*) => RunTask("example claim", ExampleClaim))
-Hotkey("^!a", (*) => ArmTask("example claim"))    ; same via panel/arm semantics
-Hotkey("^!c", (*) => StartCalib("example claim"))
-
-ExampleClaim() {
-    ; one clean up-front detection: refuse to start a dance unless the
-    ; stage is actually set — a wrong start wastes more claims than a miss.
-    See(EXC.ready, 120, "event screen open")
-    Loop EX.cycles {
-        CheckAbort()
-        SetProgress(A_Index - 1, EX.cycles, "cycle " (A_Index - 1))
-        Step("cycle " A_Index, 3, CycleOnce)
-        SetProgress(A_Index, EX.cycles, "cycle " A_Index)
-        if A_Index < EX.cycles
-            Sleep(Random(LOOP_SLEEP_MIN, LOOP_SLEEP_MAX))
-    }
-    SetProgress(EX.cycles, EX.cycles, "all cycles done")
-}
-
-; One claim = find the button (image or pixel) → tap → verify state flipped.
-; Returned to Step(); raising is what triggers a retry with fresh eyes.
-CycleOnce() {
-    hit := See(EXC.ready, 10, "claim button live")
-    if Tap(hit, "claim button via " hit.via)
-        Confirm(EXC.done, 6, "claimed state visible")
-}
-
-; ──────────────────── from events/fishing-weekly.ahk ────────────────────
-; Weekly event: Fishing Frenzy — example of how you add weekly ones
-; Copy _template.ahk -> events/fishing-... and edit checks
-
-FISH_C := {
-    ready: { img: "fish-ready.png", pt: { fx: 0.520, fy: 0.680 }, hex: "0x4ecdc4" },
-    bob:   { img: "fish-bob.png",   pt: { fx: 0.500, fy: 0.450 }, hex: "0xf7fff7" },
-    done:  { img: "fish-done.png",  pt: { fx: 0.520, fy: 0.680 }, hex: "0x1a535c" },
-}
-FISH := { ready: FISH_C.ready, bob: FISH_C.bob, done: FISH_C.done, cycles: 8 }
-ApplyCalib("fishing frenzy", FISH_C)
-
-TASKS["fishing frenzy"] := { fn: FishingClaim, arm: FISH_C.ready, checks: FISH_C, meta: { week: "2026-W40", type: "weekly" } }
-Hotkey("^!f", (*) => RunTask("fishing frenzy", FishingClaim))
-Hotkey("^!+f", (*) => ArmTask("fishing frenzy"))
-
-FishingClaim() {
-    See(FISH_C.ready, 60, "fishing spot")
-    Loop FISH.cycles {
-        CheckAbort()
-        SetProgress(A_Index-1, FISH.cycles, "cast " (A_Index-1))
-        Step("fish cast " A_Index, 3, () => FishOnce())
-        SetProgress(A_Index, FISH.cycles, "fish " A_Index)
-        Sleep(Random(LOOP_SLEEP_MIN, LOOP_SLEEP_MAX))
-    }
-}
-
-FishOnce() {
-    hit := See(FISH_C.ready, 8, "cast button")
-    Tap(hit, "cast via " hit.via)
-    ; wait for bob to appear (fish bite)
-    bobHit := See(FISH_C.bob, 12, "bobbing")
-    Sleep(Random(80,150))
-    Tap(bobHit, "reel")
-    Confirm(FISH_C.done, 5, "fish caught")
-}
-
 ; ──────────────────── from ui.ahk ────────────────────
 ; ═══════════════════════════════════════════════════════════════
 ;  CONTROL PANEL v2.5 — natural, with logo + avatar
@@ -1661,8 +1579,10 @@ BuildUI() {
 
     y := 136
     if TASKS.Count = 0 {
-        UI.Add("Text", "x28 y140 w320 c8A96B3", "No tasks yet — add an event file and re-pack").SetFont("s9 italic")
-        y := 180
+        UI.Add("Text", "x28 y140 w340 cE8ECF6", "No events active right now").SetFont("s11 bold", "Segoe UI")
+        UI.Add("Text", "x28 y162 w340 c8A96B3", "When officers drop a new weekly event, you'll get it automatically when you download your file at /macros. For now, this build is just the framework — ready for you to tell it what to do.").SetFont("s9", "Segoe UI")
+        UI.Add("Text", "x28 y210 w340 c5A6585", "Officers: add files in events/ and run node pack.js — they auto-appear here.").SetFont("s8", "Consolas")
+        y := 260
     } else {
         for taskName, t in TASKS {
             hasArm := t.HasProp("arm")
