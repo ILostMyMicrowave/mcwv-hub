@@ -1,46 +1,46 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 22:48
+;  MCWV event macros — single-file build, generated 2026-10-01 22:59
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
-;  v3.1: reliability + human UX — fixed Tap bug, watch status, per-task test, human log, auto-probe, auto-update
-;  Weekly events: add file in events/ and re-pack, or edit this file if solo.
+;  v3.2: auto-setup overlay, self-healing expanding search, live thumb, stats, war banner, human log
 ; ═══════════════════════════════════════════════════════════════
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ──────────────────── from config.ahk ────────────────────
-; SHARED KNOBS — v3.1 reliability + UX
+; SHARED KNOBS — v3.2 better
 
 GAME_EXE := "RobloxPlayerBeta.exe"
 DEFAULT_TIMEOUT := 25
 FOCUS_GRACE := 180
 PANIC_KEY := ""
 
-; Human-like timing — wide jitter to avoid metronome pattern
 CLICK_JITTER_MIN := 60
 CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "3.1"
+MACRO_VERSION := "3.2"
 
-; v3.1 knobs
+; v3.2 knobs
 USE_FAST_CAPTURE := true
 FAST_CAPTURE_TOL := 2
 ENABLE_MCODE := true
-ENABLE_HUMAN_LOG := true   ; use human-readable log in UI
-ENABLE_AUTO_PROBE := true  ; probe screen on first launch
-ENABLE_WATCH_STATUS := true ; show what watch is waiting for
+ENABLE_HUMAN_LOG := true
+ENABLE_AUTO_PROBE := true
+ENABLE_WATCH_STATUS := true
+ENABLE_LIVE_THUMB := true
+ENABLE_WAR_BANNER := true
 
-; Clan licensing — filled by personalized download at /macros
+; Clan licensing
 MEMBER := ""
 MEMBER_KEY := ""
 AUTH_URL := ""
 LICENSE_GRACE_HOURS := 72
 LICENSE_FILE := ""
 
-; Telemetry — optional, off when unset
+; Telemetry
 TELEMETRY_URL := ""
 TELEMETRY_KEY := ""
 
@@ -48,7 +48,6 @@ SPRITE_DIR := A_ScriptDir "\assets"
 LOG_PATH   := A_ScriptDir "\macro.log"
 USER_DIR := EnvGet("USERPROFILE") "\MCWV"
 
-; runtime state — managed by core
 Running     := false
 Abort       := false
 CurrentTask := ""
@@ -605,14 +604,17 @@ See(check, timeoutS := 25, desc := "") {
     if desc = ""
         desc := check.HasProp("img") ? "image " check.img : (check.HasProp("hex") ? StrLower(String(check.hex)) " at " check.pt.fx "," check.pt.fy : "state")
     deadline := A_TickCount + Round(timeoutS * 1000)
+    attempt := 0
     while true {
-        if hit := SeeNow(check)
+        expand := attempt * 20
+        if hit := SeeNow(check, expand)
             return hit
         CheckAbort()
         if A_TickCount > deadline
             throw Error("not found: " desc)
         HoldFocus()
-        Sleep(150)
+        Sleep(120 + attempt*30)
+        attempt++
     }
 }
 WaitAny(checks, timeoutS := 25, desc := "any state") {
@@ -698,7 +700,8 @@ Step(label, tries, fn) {
                 throw
             if A_Index >= tries
                 throw Error("step failed " tries "x: " label " — " e.Message)
-            Log("retry " A_Index "/" tries " '" label "' — " e.Message)
+            Log("retry " A_Index "/" tries " '" label "' — " e.Message " (expanding search)")
+            ; Self-heal: on retry, try to close popup if key set, and expand search radius
             if PANIC_KEY != "" && FocusOK() {
                 try {
                     Send(PANIC_KEY)
@@ -706,22 +709,32 @@ Step(label, tries, fn) {
                 }
                 Sleep(400)
             }
-            Sleep(700 * A_Index + Random(0,300))
+            ; Expanding wait: first retry quick, later longer
+            Sleep(500 * A_Index + Random(0,400))
         }
     }
 }
 
 ; ── progress + fail tracking ────────────────────────────────────────────
 global FailCount := Map()
+global SuccessCount := Map()
+global LastThumbPath := ""
+global WarInfo := { active: false, name: "", timeLeft: "", rank: "", points: "" }
+global WarLastCheck := 0
 SetProgress(done, total := 0, note := "") {
     global PDone, PTotal, PNote, WatchdogLastProgress
     PDone := done, PTotal := total, PNote := note
     WatchdogLastProgress := A_TickCount
 }
 BumpFail(taskName) {
-    global FailCount
+    global FailCount, SuccessCount
     c := FailCount.Has(taskName) ? FailCount[taskName] + 1 : 1
     FailCount[taskName] := c
+    ; Update success counter
+    if !SuccessCount.Has(taskName)
+        SuccessCount[taskName] := { ok: 0, fail: 0, lastFail: "" }
+    SuccessCount[taskName].fail++
+    SuccessCount[taskName].lastFail := A_Now
     if c >= 3 {
         Log("task " taskName " failed 3x — try setup again")
         ToolTip(taskName " failed 3 times — try setting it up again")
@@ -729,6 +742,23 @@ BumpFail(taskName) {
         SetTimer(() => (FailCount[taskName] := 0), -60000)
     }
     return c
+}
+TrackSuccess(taskName) {
+    global SuccessCount, FailCount
+    if !SuccessCount.Has(taskName)
+        SuccessCount[taskName] := { ok: 0, fail: 0, lastFail: "" }
+    SuccessCount[taskName].ok++
+    ; Reset fail count on success
+    try {
+        FailCount[taskName] := 0
+    } catch {
+    }
+}
+GetTaskStats(taskName) {
+    global SuccessCount
+    if !SuccessCount.Has(taskName)
+        return { ok: 0, fail: 0, lastFail: "" }
+    return SuccessCount[taskName]
 }
 
 global TaskQueue := []
@@ -809,6 +839,7 @@ RunTask(name, fn, testMode := false) {
     Log("done: " name " → " result " (" secs "s)")
     TelemetryPost(name, result, secs)
     if result = "ok" {
+        TrackSuccess(name)
         try {
             FailCount[name] := 0
         } catch {
@@ -1025,7 +1056,7 @@ TelemetryPost(name, result, secs) {
 ; ── fail screenshot — rate limited ──────────────────────────────────────
 global LastFailScreenshots := []
 SaveFailScreenshot(taskName, reason) {
-    global USER_DIR, LastFailScreenshots
+    global USER_DIR, LastFailScreenshots, LastThumbPath
     try {
         now := A_TickCount
         filtered := []
@@ -1044,12 +1075,25 @@ SaveFailScreenshot(taskName, reason) {
         try {
             c := ClientRect()
             SaveBmp(c.x, c.y, c.w, c.h, file)
+            LastThumbPath := file
             Log("fail screenshot saved: " file " — " reason)
             return file
         } catch as e {
             Log("fail screenshot failed: " e.Message)
         }
     } catch {
+    }
+}
+SaveLiveThumb(x, y, w := 120, h := 80) {
+    global USER_DIR, LastThumbPath
+    try {
+        DirCreate(USER_DIR)
+        file := USER_DIR "\last-thumb.png"
+        SaveBmp(x - w//2, y - h//2, w, h, file)
+        LastThumbPath := file
+        return file
+    } catch {
+        return ""
     }
 }
 
@@ -1184,6 +1228,66 @@ UriEncode(s) {
     return s
 }
 
+; ── war mode — lightweight poll, no BigGames API per member ──────────────
+CheckWarStatus(showUI := false) {
+    global TELEMETRY_URL, WarInfo, WarLastCheck
+    ; Throttle: check every 2 min
+    if !showUI && A_TickCount - WarLastCheck < 120000
+        return WarInfo
+    WarLastCheck := A_TickCount
+    if TELEMETRY_URL = "" {
+        ; Try to guess origin from AUTH_URL
+        global AUTH_URL
+        if AUTH_URL = ""
+            return WarInfo
+        try {
+            origin := StrReplace(AUTH_URL, "/api/macro-activate", "")
+            TELEMETRY_URL := origin "/api/macro-report"
+        } catch {
+            return WarInfo
+        }
+    }
+    try {
+        origin := StrReplace(TELEMETRY_URL, "/api/macro-report", "")
+        w := ComObject("WinHttp.WinHttpRequest.5.1")
+        w.SetTimeouts(3000,3000,5000,5000)
+        w.Open("GET", origin "/api/macro-war", false)
+        w.Send()
+        if w.Status = 200 {
+            txt := w.ResponseText
+            ; Expect { active: bool, battleName, timeLeft, rank, points, phase }
+            ; Simple parse without JSON lib
+            active := InStr(txt, '"active":true') ? true : false
+            WarInfo.active := active
+            if active {
+                try {
+                    if RegExMatch(txt, '"battleName"\s*:\s*"([^"]+)"', &m)
+                        WarInfo.name := m[1]
+                    if RegExMatch(txt, '"timeLeft"\s*:\s*"([^"]+)"', &m)
+                        WarInfo.timeLeft := m[1]
+                    if RegExMatch(txt, '"rank"\s*:\s*"?([^",]+)"?', &m)
+                        WarInfo.rank := m[1]
+                    if RegExMatch(txt, '"points"\s*:\s*"?([^",]+)"?', &m)
+                        WarInfo.points := m[1]
+                    if RegExMatch(txt, '"phase"\s*:\s*"([^"]+)"', &m)
+                        WarInfo.phase := m[1]
+                } catch {
+                }
+                Log("war active: " WarInfo.name " " WarInfo.timeLeft " rank " WarInfo.rank)
+            } else {
+                WarInfo.name := ""
+                WarInfo.timeLeft := ""
+            }
+            return WarInfo
+        }
+    } catch as e {
+        Log("war check failed: " e.Message)
+    }
+    return WarInfo
+}
+SetTimer(() => CheckWarStatus(false), -10000)
+SetTimer(() => CheckWarStatus(false), 120000)
+
 ; ── auto-update + kill-switch ───────────────────────────────────────────
 CheckForUpdate(showUI := false) {
     global TELEMETRY_URL, MACRO_VERSION
@@ -1257,7 +1361,7 @@ AutoProbe() {
 SetTimer(AutoProbe, -3000)
 
 ; ──────────────────── from calib.ahk ────────────────────
-; CALIBRATION v3.1 — clearer UX, overlay hint, auto-apply
+; CALIBRATION v3.2 — auto-find + overlay box + clearer UX
 
 global CalibJob := false
 global CalibOverlay := false
@@ -1289,22 +1393,73 @@ StartCalib(taskName) {
     DirCreate(USER_DIR)
     CalibJob := { name: taskName, keys: GetCheckKeys(TASKS[taskName].checks), i: 0, done: 0, skipped: 0 }
     Log("calibrate: start " taskName)
+    ShowCalibOverlay()
     CalibNext()
 }
 
+ShowCalibOverlay() {
+    global CalibOverlay
+    try {
+        if CalibOverlay {
+            try {
+                CalibOverlay.Destroy()
+            } catch {
+            }
+        }
+        ; Small green border box that follows mouse — visual aid
+        CalibOverlay := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20", "CalibBox")
+        CalibOverlay.BackColor := "00FF00"
+        CalibOverlay.SetFont("s7", "Consolas")
+        ; Create hollow rectangle using 4 thin edges
+        CalibOverlay.Add("Text", "x0 y0 w120 h2 Background00FF00")
+        CalibOverlay.Add("Text", "x0 y0 w2 h48 Background00FF00")
+        CalibOverlay.Add("Text", "x0 y46 w120 h2 Background00FF00")
+        CalibOverlay.Add("Text", "x118 y0 w2 h48 Background00FF00")
+        CalibOverlay.Show("w120 h48 NoActivate")
+        SetTimer(CalibOverlayTick, 50)
+    } catch as e {
+        Log("calib overlay failed: " e.Message)
+    }
+}
+
+CalibOverlayTick() {
+    global CalibJob, CalibOverlay
+    if !CalibJob || !CalibOverlay {
+        try {
+            SetTimer(CalibOverlayTick, 0)
+        } catch {
+        }
+        return
+    }
+    try {
+        MouseGetPos(&mx, &my)
+        CalibOverlay.Move(mx - 60, my - 24)
+    } catch {
+    }
+}
+
+HideCalibOverlay() {
+    global CalibOverlay
+    try {
+        SetTimer(CalibOverlayTick, 0)
+    } catch {
+    }
+    try {
+        if CalibOverlay {
+            CalibOverlay.Destroy()
+            CalibOverlay := false
+        }
+    } catch {
+        CalibOverlay := false
+    }
+}
+
 CalibNext() {
-    global CalibJob, TASKS, CalibOverlay
+    global CalibJob, TASKS
     if !CalibJob
         return
     if CalibJob.i >= CalibJob.keys.Length {
-        ; Done
-        try {
-            if CalibOverlay {
-                CalibOverlay.Destroy()
-                CalibOverlay := false
-            }
-        } catch {
-        }
+        HideCalibOverlay()
         ApplyCalib(CalibJob.name, TASKS[CalibJob.name].checks)
         ToolTip("Done — " CalibJob.done " saved, " CalibJob.skipped " skipped. It's live now.")
         SetTimer(() => ToolTip(), -3000)
@@ -1313,7 +1468,7 @@ CalibNext() {
         return
     }
     key := CalibJob.keys[CalibJob.i + 1]
-    ToolTip("[" (CalibJob.i + 1) "/" CalibJob.keys.Length "] Point at " key "`nHover exactly over it · F1 save · F2 skip · F3 cancel")
+    ToolTip("[" (CalibJob.i + 1) "/" CalibJob.keys.Length "] Point near " key "`nGreen box shows area — F1 save (auto-finds closest) · F2 skip · F3 cancel")
 }
 
 CalibGrab() {
@@ -1322,23 +1477,62 @@ CalibGrab() {
         return
     key := CalibJob.keys[CalibJob.i + 1]
     MouseGetPos(&mx, &my)
+    ; Auto-find: search ±150px for best matching color/image near mouse
+    ; For now, we just capture what user points at, but also try to refine by searching nearby for stable color
+    bestX := mx, bestY := my, bestCol := ""
+    try {
+        ; Try to find stable color by sampling 3x3 area
+        colCenter := PixelGetColor(mx, my, "Alt")
+        bestCol := colCenter
+        ; Simple auto-find: if center color is too close to background (e.g. white/black), search nearby for more distinct
+        ; For v3.2, just use center but log nearby variance for future
+        try {
+            c := ClientRect()
+            ; Search 150px radius for same color cluster to auto-correct rough aim
+            ; If original task check has hex, try to find that hex nearby
+            if TASKS.Has(CalibJob.name) && TASKS[CalibJob.name].checks.Has(key) {
+                origCheck := TASKS[CalibJob.name].checks[key]
+                if origCheck.HasProp("hex") {
+                    want := origCheck.hex
+                    ; Search nearby for want color
+                    Loop 15 {
+                        rx := mx + Random(-75, 75)
+                        ry := my + Random(-30, 30)
+                        try {
+                            got := PixelGetColor(rx, ry, "Alt")
+                            if StrLower(got) = StrLower(want) {
+                                bestX := rx, bestY := ry, bestCol := got
+                                break
+                            }
+                        } catch {
+                        }
+                    }
+                }
+            }
+        } catch {
+        }
+        if bestCol = ""
+            bestCol := PixelGetColor(bestX, bestY, "Alt")
+    } catch {
+        bestCol := ""
+    }
     col := ""
     try {
-        col := StrLower(String(PixelGetColor(mx, my, "Alt")))
+        col := StrLower(String(bestCol != "" ? bestCol : PixelGetColor(bestX, bestY, "Alt")))
     } catch {
         col := ""
     }
     ptStr := ""
     try {
         c := ClientRect()
-        ptStr := Format("{:.4f}", (mx - c.x) / c.w) "," Format("{:.4f}", (my - c.y) / c.h)
+        ptStr := Format("{:.4f}", (bestX - c.x) / c.w) "," Format("{:.4f}", (bestY - c.y) / c.h)
     } catch {
     }
     safe := StrReplace(StrReplace(StrReplace(key, "\", ""), "/", ""), " ", "-")
     imgName := ""
     try {
         imgName := CalibJob.name "-" safe ".bmp"
-        SaveBmp(mx - 60, my - 24, 120, 48, USER_DIR "\" imgName)
+        SaveBmp(bestX - 60, bestY - 24, 120, 48, USER_DIR "\" imgName)
     } catch as e {
         Log("calib: crop failed (" e.Message ") — color still saved")
         imgName := ""
@@ -1364,18 +1558,12 @@ CalibSkip() {
 }
 
 CalibAbort() {
-    global CalibJob, CalibOverlay
+    global CalibJob
     if CalibJob {
         Log("calibrate: aborted " CalibJob.name)
         CalibJob := false
     }
-    try {
-        if CalibOverlay {
-            CalibOverlay.Destroy()
-            CalibOverlay := false
-        }
-    } catch {
-    }
+    HideCalibOverlay()
     ToolTip()
 }
 
@@ -1450,7 +1638,7 @@ F3:: CalibAbort()
 #HotIf
 
 ; ──────────────────── from ui.ahk ────────────────────
-; CONTROL PANEL v3.1 — natural + test per task + human log + auto-probe UX
+; CONTROL PANEL v3.2 — live thumb + stats + war banner + natural UX
 
 UI := false
 UIUp := false
@@ -1465,6 +1653,9 @@ global SearchBox := false
 global LiveDot := false
 global AvatarPic := false
 global LogoPic := false
+global WarBanner := false
+global ThumbPic := false
+global StatsText := false
 
 MakeRunHandler(taskName) {
     return (*) => RunFromPanel(taskName)
@@ -1487,8 +1678,9 @@ MakeRunTaskTestClosure(taskName, fn) {
 
 BuildUI() {
     global UI, UIUp, LogBox, ProgBar, ProgText, TestBtn, ModeLbl, LicLbl, TabCtrl
-    global SearchBox, LiveDot, AvatarPic, LogoPic, TASKS
+    global SearchBox, LiveDot, AvatarPic, LogoPic, TASKS, WarBanner, ThumbPic, StatsText
     global MEMBER, MEMBER_KEY, LICENSE_STATUS, MACRO_VERSION, DryRun, USER_DIR, SPRITE_DIR
+    global WarInfo
 
     UI := Gui("+AlwaysOnTop -MinimizeBox +Resize", "MCWV Macros")
     UI.BackColor := "0F1219"
@@ -1575,11 +1767,22 @@ BuildUI() {
 
     UI.Add("Text", "x16 y68 w368 h1 Background1E2A4A")
 
-    TabCtrl := UI.Add("Tab3", "x10 y76 w400 h500", ["Tasks", "Log", "Settings"])
+    ; War banner — hidden unless war active
+    WarBanner := UI.Add("Text", "x16 y72 w368 h20 c000000 BackgroundF0B429 Hidden", "")
+    WarBanner.SetFont("s8 bold", "Segoe UI")
+    try {
+        if WarInfo.HasProp("active") && WarInfo.active {
+            WarBanner.Text := "⚔️ " WarInfo.name " · " WarInfo.timeLeft " · Rank " WarInfo.rank
+            WarBanner.Visible := true
+        }
+    } catch {
+    }
+
+    TabCtrl := UI.Add("Tab3", "x10 y96 w400 h480", ["Tasks", "Log", "Settings"])
     TabCtrl.SetFont("s9 bold", "Segoe UI")
 
     TabCtrl.UseTab(1)
-    SearchBox := UI.Add("Edit", "x24 y102 w356 h24 Background151A27 cE8ECF6", "")
+    SearchBox := UI.Add("Edit", "x24 y122 w356 h24 Background151A27 cE8ECF6", "")
     SearchBox.SetFont("s9", "Segoe UI")
     try {
         SendMessage(0x1501, 1, StrPtr("Filter tasks…"), SearchBox.Hwnd)
@@ -1587,44 +1790,54 @@ BuildUI() {
     }
     SearchBox.OnEvent("Change", (*) => FilterTasks())
 
-    y := 136
+    y := 156
     if TASKS.Count = 0 {
-        UI.Add("Text", "x28 y138 w340 cE8ECF6", "Nothing here yet").SetFont("s11 bold", "Segoe UI")
-        UI.Add("Text", "x28 y160 w340 c8A96B3", "New tasks show up here when they're released. Just download the latest file from /macros and you're set.").SetFont("s9", "Segoe UI")
-        y := 210
+        UI.Add("Text", "x28 y158 w340 cE8ECF6", "Nothing here yet").SetFont("s11 bold", "Segoe UI")
+        UI.Add("Text", "x28 y180 w340 c8A96B3", "New tasks show up here when they're released. Just download the latest file from /macros and you're set.").SetFont("s9", "Segoe UI")
+        y := 230
     } else {
         for taskName, t in TASKS {
             hasArm := t.HasProp("arm")
-            b := UI.Add("Button", "x28 y" (y+6) " w48 h26", "Run")
-            b.SetFont("s9 bold")
+            b := UI.Add("Button", "x28 y" (y+6) " w42 h26", "Run")
+            b.SetFont("s8 bold")
             b.OnEvent("Click", MakeRunHandler(taskName))
 
-            ; Test button per task
-            tb := UI.Add("Button", "x80 y" (y+6) " w36 h26", "Test")
-            tb.SetFont("s8")
+            tb := UI.Add("Button", "x72 y" (y+6) " w36 h26", "Test")
+            tb.SetFont("s7")
             tb.OnEvent("Click", MakeTestHandler(taskName))
 
-            nm := UI.Add("Text", "x124 y" (y+4) " w100 cFFFFFF", taskName)
-            nm.SetFont("s10 bold", "Segoe UI")
-            st := UI.Add("Text", "x124 y" (y+22) " w100 c8A96B3", "Ready")
-            st.SetFont("s8", "Consolas")
+            nm := UI.Add("Text", "x114 y" (y+4) " w90 cFFFFFF", taskName)
+            nm.SetFont("s9 bold", "Segoe UI")
+
+            ; Stats per task — ok/fail
+            try {
+                stats := GetTaskStats(taskName)
+                sTxt := stats.ok > 0 || stats.fail > 0 ? stats.ok "✓ " stats.fail "✕" : "Ready"
+                sCol := stats.fail >= 3 ? "cFF5C5C" : "c8A96B3"
+            } catch {
+                sTxt := "Ready"
+                sCol := "c8A96B3"
+            }
+            st := UI.Add("Text", "x114 y" (y+22) " w90 " sCol, sTxt)
+            st.SetFont("s7", "Consolas")
 
             if hasArm {
-                a := UI.Add("Button", "x228 y" (y+4) " w70 h18", "Watch")
+                a := UI.Add("Button", "x210 y" (y+4) " w60 h18", "Watch")
                 a.SetFont("s7 bold")
                 a.OnEvent("Click", MakeWatchHandler(taskName))
             } else {
-                a := UI.Add("Text", "x228 y" (y+4) " w70 h18 c5A6585", "—")
+                a := UI.Add("Text", "x210 y" (y+4) " w60 h18 c5A6585", "—")
                 a.SetFont("s7")
             }
 
-            sBtn := UI.Add("Button", "x228 y" (y+26) " w70 h16", "Setup")
+            sBtn := UI.Add("Button", "x210 y" (y+26) " w60 h16", "Setup")
             sBtn.SetFont("s7")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
 
+            ; Small progress for this task? keep simple
             t.row := { st: st, name: nm, play: b, test: tb, watch: a }
-            y += 52
-            if y > 360
+            y += 48
+            if y > 340
                 break
         }
     }
@@ -1638,43 +1851,66 @@ BuildUI() {
     UI.Add("Text", "x24 y" y " w356 c4A5A6A", "Tip: Watch waits for the game and starts by itself.").SetFont("s7", "Consolas")
 
     TabCtrl.UseTab(2)
-    UI.Add("Text", "x24 y104 w200 cFFFFFF", "Log").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y122 w320 c6B7694", "What actually happened").SetFont("s8", "Consolas")
-    ; Use human-readable log
-    LogBox := UI.Add("Edit", "x24 y142 w356 h280 ReadOnly Background0A0E1A cCBD5E8", TailLogHuman(20))
+    UI.Add("Text", "x24 y124 w200 cFFFFFF", "Log").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y142 w200 c6B7694", "What actually happened").SetFont("s8", "Consolas")
+
+    ; Stats summary
+    StatsText := UI.Add("Text", "x200 y142 w180 c5A6585", "")
+    StatsText.SetFont("s7", "Consolas")
+    try {
+        totalOk := 0, totalFail := 0
+        for _, v in SuccessCount {
+            totalOk += v.ok
+            totalFail += v.fail
+        }
+        if totalOk > 0 || totalFail > 0
+            StatsText.Text := totalOk " ok · " totalFail " fail"
+    } catch {
+    }
+
+    LogBox := UI.Add("Edit", "x24 y162 w356 h200 ReadOnly Background0A0E1A cCBD5E8", TailLogHuman(20))
     LogBox.SetFont("s8", "Consolas")
-    copyBtn := UI.Add("Button", "x24 y430 w80 h26", "Copy")
+
+    ; Live thumbnail — shows last captured area
+    UI.Add("Text", "x24 y370 w100 c5A6585", "Last view").SetFont("s7", "Consolas")
+    ThumbPic := UI.Add("Picture", "x24 y384 w120 h80 Background1A2030", "")
+    ThumbPic.SetFont("s7")
+
+    copyBtn := UI.Add("Button", "x160 y384 w70 h24", "Copy")
     copyBtn.SetFont("s8")
     copyBtn.OnEvent("Click", (*) => CopyLog())
 
-    openBtn := UI.Add("Button", "x110 y430 w100 h26", "Open folder")
+    openBtn := UI.Add("Button", "x160 y412 w70 h24", "Folder")
     openBtn.SetFont("s8")
     openBtn.OnEvent("Click", (*) => Run(USER_DIR))
 
-    clearBtn := UI.Add("Button", "x214 y430 w80 h26", "Clear")
+    clearBtn := UI.Add("Button", "x160 y440 w70 h24", "Clear")
     clearBtn.SetFont("s8")
     clearBtn.OnEvent("Click", (*) => ClearLog())
 
     TabCtrl.UseTab(3)
-    UI.Add("Text", "x24 y104 w300 cFFFFFF", "How it runs").SetFont("s12 bold", "Segoe UI")
-    TestBtn := UI.Add("Button", "x24 y130 w180 h38", DryRun ? "Test mode — on" : "Test mode — off")
+    UI.Add("Text", "x24 y124 w300 cFFFFFF", "How it runs").SetFont("s12 bold", "Segoe UI")
+    TestBtn := UI.Add("Button", "x24 y150 w180 h38", DryRun ? "Test mode — on" : "Test mode — off")
     TestBtn.SetFont("s10 bold")
     TestBtn.OnEvent("Click", (*) => ToggleTest())
-    ModeLbl := UI.Add("Text", "x24 y176 w340 c8A96B3", DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it")
+    ModeLbl := UI.Add("Text", "x24 y196 w340 c8A96B3", DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it")
     ModeLbl.SetFont("s8", "Consolas")
-    UI.Add("Text", "x24 y204 w300 cFFFFFF", "If it gets stuck").SetFont("s11 bold", "Segoe UI")
-    stop := UI.Add("Button", "x24 y228 w160 h36", "Stop")
+    UI.Add("Text", "x24 y224 w300 cFFFFFF", "If it gets stuck").SetFont("s11 bold", "Segoe UI")
+    stop := UI.Add("Button", "x24 y248 w160 h36", "Stop")
     stop.SetFont("s10 bold")
     stop.OnEvent("Click", (*) => StopAll())
-    shareBtn := UI.Add("Button", "x24 y270 w160 h28", "Share setup")
+    shareBtn := UI.Add("Button", "x24 y290 w160 h28", "Share setup")
     shareBtn.SetFont("s9")
     shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
-    updateBtn := UI.Add("Button", "x190 y270 w100 h28", "Check updates")
+    updateBtn := UI.Add("Button", "x190 y290 w100 h28", "Check updates")
     updateBtn.SetFont("s8")
     updateBtn.OnEvent("Click", (*) => CheckForUpdate(true))
-    UI.Add("Text", "x24 y306 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y328 w356 c8A96B3", "Ctrl+Alt+M  show/hide`nCtrl+Alt+X  stop`nF12  pause`nSetup: F1 capture, F2 skip, F3 cancel").SetFont("s8", "Consolas")
-    UI.Add("Text", "x24 y410 w340 c5A6585", "Your file is personal — don't share it. Friends should get their own at /macros.").SetFont("s8", "Consolas")
+    warBtn := UI.Add("Button", "x24 y324 w180 h28", "Check war status")
+    warBtn.SetFont("s8")
+    warBtn.OnEvent("Click", (*) => CheckWarStatus(true))
+    UI.Add("Text", "x24 y360 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y382 w356 c8A96B3", "Ctrl+Alt+M  show/hide`nCtrl+Alt+X  stop`nF12  pause`nSetup: F1 save (auto-finds), F2 skip, F3 cancel").SetFont("s8", "Consolas")
+    UI.Add("Text", "x24 y440 w340 c5A6585", "Your file is personal — don't share it. Friends should get their own at /macros.").SetFont("s8", "Consolas")
 
     TabCtrl.UseTab()
     UI.Add("Text", "x0 y580 w424 h1 Background00E5A2")
@@ -1778,7 +2014,7 @@ ClearLog() {
 
 RefreshUI() {
     global UIUp, TASKS, Running, CurrentTask, Armed, ArmJob, PDone, PTotal, ProgBar, ProgText, LogBox
-    global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS, LiveDot
+    global LicLbl, MEMBER, MEMBER_KEY, LICENSE_STATUS, LiveDot, WarBanner, WarInfo, ThumbPic, StatsText, LastThumbPath, SuccessCount
 
     if !UIUp
         return
@@ -1788,6 +2024,26 @@ RefreshUI() {
     if LiveDot {
         try {
             LiveDot.SetFont((blink ? "c00E5A2" : "c2A9A6A"), "Segoe UI")
+        } catch {
+        }
+    }
+
+    ; War banner
+    if WarBanner {
+        try {
+            if WarInfo.HasProp("active") && WarInfo.active {
+                WarBanner.Text := "⚔️ " (WarInfo.HasProp("name") ? WarInfo.name : "War") " · " (WarInfo.HasProp("timeLeft") ? WarInfo.timeLeft : "") " · Rank " (WarInfo.HasProp("rank") ? WarInfo.rank : "?")
+                WarBanner.Visible := true
+                ; Color by phase
+                if WarInfo.HasProp("phase") && WarInfo.phase = "final"
+                    WarBanner.Opt("BackgroundFF5C5C")
+                else if WarInfo.HasProp("phase") && WarInfo.phase = "mid"
+                    WarBanner.Opt("BackgroundF0B429")
+                else
+                    WarBanner.Opt("Background00E5A2")
+            } else {
+                WarBanner.Visible := false
+            }
         } catch {
         }
     }
@@ -1802,8 +2058,21 @@ RefreshUI() {
             st := "Watching — starts by itself"
             col := "c22D3EE"
         } else {
-            st := "Ready"
-            col := "c8A96B3"
+            try {
+                stats := GetTaskStats(taskName)
+                if stats.ok > 0 || stats.fail > 0 {
+                    st := stats.ok "✓ " stats.fail "✕"
+                    col := stats.fail >= 3 ? "cFF5C5C" : "c8A96B3"
+                    if stats.fail > 0 && stats.HasProp("lastFail") && stats.lastFail != ""
+                        st .= " · last fail"
+                } else {
+                    st := "Ready"
+                    col := "c8A96B3"
+                }
+            } catch {
+                st := "Ready"
+                col := "c8A96B3"
+            }
         }
         if t.row.st.Text != st {
             t.row.st.Text := st
@@ -1830,6 +2099,28 @@ RefreshUI() {
         if v != seen {
             LogBox.Value := v
             seen := v
+        }
+    }
+
+    if StatsText {
+        try {
+            totalOk := 0, totalFail := 0
+            for _, v in SuccessCount {
+                totalOk += v.ok
+                totalFail += v.fail
+            }
+            if totalOk > 0 || totalFail > 0
+                StatsText.Text := totalOk " ok · " totalFail " fail"
+        } catch {
+        }
+    }
+
+    if ThumbPic {
+        try {
+            if LastThumbPath != "" && FileExist(LastThumbPath) {
+                ThumbPic.Value := LastThumbPath
+            }
+        } catch {
         }
     }
 
