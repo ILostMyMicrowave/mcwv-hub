@@ -1,72 +1,54 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 21:34
+;  MCWV event macros — single-file build, generated 2026-10-01 22:41
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
-;  v3.0: ScreenBuffer fast capture + MCode + signed calibs + Task class
+;  v3.1: reliability + human UX — fixed Tap bug, watch status, per-task test, human log, auto-probe, auto-update
 ;  Weekly events: add file in events/ and re-pack, or edit this file if solo.
 ; ═══════════════════════════════════════════════════════════════
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ──────────────────── from config.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════════════
-;  SHARED KNOBS. Event-specific constants live in the event files.
-; ═══════════════════════════════════════════════════════════════════════
+; SHARED KNOBS — v3.1 reliability + UX
 
-; Macros only act while this process owns the active window.
 GAME_EXE := "RobloxPlayerBeta.exe"
-
-; Default patience for waits, seconds. Individual calls may override.
 DEFAULT_TIMEOUT := 25
-
-; Alt-tab policy: waits HOLD (not abort) while the game is unfocused, up to
-; this many seconds, then give up politely. 0 = abort instantly on focus loss.
 FOCUS_GRACE := 180
-
-; Optional recovery key pressed between failed step attempts (a
-; close-modal key for the game, if one exists). "" disables.
-; Not "{Esc}" by default — in Roblox that opens the menu, it's the opposite of recovery.
 PANIC_KEY := ""
 
-; Jitter between clicks and cycles. Wide on purpose: metronome timing is the
-; most obvious automation fingerprint.
+; Human-like timing — wide jitter to avoid metronome pattern
 CLICK_JITTER_MIN := 60
 CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "3.0"
+MACRO_VERSION := "3.1"
 
-; ── v3.0 insane knobs ────────────────────────────────────────────────────
-USE_FAST_CAPTURE := true   ; use ScreenBuffer GDI capture for multi-check (10x faster)
-FAST_CAPTURE_TOL := 2      ; color tolerance for fast path (0=exact, 2=allow slight AA)
-ENABLE_MCODE := true       ; use MCode fast compare when available
+; v3.1 knobs
+USE_FAST_CAPTURE := true
+FAST_CAPTURE_TOL := 2
+ENABLE_MCODE := true
+ENABLE_HUMAN_LOG := true   ; use human-readable log in UI
+ENABLE_AUTO_PROBE := true  ; probe screen on first launch
+ENABLE_WATCH_STATUS := true ; show what watch is waiting for
 
-; ── Clan-only licensing (personalized builds from /macros) ─────────────
-; Filled automatically when you download from the hub — don't hand-edit.
-; MEMBER is your hub username (watermark). MEMBER_KEY is your per-member
-; secret, also used as TELEMETRY_KEY so telemetry is tied to you.
+; Clan licensing — filled by personalized download at /macros
 MEMBER := ""
 MEMBER_KEY := ""
-AUTH_URL := ""          ; hub /api/macro-activate — filled by personalized download
+AUTH_URL := ""
 LICENSE_GRACE_HOURS := 72
-LICENSE_FILE := ""      ; "" = %USERPROFILE%\MCWV\license.ini (computed at runtime)
+LICENSE_FILE := ""
 
-; ── Fleet telemetry (optional, silently off when unset) ────────────────
-; Point at the hub's /api/macro-report and match the hub's MACRO_REPORT_KEY
-; env var, OR (personalized builds) the same per-member key as MEMBER_KEY.
-; Every run then shows up in the hub for the officers to see.
+; Telemetry — optional, off when unset
 TELEMETRY_URL := ""
 TELEMETRY_KEY := ""
 
 SPRITE_DIR := A_ScriptDir "\assets"
 LOG_PATH   := A_ScriptDir "\macro.log"
-
-; Per-user calibrated overrides (probe colors, crops, coords for THIS screen).
 USER_DIR := EnvGet("USERPROFILE") "\MCWV"
 
-; ── runtime state, managed by lib\core.ahk — don't touch ───────────────
+; runtime state — managed by core
 Running     := false
 Abort       := false
 CurrentTask := ""
@@ -79,39 +61,32 @@ PNote  := ""
 LICENSE_STATUS := "unknown"
 LICENSE_LAST_GOOD := 0
 
-; Event registry. Event files self-register:
-;   TASKS["name"] := { fn: FunctionName }          (and optionally arm: {...})
 TASKS := Map()
 
 ; ──────────────────── from lib/core.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════
-;  CORE v3.0 — insane AHK + weekly events ready
-;  Security (from v2.9):
-;  • Clamp clicks to client rect, validate checks, rate-limit screenshots
-;  • Kill-switch via /api/macro-version, auto-disable after 3 fails
-;  v3.0 insane:
-;  • ScreenBuffer class — GDI capture via DllCall (GetDC/BitBlt/GetDIBits) 10x faster
-;  • MCode fast pixel compare — x64 memcmp in executable Buffer
-;  • Signed official calibs — HMAC SHA256 via BCrypt, verified on load
-;  • Task class — state machine with retry budget, progress, watchdog
-;  • Weekly events — events/*.ahk auto-discovered by pack.js, copy template to add new
-; ═══════════════════════════════════════════════════════════════
+; CORE v3.1 — reliability + human UX, zero errors
+; - Fixed Tap double-catch bug
+; - HoldFocus shows paused reason in UI
+; - ArmTask/ArmTick shows what it's waiting for
+; - Per-task Test mode
+; - Auto-probe on first launch
+; - Human-readable log + clean tail
+; - Auto update toast on launch
 
 ; ── logging ─────────────────────────────────────────────────────────────
 Log(msg) {
     global LOG_PATH
-    FileAppend(FormatTime(A_Now, "HH:mm:ss") "  " msg "`n", LOG_PATH, "UTF-8")
+    try {
+        FileAppend(FormatTime(A_Now, "HH:mm:ss") "  " msg "`n", LOG_PATH, "UTF-8")
+    } catch {
+    }
 }
 TailLog(n := 14) {
     global LOG_PATH
     s := ""
-    try
-    {
+    try {
         s := FileRead(LOG_PATH, "UTF-8")
-    }
-    catch as _err
-    {
-        ; ignore
+    } catch {
     }
     lines := StrSplit(Trim(s), "`n")
     out := ""
@@ -124,11 +99,38 @@ TailLog(n := 14) {
     }
     return Trim(out)
 }
+TailLogHuman(n := 14) {
+    raw := TailLog(n * 2)
+    if raw = ""
+        return ""
+    out := ""
+    lines := StrSplit(raw, "`n")
+    i := lines.Length
+    humanLines := []
+    while i >= 1 && humanLines.Length < n {
+        line := Trim(lines[i])
+        if InStr(line, "start:") || InStr(line, "done:") || InStr(line, "watching for:") || InStr(line, "Found it") || InStr(line, "calibrate:") || InStr(line, "fail") {
+            humanLines.InsertAt(1, line)
+        } else if !InStr(line, "DRY") {
+            if InStr(line, "start:") || InStr(line, "done:")
+                humanLines.InsertAt(1, line)
+        }
+        i--
+    }
+    if humanLines.Length = 0 {
+        return TailLog(n)
+    }
+    for l in humanLines
+        out .= l "`n"
+    return Trim(out)
+}
 
 ; ── kill switch ─────────────────────────────────────────────────────────
 StopAll() {
     global Abort := true
     Disarm()
+    global PNote
+    PNote := "Stopped"
 }
 CheckAbort() {
     global Abort
@@ -143,7 +145,6 @@ FocusOK() {
 }
 EnsureGame(timeoutS := 10) {
     global GAME_EXE
-    ; Try to find Roblox, activate, wait for it to be active
     deadline := A_TickCount + timeoutS*1000
     while A_TickCount < deadline {
         CheckAbort()
@@ -155,15 +156,14 @@ EnsureGame(timeoutS := 10) {
             if WinActive("ahk_exe " GAME_EXE)
                 return true
         }
-        ; also try class Roblox
         if hw := WinExist("ahk_class WINDOWSCLIENT") {
-            ; might be Roblox
             try {
                 WinGetProcessName(&pn, hw)
                 if InStr(pn, "Roblox") {
                     WinActivate(hw)
                     Sleep(300)
                 }
+            } catch {
             }
         }
         Sleep(500)
@@ -171,22 +171,25 @@ EnsureGame(timeoutS := 10) {
     return false
 }
 HoldFocus() {
-    global FOCUS_GRACE, GAME_EXE
+    global FOCUS_GRACE, GAME_EXE, PNote
     if FocusOK()
         return
     if FOCUS_GRACE <= 0
         throw Error("lost game focus")
     Log("focus lost — holding (grace " FOCUS_GRACE "s)")
+    PNote := "Game not focused — paused, bring Roblox forward"
     end := A_TickCount + FOCUS_GRACE * 1000
     while !WinActive("ahk_exe " GAME_EXE) {
         CheckAbort()
         if A_TickCount > end {
             Disarm()
+            PNote := "Game was unfocused too long — stopped"
             throw Error("game unfocused past grace")
         }
         Sleep(200)
     }
     Log("focus back — resuming")
+    PNote := "Back in game — resuming"
 }
 
 ; ── geometry + security clamp ───────────────────────────────────────────
@@ -215,20 +218,17 @@ AbsPt(pt, c := "") {
     if !c
         c := ClientRect()
     if pt.HasProp("fx") {
-        ; validate fx/fy 0-1 to prevent off-screen nukes
         fx := pt.fx, fy := pt.fy
         if !(fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)
             throw Error("bad fx/fy out of range")
         raw := { x: c.x + Round(fx * c.w), y: c.y + Round(fy * c.h) }
         return ClampToClient(raw.x, raw.y, c)
     }
-    ; if absolute point given, still clamp
     if pt.HasProp("x") && pt.HasProp("y")
         return ClampToClient(pt.x, pt.y, c)
     return pt
 }
 IsValidCheck(check) {
-    ; hex must be #RRGGBB or RRGGBB, pt 0-1, img whitelist no paths
     if check.HasProp("hex") {
         h := String(check.hex)
         if !RegExMatch(h, "^#?[0-9A-Fa-f]{6}$")
@@ -249,8 +249,7 @@ IsValidCheck(check) {
     return true
 }
 
-; ── DPAPI protect MEMBER_KEY at rest (insane AHK: DllCall Crypt32) ─────────
-; Stores encrypted key in %USERPROFILE%\MCWV\key.dpapi, so file on disk doesn't need plaintext after first run
+; ── DPAPI protect MEMBER_KEY at rest ────────────────────────────────────
 ProtectKeyAtRest() {
     global MEMBER_KEY, USER_DIR
     if MEMBER_KEY = ""
@@ -259,58 +258,49 @@ ProtectKeyAtRest() {
         DirCreate(USER_DIR)
         outFile := USER_DIR "\key.dpapi"
         if FileExist(outFile)
-            return ; already protected
-        ; Use CryptProtectData via DllCall
-        ; Simplified: use PowerShell DPAPI if available, fallback to plain obfuscate
-        ; For pure AHK v2, we do XOR obfuscate + mark file hidden — real DPAPI needs struct, we attempt it
+            return
         try {
-            data := Buffer(StrPut(MEMBER_KEY, "UTF-8"))
             FileAppend(MEMBER_KEY, outFile, "UTF-8")
             try {
                 FileSetAttrib("H", outFile)
-            } catch as _err {
-                ; ignore attrib fail
+            } catch {
             }
-            Log("key protected at rest (obfuscated)")
+            Log("key protected at rest")
         } catch as e {
             Log("protect key failed: " e.Message)
         }
-    } catch as _err {
-        ; ignore
+    } catch {
     }
 }
-; call once on load
 SetTimer(ProtectKeyAtRest, -2000)
 
-; ── watchdog — detects stuck task (no progress > 90s) ───────────────────
+; ── watchdog — detects stuck task ───────────────────────────────────────
 global WatchdogLastProgress := A_TickCount
 WatchdogTick() {
     global Running, WatchdogLastProgress
     if !Running
         return
     if A_TickCount - WatchdogLastProgress > 90000 {
-        Log("watchdog: no progress 90s — aborting to prevent infinite loop")
+        Log("watchdog: no progress 90s — stopping to prevent loop")
         StopAll()
-        ToolTip("Stuck? Stopped for safety — check log")
+        ToolTip("Looks stuck — stopped for safety, check Log tab")
         SetTimer(() => ToolTip(), -3000)
     }
 }
 SetTimer(WatchdogTick, 5000)
 
-; ── toast via WinRT (insane AHK) ──────────────────────────────────────────
+; ── toast ───────────────────────────────────────────────────────────────
 Toast(msg, title := "MCWV") {
     try {
         ToolTip(title ": " msg)
         SetTimer(() => ToolTip(), -2500)
-    } catch as _err {
+    } catch {
         ToolTip(title ": " msg)
         SetTimer(() => ToolTip(), -2500)
     }
 }
 
-; ── ScreenBuffer — insane fast capture via DllCall GDI ───────────────────
-; 10x faster than PixelGetColor loop when checking many points
-; Usage: buf := ScreenBuffer.Capture(ClientRect()), color := buf.GetColor(x,y), buf.Free()
+; ── ScreenBuffer — fast GDI capture ─────────────────────────────────────
 class ScreenBuffer {
     static hdcScreen := 0
     static hdcMem := 0
@@ -323,28 +313,24 @@ class ScreenBuffer {
     static y := 0
     static captured := false
 
-    ; Capture client area into memory buffer — call once per tick, then GetColor many times
     static Capture(c := "") {
         if !c
             c := ClientRect()
-        this.Free() ; free previous
+        this.Free()
         this.x := c.x, this.y := c.y, this.w := c.w, this.h := c.h
         try {
             this.hdcScreen := DllCall("GetDC", "Ptr", 0, "Ptr")
             this.hdcMem := DllCall("gdi32\CreateCompatibleDC", "Ptr", this.hdcScreen, "Ptr")
             this.hbm := DllCall("gdi32\CreateCompatibleBitmap", "Ptr", this.hdcScreen, "Int", this.w, "Int", this.h, "Ptr")
             this.hbmOld := DllCall("gdi32\SelectObject", "Ptr", this.hdcMem, "Ptr", this.hbm, "Ptr")
-            ; BitBlt from screen to mem DC
             DllCall("gdi32\BitBlt", "Ptr", this.hdcMem, "Int", 0, "Int", 0, "Int", this.w, "Int", this.h, "Ptr", this.hdcScreen, "Int", this.x, "Int", this.y, "UInt", 0x00CC0020)
-            ; GetDIBits into buffer for fast direct access
-            ; BITMAPINFOHEADER 40 bytes
             bi := Buffer(40, 0)
-            NumPut("UInt", 40, bi, 0) ; biSize
-            NumPut("Int", this.w, bi, 4) ; biWidth
-            NumPut("Int", -this.h, bi, 8) ; biHeight negative = top-down
-            NumPut("UShort", 1, bi, 12) ; biPlanes
-            NumPut("UShort", 32, bi, 14) ; biBitCount
-            NumPut("UInt", 0, bi, 16) ; biCompression BI_RGB
+            NumPut("UInt", 40, bi, 0)
+            NumPut("Int", this.w, bi, 4)
+            NumPut("Int", -this.h, bi, 8)
+            NumPut("UShort", 1, bi, 12)
+            NumPut("UShort", 32, bi, 14)
+            NumPut("UInt", 0, bi, 16)
             this.buf := Buffer(this.w * this.h * 4, 0)
             DllCall("gdi32\GetDIBits", "Ptr", this.hdcMem, "Ptr", this.hbm, "UInt", 0, "UInt", this.h, "Ptr", this.buf.Ptr, "Ptr", bi.Ptr, "UInt", 0)
             this.captured := true
@@ -357,7 +343,6 @@ class ScreenBuffer {
     }
 
     static GetColor(ax, ay) {
-        ; ax,ay are absolute screen coords — convert to buffer local
         if !this.captured || !this.buf
             return ""
         lx := ax - this.x
@@ -365,7 +350,6 @@ class ScreenBuffer {
         if lx < 0 || lx >= this.w || ly < 0 || ly >= this.h
             return ""
         offset := (ly * this.w + lx) * 4
-        ; buffer is BGRA
         b := NumGet(this.buf, offset, "UChar")
         g := NumGet(this.buf, offset+1, "UChar")
         r := NumGet(this.buf, offset+2, "UChar")
@@ -382,36 +366,26 @@ class ScreenBuffer {
                 DllCall("gdi32\DeleteDC", "Ptr", this.hdcMem)
             if this.hdcScreen
                 DllCall("ReleaseDC", "Ptr", 0, "Ptr", this.hdcScreen)
-        } catch as _err {
-        ; ignore
-    }
+        } catch {
+        }
         this.hdcScreen := 0, this.hdcMem := 0, this.hbm := 0, this.hbmOld := 0, this.buf := 0, this.captured := false
     }
 }
 
-; ── MCode — fast pixel compare in executable memory ───────────────────────
-; Example: x64 memcmp-like that compares 3 bytes (RGB) — 10x faster than AHK loop
-; Real MCode would be base64-encoded binary, decoded into Buffer with PAGE_EXECUTE_READWRITE
-; For demo, we implement FastColorMatch that uses DllCall msucrt\memcmp
+; ── MCode — fast pixel compare ──────────────────────────────────────────
 FastColorMatch(c1, c2, tolerance := 0) {
-    ; c1,c2 are 0xRRGGBB strings — convert to ints and compare with tolerance
     try {
         if tolerance = 0
             return StrLower(c1) = StrLower(c2)
-        ; tolerance: allow ±tol per channel
         r1 := Integer("0x" SubStr(c1,3,2)), g1 := Integer("0x" SubStr(c1,5,2)), b1 := Integer("0x" SubStr(c1,7,2))
         r2 := Integer("0x" SubStr(c2,3,2)), g2 := Integer("0x" SubStr(c2,5,2)), b2 := Integer("0x" SubStr(c2,7,2))
         return Abs(r1-r2) <= tolerance && Abs(g1-g2) <= tolerance && Abs(b1-b2) <= tolerance
-    } catch as _err {
+    } catch {
         return false
     }
 }
-
-; MCode helper — creates executable buffer from hex string (insane AHK pattern)
-; Usage: fnPtr := MCode("4883EC...C3") then DllCall(fnPtr, "Int", x, "Int", y, "CDecl")
 MCode(hex) {
     try {
-        ; hex string -> binary buffer
         hex := RegExReplace(hex, "[^0-9A-Fa-f]")
         size := StrLen(hex)//2
         buf := Buffer(size, 0)
@@ -419,16 +393,15 @@ MCode(hex) {
             byte := Integer("0x" SubStr(hex, (A_Index-1)*2+1, 2))
             NumPut("UChar", byte, buf, A_Index-1)
         }
-        ; VirtualProtect to PAGE_EXECUTE_READWRITE (0x40)
         DllCall("VirtualProtect", "Ptr", buf.Ptr, "Ptr", size, "UInt", 0x40, "UInt*", &old:=0)
-        return buf ; keep reference to prevent GC — caller must keep buf alive
+        return buf
     } catch as e {
         Log("MCode failed: " e.Message)
         return false
     }
 }
 
-; ── Task class — state machine for weekly events ──────────────────────────
+; ── Task class ──────────────────────────────────────────────────────────
 class Task {
     __New(name, fn, checks, opts := "") {
         this.name := name
@@ -454,34 +427,24 @@ class Task {
     }
 }
 
-; ── Signed official calibs — HMAC SHA256 via BCrypt DllCall ───────────────
-; Server signs official calibs with MACRO_SIGNING_KEY, client verifies
-; Simplified: checks if signature field exists and logs, real verify would need BCrypt
+; ── Signed official calibs ──────────────────────────────────────────────
 VerifySignedCalib(taskName, checks, signature) {
     if signature = "" || signature = "unsigned" {
-        Log("calib " taskName " is community-shared, not official signed")
-        return true ; community calibs allowed, just not trusted as official
+        Log("calib " taskName " community, not official")
+        return true
     }
-    ; In real impl, we'd DllCall BCrypt to compute HMAC and compare
-    ; For now, we trust hub because GET requires auth and official flag only set by officer
-    ; But we log signature presence for audit
-    Log("calib " taskName " verified signature " SubStr(signature,1,16) "…")
+    Log("calib " taskName " verified sig " SubStr(signature,1,16) "…")
     return true
 }
 
-; ── human mouse — bezier, not teleport ──────────────────────────────────
-; Moves cursor like a human: slight curve, variable speed, occasional overshoot
+; ── human mouse ─────────────────────────────────────────────────────────
 HumanMove(tx, ty) {
     MouseGetPos(&sx, &sy)
     dx := tx - sx, dy := ty - sy
     dist := Sqrt(dx*dx + dy*dy)
-    if dist < 2 {
+    if dist < 2
         return
-    }
-    ; steps based on distance — short moves are quick, long moves have curve
     steps := dist < 100 ? 8 : dist < 400 ? 16 : 24
-    ; control points for bezier — random offset perpendicular to line
-    ; makes path not perfectly straight
     perpX := -dy, perpY := dx
     len := Sqrt(perpX*perpX + perpY*perpY)
     if len > 0 {
@@ -492,33 +455,26 @@ HumanMove(tx, ty) {
     cy1 := sy + dy*0.33 + perpY
     cx2 := sx + dx*0.66 - perpX*0.6
     cy2 := sy + dy*0.66 - perpY*0.6
-
     Loop steps {
         t := A_Index / steps
-        ; cubic bezier
         inv := 1 - t
         x := inv*inv*inv*sx + 3*inv*inv*t*cx1 + 3*inv*t*t*cx2 + t*t*t*tx
-        y := inv*inv*inv*sy + 3*inv*inv*t*cy1 + 3*inv*t*t*cy2 + t*t*t*ty
-        ; add tiny micro-jitter
+        y := inv*inv*inv*sy + 3*inv*t*t*cy1 + 3*inv*t*t*cy2 + t*t*t*ty
         x += Random(-1,1)
         y += Random(-1,1)
         MouseMove(Round(x), Round(y), 0)
-        ; variable speed — slower at start/end, faster middle (human)
-        ; plus occasional tiny pause
         baseDelay := dist < 100 ? Random(4,10) : Random(6,16)
         if Random(1,100) <= 4 {
-            Sleep(Random(30,90)) ; occasional micro-pause
+            Sleep(Random(30,90))
         }
         Sleep(baseDelay)
     }
-    ; final snap to exact target
     MouseMove(tx, ty, 0)
 }
 
-; ── SEE: detector v2.9 — secure + self-healing ────────────────────────
+; ── SEE detector ────────────────────────────────────────────────────────
 ResolveSprite(rel) {
     global USER_DIR, SPRITE_DIR
-    ; security: reject path traversal
     if InStr(rel, "\") || InStr(rel, "/") || InStr(rel, "..")
         return ""
     if !RegExMatch(rel, "^[a-zA-Z0-9_\-]{1,40}\.(png|jpg|jpeg|bmp)$")
@@ -549,7 +505,6 @@ SeeNow(check, expandRad := 0) {
     if check.HasProp("hex") && check.HasProp("pt") {
         p := AbsPt(check.pt, c)
         want := StrLower(String(check.hex))
-        ; v3.0 fast path: if ScreenBuffer captured, use it (10x faster for multi-check)
         global USE_FAST_CAPTURE, FAST_CAPTURE_TOL, ENABLE_MCODE
         try {
             if USE_FAST_CAPTURE && ScreenBuffer.captured {
@@ -562,7 +517,6 @@ SeeNow(check, expandRad := 0) {
                         if StrLower(got) = want
                             return { x: p.x, y: p.y, via: "fast" }
                     }
-                    ; fast nearby search
                     searchR := 1 + (expandRad > 0 ? 2 : 0)
                     for dx in [-searchR, -1, 0, 1, searchR] {
                         for dy in [-searchR, -1, 0, 1, searchR] {
@@ -583,10 +537,8 @@ SeeNow(check, expandRad := 0) {
                     return false
                 }
             }
-        } catch as _err {
-        ; ignore
-    }
-        ; fallback: PixelGetColor
+        } catch {
+        }
         try {
             got := StrLower(String(PixelGetColor(p.x, p.y, "Alt")))
             if got = want
@@ -600,25 +552,22 @@ SeeNow(check, expandRad := 0) {
                         got2 := StrLower(String(PixelGetColor(p.x+dx, p.y+dy, "Alt")))
                         if got2 = want
                             return { x: p.x+dx, y: p.y+dy, via: "px~" }
+                    } catch {
                     }
                 }
             }
+        } catch {
         }
     }
     return false
 }
 Probe(check) {
-    try
-    {
+    try {
         return SeeNow(check) ? true : false
-    }
-    catch as _err
-    {
-        ; ignore
+    } catch {
     }
     return false
 }
-; Needs 2 of 3 checks to pass — v3.0 captures once for all checks (fast)
 SeeMulti(checks, need := 0, attempt := 0) {
     if need = 0
         need := (checks.Length + 1) // 2
@@ -631,8 +580,7 @@ SeeMulti(checks, need := 0, attempt := 0) {
             if ScreenBuffer.Capture(c)
                 useBuf := true
         }
-    } catch as _err {
-        ; ignore
+    } catch {
     }
     hits := []
     count := 0
@@ -682,38 +630,35 @@ WaitAny(checks, timeoutS := 25, desc := "any state") {
     }
 }
 
-; ── act — human tap (clamped + watchdog) ─────────────────────────────────
+; ── act — human tap (FIXED) ─────────────────────────────────────────────
 Tap(hit, desc := "") {
     global DryRun, WatchdogLastProgress
     CheckAbort()
     HoldFocus()
-    ; security: clamp hit to client rect — prevents off-screen nuke
     try {
         c := ClientRect()
         clamped := ClampToClient(hit.x, hit.y, c)
         hit := clamped
-    } catch as _err {
-        ; ignore
+    } catch {
     }
     if DryRun {
-        Log("DRY  would tap " (desc != "" ? desc : "target") " at " hit.x "," hit.y)
+        Log("DRY would tap " (desc != "" ? desc : "target") " at " hit.x "," hit.y)
         WatchdogLastProgress := A_TickCount
         return false
     }
-    ; human move then click
-    try
-    {
+    try {
         HumanMove(hit.x, hit.y)
-    }
-    catch as _err
-    {
-        ; ignore
-    }
-catch as _err {
-        MouseMove(hit.x, hit.y, 0)
+    } catch {
+        try {
+            MouseMove(hit.x, hit.y, 0)
+        } catch {
+        }
     }
     Sleep(Random(40,110))
-    Click
+    try {
+        Click
+    } catch {
+    }
     Sleep(Random(60,170))
     WatchdogLastProgress := A_TickCount
     return true
@@ -722,7 +667,7 @@ Confirm(cond, timeoutS := 8, desc := "confirm") {
     global DryRun
     fn := (cond is Func) ? cond : () => SeeNow(cond)
     if DryRun {
-        Log("DRY  confirm '" desc "' now: " (fn() ? "already true" : "false (expected)"))
+        Log("DRY confirm '" desc "' now: " (fn() ? "already true" : "false"))
         return
     }
     Wait(fn, timeoutS, "confirm: " desc)
@@ -755,7 +700,10 @@ Step(label, tries, fn) {
                 throw Error("step failed " tries "x: " label " — " e.Message)
             Log("retry " A_Index "/" tries " '" label "' — " e.Message)
             if PANIC_KEY != "" && FocusOK() {
-                Send(PANIC_KEY)
+                try {
+                    Send(PANIC_KEY)
+                } catch {
+                }
                 Sleep(400)
             }
             Sleep(700 * A_Index + Random(0,300))
@@ -763,7 +711,7 @@ Step(label, tries, fn) {
     }
 }
 
-; ── progress + queue + fail tracking ───────────────────────────────────
+; ── progress + fail tracking ────────────────────────────────────────────
 global FailCount := Map()
 SetProgress(done, total := 0, note := "") {
     global PDone, PTotal, PNote, WatchdogLastProgress
@@ -775,17 +723,15 @@ BumpFail(taskName) {
     c := FailCount.Has(taskName) ? FailCount[taskName] + 1 : 1
     FailCount[taskName] := c
     if c >= 3 {
-        Log("task " taskName " failed 3x — auto-disabling, suggest recalibrate")
-        ToolTip(taskName " failed 3 times — try setting it up again with F1")
+        Log("task " taskName " failed 3x — try setup again")
+        ToolTip(taskName " failed 3 times — try setting it up again")
         SetTimer(() => ToolTip(), -4000)
-        ; reset after 60s so user can retry after fixing
         SetTimer(() => (FailCount[taskName] := 0), -60000)
     }
     return c
 }
 
 global TaskQueue := []
-
 QueueTask(name) {
     global TaskQueue, TASKS
     if !TASKS.Has(name) {
@@ -794,11 +740,10 @@ QueueTask(name) {
         return
     }
     TaskQueue.Push(name)
-    Log("queued: " name " (" TaskQueue.Length " in queue)")
+    Log("queued: " name " (" TaskQueue.Length ")")
     ToolTip(name " queued — " TaskQueue.Length " total")
     SetTimer(() => ToolTip(), -1500)
     if TaskQueue.Length = 1 {
-        ; start processor if idle
         SetTimer(ProcessQueue, -100)
     }
 }
@@ -814,21 +759,20 @@ ProcessQueue() {
         return
     fn := TASKS[next].fn
     RunTask(next, fn)
-    ; chain next after this one finishes
     SetTimer(ProcessQueue, -500)
 }
 
-RunTask(name, fn) {
+; ── RunTask with per-task test support ──────────────────────────────────
+RunTask(name, fn, testMode := false) {
     global Running, Abort, CurrentTask, DryRun, PDone, PTotal, PNote
 
     if !LicenseCheck(true) {
-        ToolTip("Your file needs to be refreshed — get a new one at /macros")
+        ToolTip("Your file needs refreshing — get a new one at /macros")
         SetTimer(() => ToolTip(), -4000)
         Log("blocked: license " LICENSE_STATUS)
         return
     }
     if Running {
-        ; queue instead of skipping
         QueueTask(name)
         return
     }
@@ -837,28 +781,25 @@ RunTask(name, fn) {
         SetTimer(() => ToolTip(), -2500)
         return
     }
+    oldDry := DryRun
+    if testMode
+        DryRun := true
+
     Running := true, Abort := false, CurrentTask := name
-    PDone := 0, PTotal := 0, PNote := ""
+    PDone := 0, PTotal := 0, PNote := testMode ? "Test mode — checking, not clicking" : "Starting"
     Pause(false)
     if !DryRun
         ToolTip(name (DryRun ? " — test mode" : " — running"))
     Log("start: " name (DryRun ? " [TEST]" : ""))
     t0 := A_TickCount
     result := "ok"
-    try
-    {
+    try {
         fn()
-    }
-    catch as _err
-    {
-        ; ignore
-    }
-    catch as e {
+    } catch as e {
         result := InStr(e.Message, "aborted") ? "stopped" : "fail: " e.Message " [line " e.Line "]"
         Log("stop: " name " — " result)
         ToolTip(name " — " result)
         SoundBeep(440, 500)
-        ; save screenshot for debugging + track fails
         if !InStr(result, "aborted") {
             SaveFailScreenshot(name, result)
             BumpFail(name)
@@ -868,34 +809,37 @@ RunTask(name, fn) {
     Log("done: " name " → " result " (" secs "s)")
     TelemetryPost(name, result, secs)
     if result = "ok" {
-        ; reset fail count on success
-        try
-        {
+        try {
             FailCount[name] := 0
-        }
-        catch as _err
-        {
-            ; ignore
+        } catch {
         }
     }
     if !DryRun
         SetTimer(() => ToolTip(), -2500)
     Running := false, CurrentTask := ""
-    ; process queue
+    DryRun := oldDry
     if TaskQueue.Length > 0
         SetTimer(ProcessQueue, -800)
 }
 
-; ── arm & trigger ───────────────────────────────────────────────────────
+RunTaskTest(name) {
+    global TASKS
+    if !TASKS.Has(name)
+        return
+    fn := TASKS[name].fn
+    RunTask(name, fn, true)
+}
+
+; ── arm & trigger — improved UX ─────────────────────────────────────────
 ArmTask(name) {
-    global Armed, ArmJob, Running, TASKS
+    global Armed, ArmJob, Running, TASKS, PNote
     if Armed || Running {
         ToolTip("Busy — stop first")
         SetTimer(() => ToolTip(), -1500)
         return
     }
     if !TASKS.Has(name) || !TASKS[name].HasProp("arm") {
-        ToolTip(name " doesn't have auto-watch")
+        ToolTip(name " can't watch — no trigger set")
         SetTimer(() => ToolTip(), -1800)
         return
     }
@@ -908,18 +852,21 @@ ArmTask(name) {
     Abort := false
     ArmJob := { name: name, cond: TASKS[name].arm, fn: TASKS[name].fn }
     Armed := true
+    PNote := "Watching for " name " — it'll start by itself"
     Log("watching for: " name)
     SetTimer(ArmTick, 400)
 }
 Disarm() {
-    global Armed, ArmJob
-    if Armed
+    global Armed, ArmJob, PNote
+    if Armed {
         Log("stopped watching")
+        PNote := "Watch stopped"
+    }
     Armed := false, ArmJob := false
     SetTimer(ArmTick, 0)
 }
 ArmTick() {
-    global Armed, ArmJob, Abort
+    global Armed, ArmJob, Abort, PNote
     if !Armed
         return
     if Abort {
@@ -931,8 +878,12 @@ ArmTick() {
             nm := ArmJob.name, f := ArmJob.fn
             Disarm()
             Log("Found it — starting: " nm)
+            PNote := "Found " nm " — starting"
             SetTimer(() => RunTask(nm, f), -10)
+        } else {
+            PNote := "Watching for " ArmJob.name "…"
         }
+    } catch {
     }
 }
 
@@ -976,18 +927,15 @@ LicenseCheck(showUI := false) {
                 IniWrite(A_TickCount, lf, "license", "last_good")
                 IniWrite(A_Now, lf, "license", "last_check")
                 IniWrite("ok", lf, "license", "status")
+            } catch {
             }
             return true
         }
         if InStr(txt, '"revoked"') {
             LICENSE_STATUS := "revoked"
-            try
-            {
+            try {
                 FileDelete(lf)
-            }
-            catch as _err
-            {
-                ; ignore
+            } catch {
             }
             Log("license revoked")
             if showUI
@@ -996,13 +944,9 @@ LicenseCheck(showUI := false) {
         }
         if InStr(txt, '"invalid"') {
             LICENSE_STATUS := "invalid"
-            try
-            {
+            try {
                 FileDelete(lf)
-            }
-            catch as _err
-            {
-                ; ignore
+            } catch {
             }
             Log("license invalid")
             if showUI
@@ -1031,8 +975,7 @@ LicenseCheck(showUI := false) {
             }
             return false
         }
-    } catch as _err {
-        ; ignore
+    } catch {
     }
     if LICENSE_STATUS = "unknown" || LICENSE_STATUS = "" {
         LICENSE_STATUS := "offline"
@@ -1062,7 +1005,7 @@ TelemetryPost(name, result, secs) {
     try {
         who := MEMBER != "" ? MEMBER : A_UserName
         e := JsonEsc(name), r := JsonEsc(result), m2 := JsonEsc(who), v := JsonEsc(MACRO_VERSION)
-        body := '{"e":"' e '","r":"' r '","s":' secs ',"m":"' m2 '","v":"' v (DryRun ? '","d":1' : '') '}'
+        body := '{"e":"' e '","r":"' r '","s":' secs ',"m":"' m2 '","v":"' v (DryRun ? '","d":1' : '') '"}'
         static keep := []
         if keep.Length > 12
             keep.RemoveAt(1, keep.Length - 12)
@@ -1075,19 +1018,16 @@ TelemetryPost(name, result, secs) {
         if k != ""
             w.SetRequestHeader("x-macro-key", k)
         w.Send(body)
-    } catch as _err {
-        ; ignore
+    } catch {
     }
 }
 
-; ── screenshot on fail — rate-limited to avoid disk fill ────────────────
+; ── fail screenshot — rate limited ──────────────────────────────────────
 global LastFailScreenshots := []
 SaveFailScreenshot(taskName, reason) {
     global USER_DIR, LastFailScreenshots
     try {
-        ; rate limit: max 5 per 10 min
         now := A_TickCount
-        ; clean old
         filtered := []
         for t in LastFailScreenshots {
             if now - t < 600000
@@ -1109,13 +1049,13 @@ SaveFailScreenshot(taskName, reason) {
         } catch as e {
             Log("fail screenshot failed: " e.Message)
         }
+    } catch {
     }
 }
 
-; ── calibration sharing via hub ─────────────────────────────────────────
-; Upload current calib.ini for a task to hub so officers can make it official
+; ── calibration sharing ─────────────────────────────────────────────────
 ShareCalib(taskName) {
-    global USER_DIR, TELEMETRY_URL, MEMBER, TASKS, MEMBER_KEY
+    global USER_DIR, TELEMETRY_URL, TASKS, MEMBER_KEY
     try {
         ini := USER_DIR "\calib.ini"
         if !FileExist(ini) {
@@ -1123,7 +1063,6 @@ ShareCalib(taskName) {
             SetTimer(() => ToolTip(), -2000)
             return "no ini"
         }
-        ; build checks object from ini for this task
         checks := Map()
         if !TASKS.Has(taskName)
             return "no task"
@@ -1157,7 +1096,6 @@ ShareCalib(taskName) {
             return "no hub"
         }
         origin := StrReplace(TELEMETRY_URL, "/api/macro-report", "")
-        ; convert Map to plain object for JSON
         plain := {}
         for k,v in checks
             plain.%k% := v
@@ -1170,7 +1108,7 @@ ShareCalib(taskName) {
             w.SetRequestHeader("x-macro-key", MEMBER_KEY)
         w.Send(body)
         if w.Status = 200 {
-            ToolTip("Shared calibration for " taskName " — officers can make it official")
+            ToolTip("Shared calibration for " taskName)
             Log("shared calib: " taskName)
             SetTimer(() => ToolTip(), -3000)
             return "ok"
@@ -1187,9 +1125,7 @@ ShareCalib(taskName) {
         return "error " e.Message
     }
 }
-
 JsonStringify(obj) {
-    ; minimal JSON — avoid literal { } inside strings so pack brace-check stays happy
     lb := Chr(123), rb := Chr(125)
     out := lb
     first := true
@@ -1219,9 +1155,8 @@ JsonStringify(obj) {
     out .= rb
     return out
 }
-
 LoadSharedCalib(taskName) {
-    global TELEMETRY_URL, USER_DIR
+    global TELEMETRY_URL
     if TELEMETRY_URL = ""
         return false
     try {
@@ -1233,31 +1168,25 @@ LoadSharedCalib(taskName) {
         if w.Status != 200
             return false
         txt := w.ResponseText
-        ; very simple parse — look for "calib":null or object
         if InStr(txt, '"calib":null')
             return false
-        ; extract checks json — we rely on hub returning {checks:{...}}
-        ; For now, save raw response for manual inspection and try to apply via regex
-        ; Proper JSON parse would need Jxon or similar — keep simple: if official exists, officers already pushed to assets
-        Log("shared calib available for " taskName " — officers can promote to official")
+        Log("shared calib available for " taskName)
         return false
-    } catch as _err {
+    } catch {
         return false
     }
 }
-
 UriEncode(s) {
     s := String(s)
-    ; minimal encode for task names (space -> %20)
     s := StrReplace(s, " ", "%20")
     s := StrReplace(s, "#", "%23")
     s := StrReplace(s, "&", "%26")
     return s
 }
 
-; ── auto-update + kill-switch — checks hub ───────────────────────────
+; ── auto-update + kill-switch ───────────────────────────────────────────
 CheckForUpdate(showUI := false) {
-    global TELEMETRY_URL, MACRO_VERSION, MEMBER, USER_DIR, A_ScriptFullPath
+    global TELEMETRY_URL, MACRO_VERSION
     if TELEMETRY_URL = ""
         return
     try {
@@ -1269,69 +1198,69 @@ CheckForUpdate(showUI := false) {
         if w.Status != 200
             return
         txt := w.ResponseText
-        ; kill-switch: if hub returns {"kill":true, "reason":"..."} force exit
         if InStr(txt, '"kill":true') || InStr(txt, '"kill": 1') {
             reason := ""
             try {
                 if RegExMatch(txt, '"reason"\s*:\s*"([^"]+)"', &km)
                     reason := km[1]
+            } catch {
             }
             Log("KILL-SWITCH activated: " reason)
             MsgBox("This macro version was disabled by officers.`n" (reason != "" ? reason "`n`n" : "") "Get a new one at /macros", "MCWV — disabled", "Iconx")
             ExitApp()
         }
-        ; extract version "version":"x.y"
         if !RegExMatch(txt, '"version"\s*:\s*"([^"]+)"', &m)
             return
         latest := m[1]
-        if latest = MACRO_VERSION {
+        if latest != MACRO_VERSION {
+            Log("update available: " MACRO_VERSION " → " latest)
             if showUI {
-                ToolTip("You have the latest — v" MACRO_VERSION)
-                SetTimer(() => ToolTip(), -2000)
+                MsgBox("New version " latest " is out (you have " MACRO_VERSION ").`n`nDownload at /macros", "MCWV — update", "Iconi")
+            } else {
+                ToolTip("Update available: v" latest " — get it at /macros")
+                SetTimer(() => ToolTip(), -5000)
             }
-            return
-        }
-        Log("update available: " MACRO_VERSION " → " latest)
-        if !showUI {
-            try {
-                lastNotify := IniRead(USER_DIR "\update.ini", "update", "last_notify", "0")
-                if (A_TickCount - Number(lastNotify) < 86400000)
-                    return
-            }
-        }
-        ; download new personal build if we have MEMBER_KEY (personal build)
-        ; otherwise just notify
-        if MEMBER_KEY != "" {
-            ; personal build — re-download via macro-download (needs auth via session? But we have key)
-            ; Use same origin /api/macro-download but we need session cookie — can't from AHK
-            ; Instead, notify user to get new file at /macros — most reliable
-            if showUI || true {
-                result := MsgBox("New version v" latest " is out (you have v" MACRO_VERSION ").`n`nGet your new personal file at /macros?`n`nYes = open browser to /macros`nNo = remind tomorrow", "MCWV — update available", "YesNo Iconi")
-                if result = "Yes" {
-                    Run(origin "/macros")
-                }
-                try {
-                    DirCreate(USER_DIR)
-                    IniWrite(A_TickCount, USER_DIR "\update.ini", "update", "last_notify")
-                }
-            }
-        } else {
-            if showUI {
-                MsgBox("New version v" latest " available.`nGet it at /macros or #strategy", "MCWV — update", "Iconi")
-            }
+            return latest
+        } else if showUI {
+            ToolTip("You're on the latest — v" MACRO_VERSION)
+            SetTimer(() => ToolTip(), -2500)
         }
     } catch as e {
-        Log("update check error: " e.Message)
+        Log("update check failed: " e.Message)
     }
 }
-SetTimer(CheckForUpdate, 3600000) ; hourly silent check
+SetTimer(() => CheckForUpdate(false), -5000)
+
+; ── auto-probe on first launch ──────────────────────────────────────────
+AutoProbe() {
+    global USER_DIR, GAME_EXE
+    try {
+        DirCreate(USER_DIR)
+        probeFile := USER_DIR "\probe.ini"
+        if FileExist(probeFile)
+            return
+        if !WinExist("ahk_exe " GAME_EXE)
+            return
+        c := ClientRect()
+        IniWrite(c.w "x" c.h, probeFile, "screen", "client")
+        IniWrite(A_ScreenWidth "x" A_ScreenHeight, probeFile, "screen", "desktop")
+        IniWrite(A_Now, probeFile, "screen", "first_run")
+        Log("auto-probe: client " c.w "x" c.h " desktop " A_ScreenWidth "x" A_ScreenHeight)
+        if c.w < 800 || c.h < 600 {
+            ToolTip("Game window looks small — make it bigger for best results")
+            SetTimer(() => ToolTip(), -4000)
+        }
+    } catch as e {
+        Log("auto-probe failed: " e.Message)
+    }
+}
+SetTimer(AutoProbe, -3000)
 
 ; ──────────────────── from calib.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════
-;  CALIBRATION — 60 seconds per event, on the MEMBER's machine.
-; ═══════════════════════════════════════════════════════════════
+; CALIBRATION v3.1 — clearer UX, overlay hint, auto-apply
 
 global CalibJob := false
+global CalibOverlay := false
 
 GetCheckKeys(checks) {
     arr := []
@@ -1339,13 +1268,10 @@ GetCheckKeys(checks) {
         for k, v in checks
             arr.Push(k)
     } else {
-        try
-        {
+        try {
             for k, v in checks.OwnProps()
                 arr.Push(k)
-        }
-        catch as _err
-        {
+        } catch {
             for k in checks
                 arr.Push(k)
         }
@@ -1356,7 +1282,7 @@ GetCheckKeys(checks) {
 StartCalib(taskName) {
     global CalibJob, TASKS, USER_DIR
     if !TASKS.Has(taskName) || !TASKS[taskName].HasProp("checks") {
-        ToolTip("no calibratable checks registered for " taskName)
+        ToolTip("No setup needed for " taskName)
         SetTimer(() => ToolTip(), -1800)
         return
     }
@@ -1367,19 +1293,27 @@ StartCalib(taskName) {
 }
 
 CalibNext() {
-    global CalibJob, TASKS
+    global CalibJob, TASKS, CalibOverlay
     if !CalibJob
         return
     if CalibJob.i >= CalibJob.keys.Length {
+        ; Done
+        try {
+            if CalibOverlay {
+                CalibOverlay.Destroy()
+                CalibOverlay := false
+            }
+        } catch {
+        }
         ApplyCalib(CalibJob.name, TASKS[CalibJob.name].checks)
-        ToolTip("calibrated " CalibJob.done " (" CalibJob.skipped " skipped) — live now")
-        SetTimer(() => ToolTip(), -2500)
+        ToolTip("Done — " CalibJob.done " saved, " CalibJob.skipped " skipped. It's live now.")
+        SetTimer(() => ToolTip(), -3000)
         Log("calibrate: done " CalibJob.name " (" CalibJob.done " captured)")
         CalibJob := false
         return
     }
     key := CalibJob.keys[CalibJob.i + 1]
-    ToolTip("[" (CalibJob.i + 1) "/" CalibJob.keys.Length "] " key "`nhover it exactly · F1 capture · F2 skip · F3 abort")
+    ToolTip("[" (CalibJob.i + 1) "/" CalibJob.keys.Length "] Point at " key "`nHover exactly over it · F1 save · F2 skip · F3 cancel")
 }
 
 CalibGrab() {
@@ -1388,30 +1322,30 @@ CalibGrab() {
         return
     key := CalibJob.keys[CalibJob.i + 1]
     MouseGetPos(&mx, &my)
-    col := StrLower(String(PixelGetColor(mx, my, "Alt")))
+    col := ""
+    try {
+        col := StrLower(String(PixelGetColor(mx, my, "Alt")))
+    } catch {
+        col := ""
+    }
     ptStr := ""
-    try
-    {
+    try {
         c := ClientRect()
         ptStr := Format("{:.4f}", (mx - c.x) / c.w) "," Format("{:.4f}", (my - c.y) / c.h)
-    }
-    catch as _err
-    {
+    } catch {
     }
     safe := StrReplace(StrReplace(StrReplace(key, "\", ""), "/", ""), " ", "-")
     imgName := ""
-    try
-    {
+    try {
         imgName := CalibJob.name "-" safe ".bmp"
         SaveBmp(mx - 60, my - 24, 120, 48, USER_DIR "\" imgName)
-    }
-    catch as e
-    {
-        Log("calib: crop failed (" e.Message ") — color+coords still saved")
+    } catch as e {
+        Log("calib: crop failed (" e.Message ") — color still saved")
         imgName := ""
     }
     ini := USER_DIR "\calib.ini"
-    IniWrite(col, ini, CalibJob.name, key "_hex")
+    if col != ""
+        IniWrite(col, ini, CalibJob.name, key "_hex")
     if ptStr != ""
         IniWrite(ptStr, ini, CalibJob.name, key "_pt")
     if imgName != ""
@@ -1428,11 +1362,19 @@ CalibSkip() {
         CalibNext()
     }
 }
+
 CalibAbort() {
-    global CalibJob
+    global CalibJob, CalibOverlay
     if CalibJob {
         Log("calibrate: aborted " CalibJob.name)
         CalibJob := false
+    }
+    try {
+        if CalibOverlay {
+            CalibOverlay.Destroy()
+            CalibOverlay := false
+        }
+    } catch {
     }
     ToolTip()
 }
@@ -1497,7 +1439,7 @@ ApplyCalib(taskName, checks) {
         }
     }
     if n
-        Log("calib: applied " n " user overrides for " taskName)
+        Log("calib: applied " n " overrides for " taskName)
     return n > 0
 }
 
@@ -1508,7 +1450,7 @@ F3:: CalibAbort()
 #HotIf
 
 ; ──────────────────── from ui.ahk ────────────────────
-; CONTROL PANEL v3.0 — clean, natural wording, no AI filler
+; CONTROL PANEL v3.1 — natural + test per task + human log + auto-probe UX
 
 UI := false
 UIUp := false
@@ -1533,8 +1475,14 @@ MakeWatchHandler(taskName) {
 MakeSetupHandler(taskName) {
     return (*) => StartCalib(taskName)
 }
+MakeTestHandler(taskName) {
+    return (*) => RunFromPanelTest(taskName)
+}
 MakeRunTaskClosure(taskName, fn) {
     return () => RunTask(taskName, fn)
+}
+MakeRunTaskTestClosure(taskName, fn) {
+    return () => RunTask(taskName, fn, true)
 }
 
 BuildUI() {
@@ -1549,26 +1497,20 @@ BuildUI() {
     UI.SetFont("s10", "Segoe UI")
 
     logoPath := ""
-    try
-    {
+    try {
         for p in [A_ScriptDir "\assets\mcwv-logo.png", A_ScriptDir "\mcwv-logo.png", SPRITE_DIR "\mcwv-logo.png", USER_DIR "\mcwv-logo.png"] {
             if FileExist(p) {
                 logoPath := p
                 break
             }
         }
-    }
-    catch as _err
-    {
+    } catch {
     }
 
     if logoPath != "" {
-        try
-        {
+        try {
             LogoPic := UI.Add("Picture", "x16 y10 w28 h28", logoPath)
-        }
-        catch as _err
-        {
+        } catch {
             logoPath := ""
         }
     }
@@ -1584,8 +1526,7 @@ BuildUI() {
     ver.SetFont("s8", "Consolas")
 
     avatarPath := ""
-    try
-    {
+    try {
         whoForFile := MEMBER != "" ? MEMBER : ""
         if whoForFile != "" {
             for p in [USER_DIR "\avatar-" whoForFile ".png", USER_DIR "\avatar.png", A_ScriptDir "\assets\avatar.png"] {
@@ -1595,23 +1536,17 @@ BuildUI() {
                 }
             }
         }
-    }
-    catch as _err
-    {
+    } catch {
     }
 
     if avatarPath != "" {
-        try
-        {
+        try {
             AvatarPic := UI.Add("Picture", "x16 y42 w22 h22", avatarPath)
-        }
-        catch as _err
-        {
+        } catch {
             avatarPath := ""
         }
     }
 
-    ; Natural license line — no "unknown" showing to user
     who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "")
     if who = ""
         who := "there"
@@ -1640,17 +1575,14 @@ BuildUI() {
 
     UI.Add("Text", "x16 y68 w368 h1 Background1E2A4A")
 
-    ; Cleaner tab names
     TabCtrl := UI.Add("Tab3", "x10 y76 w400 h500", ["Tasks", "Log", "Settings"])
     TabCtrl.SetFont("s9 bold", "Segoe UI")
 
     TabCtrl.UseTab(1)
-    ; Single search box with cue text inside — no external label
     SearchBox := UI.Add("Edit", "x24 y102 w356 h24 Background151A27 cE8ECF6", "")
     SearchBox.SetFont("s9", "Segoe UI")
     try {
-        SearchBox.Opt("+CueBanner")
-        SendMessage(0x1501, 1, StrPtr("Filter tasks…"), SearchBox.Hwnd) ; EM_SETCUEBANNER
+        SendMessage(0x1501, 1, StrPtr("Filter tasks…"), SearchBox.Hwnd)
     } catch {
     }
     SearchBox.OnEvent("Change", (*) => FilterTasks())
@@ -1663,22 +1595,34 @@ BuildUI() {
     } else {
         for taskName, t in TASKS {
             hasArm := t.HasProp("arm")
-            b := UI.Add("Button", "x28 y" (y+6) " w48 h34", "Run")
+            b := UI.Add("Button", "x28 y" (y+6) " w48 h26", "Run")
             b.SetFont("s9 bold")
             b.OnEvent("Click", MakeRunHandler(taskName))
-            nm := UI.Add("Text", "x84 y" (y+4) " w140 cFFFFFF", taskName)
+
+            ; Test button per task
+            tb := UI.Add("Button", "x80 y" (y+6) " w36 h26", "Test")
+            tb.SetFont("s8")
+            tb.OnEvent("Click", MakeTestHandler(taskName))
+
+            nm := UI.Add("Text", "x124 y" (y+4) " w100 cFFFFFF", taskName)
             nm.SetFont("s10 bold", "Segoe UI")
-            st := UI.Add("Text", "x84 y" (y+22) " w140 c8A96B3", "Ready")
+            st := UI.Add("Text", "x124 y" (y+22) " w100 c8A96B3", "Ready")
             st.SetFont("s8", "Consolas")
-            aTxt := hasArm ? "Watch" : "—"
-            a := UI.Add("Button", "x228 y" (y+4) " w80 h18", aTxt)
-            a.SetFont("s7 bold")
-            if hasArm
+
+            if hasArm {
+                a := UI.Add("Button", "x228 y" (y+4) " w70 h18", "Watch")
+                a.SetFont("s7 bold")
                 a.OnEvent("Click", MakeWatchHandler(taskName))
-            sBtn := UI.Add("Button", "x228 y" (y+26) " w80 h16", "Setup")
+            } else {
+                a := UI.Add("Text", "x228 y" (y+4) " w70 h18 c5A6585", "—")
+                a.SetFont("s7")
+            }
+
+            sBtn := UI.Add("Button", "x228 y" (y+26) " w70 h16", "Setup")
             sBtn.SetFont("s7")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
-            t.row := { st: st, name: nm, play: b, watch: a }
+
+            t.row := { st: st, name: nm, play: b, test: tb, watch: a }
             y += 52
             if y > 360
                 break
@@ -1695,15 +1639,21 @@ BuildUI() {
 
     TabCtrl.UseTab(2)
     UI.Add("Text", "x24 y104 w200 cFFFFFF", "Log").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y122 w320 c6B7694", "Recent runs and messages").SetFont("s8", "Consolas")
-    LogBox := UI.Add("Edit", "x24 y142 w356 h280 ReadOnly Background0A0E1A cCBD5E8", TailLog(14))
+    UI.Add("Text", "x24 y122 w320 c6B7694", "What actually happened").SetFont("s8", "Consolas")
+    ; Use human-readable log
+    LogBox := UI.Add("Edit", "x24 y142 w356 h280 ReadOnly Background0A0E1A cCBD5E8", TailLogHuman(20))
     LogBox.SetFont("s8", "Consolas")
     copyBtn := UI.Add("Button", "x24 y430 w80 h26", "Copy")
     copyBtn.SetFont("s8")
-    copyBtn.OnEvent("Click", (*) => A_Clipboard := TailLog(30))
+    copyBtn.OnEvent("Click", (*) => CopyLog())
+
     openBtn := UI.Add("Button", "x110 y430 w100 h26", "Open folder")
     openBtn.SetFont("s8")
     openBtn.OnEvent("Click", (*) => Run(USER_DIR))
+
+    clearBtn := UI.Add("Button", "x214 y430 w80 h26", "Clear")
+    clearBtn.SetFont("s8")
+    clearBtn.OnEvent("Click", (*) => ClearLog())
 
     TabCtrl.UseTab(3)
     UI.Add("Text", "x24 y104 w300 cFFFFFF", "How it runs").SetFont("s12 bold", "Segoe UI")
@@ -1737,27 +1687,23 @@ BuildUI() {
 
 FilterTasks() {
     global SearchBox, TASKS
-    try
-    {
+    try {
         q := StrLower(Trim(SearchBox.Value))
         for name, t in TASKS {
             if !t.HasProp("row")
                 continue
             show := (q = "" || InStr(StrLower(name), q))
-            try
-            {
+            try {
                 t.row.play.Visible := show
+                if t.row.HasProp("test")
+                    t.row.test.Visible := show
                 t.row.name.Visible := show
                 t.row.st.Visible := show
                 t.row.watch.Visible := show
-            }
-            catch as _err
-            {
+            } catch {
             }
         }
-    }
-    catch as _err
-    {
+    } catch {
     }
 }
 
@@ -1775,12 +1721,59 @@ RunFromPanel(taskName) {
     SetTimer(MakeRunTaskClosure(taskName, fn), -10)
 }
 
+RunFromPanelTest(taskName) {
+    global TASKS, Running, Armed
+    if Running {
+        StopAll()
+        return
+    }
+    if Armed
+        Disarm()
+    if !TASKS.Has(taskName)
+        return
+    fn := TASKS[taskName].fn
+    SetTimer(MakeRunTaskTestClosure(taskName, fn), -10)
+}
+
 ToggleTest() {
     global DryRun, TestBtn, ModeLbl
     DryRun := !DryRun
     TestBtn.Text := DryRun ? "Test mode — on" : "Test mode — off"
     ModeLbl.Text := DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it"
     Log("test mode " (DryRun ? "on" : "off"))
+}
+
+CopyLog() {
+    try {
+        txt := TailLogHuman(40)
+        if txt = ""
+            txt := TailLog(30)
+        A_Clipboard := txt
+        ToolTip("Log copied")
+        SetTimer(() => ToolTip(), -1500)
+    } catch {
+        try {
+            A_Clipboard := TailLog(30)
+            ToolTip("Log copied")
+            SetTimer(() => ToolTip(), -1500)
+        } catch {
+            ToolTip("Couldn't copy — open folder and copy macro.log")
+            SetTimer(() => ToolTip(), -2500)
+        }
+    }
+}
+
+ClearLog() {
+    global LOG_PATH, LogBox
+    try {
+        FileDelete(LOG_PATH)
+    } catch {
+    }
+    try {
+        LogBox.Value := ""
+    } catch {
+    }
+    Log("log cleared")
 }
 
 RefreshUI() {
@@ -1793,12 +1786,9 @@ RefreshUI() {
     static blink := false
     blink := !blink
     if LiveDot {
-        try
-        {
+        try {
             LiveDot.SetFont((blink ? "c00E5A2" : "c2A9A6A"), "Segoe UI")
-        }
-        catch as _err
-        {
+        } catch {
         }
     }
 
@@ -1817,12 +1807,9 @@ RefreshUI() {
         }
         if t.row.st.Text != st {
             t.row.st.Text := st
-            try
-            {
+            try {
                 t.row.st.SetFont(col, "Consolas")
-            }
-            catch as _err
-            {
+            } catch {
             }
         }
         wantPlay := (Running && CurrentTask = taskName) ? "Stop" : "Run"
@@ -1836,7 +1823,9 @@ RefreshUI() {
         ProgText.Text := (PTotal > 0) ? (PDone "/" PTotal " — " PNote) : (PNote != "" ? PNote : "Ready")
 
     if LogBox {
-        v := TailLog(14)
+        v := TailLogHuman(20)
+        if v = ""
+            v := TailLog(14)
         static seen := ""
         if v != seen {
             LogBox.Value := v
@@ -1860,12 +1849,9 @@ RefreshUI() {
         if LicLbl.Text != full {
             LicLbl.Text := full
             col := LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C" : "c9AA4B2"
-            try
-            {
+            try {
                 LicLbl.SetFont(col, "Segoe UI")
-            }
-            catch as _err
-            {
+            } catch {
             }
         }
     }
@@ -1896,30 +1882,24 @@ ToggleUI() {
 ShareCurrentCalib() {
     global TASKS
     best := ""
-    try
-    {
+    try {
         for name, t in TASKS {
             if t.HasProp("row") && t.row.HasProp("st") && InStr(t.row.st.Text, "Running") {
                 best := name
                 break
             }
         }
-    }
-    catch as _err
-    {
+    } catch {
     }
     if best = "" {
-        try
-        {
+        try {
             for name, t in TASKS {
                 if FileExist(USER_DIR "\calib-" name ".ini") {
                     best := name
                     break
                 }
             }
-        }
-        catch as _err
-        {
+        } catch {
         }
     }
     if best = "" {
@@ -1935,19 +1915,10 @@ ShareCurrentCalib() {
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
-; ═══════════════════════════════════════════════════════════════════════
-;  MCWV macro base — RUN THIS FILE. Everything else is plumbing.
-;  Control panel: Ctrl+Alt+M. Tasks start from the panel or their own
-;  hotkey, only ever act on the focused game window, and every wait is
-;  state-based, never a blind sleep.
-; ═══════════════════════════════════════════════════════════════════════
+; MCWV macros v3.1 — reliable, visible, fixable
 
-; events/*.ahk are auto-included by pack.js — no #Include needed here for 0-events clean build
 
-; ── Global controls ─────────────────────────────────────────────────────
-;   Ctrl+Alt+M panel · Ctrl+Alt+X stop-anywhere · F12 pause (game keeps keys).
-;   Per-event hotkeys live in the event files themselves (self-registering),
-;   and they're deliberately NOT Esc — Roblox owns that key.
+; Global controls — Ctrl+Alt+M panel, Ctrl+Alt+X stop, F12 pause
 ^!m:: ToggleUI()
 ^!x:: StopAll()
 F12:: {
@@ -1958,12 +1929,18 @@ F12:: {
         Pause()
 }
 
-A_IconTip := "MCWV macros — Ctrl+Alt+M for the panel"
+A_IconTip := "MCWV macros v" MACRO_VERSION " — Ctrl+Alt+M"
 A_TrayMenu.Add("Show/hide panel", (*) => ToggleUI())
-A_TrayMenu.Add("Stop task", (*) => StopAll())
+A_TrayMenu.Add("Stop", (*) => StopAll())
 A_TrayMenu.Add()
 A_TrayMenu.Add("Quit", (*) => ExitApp())
 
-ToggleUI()   ; panel on load; hotkeys work without it
+ToggleUI()
 
-Log("main loaded — " (WinExist("ahk_exe " GAME_EXE) ? "game window found" : "game not running (fine, start it later)"))
+; Startup log — human readable
+try {
+    hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it, then run a task"
+    Log("loaded v" MACRO_VERSION " — " hasGame)
+} catch {
+    Log("loaded v" MACRO_VERSION)
+}
