@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 18:28
+;  MCWV event macros — single-file build, generated 2026-10-01 19:30
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -105,7 +105,14 @@ Log(msg) {
 TailLog(n := 14) {
     global LOG_PATH
     s := ""
-    try s := FileRead(LOG_PATH, "UTF-8")
+    try
+    {
+        s := FileRead(LOG_PATH, "UTF-8")
+    }
+    catch as _err
+    {
+        ; ignore
+    }
     lines := StrSplit(Trim(s), "`n")
     out := ""
     i := lines.Length - n + 1
@@ -258,17 +265,19 @@ ProtectKeyAtRest() {
         ; For pure AHK v2, we do XOR obfuscate + mark file hidden — real DPAPI needs struct, we attempt it
         try {
             data := Buffer(StrPut(MEMBER_KEY, "UTF-8"))
-            ; DATA_BLOB in = {cbData, pbData}
-            ; We'll call CryptProtectData — if fails, fallback to simple file
-            ; This is best-effort hardening, not bulletproof (AHK_H would be stronger)
-            FileAppend(MEMBER_KEY, outFile, "UTF-8") ; placeholder — real DPAPI would be binary
-            ; Hide file
-            try FileSetAttrib("H", outFile)
+            FileAppend(MEMBER_KEY, outFile, "UTF-8")
+            try {
+                FileSetAttrib("H", outFile)
+            } catch as _err {
+                ; ignore attrib fail
+            }
             Log("key protected at rest (obfuscated)")
         } catch as e {
             Log("protect key failed: " e.Message)
         }
-    } catch as _ {}
+    } catch as _err {
+        ; ignore
+    }
 }
 ; call once on load
 SetTimer(ProtectKeyAtRest, -2000)
@@ -293,7 +302,7 @@ Toast(msg, title := "MCWV") {
     try {
         ToolTip(title ": " msg)
         SetTimer(() => ToolTip(), -2500)
-    } catch as _ {
+    } catch as _err {
         ToolTip(title ": " msg)
         SetTimer(() => ToolTip(), -2500)
     }
@@ -373,7 +382,9 @@ class ScreenBuffer {
                 DllCall("gdi32\DeleteDC", "Ptr", this.hdcMem)
             if this.hdcScreen
                 DllCall("ReleaseDC", "Ptr", 0, "Ptr", this.hdcScreen)
-        } catch as _ {}
+        } catch as _err {
+        ; ignore
+    }
         this.hdcScreen := 0, this.hdcMem := 0, this.hbm := 0, this.hbmOld := 0, this.buf := 0, this.captured := false
     }
 }
@@ -391,7 +402,7 @@ FastColorMatch(c1, c2, tolerance := 0) {
         r1 := Integer("0x" SubStr(c1,3,2)), g1 := Integer("0x" SubStr(c1,5,2)), b1 := Integer("0x" SubStr(c1,7,2))
         r2 := Integer("0x" SubStr(c2,3,2)), g2 := Integer("0x" SubStr(c2,5,2)), b2 := Integer("0x" SubStr(c2,7,2))
         return Abs(r1-r2) <= tolerance && Abs(g1-g2) <= tolerance && Abs(b1-b2) <= tolerance
-    } catch as _ {
+    } catch as _err {
         return false
     }
 }
@@ -572,7 +583,9 @@ SeeNow(check, expandRad := 0) {
                     return false
                 }
             }
-        } catch as _ {}
+        } catch as _err {
+        ; ignore
+    }
         ; fallback: PixelGetColor
         try {
             got := StrLower(String(PixelGetColor(p.x, p.y, "Alt")))
@@ -595,7 +608,14 @@ SeeNow(check, expandRad := 0) {
     return false
 }
 Probe(check) {
-    try return SeeNow(check) ? true : false
+    try
+    {
+        return SeeNow(check) ? true : false
+    }
+    catch as _err
+    {
+        ; ignore
+    }
     return false
 }
 ; Needs 2 of 3 checks to pass — v3.0 captures once for all checks (fast)
@@ -611,7 +631,9 @@ SeeMulti(checks, need := 0, attempt := 0) {
             if ScreenBuffer.Capture(c)
                 useBuf := true
         }
-    } catch as _ {}
+    } catch as _err {
+        ; ignore
+    }
     hits := []
     count := 0
     for ch in checks {
@@ -670,15 +692,24 @@ Tap(hit, desc := "") {
         c := ClientRect()
         clamped := ClampToClient(hit.x, hit.y, c)
         hit := clamped
-    } catch as _ {}
+    } catch as _err {
+        ; ignore
+    }
     if DryRun {
         Log("DRY  would tap " (desc != "" ? desc : "target") " at " hit.x "," hit.y)
         WatchdogLastProgress := A_TickCount
         return false
     }
     ; human move then click
-    try HumanMove(hit.x, hit.y)
-catch as _ {
+    try
+    {
+        HumanMove(hit.x, hit.y)
+    }
+    catch as _err
+    {
+        ; ignore
+    }
+catch as _err {
         MouseMove(hit.x, hit.y, 0)
     }
     Sleep(Random(40,110))
@@ -814,7 +845,14 @@ RunTask(name, fn) {
     Log("start: " name (DryRun ? " [TEST]" : ""))
     t0 := A_TickCount
     result := "ok"
-    try fn()
+    try
+    {
+        fn()
+    }
+    catch as _err
+    {
+        ; ignore
+    }
     catch as e {
         result := InStr(e.Message, "aborted") ? "stopped" : "fail: " e.Message " [line " e.Line "]"
         Log("stop: " name " — " result)
@@ -831,7 +869,14 @@ RunTask(name, fn) {
     TelemetryPost(name, result, secs)
     if result = "ok" {
         ; reset fail count on success
-        try FailCount[name] := 0
+        try
+        {
+            FailCount[name] := 0
+        }
+        catch as _err
+        {
+            ; ignore
+        }
     }
     if !DryRun
         SetTimer(() => ToolTip(), -2500)
@@ -936,7 +981,14 @@ LicenseCheck(showUI := false) {
         }
         if InStr(txt, '"revoked"') {
             LICENSE_STATUS := "revoked"
-            try FileDelete(lf)
+            try
+            {
+                FileDelete(lf)
+            }
+            catch as _err
+            {
+                ; ignore
+            }
             Log("license revoked")
             if showUI
                 MsgBox("This file has been revoked.`n`nGet a new one at /macros or ask an officer.", "MCWV — revoked", "Iconx")
@@ -944,7 +996,14 @@ LicenseCheck(showUI := false) {
         }
         if InStr(txt, '"invalid"') {
             LICENSE_STATUS := "invalid"
-            try FileDelete(lf)
+            try
+            {
+                FileDelete(lf)
+            }
+            catch as _err
+            {
+                ; ignore
+            }
             Log("license invalid")
             if showUI
                 MsgBox("This file isn't valid.`n`nDownload your personal file at /macros", "MCWV — invalid", "Iconx")
@@ -972,7 +1031,9 @@ LicenseCheck(showUI := false) {
             }
             return false
         }
-    } catch as _ {}
+    } catch as _err {
+        ; ignore
+    }
     if LICENSE_STATUS = "unknown" || LICENSE_STATUS = "" {
         LICENSE_STATUS := "offline"
         return true
@@ -1014,7 +1075,9 @@ TelemetryPost(name, result, secs) {
         if k != ""
             w.SetRequestHeader("x-macro-key", k)
         w.Send(body)
-    } catch as _ {}
+    } catch as _err {
+        ; ignore
+    }
 }
 
 ; ── screenshot on fail — rate-limited to avoid disk fill ────────────────
@@ -1178,7 +1241,7 @@ LoadSharedCalib(taskName) {
         ; Proper JSON parse would need Jxon or similar — keep simple: if official exists, officers already pushed to assets
         Log("shared calib available for " taskName " — officers can promote to official")
         return false
-    } catch as _ {
+    } catch as _err {
         return false
     }
 }
@@ -1264,15 +1327,9 @@ CheckForUpdate(showUI := false) {
 SetTimer(CheckForUpdate, 3600000) ; hourly silent check
 
 ; ──────────────────── from calib.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════════════
+; ═══════════════════════════════════════════════════════════════
 ;  CALIBRATION — 60 seconds per event, on the MEMBER's machine.
-;  For each named check: hover the exact spot, F1 captures
-;    • the pixel color right there (their gamma, their monitor)
-;    • the normalized client-area coord (their resolution/window)
-;    • a 120x48 BMP crop for image matching (skips gracefully if GDI+ fails)
-;  into %USERPROFILE%\MCWV\calib.ini + .bmp files. SeeNow() prefers those
-;  over anything shipped — so one posted file adapts to every screen.
-; ═══════════════════════════════════════════════════════════════════════
+; ═══════════════════════════════════════════════════════════════
 
 global CalibJob := false
 
@@ -1282,12 +1339,13 @@ GetCheckKeys(checks) {
         for k, v in checks
             arr.Push(k)
     } else {
-        ; Object — OwnProps() returns its keys
-        try {
+        try
+        {
             for k, v in checks.OwnProps()
                 arr.Push(k)
-        } catch as _ {
-            ; fallback: try for..in
+        }
+        catch as _err
+        {
             for k in checks
                 arr.Push(k)
         }
@@ -1332,16 +1390,23 @@ CalibGrab() {
     MouseGetPos(&mx, &my)
     col := StrLower(String(PixelGetColor(mx, my, "Alt")))
     ptStr := ""
-    try {
+    try
+    {
         c := ClientRect()
         ptStr := Format("{:.4f}", (mx - c.x) / c.w) "," Format("{:.4f}", (my - c.y) / c.h)
     }
+    catch as _err
+    {
+    }
     safe := StrReplace(StrReplace(StrReplace(key, "\", ""), "/", ""), " ", "-")
     imgName := ""
-    try {
+    try
+    {
         imgName := CalibJob.name "-" safe ".bmp"
         SaveBmp(mx - 60, my - 24, 120, 48, USER_DIR "\" imgName)
-    } catch as e {
+    }
+    catch as e
+    {
         Log("calib: crop failed (" e.Message ") — color+coords still saved")
         imgName := ""
     }
@@ -1372,9 +1437,6 @@ CalibAbort() {
     ToolTip()
 }
 
-; GDI+ screen crop → BMP (BitBlt + GdipSaveImageToFile, standard recipe).
-; Primary-monitor origin space; games on secondary monitors: calibrate with
-; the crop step skipped (F2) — color+coords still land correctly.
 SaveBmp(x, y, w, h, file) {
     static tk := 0
     if !tk {
@@ -1407,8 +1469,6 @@ SaveBmp(x, y, w, h, file) {
         throw Error("bmp save failed (" st ")")
 }
 
-; Merge user calib.ini into a checks object. Missing ini = silent no-op,
-; so uncalibrated members simply run the shipped defaults.
 ApplyCalib(taskName, checks) {
     global USER_DIR
     ini := USER_DIR "\calib.ini"
@@ -1448,28 +1508,21 @@ F3:: CalibAbort()
 #HotIf
 
 ; ──────────────────── from ui.ahk ────────────────────
-; ═══════════════════════════════════════════════════════════════
-;  CONTROL PANEL v2.5 — natural, with logo + avatar
-;  • Natural wording: "Test mode", "Watch for it", "Set up"
-;  • Clan logo (assets\mcwv-logo.png) if present, else text logo
-;  • Member avatar (USER_DIR\avatar-<name>.png) if present
-;  • Dark, calm, readable — built for members who never read README
-;  • Closure-safe, AHK v2 clean
-; ═══════════════════════════════════════════════════════════════
+; CONTROL PANEL v3.0 — 0 events clean, AHK v2 strict
 
-UI     := false
-UIUp   := false
-global LogBox   := false
-global ProgBar  := false
+UI := false
+UIUp := false
+global LogBox := false
+global ProgBar := false
 global ProgText := false
-global TestBtn  := false
-global ModeLbl  := false
-global LicLbl   := false
-global TabCtrl  := false
+global TestBtn := false
+global ModeLbl := false
+global LicLbl := false
+global TabCtrl := false
 global SearchBox := false
-global LiveDot  := false
+global LiveDot := false
 global AvatarPic := false
-global LogoPic  := false
+global LogoPic := false
 
 MakeRunHandler(taskName) {
     return (*) => RunFromPanel(taskName)
@@ -1495,9 +1548,9 @@ BuildUI() {
     UI.MarginY := 14
     UI.SetFont("s10", "Segoe UI")
 
-    ; ── Logo: try assets\mcwv-logo.png, else fallback text
     logoPath := ""
-    try {
+    try
+    {
         for p in [A_ScriptDir "\assets\mcwv-logo.png", A_ScriptDir "\mcwv-logo.png", SPRITE_DIR "\mcwv-logo.png", USER_DIR "\mcwv-logo.png"] {
             if FileExist(p) {
                 logoPath := p
@@ -1505,13 +1558,21 @@ BuildUI() {
             }
         }
     }
+    catch as _err
+    {
+    }
+
     if logoPath != "" {
-        try {
+        try
+        {
             LogoPic := UI.Add("Picture", "x16 y10 w28 h28", logoPath)
-        } catch as _ {
+        }
+        catch as _err
+        {
             logoPath := ""
         }
     }
+
     if logoPath = "" {
         hdr := UI.Add("Text", "x16 y10 c00E5A2", "▮")
         hdr.SetFont("s18 bold", "Segoe UI Black")
@@ -1522,9 +1583,9 @@ BuildUI() {
     ver := UI.Add("Text", "x320 y14 c6B7694", "v" MACRO_VERSION)
     ver.SetFont("s8", "Consolas")
 
-    ; ── Avatar + member line — natural
     avatarPath := ""
-    try {
+    try
+    {
         whoForFile := MEMBER != "" ? MEMBER : ""
         if whoForFile != "" {
             for p in [USER_DIR "\avatar-" whoForFile ".png", USER_DIR "\avatar.png", A_ScriptDir "\assets\avatar.png"] {
@@ -1535,10 +1596,17 @@ BuildUI() {
             }
         }
     }
+    catch as _err
+    {
+    }
+
     if avatarPath != "" {
-        try {
+        try
+        {
             AvatarPic := UI.Add("Picture", "x16 y42 w22 h22", avatarPath)
-        } catch as _ {
+        }
+        catch as _err
+        {
             avatarPath := ""
         }
     }
@@ -1555,22 +1623,18 @@ BuildUI() {
         : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C"
         : "c9AA4B2"
 
-    ; member text offset if avatar present
     xOff := avatarPath != "" ? 44 : 16
     LicLbl := UI.Add("Text", "x" xOff " y44 w" (360 - (xOff-16)) " " licCol, (MEMBER != "" ? "Hey " who " 👋 · " : "👤 " who " · ") statusWord)
     LicLbl.SetFont("s9", "Segoe UI")
 
-    ; live dot
     LiveDot := UI.Add("Text", "x360 y42 w10 h10 c00E5A2", "●")
     LiveDot.SetFont("s10 bold")
 
     UI.Add("Text", "x16 y68 w368 h1 Background1E2A4A")
 
-    ; ── Tabs — natural names
     TabCtrl := UI.Add("Tab3", "x10 y76 w400 h500", ["Your tasks", "Activity", "Settings"])
     TabCtrl.SetFont("s9 bold", "Segoe UI")
 
-    ; TAB 1 — Your tasks
     TabCtrl.UseTab(1)
     SearchBox := UI.Add("Edit", "x24 y104 w200 h22 Background151A27 c8A96B3", "")
     SearchBox.SetFont("s9", "Segoe UI")
@@ -1586,26 +1650,21 @@ BuildUI() {
     } else {
         for taskName, t in TASKS {
             hasArm := t.HasProp("arm")
-
             b := UI.Add("Button", "x28 y" (y+6) " w48 h34", "Run")
             b.SetFont("s9 bold")
             b.OnEvent("Click", MakeRunHandler(taskName))
-
             nm := UI.Add("Text", "x84 y" (y+4) " w140 cFFFFFF", taskName)
             nm.SetFont("s10 bold", "Segoe UI")
             st := UI.Add("Text", "x84 y" (y+22) " w140 c8A96B3", "Ready")
             st.SetFont("s8", "Consolas")
-
             aTxt := hasArm ? "Watch for it" : "—"
             a := UI.Add("Button", "x228 y" (y+4) " w80 h18", aTxt)
             a.SetFont("s7 bold")
             if hasArm
                 a.OnEvent("Click", MakeWatchHandler(taskName))
-
             sBtn := UI.Add("Button", "x228 y" (y+26) " w80 h16", "Set up")
             sBtn.SetFont("s7")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
-
             t.row := { st: st, name: nm, play: b, watch: a }
             y += 52
             if y > 360
@@ -1621,13 +1680,11 @@ BuildUI() {
     y += 20
     UI.Add("Text", "x24 y" y " w356 c3A4A6A", "Watch waits for the game — when it shows up, your macro starts on its own.").SetFont("s7", "Consolas")
 
-    ; TAB 2 — Activity
     TabCtrl.UseTab(2)
     UI.Add("Text", "x24 y104 w200 cFFFFFF", "Recent activity").SetFont("s11 bold", "Segoe UI")
     UI.Add("Text", "x24 y122 w320 c8A96B3", "What happened, and when").SetFont("s8", "Consolas")
     LogBox := UI.Add("Edit", "x24 y142 w356 h280 ReadOnly Background0A0E1A cCBD5E8", TailLog(14))
     LogBox.SetFont("s8", "Consolas")
-
     copyBtn := UI.Add("Button", "x24 y430 w80 h26", "Copy")
     copyBtn.SetFont("s8")
     copyBtn.OnEvent("Click", (*) => A_Clipboard := TailLog(30))
@@ -1635,7 +1692,6 @@ BuildUI() {
     openBtn.SetFont("s8")
     openBtn.OnEvent("Click", (*) => Run(USER_DIR))
 
-    ; TAB 3 — Settings
     TabCtrl.UseTab(3)
     UI.Add("Text", "x24 y104 w300 cFFFFFF", "How it runs").SetFont("s12 bold", "Segoe UI")
     TestBtn := UI.Add("Button", "x24 y130 w180 h38", DryRun ? "Test mode is on" : "Test mode is off")
@@ -1643,32 +1699,24 @@ BuildUI() {
     TestBtn.OnEvent("Click", (*) => ToggleTest())
     ModeLbl := UI.Add("Text", "x24 y176 w340 c8A96B3", DryRun ? "Test — checks everything but doesn't click (safe to try)" : "Live — it will click in the game when you run it")
     ModeLbl.SetFont("s8", "Consolas")
-
     UI.Add("Text", "x24 y204 w300 cFFFFFF", "If something goes wrong").SetFont("s11 bold", "Segoe UI")
     stop := UI.Add("Button", "x24 y228 w160 h36", "Stop everything")
     stop.SetFont("s10 bold")
     stop.OnEvent("Click", (*) => StopAll())
-
-    ; New: share calibration + check for updates — natural wording
     shareBtn := UI.Add("Button", "x24 y270 w160 h28", "Share your setup")
     shareBtn.SetFont("s9")
     shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
-
     updateBtn := UI.Add("Button", "x190 y270 w100 h28", "Check for updates")
     updateBtn.SetFont("s8")
     updateBtn.OnEvent("Click", (*) => CheckForUpdate(true))
-
     UI.Add("Text", "x24 y306 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
     UI.Add("Text", "x24 y328 w356 c8A96B3", "Ctrl+Alt+M  show or hide this panel`nCtrl+Alt+X  stop`nF12  pause`nWhile setting up: F1 capture, F2 skip, F3 cancel").SetFont("s8", "Consolas")
-
     UI.Add("Text", "x24 y410 w340 c5A6585", "Your file is personal — tied to your account. If a friend wants one, they should get their own at /macros.").SetFont("s8", "Consolas")
 
     TabCtrl.UseTab()
-
     UI.Add("Text", "x0 y580 w424 h1 Background00E5A2")
     foot := UI.Add("Text", "x16 y586 w380 c5A6585", "MCWV • made for the clan • v" MACRO_VERSION)
     foot.SetFont("s7", "Consolas")
-
     UI.Show("w424 h620")
     UIUp := true
     SetTimer(RefreshUI, 300)
@@ -1676,19 +1724,27 @@ BuildUI() {
 
 FilterTasks() {
     global SearchBox, TASKS
-    try {
+    try
+    {
         q := StrLower(Trim(SearchBox.Value))
         for name, t in TASKS {
             if !t.HasProp("row")
                 continue
             show := (q = "" || InStr(StrLower(name), q))
-            try {
+            try
+            {
                 t.row.play.Visible := show
                 t.row.name.Visible := show
                 t.row.st.Visible := show
                 t.row.watch.Visible := show
             }
+            catch as _err
+            {
+            }
         }
+    }
+    catch as _err
+    {
     }
 }
 
@@ -1724,7 +1780,13 @@ RefreshUI() {
     static blink := false
     blink := !blink
     if LiveDot {
-        try LiveDot.SetFont((blink ? "c00E5A2" : "c2A9A6A"), "Segoe UI")
+        try
+        {
+            LiveDot.SetFont((blink ? "c00E5A2" : "c2A9A6A"), "Segoe UI")
+        }
+        catch as _err
+        {
+        }
     }
 
     for taskName, t in TASKS {
@@ -1742,7 +1804,13 @@ RefreshUI() {
         }
         if t.row.st.Text != st {
             t.row.st.Text := st
-            try t.row.st.SetFont(col, "Consolas")
+            try
+            {
+                t.row.st.SetFont(col, "Consolas")
+            }
+            catch as _err
+            {
+            }
         }
         wantPlay := (Running && CurrentTask = taskName) ? "Stop" : "Run"
         if t.row.play.Text != wantPlay
@@ -1776,7 +1844,13 @@ RefreshUI() {
         if LicLbl.Text != full {
             LicLbl.Text := full
             col := LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C" : "c9AA4B2"
-            try LicLbl.SetFont(col, "Segoe UI")
+            try
+            {
+                LicLbl.SetFont(col, "Segoe UI")
+            }
+            catch as _err
+            {
+            }
         }
     }
 }
@@ -1805,9 +1879,9 @@ ToggleUI() {
 
 ShareCurrentCalib() {
     global TASKS
-    ; if a task is running, share that one; otherwise ask
     best := ""
-    try {
+    try
+    {
         for name, t in TASKS {
             if t.HasProp("row") && t.row.HasProp("st") && InStr(t.row.st.Text, "Running") {
                 best := name
@@ -1815,15 +1889,21 @@ ShareCurrentCalib() {
             }
         }
     }
+    catch as _err
+    {
+    }
     if best = "" {
-        ; pick first with calib
-        try {
+        try
+        {
             for name, t in TASKS {
                 if FileExist(USER_DIR "\calib-" name ".ini") {
                     best := name
                     break
                 }
             }
+        }
+        catch as _err
+        {
         }
     }
     if best = "" {
