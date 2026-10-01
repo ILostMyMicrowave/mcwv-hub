@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 19:30
+;  MCWV event macros — single-file build, generated 2026-10-01 21:34
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -1508,7 +1508,7 @@ F3:: CalibAbort()
 #HotIf
 
 ; ──────────────────── from ui.ahk ────────────────────
-; CONTROL PANEL v3.0 — 0 events clean, AHK v2 strict
+; CONTROL PANEL v3.0 — clean, natural wording, no AI filler
 
 UI := false
 UIUp := false
@@ -1578,7 +1578,7 @@ BuildUI() {
         hdr.SetFont("s18 bold", "Segoe UI Black")
     }
 
-    hdr2 := UI.Add("Text", (logoPath != "" ? "x52 y12" : "x36 y12") " cE8ECF6", "MCWV Macros")
+    hdr2 := UI.Add("Text", (logoPath != "" ? "x52 y12" : "x36 y12") " cE8ECF6", "MCWV")
     hdr2.SetFont("s14 bold", "Segoe UI")
     ver := UI.Add("Text", "x320 y14 c6B7694", "v" MACRO_VERSION)
     ver.SetFont("s8", "Consolas")
@@ -1611,12 +1611,16 @@ BuildUI() {
         }
     }
 
-    who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "not signed in")
-    statusWord := LICENSE_STATUS = "ok" ? "✓ Active"
-        : LICENSE_STATUS = "offline" ? "◐ Offline — works for 3 days"
-        : LICENSE_STATUS = "nokey" ? "— get your file at /macros"
-        : LICENSE_STATUS = "revoked" ? "✕ Revoked"
-        : LICENSE_STATUS = "invalid" ? "✕ Invalid"
+    ; Natural license line — no "unknown" showing to user
+    who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "")
+    if who = ""
+        who := "there"
+    statusWord := LICENSE_STATUS = "ok" ? "active"
+        : LICENSE_STATUS = "offline" ? "offline for now — still works"
+        : LICENSE_STATUS = "nokey" ? "grab your file at /macros"
+        : LICENSE_STATUS = "revoked" ? "revoked"
+        : LICENSE_STATUS = "invalid" ? "invalid key"
+        : LICENSE_STATUS = "unknown" ? "checking…"
         : LICENSE_STATUS
     licCol := LICENSE_STATUS = "ok" ? "c00E5A2"
         : LICENSE_STATUS = "offline" ? "cF0B429"
@@ -1624,7 +1628,11 @@ BuildUI() {
         : "c9AA4B2"
 
     xOff := avatarPath != "" ? 44 : 16
-    LicLbl := UI.Add("Text", "x" xOff " y44 w" (360 - (xOff-16)) " " licCol, (MEMBER != "" ? "Hey " who " 👋 · " : "👤 " who " · ") statusWord)
+    if MEMBER != "" {
+        LicLbl := UI.Add("Text", "x" xOff " y44 w" (340 - (xOff-16)) " " licCol, "Hey " who " · " statusWord)
+    } else {
+        LicLbl := UI.Add("Text", "x" xOff " y44 w" (340 - (xOff-16)) " " licCol, statusWord)
+    }
     LicLbl.SetFont("s9", "Segoe UI")
 
     LiveDot := UI.Add("Text", "x360 y42 w10 h10 c00E5A2", "●")
@@ -1632,21 +1640,26 @@ BuildUI() {
 
     UI.Add("Text", "x16 y68 w368 h1 Background1E2A4A")
 
-    TabCtrl := UI.Add("Tab3", "x10 y76 w400 h500", ["Your tasks", "Activity", "Settings"])
+    ; Cleaner tab names
+    TabCtrl := UI.Add("Tab3", "x10 y76 w400 h500", ["Tasks", "Log", "Settings"])
     TabCtrl.SetFont("s9 bold", "Segoe UI")
 
     TabCtrl.UseTab(1)
-    SearchBox := UI.Add("Edit", "x24 y104 w200 h22 Background151A27 c8A96B3", "")
+    ; Single search box with cue text inside — no external label
+    SearchBox := UI.Add("Edit", "x24 y102 w356 h24 Background151A27 cE8ECF6", "")
     SearchBox.SetFont("s9", "Segoe UI")
+    try {
+        SearchBox.Opt("+CueBanner")
+        SendMessage(0x1501, 1, StrPtr("Filter tasks…"), SearchBox.Hwnd) ; EM_SETCUEBANNER
+    } catch {
+    }
     SearchBox.OnEvent("Change", (*) => FilterTasks())
-    UI.Add("Text", "x232 y106 w100 c5A6585", "Search your tasks").SetFont("s8", "Consolas")
 
     y := 136
     if TASKS.Count = 0 {
-        UI.Add("Text", "x28 y140 w340 cE8ECF6", "No events active right now").SetFont("s11 bold", "Segoe UI")
-        UI.Add("Text", "x28 y162 w340 c8A96B3", "When officers drop a new weekly event, you'll get it automatically when you download your file at /macros. For now, this build is just the framework — ready for you to tell it what to do.").SetFont("s9", "Segoe UI")
-        UI.Add("Text", "x28 y210 w340 c5A6585", "Officers: add files in events/ and run node pack.js — they auto-appear here.").SetFont("s8", "Consolas")
-        y := 260
+        UI.Add("Text", "x28 y138 w340 cE8ECF6", "Nothing here yet").SetFont("s11 bold", "Segoe UI")
+        UI.Add("Text", "x28 y160 w340 c8A96B3", "New tasks show up here when they're released. Just download the latest file from /macros and you're set.").SetFont("s9", "Segoe UI")
+        y := 210
     } else {
         for taskName, t in TASKS {
             hasArm := t.HasProp("arm")
@@ -1657,12 +1670,12 @@ BuildUI() {
             nm.SetFont("s10 bold", "Segoe UI")
             st := UI.Add("Text", "x84 y" (y+22) " w140 c8A96B3", "Ready")
             st.SetFont("s8", "Consolas")
-            aTxt := hasArm ? "Watch for it" : "—"
+            aTxt := hasArm ? "Watch" : "—"
             a := UI.Add("Button", "x228 y" (y+4) " w80 h18", aTxt)
             a.SetFont("s7 bold")
             if hasArm
                 a.OnEvent("Click", MakeWatchHandler(taskName))
-            sBtn := UI.Add("Button", "x228 y" (y+26) " w80 h16", "Set up")
+            sBtn := UI.Add("Button", "x228 y" (y+26) " w80 h16", "Setup")
             sBtn.SetFont("s7")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
             t.row := { st: st, name: nm, play: b, watch: a }
@@ -1672,17 +1685,17 @@ BuildUI() {
         }
     }
 
-    UI.Add("Text", "x24 y" (y+2) " w60 c5A6585", "Progress").SetFont("s7 bold", "Consolas")
-    ProgText := UI.Add("Text", "x90 y" (y+2) " w200 c6B7694", "Waiting for you to start something")
+    UI.Add("Text", "x24 y" (y+2) " w60 c5A6585", "Status").SetFont("s7 bold", "Consolas")
+    ProgText := UI.Add("Text", "x90 y" (y+2) " w200 c6B7694", "Ready")
     ProgText.SetFont("s8", "Consolas")
     y += 16
     ProgBar := UI.Add("Progress", "x24 y" y " w356 h10 c00E5A2 Background1A2030 Range0-100", 0)
-    y += 20
-    UI.Add("Text", "x24 y" y " w356 c3A4A6A", "Watch waits for the game — when it shows up, your macro starts on its own.").SetFont("s7", "Consolas")
+    y += 18
+    UI.Add("Text", "x24 y" y " w356 c4A5A6A", "Tip: Watch waits for the game and starts by itself.").SetFont("s7", "Consolas")
 
     TabCtrl.UseTab(2)
-    UI.Add("Text", "x24 y104 w200 cFFFFFF", "Recent activity").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y122 w320 c8A96B3", "What happened, and when").SetFont("s8", "Consolas")
+    UI.Add("Text", "x24 y104 w200 cFFFFFF", "Log").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y122 w320 c6B7694", "Recent runs and messages").SetFont("s8", "Consolas")
     LogBox := UI.Add("Edit", "x24 y142 w356 h280 ReadOnly Background0A0E1A cCBD5E8", TailLog(14))
     LogBox.SetFont("s8", "Consolas")
     copyBtn := UI.Add("Button", "x24 y430 w80 h26", "Copy")
@@ -1694,30 +1707,30 @@ BuildUI() {
 
     TabCtrl.UseTab(3)
     UI.Add("Text", "x24 y104 w300 cFFFFFF", "How it runs").SetFont("s12 bold", "Segoe UI")
-    TestBtn := UI.Add("Button", "x24 y130 w180 h38", DryRun ? "Test mode is on" : "Test mode is off")
+    TestBtn := UI.Add("Button", "x24 y130 w180 h38", DryRun ? "Test mode — on" : "Test mode — off")
     TestBtn.SetFont("s10 bold")
     TestBtn.OnEvent("Click", (*) => ToggleTest())
-    ModeLbl := UI.Add("Text", "x24 y176 w340 c8A96B3", DryRun ? "Test — checks everything but doesn't click (safe to try)" : "Live — it will click in the game when you run it")
+    ModeLbl := UI.Add("Text", "x24 y176 w340 c8A96B3", DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it")
     ModeLbl.SetFont("s8", "Consolas")
-    UI.Add("Text", "x24 y204 w300 cFFFFFF", "If something goes wrong").SetFont("s11 bold", "Segoe UI")
-    stop := UI.Add("Button", "x24 y228 w160 h36", "Stop everything")
+    UI.Add("Text", "x24 y204 w300 cFFFFFF", "If it gets stuck").SetFont("s11 bold", "Segoe UI")
+    stop := UI.Add("Button", "x24 y228 w160 h36", "Stop")
     stop.SetFont("s10 bold")
     stop.OnEvent("Click", (*) => StopAll())
-    shareBtn := UI.Add("Button", "x24 y270 w160 h28", "Share your setup")
+    shareBtn := UI.Add("Button", "x24 y270 w160 h28", "Share setup")
     shareBtn.SetFont("s9")
     shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
-    updateBtn := UI.Add("Button", "x190 y270 w100 h28", "Check for updates")
+    updateBtn := UI.Add("Button", "x190 y270 w100 h28", "Check updates")
     updateBtn.SetFont("s8")
     updateBtn.OnEvent("Click", (*) => CheckForUpdate(true))
     UI.Add("Text", "x24 y306 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y328 w356 c8A96B3", "Ctrl+Alt+M  show or hide this panel`nCtrl+Alt+X  stop`nF12  pause`nWhile setting up: F1 capture, F2 skip, F3 cancel").SetFont("s8", "Consolas")
-    UI.Add("Text", "x24 y410 w340 c5A6585", "Your file is personal — tied to your account. If a friend wants one, they should get their own at /macros.").SetFont("s8", "Consolas")
+    UI.Add("Text", "x24 y328 w356 c8A96B3", "Ctrl+Alt+M  show/hide`nCtrl+Alt+X  stop`nF12  pause`nSetup: F1 capture, F2 skip, F3 cancel").SetFont("s8", "Consolas")
+    UI.Add("Text", "x24 y410 w340 c5A6585", "Your file is personal — don't share it. Friends should get their own at /macros.").SetFont("s8", "Consolas")
 
     TabCtrl.UseTab()
     UI.Add("Text", "x0 y580 w424 h1 Background00E5A2")
-    foot := UI.Add("Text", "x16 y586 w380 c5A6585", "MCWV • made for the clan • v" MACRO_VERSION)
+    foot := UI.Add("Text", "x16 y586 w380 c3A5A5A", "v" MACRO_VERSION)
     foot.SetFont("s7", "Consolas")
-    UI.Show("w424 h620")
+    UI.Show("w424 h610")
     UIUp := true
     SetTimer(RefreshUI, 300)
 }
@@ -1765,8 +1778,8 @@ RunFromPanel(taskName) {
 ToggleTest() {
     global DryRun, TestBtn, ModeLbl
     DryRun := !DryRun
-    TestBtn.Text := DryRun ? "Test mode is on" : "Test mode is off"
-    ModeLbl.Text := DryRun ? "Test — checks everything but doesn't click (safe to try)" : "Live — it will click in the game when you run it"
+    TestBtn.Text := DryRun ? "Test mode — on" : "Test mode — off"
+    ModeLbl.Text := DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it"
     Log("test mode " (DryRun ? "on" : "off"))
 }
 
@@ -1796,7 +1809,7 @@ RefreshUI() {
             st := PTotal > 0 ? "Running " PDone "/" PTotal " — " PNote : "Running…"
             col := "c00E5A2"
         } else if Armed && (ArmJob is Object) && ArmJob.name = taskName {
-            st := "Watching — will start on its own"
+            st := "Watching — starts by itself"
             col := "c22D3EE"
         } else {
             st := "Ready"
@@ -1820,7 +1833,7 @@ RefreshUI() {
     if ProgBar
         ProgBar.Value := (PTotal > 0) ? Round(100 * PDone / PTotal) : 0
     if ProgText
-        ProgText.Text := (PTotal > 0) ? (PDone "/" PTotal " — " PNote) : (PNote != "" ? PNote : "Waiting for you to start something")
+        ProgText.Text := (PTotal > 0) ? (PDone "/" PTotal " — " PNote) : (PNote != "" ? PNote : "Ready")
 
     if LogBox {
         v := TailLog(14)
@@ -1832,14 +1845,17 @@ RefreshUI() {
     }
 
     if LicLbl {
-        who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "not signed in")
-        statusWord := LICENSE_STATUS = "ok" ? "✓ Active"
-            : LICENSE_STATUS = "offline" ? "◐ Offline — works for 3 days"
-            : LICENSE_STATUS = "nokey" ? "— get your file at /macros"
-            : LICENSE_STATUS = "revoked" ? "✕ Revoked"
-            : LICENSE_STATUS = "invalid" ? "✕ Invalid"
+        who := MEMBER != "" ? MEMBER : (MEMBER_KEY != "" ? "key " SubStr(MEMBER_KEY,1,6) "…" : "")
+        if who = ""
+            who := "there"
+        statusWord := LICENSE_STATUS = "ok" ? "active"
+            : LICENSE_STATUS = "offline" ? "offline for now — still works"
+            : LICENSE_STATUS = "nokey" ? "grab your file at /macros"
+            : LICENSE_STATUS = "revoked" ? "revoked"
+            : LICENSE_STATUS = "invalid" ? "invalid key"
+            : LICENSE_STATUS = "unknown" ? "checking…"
             : LICENSE_STATUS
-        prefix := MEMBER != "" ? "Hey " who " 👋 · " : "👤 " who " · "
+        prefix := MEMBER != "" ? "Hey " who " · " : ""
         full := prefix statusWord
         if LicLbl.Text != full {
             LicLbl.Text := full
@@ -1907,15 +1923,15 @@ ShareCurrentCalib() {
         }
     }
     if best = "" {
-        MsgBox("Nothing to share yet — run a setup first (F1).`nOnce you've set up a task, you can share it with the clan.")
+        MsgBox("Nothing to share yet — run a setup first with F1.`nOnce it's set up you can share it.")
         return
     }
     Log("sharing setup for " best)
     result := ShareCalib(best)
     if result = "ok"
-        MsgBox(best " — your setup was shared with the clan. Thanks!")
+        MsgBox(best " — shared with the clan, thanks!")
     else
-        MsgBox("Couldn't share just yet: " result "`nTry again in a sec.")
+        MsgBox("Couldn't share right now: " result "`nTry again in a sec.")
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
@@ -1926,6 +1942,7 @@ ShareCurrentCalib() {
 ;  state-based, never a blind sleep.
 ; ═══════════════════════════════════════════════════════════════════════
 
+; events/*.ahk are auto-included by pack.js — no #Include needed here for 0-events clean build
 
 ; ── Global controls ─────────────────────────────────────────────────────
 ;   Ctrl+Alt+M panel · Ctrl+Alt+X stop-anywhere · F12 pause (game keeps keys).
