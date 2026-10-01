@@ -1,15 +1,15 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV war macros — single-file build, generated 2026-10-01 23:17
+;  MCWV war macros — single-file build, generated 2026-10-01 23:47
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
-;  v3.4: 10x better UI formatting, private server link in Settings, war banner, dc recovery, live thumb, stats
+;  v3.5: final — war banner, disconnect recovery with private link in UI, auto-setup overlay, self-healing, live thumb, stats, insane UI formatting
 ; ═══════════════════════════════════════════════════════════════
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ──────────────────── from config.ahk ────────────────────
-; SHARED KNOBS — v3.4 10x better UI + private link in UI + war + dc recovery
+; MCWV — v3.5 war + disconnect + private link in UI + insane formatting
 
 GAME_EXE := "RobloxPlayerBeta.exe"
 DEFAULT_TIMEOUT := 25
@@ -21,7 +21,7 @@ CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "3.4"
+MACRO_VERSION := "3.5"
 
 USE_FAST_CAPTURE := true
 FAST_CAPTURE_TOL := 2
@@ -50,15 +50,15 @@ SPRITE_DIR := A_ScriptDir "\assets"
 LOG_PATH   := A_ScriptDir "\macro.log"
 USER_DIR := EnvGet("USERPROFILE") "\MCWV"
 
-Running     := false
-Abort       := false
+Running := false
+Abort := false
 CurrentTask := ""
-Armed       := false
-ArmJob      := false
-DryRun      := false
-PDone  := 0
+Armed := false
+ArmJob := false
+DryRun := false
+PDone := 0
 PTotal := 0
-PNote  := ""
+PNote := ""
 LICENSE_STATUS := "unknown"
 LICENSE_LAST_GOOD := 0
 
@@ -2501,10 +2501,10 @@ ShareCurrentCalib() {
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
-; MCWV war macros v3.3 — disconnect recovery + war-ready
+; MCWV war macros v3.5 — final, war + disconnect, works
 
 
-; ── Built-in check — proves macro works for war ─────────────────────────
+; ── Built-in war check — proves it works with 0 events ──────────────────
 CheckGameTask() {
     Log("check: start")
     if !EnsureGame(3) {
@@ -2515,9 +2515,9 @@ CheckGameTask() {
     SetProgress(2, 4, "Checking screen")
     try {
         c := ClientRect()
-        Log("check: client " c.w "x" c.h " at " c.x "," c.y)
+        Log("check: client " c.w "x" c.h)
         if c.w < 800 || c.h < 600 {
-            SetProgress(2, 4, "Window small — make it bigger for war")
+            SetProgress(2, 4, "Window small — make bigger for war")
             Sleep(800)
         }
     } catch as e {
@@ -2555,17 +2555,29 @@ F12:: {
         Pause()
 }
 
-A_IconTip := "MCWV war macros v" MACRO_VERSION " — Ctrl+Alt+M"
-A_TrayMenu.Add("Show/hide panel", (*) => ToggleUI())
-A_TrayMenu.Add("Stop", (*) => StopAll())
-A_TrayMenu.Add()
-A_TrayMenu.Add("Quit", (*) => ExitApp())
+A_IconTip := "MCWV war v" MACRO_VERSION " — Ctrl+Alt+M"
 
-ToggleUI()
+try {
+    A_TrayMenu.Add("Show/hide panel", (*) => ToggleUI())
+    A_TrayMenu.Add("Stop", (*) => StopAll())
+    A_TrayMenu.Add()
+    A_TrayMenu.Add("Quit", (*) => ExitApp())
+} catch {
+}
+
+try {
+    ToggleUI()
+} catch as e {
+    try {
+        MsgBox("UI failed to open: " e.Message "`n`nTry running as admin or check macro.log", "MCWV — error", "Iconx")
+    } catch {
+    }
+    Log("UI build failed: " e.Message " line " e.Line)
+}
 
 try {
     hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it for war"
-    Log("loaded v" MACRO_VERSION " war-ready + disconnect recovery — " hasGame " — " TASKS.Count " tasks")
+    Log("loaded v" MACRO_VERSION " war + dc recovery — " hasGame " — " TASKS.Count " tasks")
 } catch {
-    Log("loaded v" MACRO_VERSION " war-ready — " TASKS.Count " tasks")
+    Log("loaded v" MACRO_VERSION " — " TASKS.Count " tasks")
 }
