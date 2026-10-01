@@ -1,15 +1,15 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 23:05
+;  MCWV war macros — single-file build, generated 2026-10-01 23:08
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
-;  v3.2: auto-setup overlay, self-healing expanding search, live thumb, stats, war banner, human log
+;  v3.3: war banner, disconnect recovery (leave/join/return to event), auto-setup overlay, self-healing, live thumb, stats
 ; ═══════════════════════════════════════════════════════════════
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ──────────────────── from config.ahk ────────────────────
-; SHARED KNOBS — v3.2 better
+; SHARED KNOBS — v3.3 war + disconnect recovery
 
 GAME_EXE := "RobloxPlayerBeta.exe"
 DEFAULT_TIMEOUT := 25
@@ -21,9 +21,9 @@ CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "3.2"
+MACRO_VERSION := "3.3"
 
-; v3.2 knobs
+; v3.3 knobs
 USE_FAST_CAPTURE := true
 FAST_CAPTURE_TOL := 2
 ENABLE_MCODE := true
@@ -32,6 +32,14 @@ ENABLE_AUTO_PROBE := true
 ENABLE_WATCH_STATUS := true
 ENABLE_LIVE_THUMB := true
 ENABLE_WAR_BANNER := true
+ENABLE_DISCONNECT_RECOVERY := true
+
+; Disconnect recovery — auto rejoins and returns to war
+DISCONNECT_RETRY_LIMIT := 5
+DISCONNECT_REJOIN_DELAY := 8000
+PRIVATE_SERVER_URL := ""  ; officers can set private war server link, or filled by hub personal build
+; Optional: event area check to confirm you're back (set per event)
+; EVENT_AREA_CHECK := { hex: "...", pt: { fx: 0.5, fy: 0.5 } }
 
 ; Clan licensing
 MEMBER := ""
@@ -815,6 +823,13 @@ RunTask(name, fn, testMode := false) {
     if testMode
         DryRun := true
 
+    global LastTaskName
+    LastTaskName := name
+    try {
+        ResetDisconnectCount()
+    } catch {
+    }
+
     Running := true, Abort := false, CurrentTask := name
     PDone := 0, PTotal := 0, PNote := testMode ? "Test mode — checking, not clicking" : "Starting"
     Pause(false)
@@ -1287,6 +1302,180 @@ CheckWarStatus(showUI := false) {
 }
 SetTimer(() => CheckWarStatus(false), -10000)
 SetTimer(() => CheckWarStatus(false), 120000)
+
+; ── disconnect recovery — detects Roblox disconnect, rejoins, returns to event ─
+global LastTaskName := ""
+global DisconnectCount := 0
+global IsRecovering := false
+global DISCONNECT_CHECKS := []
+
+IsDisconnected() {
+    global GAME_EXE, DISCONNECT_CHECKS
+    ; If game window gone and we were running, it's a disconnect
+    if !WinExist("ahk_exe " GAME_EXE) {
+        return true
+    }
+    ; Check known disconnect UI — these are generic, officers can add precise checks via calib
+    try {
+        for chk in DISCONNECT_CHECKS {
+            if SeeNow(chk) {
+                return true
+            }
+        }
+        ; Fallback: check for common Roblox disconnect colors/text areas
+        ; White dialog in center often means disconnected
+        ; We use fast check for large white area — if center is white and we are not in war, likely disconnect
+        ; This is conservative — only triggers if Running
+        global Running
+        if Running {
+            c := ClientRect()
+            ; Check center pixel for white/gray disconnect background
+            try {
+                col := PixelGetColor(c.x + c.w//2, c.y + c.h//2, "Alt")
+                ; If center is very dark (0x000000) or very light and we can't see war UI, possible disconnect
+                ; We don't auto-trigger on color alone — need explicit checks, so just return false here
+                ; Real disconnect detection comes from DISCONNECT_CHECKS populated by event or calib
+            } catch {
+            }
+        }
+    } catch {
+    }
+    return false
+}
+
+RecoverFromDisconnect() {
+    global LastTaskName, DisconnectCount, IsRecovering, USER_DIR, GAME_EXE, PNote
+    global DISCONNECT_RETRY_LIMIT, DISCONNECT_REJOIN_DELAY, PRIVATE_SERVER_URL, TASKS
+    if IsRecovering
+        return
+    IsRecovering := true
+    DisconnectCount++
+    Log("DISCONNECT detected — count " DisconnectCount " last task " LastTaskName)
+    PNote := "Disconnected — rejoining… (" DisconnectCount ")"
+    try {
+        SaveFailScreenshot("disconnect", "roblox disconnected")
+    } catch {
+    }
+
+    if DisconnectCount > DISCONNECT_RETRY_LIMIT {
+        Log("disconnect retry limit hit " DISCONNECT_RETRY_LIMIT " — stopping")
+        PNote := "Too many disconnects — stopped, check Log"
+        ToolTip("Too many disconnects — stopped for safety")
+        SetTimer(() => ToolTip(), -5000)
+        IsRecovering := false
+        StopAll()
+        return
+    }
+
+    ; Try to close disconnect dialog — click Leave or Reconnect if visible
+    try {
+        ; Try to find Leave button (common in Roblox disconnect)
+        if WinExist("ahk_exe " GAME_EXE) {
+            WinActivate(WinExist("ahk_exe " GAME_EXE))
+            Sleep(500)
+            ; Send Esc to close dialog, then try Leave
+            try {
+                Send("{Esc}")
+                Sleep(800)
+            } catch {
+            }
+        }
+    } catch {
+    }
+
+    ; Leave server — close game window if needed
+    try {
+        if hw := WinExist("ahk_exe " GAME_EXE) {
+            ; Try to close gracefully
+            try {
+                WinClose(hw)
+            } catch {
+            }
+            Sleep(1500)
+        }
+    } catch {
+    }
+
+    ; Rejoin — use private server link if set, else try to relaunch via Roblox URL
+    Sleep(DISCONNECT_REJOIN_DELAY)
+    rejoined := false
+    try {
+        if PRIVATE_SERVER_URL != "" {
+            Log("rejoining via private link")
+            PNote := "Rejoining private server…"
+            Run(PRIVATE_SERVER_URL)
+            rejoined := true
+        } else {
+            ; Fallback: try to re-open Roblox via protocol — officers can set PRIVATE_SERVER_URL in hub
+            ; For now, just wait for user to have game open, or try to launch last place via shell
+            Log("no private link — waiting for game to return")
+            PNote := "Waiting for Roblox to return…"
+        }
+    } catch as e {
+        Log("rejoin failed: " e.Message)
+    }
+
+    ; Wait for game to come back
+    PNote := "Waiting for game to load…"
+    if EnsureGame(60) {
+        Log("game back after disconnect")
+        Sleep(3000)
+        ; Try to get back to event area — if last task has a recover fn or eventArea check, use it
+        try {
+            if TASKS.Has(LastTaskName) && TASKS[LastTaskName].HasProp("recover") {
+                Log("running recover for " LastTaskName)
+                PNote := "Back in game — returning to event area…"
+                (TASKS[LastTaskName].recover)()
+            } else if TASKS.Has(LastTaskName) && TASKS[LastTaskName].HasProp("eventArea") {
+                ; Wait for event area check
+                PNote := "Checking if back in event area…"
+                try {
+                    See(TASKS[LastTaskName].eventArea, 30, "event area")
+                    Log("back in event area")
+                } catch {
+                    Log("event area not found after rejoin — will still restart task")
+                }
+            }
+        } catch as e {
+            Log("recover to event area failed: " e.Message)
+        }
+
+        ; Restart last task
+        if LastTaskName != "" && TASKS.Has(LastTaskName) {
+            Log("restarting task after disconnect: " LastTaskName)
+            PNote := "Rejoined — restarting " LastTaskName
+            fn := TASKS[LastTaskName].fn
+            SetTimer(() => RunTask(LastTaskName, fn), -2000)
+        } else {
+            PNote := "Rejoined — ready"
+        }
+    } else {
+        Log("game did not return after disconnect")
+        PNote := "Couldn't rejoin — start game manually"
+        ToolTip("Couldn't rejoin automatically — start Roblox and Run again")
+        SetTimer(() => ToolTip(), -4000)
+    }
+
+    IsRecovering := false
+}
+
+DisconnectWatchdog() {
+    global Running, IsRecovering
+    if !Running || IsRecovering
+        return
+    if IsDisconnected() {
+        Log("disconnect watchdog triggered")
+        SetTimer(() => RecoverFromDisconnect(), -100)
+    }
+}
+SetTimer(DisconnectWatchdog, 3000)
+
+; Reset disconnect count on successful run
+ResetDisconnectCount() {
+    global DisconnectCount
+    DisconnectCount := 0
+}
+
 
 ; ── auto-update + kill-switch ───────────────────────────────────────────
 CheckForUpdate(showUI := false) {
@@ -2109,8 +2298,14 @@ RefreshUI() {
                 totalOk += v.ok
                 totalFail += v.fail
             }
-            if totalOk > 0 || totalFail > 0
-                StatsText.Text := totalOk " ok · " totalFail " fail"
+            dc := ""
+            try {
+                if DisconnectCount > 0
+                    dc := " · " DisconnectCount " dc"
+            } catch {
+            }
+            if totalOk > 0 || totalFail > 0 || dc != ""
+                StatsText.Text := totalOk " ok · " totalFail " fail" dc
         } catch {
         }
     }
@@ -2206,12 +2401,10 @@ ShareCurrentCalib() {
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
-; MCWV macros v3.2 — clan wars, reliable, visible, fixable
+; MCWV war macros v3.3 — disconnect recovery + war-ready
 
 
-; ── Built-in check — proves macro works, war focused ─────────────────────
-; This is for clan wars prep: checks game, screen, fast capture.
-; Real war tasks will appear here when officers release them.
+; ── Built-in check — proves macro works for war ─────────────────────────
 CheckGameTask() {
     Log("check: start")
     if !EnsureGame(3) {
@@ -2236,7 +2429,6 @@ CheckGameTask() {
         if USE_FAST_CAPTURE {
             c := ClientRect()
             if ScreenBuffer.Capture(c) {
-                col := ScreenBuffer.GetColor(c.x + 10, c.y + 10)
                 ScreenBuffer.Free()
                 Log("check: fast capture ok")
             }
@@ -2273,7 +2465,7 @@ ToggleUI()
 
 try {
     hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it for war"
-    Log("loaded v" MACRO_VERSION " war-ready — " hasGame " — " TASKS.Count " tasks")
+    Log("loaded v" MACRO_VERSION " war-ready + disconnect recovery — " hasGame " — " TASKS.Count " tasks")
 } catch {
     Log("loaded v" MACRO_VERSION " war-ready — " TASKS.Count " tasks")
 }
