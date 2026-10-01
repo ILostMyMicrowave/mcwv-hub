@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 22:41
+;  MCWV event macros — single-file build, generated 2026-10-01 22:48
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -1918,7 +1918,54 @@ ShareCurrentCalib() {
 ; MCWV macros v3.1 — reliable, visible, fixable
 
 
-; Global controls — Ctrl+Alt+M panel, Ctrl+Alt+X stop, F12 pause
+; ── Built-in demo task — so macro works even with 0 events ──────────────
+; This proves the panel, Run/Test, logging, and game detection all work.
+; Officers can delete this once real events exist, but keep it for new members to test.
+DemoTask() {
+    Log("demo: start")
+    if !EnsureGame(3) {
+        throw Error("game not found — start Roblox first")
+    }
+    SetProgress(1, 4, "Found game window")
+    Sleep(400)
+    SetProgress(2, 4, "Checking screen size")
+    try {
+        c := ClientRect()
+        Log("demo: client " c.w "x" c.h " at " c.x "," c.y)
+        if c.w < 800 || c.h < 600 {
+            SetProgress(2, 4, "Window small — make it bigger")
+            Sleep(800)
+        }
+    } catch as e {
+        Log("demo: client rect failed — " e.Message)
+    }
+    SetProgress(3, 4, "Testing fast capture")
+    try {
+        global USE_FAST_CAPTURE
+        if USE_FAST_CAPTURE {
+            c := ClientRect()
+            if ScreenBuffer.Capture(c) {
+                col := ScreenBuffer.GetColor(c.x + 10, c.y + 10)
+                ScreenBuffer.Free()
+                Log("demo: fast capture ok, color " col)
+            } else {
+                Log("demo: fast capture failed, fallback ok")
+            }
+        }
+    } catch as e {
+        Log("demo: fast capture error — " e.Message)
+    }
+    SetProgress(4, 4, "All good")
+    Sleep(300)
+    Log("demo: done — macro works")
+}
+
+; Register demo if no events loaded — ensures UI never shows empty broken state
+if TASKS.Count = 0 {
+    TASKS["Test — Check Game"] := { fn: DemoTask, checks: Map() }
+}
+
+; Global controls
 ^!m:: ToggleUI()
 ^!x:: StopAll()
 F12:: {
@@ -1937,10 +1984,9 @@ A_TrayMenu.Add("Quit", (*) => ExitApp())
 
 ToggleUI()
 
-; Startup log — human readable
 try {
-    hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it, then run a task"
-    Log("loaded v" MACRO_VERSION " — " hasGame)
+    hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it, then Run Test"
+    Log("loaded v" MACRO_VERSION " — " hasGame " — " TASKS.Count " tasks")
 } catch {
-    Log("loaded v" MACRO_VERSION)
+    Log("loaded v" MACRO_VERSION " — " TASKS.Count " tasks")
 }
