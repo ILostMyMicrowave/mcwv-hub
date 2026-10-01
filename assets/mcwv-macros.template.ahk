@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV event macros — single-file build, generated 2026-10-01 22:59
+;  MCWV event macros — single-file build, generated 2026-10-01 23:05
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -2206,31 +2206,31 @@ ShareCurrentCalib() {
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
-; MCWV macros v3.1 — reliable, visible, fixable
+; MCWV macros v3.2 — clan wars, reliable, visible, fixable
 
 
-; ── Built-in demo task — so macro works even with 0 events ──────────────
-; This proves the panel, Run/Test, logging, and game detection all work.
-; Officers can delete this once real events exist, but keep it for new members to test.
-DemoTask() {
-    Log("demo: start")
+; ── Built-in check — proves macro works, war focused ─────────────────────
+; This is for clan wars prep: checks game, screen, fast capture.
+; Real war tasks will appear here when officers release them.
+CheckGameTask() {
+    Log("check: start")
     if !EnsureGame(3) {
         throw Error("game not found — start Roblox first")
     }
-    SetProgress(1, 4, "Found game window")
+    SetProgress(1, 4, "Found Roblox")
     Sleep(400)
-    SetProgress(2, 4, "Checking screen size")
+    SetProgress(2, 4, "Checking screen")
     try {
         c := ClientRect()
-        Log("demo: client " c.w "x" c.h " at " c.x "," c.y)
+        Log("check: client " c.w "x" c.h " at " c.x "," c.y)
         if c.w < 800 || c.h < 600 {
-            SetProgress(2, 4, "Window small — make it bigger")
+            SetProgress(2, 4, "Window small — make it bigger for war")
             Sleep(800)
         }
     } catch as e {
-        Log("demo: client rect failed — " e.Message)
+        Log("check: client failed — " e.Message)
     }
-    SetProgress(3, 4, "Testing fast capture")
+    SetProgress(3, 4, "Testing capture")
     try {
         global USE_FAST_CAPTURE
         if USE_FAST_CAPTURE {
@@ -2238,25 +2238,21 @@ DemoTask() {
             if ScreenBuffer.Capture(c) {
                 col := ScreenBuffer.GetColor(c.x + 10, c.y + 10)
                 ScreenBuffer.Free()
-                Log("demo: fast capture ok, color " col)
-            } else {
-                Log("demo: fast capture failed, fallback ok")
+                Log("check: fast capture ok")
             }
         }
     } catch as e {
-        Log("demo: fast capture error — " e.Message)
+        Log("check: capture error — " e.Message)
     }
-    SetProgress(4, 4, "All good")
+    SetProgress(4, 4, "Ready for war")
     Sleep(300)
-    Log("demo: done — macro works")
+    Log("check: done — ready")
 }
 
-; Register demo if no events loaded — ensures UI never shows empty broken state
 if TASKS.Count = 0 {
-    TASKS["Test — Check Game"] := { fn: DemoTask, checks: Map() }
+    TASKS["Check — Game Ready"] := { fn: CheckGameTask, checks: Map() }
 }
 
-; Global controls
 ^!m:: ToggleUI()
 ^!x:: StopAll()
 F12:: {
@@ -2267,7 +2263,7 @@ F12:: {
         Pause()
 }
 
-A_IconTip := "MCWV macros v" MACRO_VERSION " — Ctrl+Alt+M"
+A_IconTip := "MCWV war macros v" MACRO_VERSION " — Ctrl+Alt+M"
 A_TrayMenu.Add("Show/hide panel", (*) => ToggleUI())
 A_TrayMenu.Add("Stop", (*) => StopAll())
 A_TrayMenu.Add()
@@ -2276,8 +2272,8 @@ A_TrayMenu.Add("Quit", (*) => ExitApp())
 ToggleUI()
 
 try {
-    hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it, then Run Test"
-    Log("loaded v" MACRO_VERSION " — " hasGame " — " TASKS.Count " tasks")
+    hasGame := WinExist("ahk_exe " GAME_EXE) ? "game found" : "game not running — start it for war"
+    Log("loaded v" MACRO_VERSION " war-ready — " hasGame " — " TASKS.Count " tasks")
 } catch {
-    Log("loaded v" MACRO_VERSION " — " TASKS.Count " tasks")
+    Log("loaded v" MACRO_VERSION " war-ready — " TASKS.Count " tasks")
 }
