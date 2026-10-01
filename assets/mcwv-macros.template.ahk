@@ -1,15 +1,15 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV war macros — single-file build, generated 2026-10-01 23:08
+;  MCWV war macros — single-file build, generated 2026-10-01 23:17
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
-;  v3.3: war banner, disconnect recovery (leave/join/return to event), auto-setup overlay, self-healing, live thumb, stats
+;  v3.4: 10x better UI formatting, private server link in Settings, war banner, dc recovery, live thumb, stats
 ; ═══════════════════════════════════════════════════════════════
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ──────────────────── from config.ahk ────────────────────
-; SHARED KNOBS — v3.3 war + disconnect recovery
+; SHARED KNOBS — v3.4 10x better UI + private link in UI + war + dc recovery
 
 GAME_EXE := "RobloxPlayerBeta.exe"
 DEFAULT_TIMEOUT := 25
@@ -21,9 +21,8 @@ CLICK_JITTER_MAX := 170
 LOOP_SLEEP_MIN   := 450
 LOOP_SLEEP_MAX   := 1300
 
-MACRO_VERSION := "3.3"
+MACRO_VERSION := "3.4"
 
-; v3.3 knobs
 USE_FAST_CAPTURE := true
 FAST_CAPTURE_TOL := 2
 ENABLE_MCODE := true
@@ -34,21 +33,16 @@ ENABLE_LIVE_THUMB := true
 ENABLE_WAR_BANNER := true
 ENABLE_DISCONNECT_RECOVERY := true
 
-; Disconnect recovery — auto rejoins and returns to war
 DISCONNECT_RETRY_LIMIT := 5
 DISCONNECT_REJOIN_DELAY := 8000
-PRIVATE_SERVER_URL := ""  ; officers can set private war server link, or filled by hub personal build
-; Optional: event area check to confirm you're back (set per event)
-; EVENT_AREA_CHECK := { hex: "...", pt: { fx: 0.5, fy: 0.5 } }
+PRIVATE_SERVER_URL := ""
 
-; Clan licensing
 MEMBER := ""
 MEMBER_KEY := ""
 AUTH_URL := ""
 LICENSE_GRACE_HOURS := 72
 LICENSE_FILE := ""
 
-; Telemetry
 TELEMETRY_URL := ""
 TELEMETRY_KEY := ""
 
@@ -1549,6 +1543,38 @@ AutoProbe() {
 }
 SetTimer(AutoProbe, -3000)
 
+; ── private server link — per user, set in UI ───────────────────────────
+LoadPrivateServerUrl() {
+    global PRIVATE_SERVER_URL, USER_DIR
+    try {
+        ini := USER_DIR "\settings.ini"
+        if FileExist(ini) {
+            v := IniRead(ini, "war", "private_link", "")
+            if v != "" {
+                PRIVATE_SERVER_URL := v
+                Log("loaded private link")
+            }
+        }
+    } catch as e {
+        Log("load private link failed: " e.Message)
+    }
+}
+SavePrivateServerUrl(url) {
+    global PRIVATE_SERVER_URL, USER_DIR
+    try {
+        DirCreate(USER_DIR)
+        ini := USER_DIR "\settings.ini"
+        IniWrite(url, ini, "war", "private_link")
+        PRIVATE_SERVER_URL := url
+        Log("private link saved: " SubStr(url,1,40) "…")
+        return true
+    } catch as e {
+        Log("save private link failed: " e.Message)
+        return false
+    }
+}
+SetTimer(LoadPrivateServerUrl, -1000)
+
 ; ──────────────────── from calib.ahk ────────────────────
 ; CALIBRATION v3.2 — auto-find + overlay box + clearer UX
 
@@ -1827,7 +1853,7 @@ F3:: CalibAbort()
 #HotIf
 
 ; ──────────────────── from ui.ahk ────────────────────
-; CONTROL PANEL v3.2 — live thumb + stats + war banner + natural UX
+; CONTROL PANEL v3.4 — 10x better formatting, private link in UI, war focused
 
 UI := false
 UIUp := false
@@ -1845,6 +1871,7 @@ global LogoPic := false
 global WarBanner := false
 global ThumbPic := false
 global StatsText := false
+global PrivateLinkBox := false
 
 MakeRunHandler(taskName) {
     return (*) => RunFromPanel(taskName)
@@ -1867,15 +1894,18 @@ MakeRunTaskTestClosure(taskName, fn) {
 
 BuildUI() {
     global UI, UIUp, LogBox, ProgBar, ProgText, TestBtn, ModeLbl, LicLbl, TabCtrl
-    global SearchBox, LiveDot, AvatarPic, LogoPic, TASKS, WarBanner, ThumbPic, StatsText
-    global MEMBER, MEMBER_KEY, LICENSE_STATUS, MACRO_VERSION, DryRun, USER_DIR, SPRITE_DIR
+    global SearchBox, LiveDot, AvatarPic, LogoPic, TASKS, WarBanner, ThumbPic, StatsText, PrivateLinkBox
+    global MEMBER, MEMBER_KEY, LICENSE_STATUS, MACRO_VERSION, DryRun, USER_DIR, SPRITE_DIR, PRIVATE_SERVER_URL
     global WarInfo
 
-    UI := Gui("+AlwaysOnTop -MinimizeBox +Resize", "MCWV Macros")
+    UI := Gui("+AlwaysOnTop -MinimizeBox", "MCWV — Clan Wars")
     UI.BackColor := "0F1219"
-    UI.MarginX := 18
-    UI.MarginY := 14
+    UI.MarginX := 0
+    UI.MarginY := 0
     UI.SetFont("s10", "Segoe UI")
+
+    ; ── Header ──
+    UI.Add("Text", "x0 y0 w440 h56 Background151A27")
 
     logoPath := ""
     try {
@@ -1890,22 +1920,26 @@ BuildUI() {
 
     if logoPath != "" {
         try {
-            LogoPic := UI.Add("Picture", "x16 y10 w28 h28", logoPath)
+            LogoPic := UI.Add("Picture", "x16 y12 w32 h32 Background151A27", logoPath)
         } catch {
             logoPath := ""
         }
     }
 
     if logoPath = "" {
-        hdr := UI.Add("Text", "x16 y10 c00E5A2", "▮")
-        hdr.SetFont("s18 bold", "Segoe UI Black")
+        hdr := UI.Add("Text", "x16 y12 w32 h32 c00E5A2 Background151A27", "▮")
+        hdr.SetFont("s20 bold", "Segoe UI Black")
     }
 
-    hdr2 := UI.Add("Text", (logoPath != "" ? "x52 y12" : "x36 y12") " cE8ECF6", "MCWV")
+    hdr2 := UI.Add("Text", "x56 y14 w200 h20 cFFFFFF Background151A27", "MCWV")
     hdr2.SetFont("s14 bold", "Segoe UI")
-    ver := UI.Add("Text", "x320 y14 c6B7694", "v" MACRO_VERSION)
+    sub := UI.Add("Text", "x56 y32 w200 h14 c8A96B3 Background151A27", "Clan Wars")
+    sub.SetFont("s8", "Segoe UI")
+
+    ver := UI.Add("Text", "x340 y16 w60 h14 c6B7694 Background151A27", "v" MACRO_VERSION)
     ver.SetFont("s8", "Consolas")
 
+    ; License line
     avatarPath := ""
     try {
         whoForFile := MEMBER != "" ? MEMBER : ""
@@ -1922,7 +1956,7 @@ BuildUI() {
 
     if avatarPath != "" {
         try {
-            AvatarPic := UI.Add("Picture", "x16 y42 w22 h22", avatarPath)
+            AvatarPic := UI.Add("Picture", "x16 y64 w20 h20", avatarPath)
         } catch {
             avatarPath := ""
         }
@@ -1932,182 +1966,226 @@ BuildUI() {
     if who = ""
         who := "there"
     statusWord := LICENSE_STATUS = "ok" ? "active"
-        : LICENSE_STATUS = "offline" ? "offline for now — still works"
-        : LICENSE_STATUS = "nokey" ? "grab your file at /macros"
+        : LICENSE_STATUS = "offline" ? "offline — still works"
+        : LICENSE_STATUS = "nokey" ? "get your file at /macros"
         : LICENSE_STATUS = "revoked" ? "revoked"
-        : LICENSE_STATUS = "invalid" ? "invalid key"
+        : LICENSE_STATUS = "invalid" ? "invalid"
         : LICENSE_STATUS = "unknown" ? "checking…"
         : LICENSE_STATUS
     licCol := LICENSE_STATUS = "ok" ? "c00E5A2"
         : LICENSE_STATUS = "offline" ? "cF0B429"
         : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C"
-        : "c9AA4B2"
+        : "c8A96B3"
 
-    xOff := avatarPath != "" ? 44 : 16
+    xOff := avatarPath != "" ? 42 : 16
     if MEMBER != "" {
-        LicLbl := UI.Add("Text", "x" xOff " y44 w" (340 - (xOff-16)) " " licCol, "Hey " who " · " statusWord)
+        LicLbl := UI.Add("Text", "x" xOff " y64 w300 h18 " licCol, "Hey " who " · " statusWord)
     } else {
-        LicLbl := UI.Add("Text", "x" xOff " y44 w" (340 - (xOff-16)) " " licCol, statusWord)
+        LicLbl := UI.Add("Text", "x" xOff " y64 w300 h18 " licCol, statusWord)
     }
     LicLbl.SetFont("s9", "Segoe UI")
 
-    LiveDot := UI.Add("Text", "x360 y42 w10 h10 c00E5A2", "●")
+    LiveDot := UI.Add("Text", "x400 y64 w12 h18 c00E5A2", "●")
     LiveDot.SetFont("s10 bold")
 
-    UI.Add("Text", "x16 y68 w368 h1 Background1E2A4A")
+    UI.Add("Text", "x16 y88 w408 h1 Background1E2A4A")
 
-    ; War banner — hidden unless war active
-    WarBanner := UI.Add("Text", "x16 y72 w368 h20 c000000 BackgroundF0B429 Hidden", "")
-    WarBanner.SetFont("s8 bold", "Segoe UI")
+    ; War banner — prominent when active
+    WarBanner := UI.Add("Text", "x0 y92 w440 h26 c000000 BackgroundF0B429 Hidden", "")
+    WarBanner.SetFont("s9 bold", "Segoe UI")
     try {
         if WarInfo.HasProp("active") && WarInfo.active {
-            WarBanner.Text := "⚔️ " WarInfo.name " · " WarInfo.timeLeft " · Rank " WarInfo.rank
+            WarBanner.Text := "  ⚔️ " WarInfo.name " · " WarInfo.timeLeft " · Rank " WarInfo.rank
             WarBanner.Visible := true
         }
     } catch {
     }
 
-    TabCtrl := UI.Add("Tab3", "x10 y96 w400 h480", ["Tasks", "Log", "Settings"])
-    TabCtrl.SetFont("s9 bold", "Segoe UI")
+    TabCtrl := UI.Add("Tab3", "x8 y118 w424 h460 -Wrap", ["Tasks", "Log", "Settings"])
+    TabCtrl.SetFont("s10 bold", "Segoe UI")
 
+    ; ── Tasks tab ──
     TabCtrl.UseTab(1)
-    SearchBox := UI.Add("Edit", "x24 y122 w356 h24 Background151A27 cE8ECF6", "")
-    SearchBox.SetFont("s9", "Segoe UI")
+    UI.Add("Text", "x24 y150 w356 h14 c6B7694", "Your war tasks").SetFont("s8", "Consolas")
+
+    SearchBox := UI.Add("Edit", "x24 y168 w376 h28 Background151A27 cE8ECF6 -E0x200", "")
+    SearchBox.SetFont("s10", "Segoe UI")
     try {
-        SendMessage(0x1501, 1, StrPtr("Filter tasks…"), SearchBox.Hwnd)
+        SendMessage(0x1501, 1, StrPtr("Filter…"), SearchBox.Hwnd)
     } catch {
     }
     SearchBox.OnEvent("Change", (*) => FilterTasks())
 
-    y := 156
+    y := 208
     if TASKS.Count = 0 {
-        UI.Add("Text", "x28 y158 w340 cE8ECF6", "Nothing here yet").SetFont("s11 bold", "Segoe UI")
-        UI.Add("Text", "x28 y180 w340 c8A96B3", "New tasks show up here when they're released. Just download the latest file from /macros and you're set.").SetFont("s9", "Segoe UI")
-        y := 230
+        UI.Add("Text", "x24 y216 w376 h20 cFFFFFF", "All quiet").SetFont("s12 bold", "Segoe UI")
+        UI.Add("Text", "x24 y240 w376 h36 c8A96B3", "War tasks appear here when officers release them. Download the latest file at /macros.").SetFont("s9", "Segoe UI")
+        y := 290
     } else {
         for taskName, t in TASKS {
+            ; Card background
+            UI.Add("Text", "x24 y" y " w376 h56 Background151A27")
+
             hasArm := t.HasProp("arm")
-            b := UI.Add("Button", "x28 y" (y+6) " w42 h26", "Run")
-            b.SetFont("s8 bold")
+
+            b := UI.Add("Button", "x32 y" (y+8) " w52 h36 Background00E5A2 c000000", "Run")
+            b.SetFont("s9 bold", "Segoe UI")
             b.OnEvent("Click", MakeRunHandler(taskName))
 
-            tb := UI.Add("Button", "x72 y" (y+6) " w36 h26", "Test")
-            tb.SetFont("s7")
+            tb := UI.Add("Button", "x88 y" (y+8) " w44 h36 Background2A3447 cE8ECF6", "Test")
+            tb.SetFont("s8", "Segoe UI")
             tb.OnEvent("Click", MakeTestHandler(taskName))
 
-            nm := UI.Add("Text", "x114 y" (y+4) " w90 cFFFFFF", taskName)
-            nm.SetFont("s9 bold", "Segoe UI")
+            nm := UI.Add("Text", "x140 y" (y+8) " w120 h18 cFFFFFF Background151A27", taskName)
+            nm.SetFont("s10 bold", "Segoe UI")
 
-            ; Stats per task — ok/fail
             try {
                 stats := GetTaskStats(taskName)
-                sTxt := stats.ok > 0 || stats.fail > 0 ? stats.ok "✓ " stats.fail "✕" : "Ready"
-                sCol := stats.fail >= 3 ? "cFF5C5C" : "c8A96B3"
+                if stats.ok > 0 || stats.fail > 0 {
+                    sTxt := stats.ok "✓ " stats.fail "✕"
+                    sCol := stats.fail >= 3 ? "cFF5C5C Background151A27" : "c8A96B3 Background151A27"
+                } else {
+                    sTxt := "Ready"
+                    sCol := "c8A96B3 Background151A27"
+                }
             } catch {
                 sTxt := "Ready"
-                sCol := "c8A96B3"
+                sCol := "c8A96B3 Background151A27"
             }
-            st := UI.Add("Text", "x114 y" (y+22) " w90 " sCol, sTxt)
-            st.SetFont("s7", "Consolas")
+            st := UI.Add("Text", "x140 y" (y+28) " w120 h14 " sCol, sTxt)
+            st.SetFont("s8", "Consolas")
 
             if hasArm {
-                a := UI.Add("Button", "x210 y" (y+4) " w60 h18", "Watch")
-                a.SetFont("s7 bold")
+                a := UI.Add("Button", "x268 y" (y+8) " w64 h20 Background1E2A4A c22D3EE", "Watch")
+                a.SetFont("s8 bold", "Segoe UI")
                 a.OnEvent("Click", MakeWatchHandler(taskName))
             } else {
-                a := UI.Add("Text", "x210 y" (y+4) " w60 h18 c5A6585", "—")
-                a.SetFont("s7")
+                a := UI.Add("Text", "x268 y" (y+8) " w64 h20 c5A6585 Background151A27", "—")
+                a.SetFont("s8", "Segoe UI")
             }
 
-            sBtn := UI.Add("Button", "x210 y" (y+26) " w60 h16", "Setup")
-            sBtn.SetFont("s7")
+            sBtn := UI.Add("Button", "x268 y" (y+32) " w64 h18 Background1E2A4A c8A96B3", "Setup")
+            sBtn.SetFont("s7", "Segoe UI")
             sBtn.OnEvent("Click", MakeSetupHandler(taskName))
 
-            ; Small progress for this task? keep simple
             t.row := { st: st, name: nm, play: b, test: tb, watch: a }
-            y += 48
-            if y > 340
+            y += 64
+            if y > 420
                 break
         }
     }
 
-    UI.Add("Text", "x24 y" (y+2) " w60 c5A6585", "Status").SetFont("s7 bold", "Consolas")
-    ProgText := UI.Add("Text", "x90 y" (y+2) " w200 c6B7694", "Ready")
+    ; Status area
+    UI.Add("Text", "x24 y" (y+4) " w376 h1 Background1E2A4A")
+    UI.Add("Text", "x24 y" (y+10) " w50 h14 c5A6585", "Status").SetFont("s7 bold", "Consolas")
+    ProgText := UI.Add("Text", "x80 y" (y+10) " w200 h14 c6B7694", "Ready")
     ProgText.SetFont("s8", "Consolas")
+    y += 28
+    ProgBar := UI.Add("Progress", "x24 y" y " w376 h8 c00E5A2 Background1A2030 Range0-100", 0)
     y += 16
-    ProgBar := UI.Add("Progress", "x24 y" y " w356 h10 c00E5A2 Background1A2030 Range0-100", 0)
-    y += 18
-    UI.Add("Text", "x24 y" y " w356 c4A5A6A", "Tip: Watch waits for the game and starts by itself.").SetFont("s7", "Consolas")
+    UI.Add("Text", "x24 y" y " w376 h12 c4A5A6A", "Watch starts by itself when war begins.").SetFont("s7", "Consolas")
 
+    ; ── Log tab ──
     TabCtrl.UseTab(2)
-    UI.Add("Text", "x24 y124 w200 cFFFFFF", "Log").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y142 w200 c6B7694", "What actually happened").SetFont("s8", "Consolas")
+    UI.Add("Text", "x24 y150 w120 h18 cFFFFFF", "Activity log").SetFont("s11 bold", "Segoe UI")
 
-    ; Stats summary
-    StatsText := UI.Add("Text", "x200 y142 w180 c5A6585", "")
-    StatsText.SetFont("s7", "Consolas")
+    StatsText := UI.Add("Text", "x160 y150 w200 h18 c5A6585", "")
+    StatsText.SetFont("s8", "Consolas")
     try {
         totalOk := 0, totalFail := 0
         for _, v in SuccessCount {
             totalOk += v.ok
             totalFail += v.fail
         }
+        dc := ""
+        try {
+            if DisconnectCount > 0
+                dc := " · " DisconnectCount " dc"
+        } catch {
+        }
         if totalOk > 0 || totalFail > 0
-            StatsText.Text := totalOk " ok · " totalFail " fail"
+            StatsText.Text := totalOk " ok · " totalFail " fail" dc
     } catch {
     }
 
-    LogBox := UI.Add("Edit", "x24 y162 w356 h200 ReadOnly Background0A0E1A cCBD5E8", TailLogHuman(20))
-    LogBox.SetFont("s8", "Consolas")
+    LogBox := UI.Add("Edit", "x24 y172 w376 h200 ReadOnly Background0A0E1A cCBD5E8 -E0x200", TailLogHuman(20))
+    LogBox.SetFont("s9", "Consolas")
 
-    ; Live thumbnail — shows last captured area
-    UI.Add("Text", "x24 y370 w100 c5A6585", "Last view").SetFont("s7", "Consolas")
-    ThumbPic := UI.Add("Picture", "x24 y384 w120 h80 Background1A2030", "")
-    ThumbPic.SetFont("s7")
+    UI.Add("Text", "x24 y380 w376 h1 Background1E2A4A")
+    UI.Add("Text", "x24 y388 w80 h14 c6B7694", "Last view").SetFont("s8 bold", "Consolas")
 
-    copyBtn := UI.Add("Button", "x160 y384 w70 h24", "Copy")
-    copyBtn.SetFont("s8")
+    ThumbPic := UI.Add("Picture", "x24 y406 w140 h90 Background151A27 Border", "")
+    
+    copyBtn := UI.Add("Button", "x180 y406 w80 h28 Background2A3447 cE8ECF6", "Copy log")
+    copyBtn.SetFont("s8", "Segoe UI")
     copyBtn.OnEvent("Click", (*) => CopyLog())
 
-    openBtn := UI.Add("Button", "x160 y412 w70 h24", "Folder")
-    openBtn.SetFont("s8")
+    openBtn := UI.Add("Button", "x180 y440 w80 h28 Background2A3447 cE8ECF6", "Folder")
+    openBtn.SetFont("s8", "Segoe UI")
     openBtn.OnEvent("Click", (*) => Run(USER_DIR))
 
-    clearBtn := UI.Add("Button", "x160 y440 w70 h24", "Clear")
-    clearBtn.SetFont("s8")
+    clearBtn := UI.Add("Button", "x270 y406 w80 h28 Background2A3447 cE8ECF6", "Clear")
+    clearBtn.SetFont("s8", "Segoe UI")
     clearBtn.OnEvent("Click", (*) => ClearLog())
 
+    ; ── Settings tab ──
     TabCtrl.UseTab(3)
-    UI.Add("Text", "x24 y124 w300 cFFFFFF", "How it runs").SetFont("s12 bold", "Segoe UI")
-    TestBtn := UI.Add("Button", "x24 y150 w180 h38", DryRun ? "Test mode — on" : "Test mode — off")
-    TestBtn.SetFont("s10 bold")
+    UI.Add("Text", "x24 y150 w376 h20 cFFFFFF", "Private war server").SetFont("s11 bold", "Segoe UI")
+    UI.Add("Text", "x24 y172 w376 h28 c8A96B3", "Your private server link — used to rejoin automatically if you disconnect in war.").SetFont("s8", "Segoe UI")
+
+    PrivateLinkBox := UI.Add("Edit", "x24 y204 w280 h28 Background151A27 cE8ECF6", PRIVATE_SERVER_URL)
+    PrivateLinkBox.SetFont("s8", "Consolas")
+    try {
+        SendMessage(0x1501, 1, StrPtr("https://www.roblox.com/... private link"), PrivateLinkBox.Hwnd)
+    } catch {
+    }
+
+    saveLinkBtn := UI.Add("Button", "x312 y204 w88 h28 Background00E5A2 c000000", "Save")
+    saveLinkBtn.SetFont("s9 bold", "Segoe UI")
+    saveLinkBtn.OnEvent("Click", (*) => SavePrivateLink())
+
+    UI.Add("Text", "x24 y242 w376 h1 Background1E2A4A")
+
+    UI.Add("Text", "x24 y252 w376 h20 cFFFFFF", "How it runs").SetFont("s11 bold", "Segoe UI")
+    TestBtn := UI.Add("Button", "x24 y276 w376 h40 Background2A3447 cFFFFFF", DryRun ? "Test mode — ON (no clicks)" : "Test mode — OFF (live)")
+    TestBtn.SetFont("s10 bold", "Segoe UI")
     TestBtn.OnEvent("Click", (*) => ToggleTest())
-    ModeLbl := UI.Add("Text", "x24 y196 w340 c8A96B3", DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it")
+    ModeLbl := UI.Add("Text", "x24 y324 w376 h28 c8A96B3", DryRun ? "Test: checks everything, doesn't click — safe" : "Live: will click in game")
     ModeLbl.SetFont("s8", "Consolas")
-    UI.Add("Text", "x24 y224 w300 cFFFFFF", "If it gets stuck").SetFont("s11 bold", "Segoe UI")
-    stop := UI.Add("Button", "x24 y248 w160 h36", "Stop")
-    stop.SetFont("s10 bold")
+
+    UI.Add("Text", "x24 y360 w376 h1 Background1E2A4A")
+
+    UI.Add("Text", "x24 y370 w376 h20 cFFFFFF", "Controls").SetFont("s11 bold", "Segoe UI")
+    stop := UI.Add("Button", "x24 y394 w376 h40 BackgroundFF5C5C cFFFFFF", "■ Stop everything")
+    stop.SetFont("s11 bold", "Segoe UI")
     stop.OnEvent("Click", (*) => StopAll())
-    shareBtn := UI.Add("Button", "x24 y290 w160 h28", "Share setup")
-    shareBtn.SetFont("s9")
-    shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
-    updateBtn := UI.Add("Button", "x190 y290 w100 h28", "Check updates")
-    updateBtn.SetFont("s8")
+
+    UI.Add("Text", "x24 y444 w180 h20 cFFFFFF", "Tools").SetFont("s10 bold", "Segoe UI")
+    updateBtn := UI.Add("Button", "x24 y466 w120 h28 Background2A3447 cE8ECF6", "Check updates")
+    updateBtn.SetFont("s8", "Segoe UI")
     updateBtn.OnEvent("Click", (*) => CheckForUpdate(true))
-    warBtn := UI.Add("Button", "x24 y324 w180 h28", "Check war status")
-    warBtn.SetFont("s8")
+
+    warBtn := UI.Add("Button", "x152 y466 w120 h28 Background2A3447 cE8ECF6", "War status")
+    warBtn.SetFont("s8", "Segoe UI")
     warBtn.OnEvent("Click", (*) => CheckWarStatus(true))
-    UI.Add("Text", "x24 y360 w300 cFFFFFF", "Shortcuts").SetFont("s11 bold", "Segoe UI")
-    UI.Add("Text", "x24 y382 w356 c8A96B3", "Ctrl+Alt+M  show/hide`nCtrl+Alt+X  stop`nF12  pause`nSetup: F1 save (auto-finds), F2 skip, F3 cancel").SetFont("s8", "Consolas")
-    UI.Add("Text", "x24 y440 w340 c5A6585", "Your file is personal — don't share it. Friends should get their own at /macros.").SetFont("s8", "Consolas")
+
+    shareBtn := UI.Add("Button", "x280 y466 w120 h28 Background2A3447 cE8ECF6", "Share setup")
+    shareBtn.SetFont("s8", "Segoe UI")
+    shareBtn.OnEvent("Click", (*) => ShareCurrentCalib())
+
+    UI.Add("Text", "x24 y504 w376 h1 Background1E2A4A")
+    UI.Add("Text", "x24 y512 w376 h24 c5A6585", "Shortcuts: Ctrl+Alt+M hide/show · Ctrl+Alt+X stop · F12 pause").SetFont("s7", "Consolas")
 
     TabCtrl.UseTab()
-    UI.Add("Text", "x0 y580 w424 h1 Background00E5A2")
-    foot := UI.Add("Text", "x16 y586 w380 c3A5A5A", "v" MACRO_VERSION)
+    UI.Add("Text", "x0 y590 w440 h1 Background00E5A2")
+    foot := UI.Add("Text", "x16 y596 w200 h14 c3A5A5A", "v" MACRO_VERSION " · war")
     foot.SetFont("s7", "Consolas")
-    UI.Show("w424 h610")
+    foot2 := UI.Add("Text", "x300 y596 w120 h14 c3A5A5A", "MCWV", "Right")
+    foot2.SetFont("s7", "Consolas")
+
+    UI.Show("w440 h620")
     UIUp := true
-    SetTimer(RefreshUI, 300)
+    SetTimer(RefreshUI, 250)
 }
 
 FilterTasks() {
@@ -2163,9 +2241,35 @@ RunFromPanelTest(taskName) {
 ToggleTest() {
     global DryRun, TestBtn, ModeLbl
     DryRun := !DryRun
-    TestBtn.Text := DryRun ? "Test mode — on" : "Test mode — off"
-    ModeLbl.Text := DryRun ? "Test mode: checks everything, doesn't click — safe to try" : "Live mode: will click in game when you run it"
+    TestBtn.Text := DryRun ? "Test mode — ON (no clicks)" : "Test mode — OFF (live)"
+    ModeLbl.Text := DryRun ? "Test: checks everything, doesn't click — safe" : "Live: will click in game"
     Log("test mode " (DryRun ? "on" : "off"))
+}
+
+SavePrivateLink() {
+    global PrivateLinkBox
+    try {
+        url := Trim(PrivateLinkBox.Value)
+        if url = "" {
+            ToolTip("Paste your private server link first")
+            SetTimer(() => ToolTip(), -2000)
+            return
+        }
+        if !InStr(url, "roblox.com") && !InStr(url, "privateServerLinkCode") {
+            ToolTip("That doesn't look like a private link — still saved")
+            SetTimer(() => ToolTip(), -2500)
+        }
+        if SavePrivateServerUrl(url) {
+            ToolTip("Private link saved — will rejoin here if you disconnect")
+            SetTimer(() => ToolTip(), -3000)
+        } else {
+            ToolTip("Couldn't save")
+            SetTimer(() => ToolTip(), -2000)
+        }
+    } catch as e {
+        ToolTip("Save failed: " e.Message)
+        SetTimer(() => ToolTip(), -2500)
+    }
 }
 
 CopyLog() {
@@ -2217,13 +2321,11 @@ RefreshUI() {
         }
     }
 
-    ; War banner
     if WarBanner {
         try {
             if WarInfo.HasProp("active") && WarInfo.active {
-                WarBanner.Text := "⚔️ " (WarInfo.HasProp("name") ? WarInfo.name : "War") " · " (WarInfo.HasProp("timeLeft") ? WarInfo.timeLeft : "") " · Rank " (WarInfo.HasProp("rank") ? WarInfo.rank : "?")
+                WarBanner.Text := "  ⚔️ " (WarInfo.HasProp("name") ? WarInfo.name : "War") " · " (WarInfo.HasProp("timeLeft") ? WarInfo.timeLeft : "") " · Rank " (WarInfo.HasProp("rank") ? WarInfo.rank : "?")
                 WarBanner.Visible := true
-                ; Color by phase
                 if WarInfo.HasProp("phase") && WarInfo.phase = "final"
                     WarBanner.Opt("BackgroundFF5C5C")
                 else if WarInfo.HasProp("phase") && WarInfo.phase = "mid"
@@ -2242,25 +2344,23 @@ RefreshUI() {
             continue
         if Running && CurrentTask = taskName {
             st := PTotal > 0 ? "Running " PDone "/" PTotal " — " PNote : "Running…"
-            col := "c00E5A2"
+            col := "c00E5A2 Background151A27"
         } else if Armed && (ArmJob is Object) && ArmJob.name = taskName {
-            st := "Watching — starts by itself"
-            col := "c22D3EE"
+            st := "Watching — auto starts"
+            col := "c22D3EE Background151A27"
         } else {
             try {
                 stats := GetTaskStats(taskName)
                 if stats.ok > 0 || stats.fail > 0 {
                     st := stats.ok "✓ " stats.fail "✕"
-                    col := stats.fail >= 3 ? "cFF5C5C" : "c8A96B3"
-                    if stats.fail > 0 && stats.HasProp("lastFail") && stats.lastFail != ""
-                        st .= " · last fail"
+                    col := stats.fail >= 3 ? "cFF5C5C Background151A27" : "c8A96B3 Background151A27"
                 } else {
                     st := "Ready"
-                    col := "c8A96B3"
+                    col := "c8A96B3 Background151A27"
                 }
             } catch {
                 st := "Ready"
-                col := "c8A96B3"
+                col := "c8A96B3 Background151A27"
             }
         }
         if t.row.st.Text != st {
@@ -2324,17 +2424,17 @@ RefreshUI() {
         if who = ""
             who := "there"
         statusWord := LICENSE_STATUS = "ok" ? "active"
-            : LICENSE_STATUS = "offline" ? "offline for now — still works"
-            : LICENSE_STATUS = "nokey" ? "grab your file at /macros"
+            : LICENSE_STATUS = "offline" ? "offline — still works"
+            : LICENSE_STATUS = "nokey" ? "get your file at /macros"
             : LICENSE_STATUS = "revoked" ? "revoked"
-            : LICENSE_STATUS = "invalid" ? "invalid key"
+            : LICENSE_STATUS = "invalid" ? "invalid"
             : LICENSE_STATUS = "unknown" ? "checking…"
             : LICENSE_STATUS
         prefix := MEMBER != "" ? "Hey " who " · " : ""
         full := prefix statusWord
         if LicLbl.Text != full {
             LicLbl.Text := full
-            col := LICENSE_STATUS = "ok" ? "c00E5A2" : LICENSE_STATUS = "offline" ? "cF0B429" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C" : "c9AA4B2"
+            col := LICENSE_STATUS = "ok" ? "c00E5A2 Background0F1219" : LICENSE_STATUS = "offline" ? "cF0B429 Background0F1219" : (LICENSE_STATUS = "revoked" || LICENSE_STATUS = "invalid") ? "cFF5C5C Background0F1219" : "c8A96B3 Background0F1219"
             try {
                 LicLbl.SetFont(col, "Segoe UI")
             } catch {
@@ -2395,9 +2495,9 @@ ShareCurrentCalib() {
     Log("sharing setup for " best)
     result := ShareCalib(best)
     if result = "ok"
-        MsgBox(best " — shared with the clan, thanks!")
+        MsgBox(best " — shared, thanks!")
     else
-        MsgBox("Couldn't share right now: " result "`nTry again in a sec.")
+        MsgBox("Couldn't share: " result "`nTry again.")
 }
 
 ; ──────────────────── from main.ahk (wiring, bottom) ────────────────────
