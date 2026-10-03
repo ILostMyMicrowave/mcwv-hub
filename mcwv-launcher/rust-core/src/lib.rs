@@ -1,16 +1,11 @@
 // MCWV Core — memory-safe crypto for C++ launcher
 // No buffer overflows, Rust guarantees safety
+// FIXED: removed base64/serde — only sha2+hmac needed
 
 use sha2::{Sha256, Digest};
 use hmac::{Hmac, Mac};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
-type HmacSha256 = Hmac<Sha256>;
-
-#[repr(C)]
-pub struct HashResult {
-    pub data: [u8; 32],
-}
+type HmacSha256 = Hmac;
 
 #[no_mangle]
 pub extern "C" fn mcwv_sha256(input: *const u8, len: usize, out: *mut u8) -> i32 {
