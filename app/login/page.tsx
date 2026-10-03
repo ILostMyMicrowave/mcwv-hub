@@ -12,10 +12,15 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [isFromLauncher, setIsFromLauncher] = useState(false);
   useEffect(() => {
-    const reason = new URLSearchParams(window.location.search).get("reason");
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get("reason");
     if (reason === "signed-out") {
       setError("You were signed out from all devices.");
+    }
+    if (params.get("from") === "launcher") {
+      setIsFromLauncher(true);
     }
   }, []);
 
@@ -45,8 +50,15 @@ export default function LoginPage() {
         return;
       }
 
-      const next = new URLSearchParams(window.location.search).get("next");
-      const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("next");
+      const from = params.get("from");
+      let safeNext = "/";
+      if (next && next.startsWith("/") && !next.startsWith("//")) {
+        safeNext = next;
+      } else if (from === "launcher") {
+        safeNext = "/macros?from=launcher";
+      }
 
       router.push(safeNext);
       router.refresh();
@@ -59,9 +71,9 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      eyebrow="MEMBER ACCESS"
-      title="Log in"
-      subtitle="Hub username and password."
+      eyebrow={isFromLauncher ? "LAUNCHER LOGIN" : "MEMBER ACCESS"}
+      title={isFromLauncher ? "Launcher Login" : "Log in"}
+      subtitle={isFromLauncher ? "Log in to get your personal macros — double-hatch + hatch wars included." : "Hub username and password."}
       footer={
         <>
           Don&apos;t have an account? <Link href="/signup">Sign up</Link>
