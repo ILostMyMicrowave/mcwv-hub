@@ -23,6 +23,7 @@ export default function MacrosPage() {
   const [downloading, setDownloading] = useState(false);
   const [gate, setGate] = useState<"none" | "login">("none");
   const [ver, setVer] = useState<VersionInfo | null>(null);
+  const [isFromLauncher, setIsFromLauncher] = useState(false);
 
   const load = useCallback(async () => {
     setMe((s) => ({ ...s, loading: true, error: null }));
@@ -74,6 +75,10 @@ export default function MacrosPage() {
   useEffect(() => {
     void load();
     void loadVersion();
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("from") === "launcher") setIsFromLauncher(true);
+    }
   }, [load, loadVersion]);
 
   const doDownload = async () => {
@@ -116,7 +121,7 @@ export default function MacrosPage() {
           <div className="text-3xl mb-3">🔒</div>
           <div className="text-sm font-semibold text-[var(--foreground)]">You need to sign in first</div>
           <div className="mt-2 text-sm text-[var(--foreground)]/60">Log in with your clan account to get your macros. It only takes a second.</div>
-          <a href="/login" className="mt-5 inline-flex min-h-11 items-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-bold text-black">
+          <a href={isFromLauncher ? "/login?next=/macros?from=launcher" : "/login"} className="mt-5 inline-flex min-h-11 items-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-bold text-black">
             Sign in
           </a>
         </div>
@@ -126,8 +131,8 @@ export default function MacrosPage() {
 
   const isOfficer = me.role === "officer" || me.role === "owner";
 
-  // For members, redirect to launcher — everyone uses launcher now
-  if (!me.loading && !isOfficer) {
+  // For members, redirect to launcher — everyone uses launcher now, BUT if from=launcher allow direct download
+  if (!me.loading && !isOfficer && !isFromLauncher) {
     return (
       <main className="min-h-screen bg-[var(--background)] pb-16">
         <Navbar />
@@ -152,8 +157,8 @@ export default function MacrosPage() {
               <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
                 <div className="text-xs font-semibold text-[var(--foreground)]/80">How it works</div>
                 <div className="mt-2 space-y-2 text-xs leading-5 text-[var(--foreground)]/60">
-                  <div className="flex gap-2"><span className="font-bold text-[var(--foreground)]/80">1.</span><span>Download the launcher from /launcher (396KB) and double-click it.</span></div>
-                  <div className="flex gap-2"><span className="font-bold text-[var(--foreground)]/80">2.</span><span>Log in with Discord — if you're not whitelisted, contact an officer.</span></div>
+                  <div className="flex gap-2"><span className="font-bold text-[var(--foreground)]/80">1.</span><span>Download the launcher from /launcher and double-click it.</span></div>
+                  <div className="flex gap-2"><span className="font-bold text-[var(--foreground)]/80">2.</span><span>Log in — if you're not whitelisted, contact an officer.</span></div>
                   <div className="flex gap-2"><span className="font-bold text-[var(--foreground)]/80">3.</span><span>Hit Launch Macros. In game, press Ctrl+Alt+M for the panel.</span></div>
                 </div>
               </div>
@@ -172,14 +177,20 @@ export default function MacrosPage() {
     );
   }
 
-  // Officer view — keep download for testing
+  // Officer view OR member from launcher — show download
   return (
     <main className="min-h-screen bg-[var(--background)] pb-16">
       <Navbar />
       <div className="mx-auto max-w-3xl px-4 pt-8">
-        <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Your macros</h1>
+        {isFromLauncher && (
+          <div className="mb-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3">
+            <div className="text-xs font-bold text-green-300">Launcher detected — direct download enabled</div>
+            <div className="mt-1 text-[11px] leading-5 text-green-200/70">You came from MCWV Launcher. Click Download below to get your personal macros with double-hatch + hatch wars 12-step. File saves to Downloads, double-click to run.</div>
+          </div>
+        )}
+        <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">{isFromLauncher ? "Download your macros" : "Your macros"}</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--foreground)]/60">
-          Officer view — you can download raw .ahk for testing, but members use launcher.
+          {isFromLauncher ? `Hey ${me.username} — personal build for you.` : "Officer view — you can download raw .ahk for testing, but members use launcher."}
           {ver ? <span className="ml-2 inline-flex rounded-full bg-[var(--primary)]/15 px-2 py-0.5 text-[11px] font-bold text-[var(--primary)]">v{ver.version} latest</span> : null}
         </p>
 
@@ -190,45 +201,51 @@ export default function MacrosPage() {
         <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--foreground)]/[0.03] p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="text-[13px] font-semibold text-[var(--foreground)]">{me.loading ? "Loading…" : me.username ? `Hey ${me.username} 👋 (officer)` : "Officer build"}</div>
-              <div className="mt-1 text-xs text-[var(--foreground)]/50">{me.hasKey && me.keyPreview ? `Key ${me.keyPreview}` : "Personal file for testing"}</div>
+              <div className="text-[13px] font-semibold text-[var(--foreground)]">{me.loading ? "Loading..." : me.username ? `Hey ${me.username} ${isOfficer ? "(officer)" : ""}` : "Personal build"}</div>
+              <div className="mt-1 text-xs text-[var(--foreground)]/50">{me.hasKey && me.keyPreview ? `Key ${me.keyPreview}` : "Personal file — double hatch + hatch wars 12-step"}</div>
             </div>
             <div className="flex gap-2">
-              <Link href="/launcher" className="min-h-12 inline-flex items-center rounded-2xl border border-[var(--border)] bg-[var(--background)] px-5 text-sm font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">
-                Launcher →
-              </Link>
+              {!isFromLauncher && (
+                <Link href="/launcher" className="min-h-12 inline-flex items-center rounded-2xl border border-[var(--border)] bg-[var(--background)] px-5 text-sm font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">
+                  Launcher →
+                </Link>
+              )}
               <button
                 type="button"
                 disabled={downloading || me.loading}
                 onClick={() => void doDownload()}
                 className="min-h-12 rounded-2xl bg-[var(--primary)] px-6 text-sm font-bold text-black shadow-[0_0_20px_rgba(0,229,162,.25)] transition hover:brightness-110 disabled:opacity-40"
               >
-                {downloading ? "Making…" : "⬇ Download .ahk (officer)"}
+                {downloading ? "Making..." : isFromLauncher ? "⬇ Download Personal Macros" : "⬇ Download .ahk (officer)"}
               </button>
             </div>
           </div>
 
           <div className="mt-6 grid gap-3">
             <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-              <div className="text-xs font-semibold text-[var(--foreground)]/80">Members flow</div>
-              <div className="mt-1 text-xs leading-5 text-[var(--foreground)]/60">Members go to /launcher → Download exe → Login → Launch Macros → Ctrl+Alt+M in game. No direct .ahk download for members — keeps it secure and simple.</div>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-              <div className="text-xs font-semibold text-[var(--foreground)]/80">Officer tools</div>
-              <div className="mt-1 text-xs text-[var(--foreground)]/50">You can see keys, health, and shared calibrations.</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <a href="/macro-health" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">
-                  Macro Health →
-                </a>
-                <a href="/admin" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">
-                  Admin →
-                </a>
+              <div className="text-xs font-semibold text-[var(--foreground)]/80">How to use</div>
+              <div className="mt-1 text-xs leading-5 text-[var(--foreground)]/60">
+                {isFromLauncher ? "1. Click Download above. 2. File saves to Downloads as mcwv-macros-YOURNAME.ahk. 3. Double-click it. In game: Ctrl+Alt+M panel, Ctrl+Alt+X stop. Includes double hatch + hatch wars pumpkin event." : "Members go to /launcher → Download exe → Login → Launch Macros → Ctrl+Alt+M in game. No direct .ahk download for members — keeps it secure and simple."}
               </div>
             </div>
+            {isOfficer && !isFromLauncher && (
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+                <div className="text-xs font-semibold text-[var(--foreground)]/80">Officer tools</div>
+                <div className="mt-1 text-xs text-[var(--foreground)]/50">You can see keys, health, and shared calibrations.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a href="/macro-health" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">
+                    Macro Health →
+                  </a>
+                  <a href="/admin" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.04]">
+                    Admin →
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="mt-8 text-center text-[11px] text-[var(--foreground)]/30">v{ver?.version ?? "3.5"} • officer • launcher for members</div>
+        <div className="mt-8 text-center text-[11px] text-[var(--foreground)]/30">v{ver?.version ?? "3.5"} • {isFromLauncher ? "launcher direct" : "officer"} • works with clan account</div>
       </div>
     </main>
   );
