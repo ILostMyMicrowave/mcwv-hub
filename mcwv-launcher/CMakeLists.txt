@@ -10,6 +10,7 @@ add_executable(MCWV-Launcher WIN32
 
 target_include_directories(MCWV-Launcher PRIVATE include rust-core/src)
 
+# Windows libs for C++ + Rust std (if Rust still pulls std)
 target_link_libraries(MCWV-Launcher PRIVATE
     winhttp
     crypt32
@@ -19,9 +20,16 @@ target_link_libraries(MCWV-Launcher PRIVATE
     ole32
     oleaut32
     shell32
+    ws2_32
+    wsock32
+    userenv
+    ntdll
+    bcrypt
+    advapi32
+    kernel32
+    user32
 )
 
-# Static CRT — FIXED generator expression (was $<$:> broken)
 if(MSVC)
     set_property(TARGET MCWV-Launcher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$:Debug>")
 endif()
