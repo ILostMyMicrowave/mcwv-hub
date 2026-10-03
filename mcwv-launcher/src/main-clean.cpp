@@ -5,6 +5,7 @@
 // Downloads from https://mcwv-hub.vercel.app/api/macro-download
 // Saves to %USERPROFILE%\MCWV\mcwv-macros-personal.ahk and runs it
 // ASCII only, 0 non-ASCII, no Wbemidl.h, no wbemuuid, no QueryWMI
+// Company: MCWV Clan — Product: MCWV Launcher — Version 1.0.1
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
