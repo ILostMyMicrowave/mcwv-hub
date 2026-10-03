@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV war macros — single-file build, generated 2026-10-03 14:13
+;  MCWV war macros — single-file build, generated 2026-10-03 15:56
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -1851,6 +1851,312 @@ F1:: CalibGrab()
 F2:: CalibSkip()
 F3:: CalibAbort()
 #HotIf
+
+; ──────────────────── from events/double-hatch.ahk ────────────────────
+; ═══════════════════════════════════════════════════════════════
+;  DOUBLE HATCH — war-ready, same functionality
+;  Original logic: 210 lines — click 10ms + E 325ms + color 0xFF0C4E at 85,447 -> recovery
+;  War-ready improvements:
+;  - ClientRect + fx/fy (resolution independent) instead of hardcoded Screen coords
+;  - EnsureGame + HoldFocus + FocusOK (never clicks desktop)
+;  - HumanMove + Tap + jitter
+;  - Interruptible recovery (CheckAbort between steps, not 5 sec blocking)
+;  - Log + fail screenshot + progress + queue
+;  Steps to pack: node pack.js -> dist/mcwv-macros.ahk
+; ═══════════════════════════════════════════════════════════════
+
+; ── Checks — fx/fy derived from original Screen coords assuming 1920x1080 reference ──
+; Original Screen: Monitor 85,447 | Recovery: 950,80 / 82,457 / 1080,390 / 1283,264 / 1284,265 / 1180,740 / 1180,745
+; Converted to fx/fy for ClientRect (works any res, window moved/resized)
+DH_C := {
+    monitor: { pt: { fx: 0.0443, fy: 0.4139 }, hex: "0xFF0C4E", var: 15, screenX: 85, screenY: 447 },
+    r1: { pt: { fx: 0.4948, fy: 0.0741 }, screenX: 950, screenY: 80 },
+    r2: { pt: { fx: 0.0427, fy: 0.4231 }, screenX: 82, screenY: 457 },
+    r3: { pt: { fx: 0.5625, fy: 0.3611 }, screenX: 1080, screenY: 390 },
+    r4: { pt: { fx: 0.6682, fy: 0.2444 }, screenX: 1283, screenY: 264 },
+    r4b: { pt: { fx: 0.6688, fy: 0.2454 }, screenX: 1284, screenY: 265 },
+    r5: { pt: { fx: 0.6146, fy: 0.6852 }, screenX: 1180, screenY: 740 },
+    r5b: { pt: { fx: 0.6146, fy: 0.6898 }, screenX: 1180, screenY: 745 }
+}
+
+; Optional: load per-user calibration if exists (%USERPROFILE%\MCWV\calib-double-hatch.ini)
+DH := { ready: DH_C.monitor, done: DH_C.monitor, cycles: 1 }
+try {
+    ApplyCalib("double hatch", DH_C)
+} catch {
+}
+
+; Config — same defaults as original, but war-safe
+DH_ClickInterval := 10
+DH_KeyInterval := 325
+DH_ChosenKey := "e"
+DH_TargetColor := "0xFF0C4E"
+DH_ColorVar := 15
+DH_MonitorHoldMs := 20
+DH_Humanize := true
+
+; Register task — appears in panel as "double hatch"
+TASKS["double hatch"] := { fn: DoubleHatch, arm: DH_C.monitor, checks: DH_C, meta: { week: "2026-W40", game: "Roblox", event: "double hatch" } }
+Hotkey("^!h", (*) => RunTask("double hatch", DoubleHatch))
+Hotkey("^!+h", (*) => ArmTask("double hatch"))
+
+; ── Helpers war-ready ──
+DHAbs(pt) {
+    try {
+        return AbsPt(pt)
+    } catch {
+        try {
+            if pt.HasProp("screenX")
+                return { x: pt.screenX, y: pt.screenY }
+        } catch {
+        }
+        return pt
+    }
+}
+
+DHTapAt(pt, desc := "") {
+    global DryRun
+    CheckAbort()
+    HoldFocus()
+    try {
+        p := DHAbs(pt)
+        hit := { x: p.x, y: p.y }
+        if Tap(hit, desc)
+            return true
+    } catch as e {
+        Log("double hatch tap fail " desc ": " e.Message)
+    }
+    return false
+}
+
+DHSendKey(k) {
+    CheckAbort()
+    HoldFocus()
+    try {
+        Send("{" k "}")
+        return true
+    } catch as e {
+        Log("double hatch key fail: " e.Message)
+        return false
+    }
+}
+
+; ── Main task — infinite double hatch until stopped ──
+DoubleHatch() {
+    global DH_ClickInterval, DH_KeyInterval, DH_ChosenKey, DH_TargetColor, DH_ColorVar, DH_MonitorHoldMs, DH_Humanize
+    global DH_C, DryRun
+
+    try {
+        ini := USER_DIR "\settings.ini"
+        if FileExist(ini) {
+            v := IniRead(ini, "double-hatch", "click_ms", "")
+            if v != ""
+                DH_ClickInterval := Number(v)
+            v := IniRead(ini, "double-hatch", "key_ms", "")
+            if v != ""
+                DH_KeyInterval := Number(v)
+            v := IniRead(ini, "double-hatch", "key", "")
+            if v != ""
+                DH_ChosenKey := v
+        }
+    } catch {
+    }
+
+    if DH_ChosenKey = "" {
+        throw Error("no key set — set in settings or edit event")
+    }
+
+    Log("double hatch: start — click " DH_ClickInterval "ms key " DH_KeyInterval "ms key=" DH_ChosenKey (DryRun ? " [TEST]" : ""))
+    SetProgress(0, 0, "Double hatch — click " DH_ChosenKey " — Ctrl+Alt+X to stop")
+
+    if !EnsureGame(10) {
+        throw Error("game not found — start Roblox first")
+    }
+
+    lastClick := A_TickCount
+    lastKey := A_TickCount
+    colorMatchedTime := 0
+    isRecovering := false
+    clicks := 0
+    keys := 0
+    loops := 0
+
+    while true {
+        CheckAbort()
+        HoldFocus()
+
+        now := A_TickCount
+
+        if !isRecovering && (now - lastClick >= DH_ClickInterval) {
+            if DH_Humanize && DH_ClickInterval < 50 {
+                jitter := Random(-2, 8)
+                if (now - lastClick < DH_ClickInterval + jitter) {
+                } else {
+                    if FocusOK() {
+                        try {
+                            if DryRun {
+                                Log("DRY double hatch click")
+                            } else {
+                                Click
+                                clicks++
+                            }
+                        } catch {
+                        }
+                    }
+                    lastClick := now
+                    loops++
+                    if Mod(loops, 200) = 0 {
+                        SetProgress(Mod(loops, 1000), 1000, "Double hatch " clicks " clicks " keys " keys — watching")
+                    }
+                }
+            } else {
+                if FocusOK() {
+                    try {
+                        if DryRun {
+                            Log("DRY double hatch click")
+                        } else {
+                            Click
+                            clicks++
+                        }
+                    } catch {
+                    }
+                }
+                lastClick := now
+                loops++
+                if Mod(loops, 100) = 0 {
+                    SetProgress(Mod(loops, 1000), 1000, "Double hatch " clicks " clicks " keys " keys")
+                }
+            }
+        }
+
+        if !isRecovering && (now - lastKey >= DH_KeyInterval) {
+            if FocusOK() {
+                DHSendKey(DH_ChosenKey)
+                keys++
+            }
+            lastKey := now
+        }
+
+        if !isRecovering {
+            try {
+                found := false
+                try {
+                    if SeeNow(DH_C.monitor) {
+                        found := true
+                    }
+                } catch {
+                    try {
+                        CoordMode("Pixel", "Screen")
+                        if PixelSearch(&ox, &oy, DH_C.monitor.screenX - 1, DH_C.monitor.screenY - 1, DH_C.monitor.screenX + 1, DH_C.monitor.screenY + 1, DH_TargetColor, DH_ColorVar) {
+                            found := true
+                        }
+                        CoordMode("Pixel", "Client")
+                    } catch {
+                    }
+                }
+
+                if found {
+                    if colorMatchedTime = 0 {
+                        colorMatchedTime := now
+                    } else if (now - colorMatchedTime >= DH_MonitorHoldMs) {
+                        isRecovering := true
+                        Log("double hatch monitor triggered — color " DH_TargetColor " continuous " DH_MonitorHoldMs "ms — starting recovery")
+                        SetProgress(0, 0, "Detected — recovering…")
+                        try {
+                            SaveFailScreenshot("double-hatch-trigger", "color " DH_TargetColor)
+                        } catch {
+                        }
+                        DHRecoverySequence()
+                        colorMatchedTime := 0
+                        isRecovering := false
+                        SetProgress(0, 0, "Recovered — back to double hatch")
+                        lastClick := A_TickCount
+                        lastKey := A_TickCount
+                    }
+                } else {
+                    colorMatchedTime := 0
+                }
+            } catch as e {
+                Log("double hatch monitor error: " e.Message)
+                colorMatchedTime := 0
+            }
+        }
+
+        Sleep(5)
+    }
+}
+
+; ── Recovery sequence — same steps as original, but war-ready ──
+DHRecoverySequence() {
+    global DH_C, DH_ChosenKey, DryRun
+
+    Log("double hatch recovery: step 1 wait 2000ms")
+    CheckAbort()
+    HoldFocus()
+    Sleep(2000)
+
+    Log("double hatch recovery: step 2 move 950,80 5 clicks")
+    CheckAbort()
+    HoldFocus()
+    try {
+        if !DryRun {
+            p := DHAbs(DH_C.r1)
+            HumanMove(p.x, p.y)
+        }
+        Loop 5 {
+            CheckAbort()
+            HoldFocus()
+            if !DryRun {
+                try {
+                    Click
+                } catch {
+                }
+            }
+            Sleep(300 + Random(-40, 80))
+        }
+    } catch as e {
+        Log("double hatch recovery r1 fail: " e.Message)
+    }
+
+    Log("double hatch recovery: step 3 wait 5000ms interruptible")
+    CheckAbort()
+    tEnd := A_TickCount + 5000
+    while A_TickCount < tEnd {
+        CheckAbort()
+        HoldFocus()
+        Sleep(200)
+    }
+
+    Log("double hatch recovery: step 4 click 82,457")
+    CheckAbort()
+    DHTapAt(DH_C.r2, "double hatch recovery 82,457")
+    Sleep(2000 + Random(-200, 300))
+
+    Log("double hatch recovery: step 5 click 1080,390")
+    CheckAbort()
+    DHTapAt(DH_C.r3, "double hatch recovery 1080,390")
+    Sleep(1000 + Random(-150, 250))
+
+    Log("double hatch recovery: step 6 click 1283,264 + 1284,265")
+    CheckAbort()
+    DHTapAt(DH_C.r4, "double hatch recovery 1283,264")
+    Sleep(1000 + Random(-150, 250))
+    CheckAbort()
+    DHTapAt(DH_C.r4b, "double hatch recovery 1284,265")
+    Sleep(100 + Random(-20, 50))
+
+    Log("double hatch recovery: step 7 send key " DH_ChosenKey " + clicks 1180,740/745")
+    CheckAbort()
+    DHSendKey(DH_ChosenKey)
+    Sleep(100 + Random(-20, 40))
+    CheckAbort()
+    DHTapAt(DH_C.r5, "double hatch recovery 1180,740")
+    Sleep(80 + Random(-20, 40))
+    CheckAbort()
+    DHTapAt(DH_C.r5b, "double hatch recovery 1180,745")
+
+    Log("double hatch recovery: done — resuming")
+}
 
 ; ──────────────────── from ui.ahk ────────────────────
 ; CONTROL PANEL v3.4 — 10x better formatting, private link in UI, war focused
