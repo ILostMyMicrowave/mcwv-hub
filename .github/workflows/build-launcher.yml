@@ -1,15 +1,17 @@
-name: Build MCWV Launcher v1.0.1 CLEAN (no WMI)
+name: Build MCWV Launcher v1.0.2 CLEAN (fix homepage redirect)
+
 on:
   push:
     paths: ['mcwv-launcher/**', '.github/workflows/build-launcher.yml']
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
-      - name: Build CLEAN launcher
+      - name: Build CLEAN launcher v1.0.2
         shell: cmd
         run: |
           cd mcwv-launcher\src
@@ -24,20 +26,26 @@ jobs:
           if %errorlevel%==0 ( echo BAD WMI && exit 1 )
           findstr /I "Wbem QueryWMI ROOT\CIMV2" MCWV-Launcher.exe >nul
           if %errorlevel%==0 ( echo BAD WBEM && exit 1 )
-          echo CLEAN - GOOD - no WMI
+          echo CLEAN - GOOD - no WMI - v1.0.2 opens /macros?from=launcher
           exit 0
-      - name: Copy to public
+      - name: Copy to public and update version route
         shell: pwsh
         run: |
           $exe = "mcwv-launcher\src\MCWV-Launcher.exe"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          $sizeBytes = (Get-Item $exe).Length
+          $sizeKB = [math]::Round($sizeBytes/1KB)
           New-Item -ItemType Directory -Force -Path "public\launcher" | Out-Null
           Copy-Item $exe "public\launcher\MCWV-Launcher.exe" -Force
           $route = "app\api\launcher\version\route.ts"
           $c = Get-Content $route -Raw
           $c = $c -replace 'const sha256 = ".*?"', "const sha256 = `"$hash`""
+          $c = $c -replace 'const size = ".*?"', "const size = `"${sizeKB}KB`""
+          $c = $c -replace 'const version = ".*?"', 'const version = "1.0.2"'
+          $c = $c -replace 'const minVersion = ".*?"', 'const minVersion = "1.0.2"'
           Set-Content $route $c -Encoding UTF8
+          Write-Host "Updated $route with hash $hash size ${sizeKB}KB"
       - uses: actions/upload-artifact@v4
         with:
-          name: MCWV-Launcher-v1.0.1-CLEAN
+          name: MCWV-Launcher-v1.0.2-CLEAN
           path: public/launcher/MCWV-Launcher.exe
