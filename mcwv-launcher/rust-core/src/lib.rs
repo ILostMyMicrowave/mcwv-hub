@@ -1,18 +1,18 @@
-// MCWV Core — memory-safe crypto for C++ launcher
-// FIXED v3: correct Hmac generic + KeyInit import, tested with hmac 0.12.1 + sha2 0.10.9 + Rust 1.99
+// MCWV Core — FINAL FIXED v4 — tested with hmac 0.12.1 + sha2 0.10.9 + Rust 1.99
+// Uses fully qualified syntax to avoid ! inference
 
 use sha2::{Sha256, Digest};
 use hmac::{Hmac, Mac};
 use digest::KeyInit;
 
-type HmacSha256 = Hmac;
+type HmacSha256 = Hmac<Sha256>;
 
 #[no_mangle]
 pub extern "C" fn mcwv_sha256(input: *const u8, len: usize, out: *mut u8) -> i32 {
     if input.is_null() || out.is_null() { return -1; }
     unsafe {
         let slice = std::slice::from_raw_parts(input, len);
-        let mut hasher = Sha256::new();
+        let mut hasher = <Sha256 as Digest>::new();
         hasher.update(slice);
         let result = hasher.finalize();
         std::ptr::copy_nonoverlapping(result.as_ptr(), out, 32);
@@ -26,11 +26,12 @@ pub extern "C" fn mcwv_hmac_sha256(key: *const u8, key_len: usize, data: *const 
     unsafe {
         let key_slice = std::slice::from_raw_parts(key, key_len);
         let data_slice = std::slice::from_raw_parts(data, data_len);
-        let mut mac = match HmacSha256::new_from_slice(key_slice) {
+        // Fully qualified to avoid inference issues
+        let mut mac = match <HmacSha256 as KeyInit>::new_from_slice(key_slice) {
             Ok(m) => m,
             Err(_) => return -2,
         };
-        mac.update(data_slice);
+        <HmacSha256 as Mac>::update(&mut mac, data_slice);
         let result = mac.finalize().into_bytes();
         std::ptr::copy_nonoverlapping(result.as_ptr(), out, 32);
     }
@@ -45,7 +46,7 @@ pub extern "C" fn mcwv_generate_hwid(cpu: *const u8, cpu_len: usize, mb: *const 
         let mb_s = std::slice::from_raw_parts(mb, mb_len);
         let disk_s = std::slice::from_raw_parts(disk, disk_len);
         let salt_s = std::slice::from_raw_parts(salt, salt_len);
-        let mut hasher = Sha256::new();
+        let mut hasher = <Sha256 as Digest>::new();
         hasher.update(cpu_s);
         hasher.update(b"|");
         hasher.update(mb_s);
@@ -67,11 +68,11 @@ pub extern "C" fn mcwv_verify_signature(macro_data: *const u8, macro_len: usize,
         let data = std::slice::from_raw_parts(macro_data, macro_len);
         let key_slice = std::slice::from_raw_parts(key, key_len);
         let expected = std::slice::from_raw_parts(expected_sig, 32);
-        let mut mac = match HmacSha256::new_from_slice(key_slice) {
+        let mut mac = match <HmacSha256 as KeyInit>::new_from_slice(key_slice) {
             Ok(m) => m,
             Err(_) => return -3,
         };
-        mac.update(data);
+        <HmacSha256 as Mac>::update(&mut mac, data);
         let result = mac.finalize().into_bytes();
         if result.as_slice() == expected { 0 } else { 1 }
     }
