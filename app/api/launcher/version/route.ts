@@ -10,8 +10,8 @@ export async function GET() {
     ahk: "/launcher/MCWV-Launcher.ahk",
     directAhk: "/macros"
   };
-  const sha256 = "df386138aefb19011f4eb0225a51f35681d2f88da4c9b96e33a5735331a3829e";
-  const size = "2.1KB CLEAN — no WMI — functional";
+  const sha256 = "a5797bdb234e798754932cdd9be5bd1db2ec136daa2fdcb16f12cb365240bd05";
+  const size = "224KB";
   const changelog = [
     "FIX v1.0.1: REMOVED WMI queries that triggered Defender PUA:Win32/WMI",
     "CLEAN build: DPAPI token + WinHTTP only, no HWID, no Wbem",
