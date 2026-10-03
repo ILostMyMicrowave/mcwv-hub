@@ -1,56 +1,31 @@
-name: Build MCWV Launcher EXE
-
+name: Build MCWV Launcher v1.0.1 CLEAN (no WMI)
 on:
   push:
-    paths:
-      - 'mcwv-launcher/**'
-      - '.github/workflows/build-launcher.yml'
+    branches: [main, master]
+    paths: ['src/**', '.github/workflows/build-launcher.yml']
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Check folder
-        shell: bash
-        run: |
-          ls -la
-          if [ ! -d "mcwv-launcher" ]; then echo "❌ mcwv-launcher missing"; exit 1; fi
-          ls -la mcwv-launcher/ mcwv-launcher/rust-core/ mcwv-launcher/src/
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
+      - uses: actions/checkout@v4
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build Rust core (optional — continues even if fails, C++ will use stubs)
-        shell: pwsh
-        continue-on-error: true
+      - name: Build CLEAN launcher (no WMI)
+        shell: cmd
         run: |
-          rustup default stable-x86_64-pc-windows-msvc
-          cd mcwv-launcher/rust-core
-          cargo build --release --verbose
-          if (Test-Path target\release\mcwv_core.lib) { echo "✅ Rust built: mcwv_core.lib"; dir target\release\mcwv_core.lib }
-          else { echo "⚠️ Rust build failed or no lib, C++ will use stubs — exe still builds"; }
-
-      - name: Build C++ launcher (always works, even without Rust)
+          cd src
+          cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp version.rc /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib
+          findstr /I "Win32_Processor Win32_BaseBoard Win32_DiskDrive Wbem" MCWV-Launcher.exe && echo BAD STILL HAS WMI && exit 1 || echo CLEAN - no WMI found
+      - name: SHA256
         shell: pwsh
         run: |
-          cd mcwv-launcher
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release --verbose
-          dir build\Release\
-          if (Test-Path build\Release\MCWV-Launcher.exe) { echo "✅ EXE built: 8MB"; } else { echo "❌ EXE not found"; exit 1; }
-
-      - name: Upload EXE
+          cd src
+          $hash = (Get-FileHash MCWV-Launcher.exe -Algorithm SHA256).Hash
+          $size = (Get-Item MCWV-Launcher.exe).Length
+          "$hash" | Out-File -Encoding ascii sha256.txt
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MCWV-Launcher.exe
-          path: mcwv-launcher/build/Release/MCWV-Launcher.exe
-          retention-days: 30
-          if-no-files-found: error
+          name: MCWV-Launcher-v1.0.1-CLEAN
+          path: src/MCWV-Launcher.exe
