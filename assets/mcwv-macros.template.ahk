@@ -1,5 +1,5 @@
 ; ═══════════════════════════════════════════════════════════════
-;  MCWV war macros — single-file build, generated 2026-10-02 22:52
+;  MCWV war macros — single-file build, generated 2026-10-03 08:26
 ;  by pack.js from the dev folder. Needs AutoHotkey v2 installed; just run.
 ;  Ctrl+Alt+M panel · Ctrl+Alt+X stop · F12 pause.
 ;  Personal builds from /macros carry your MEMBER_KEY — don't forward.
@@ -2180,7 +2180,7 @@ BuildUI() {
     UI.Add("Text", "x0 y590 w440 h1 Background00E5A2")
     foot := UI.Add("Text", "x16 y596 w200 h14 c3A5A5A", "v" MACRO_VERSION " · war")
     foot.SetFont("s7", "Consolas")
-    foot2 := UI.Add("Text", "x300 y596 w120 h14 c3A5A5A", "MCWV", "Right")
+    foot2 := UI.Add("Text", "x300 y596 w120 h14 c3A5A5A Right", "MCWV")
     foot2.SetFont("s7", "Consolas")
 
     UI.Show("w440 h620")
