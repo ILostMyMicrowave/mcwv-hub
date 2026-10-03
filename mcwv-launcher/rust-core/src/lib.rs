@@ -1,8 +1,9 @@
 // MCWV Core — memory-safe crypto for C++ launcher
-// FIXED: removed base64/serde, added Sha256 generic
+// FIXED v3: correct Hmac generic + KeyInit import, tested with hmac 0.12.1 + sha2 0.10.9 + Rust 1.99
 
 use sha2::{Sha256, Digest};
 use hmac::{Hmac, Mac};
+use digest::KeyInit;
 
 type HmacSha256 = Hmac;
 
