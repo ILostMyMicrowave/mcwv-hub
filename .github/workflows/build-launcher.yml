@@ -15,55 +15,37 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Check if mcwv-launcher folder exists
+      - name: Check folder exists
         shell: bash
         run: |
-          ls -la
-          if [ ! -d "mcwv-launcher" ]; then
-            echo "❌ mcwv-launcher folder NOT FOUND in repo!"
-            echo "You need to upload mcwv-launcher/ folder first:"
-            echo "- mcwv-launcher/src/main.cpp"
-            echo "- mcwv-launcher/rust-core/src/lib.rs"
-            echo "- mcwv-launcher/rust-core/Cargo.toml"
-            echo "- mcwv-launcher/CMakeLists.txt"
-            exit 1
-          fi
-          echo "✅ mcwv-launcher folder exists"
+          if [ ! -d "mcwv-launcher" ]; then echo "❌ mcwv-launcher missing"; exit 1; fi
           ls -la mcwv-launcher/
-          ls -la mcwv-launcher/rust-core/ || echo "rust-core missing"
-          ls -la mcwv-launcher/src/ || echo "src missing"
+          ls -la mcwv-launcher/rust-core/
+          ls -la mcwv-launcher/src/
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.28'
+      - name: Setup MSVC dev cmd (fixes VS not found)
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build Rust core
         shell: bash
         run: |
           cd mcwv-launcher/rust-core
           cargo build --release
-          ls -lh target/release/ | grep mcwv || ls -lh target/release/
+          ls -lh target/release/ | grep -i mcwv || ls -lh target/release/
 
-      - name: Build C++ launcher
+      - name: Build C++ launcher (auto generator, no VS flag)
         shell: bash
         run: |
           cd mcwv-launcher
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022" -A x64
+          # Auto-detect generator (no -G flag) — works with msvc-dev-cmd
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release --verbose
           ls -lh build/Release/
 
-      - name: Get SHA256
-        shell: bash
-        run: |
-          cd mcwv-launcher
-          sha256sum build/Release/MCWV-Launcher.exe || certutil -hashfile build/Release/MCWV-Launcher.exe SHA256
-          echo "EXE built: $(ls -lh build/Release/MCWV-Launcher.exe)"
-
-      - name: Upload EXE artifact
+      - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: MCWV-Launcher.exe
