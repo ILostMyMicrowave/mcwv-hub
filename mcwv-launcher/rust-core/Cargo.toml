@@ -8,13 +8,12 @@ name = "mcwv_core"
 crate-type = ["staticlib"]
 
 [dependencies]
-sha2 = "0.10"
-hmac = "0.12"
-# Removed serde/serde_json/base64 — they pull std networking which needs ws2_32/ntdll
-# Only need sha2+hmac for HWID/HMAC, no extra deps
+sha2 = { version = "0.10", features = ["std"] }
+hmac = { version = "0.12", features = ["std"] }
+digest = { version = "0.10", features = ["std"] }
 
 [profile.release]
 panic = "abort"
-lto = true
+lto = false
 opt-level = "z"
 strip = true
