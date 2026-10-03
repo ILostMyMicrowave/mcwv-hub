@@ -1,58 +1,43 @@
 name: Build MCWV Launcher v1.0.1 CLEAN (no WMI)
 on:
   push:
-    branches: [main, master]
-    paths:
-      - 'mcwv-launcher/**'
-      - '.github/workflows/build-launcher.yml'
+    paths: ['mcwv-launcher/**', '.github/workflows/build-launcher.yml']
   workflow_dispatch:
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-      - name: Find launcher src
-        shell: pwsh
-        run: |
-          if (Test-Path "mcwv-launcher/src/main-clean.cpp") { echo "LAUNCHER_DIR=mcwv-launcher" >> $env:GITHUB_ENV }
-          elseif (Test-Path "src/main-clean.cpp") { echo "LAUNCHER_DIR=." >> $env:GITHUB_ENV }
-          else { echo "LAUNCHER_DIR=mcwv-launcher" >> $env:GITHUB_ENV }
-      - name: Build CLEAN launcher (no WMI)
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build CLEAN launcher
         shell: cmd
         run: |
-          cd %LAUNCHER_DIR%\src
+          cd mcwv-launcher\src
           dir
-          echo Compiling version.rc with rc.exe...
-          rc version.rc
+          if exist version.rc ( rc version.rc )
           if exist version.res (
-            cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp version.res /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib
+            cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp version.res /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
           ) else (
-            cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib
+            cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
           )
           if not exist MCWV-Launcher.exe (
-            echo trying main.cpp...
-            cl /EHsc /O2 /DUNICODE /D_UNICODE main.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib
+            if exist main.cpp (
+              cl /EHsc /O2 /DUNICODE /D_UNICODE main.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
+            )
           )
           dir MCWV-Launcher.exe
-          findstr /I "Win32_Processor Win32_BaseBoard Wbem QueryWMI" MCWV-Launcher.exe && echo BAD WMI && exit 1 || echo CLEAN - GOOD
-      - name: SHA256 and copy to public
+          findstr /I "Win32_Processor Win32_BaseBoard Wbem QueryWMI" MCWV-Launcher.exe && exit 1 || echo CLEAN - GOOD
+      - name: Copy to public
         shell: pwsh
         run: |
-          $srcPath = Join-Path $env:LAUNCHER_DIR "src\MCWV-Launcher.exe"
-          $hash = (Get-FileHash $srcPath -Algorithm SHA256).Hash
-          $size = (Get-Item $srcPath).Length
-          Copy-Item $srcPath "public\launcher\MCWV-Launcher.exe" -Force
-          $routePath = "app\api\launcher\version\route.ts"
-          $content = Get-Content $routePath -Raw
-          $content = $content -replace 'const sha256 = ".*?"', "const sha256 = `"$hash`""
-          $content = $content -replace 'const size = ".*?"', "const size = `"${size} bytes CLEAN — no WMI`""
-          Set-Content $routePath $content -Encoding UTF8
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          $exe = "mcwv-launcher\src\MCWV-Launcher.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          Copy-Item $exe "public\launcher\MCWV-Launcher.exe" -Force
+          $route = "app\api\launcher\version\route.ts"
+          $c = Get-Content $route -Raw
+          $c = $c -replace 'const sha256 = ".*?"', "const sha256 = `"$hash`""
+          Set-Content $route $c -Encoding UTF8
+      - uses: actions/upload-artifact@v4
         with:
           name: MCWV-Launcher-v1.0.1-CLEAN
-          path: |
-            mcwv-launcher/src/MCWV-Launcher.exe
-            public/launcher/MCWV-Launcher.exe
+          path: mcwv-launcher/src/MCWV-Launcher.exe
