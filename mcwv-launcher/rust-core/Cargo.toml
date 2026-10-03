@@ -5,11 +5,16 @@ edition = "2021"
 
 [lib]
 name = "mcwv_core"
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["staticlib"]
 
 [dependencies]
 sha2 = "0.10"
 hmac = "0.12"
-base64 = "0.22"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# Removed serde/serde_json/base64 — they pull std networking which needs ws2_32/ntdll
+# Only need sha2+hmac for HWID/HMAC, no extra deps
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = "z"
+strip = true
