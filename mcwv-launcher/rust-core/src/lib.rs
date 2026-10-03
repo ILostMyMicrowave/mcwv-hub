@@ -1,6 +1,5 @@
 // MCWV Core — memory-safe crypto for C++ launcher
-// No buffer overflows, Rust guarantees safety
-// FIXED: removed base64/serde — only sha2+hmac needed
+// FIXED: removed base64/serde, added Sha256 generic
 
 use sha2::{Sha256, Digest};
 use hmac::{Hmac, Mac};
