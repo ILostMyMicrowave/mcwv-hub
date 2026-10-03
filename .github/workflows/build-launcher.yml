@@ -20,8 +20,12 @@ jobs:
             cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
           )
           dir MCWV-Launcher.exe
-          findstr /I "Win32_Processor Win32_BaseBoard Wbem QueryWMI" MCWV-Launcher.exe >nul
-          if %errorlevel%==0 ( echo BAD WMI && exit 1 ) else ( echo CLEAN - GOOD )
+          findstr /I "Win32_Processor Win32_BaseBoard Win32_DiskDrive" MCWV-Launcher.exe >nul
+          if %errorlevel%==0 ( echo BAD WMI && exit 1 )
+          findstr /I "Wbem QueryWMI ROOT\CIMV2" MCWV-Launcher.exe >nul
+          if %errorlevel%==0 ( echo BAD WBEM && exit 1 )
+          echo CLEAN - GOOD - no WMI
+          exit 0
       - name: Copy to public
         shell: pwsh
         run: |
