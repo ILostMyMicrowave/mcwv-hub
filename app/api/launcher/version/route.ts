@@ -11,9 +11,9 @@ export async function GET() {
     directAhk: "/macros"
   };
   const sha256 = "97397a365c217402d1bbef1f192265a069df2d7a91936179a2d88fbfe5f65b16";
-  const size = "230KB";
+  const size = "225KB";
   const changelog = [
-    "FIX v1.0.1: REMOVED WMI queries that triggered Defender PUA:Win32/WMI",
+    ""FIX v1.0.2: Opens /macros?from=launcher not /login — fixes homepage redirect after login",",
     "CLEAN build: DPAPI token + WinHTTP only, no HWID, no Wbem",
     "SAFE alternatives: .ps1/.bat/.ahk never trigger virus",
     "Includes double-hatch + hatch wars 12-step",
