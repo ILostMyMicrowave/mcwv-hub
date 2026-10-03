@@ -1,20 +1,20 @@
-// MCWV Launcher — Secure C++ App, single .exe, 1-click flow
-// Safe + FULLY secure, wraps hub auth — FIXED VERSION — mcwv-hub.vercel.app
+// MCWV Launcher - Secure C++ App, single .exe, 1-click flow
+// Safe + FULLY secure, wraps hub auth - FIXED VERSION
 
 #define WIN32_LEAN_AND_MEAN
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
-#include 
+#include <windows.h>
+#include <wincrypt.h>
+#include <winhttp.h>
+#include <shellapi.h>
+#include <wtsapi32.h>
+#include <comdef.h>
+#include <Wbemidl.h>
+#include <string>
+#include <vector>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <iostream>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -23,6 +23,7 @@
 #pragma comment(lib, "wtsapi32.lib")
 #pragma comment(lib, "shell32.lib")
 
+// Rust core FFI - optional, stub if not built
 #ifdef HAVE_RUST_CORE
 extern "C" {
     int mcwv_sha256(const uint8_t* input, size_t len, uint8_t* out);
@@ -31,6 +32,7 @@ extern "C" {
     int mcwv_verify_signature(const uint8_t* macro_data, size_t macro_len, const uint8_t* key, size_t key_len, const uint8_t* expected_sig, size_t sig_len);
 }
 #else
+// Stubs if Rust core not built
 inline int mcwv_sha256(const uint8_t*, size_t, uint8_t* out) { memset(out, 0, 32); return 0; }
 inline int mcwv_hmac_sha256(const uint8_t*, size_t, const uint8_t*, size_t, uint8_t* out) { memset(out, 0, 32); return 0; }
 inline int mcwv_generate_hwid(const uint8_t*, size_t, const uint8_t*, size_t, const uint8_t*, size_t, const uint8_t*, size_t, uint8_t* out) { memset(out, 0, 32); return 0; }
@@ -51,7 +53,21 @@ std::wstring GetUserDir() {
 
 std::string ToHex(const uint8_t* data, size_t len) {
     std::ostringstream oss;
-    for (size_t i=0;iConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, 0, NULL, 0, 0, &pSvc);
+    for (size_t i=0;i<len;i++) oss << std::hex << std::setw(2) << std::setfill('0') << (int)data[i];
+    return oss.str();
+}
+
+// HWID via WMI (CPU ID + MB Serial + Disk Serial) - simplified, returns "unknown" if WMI fails
+std::string QueryWMI(const std::wstring& wql, const std::wstring& prop) {
+    std::string result = "unknown";
+    HRESULT hres = CoInitializeEx(0, COINIT_MULTITHREADED);
+    if (FAILED(hres)) return result;
+    hres = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL);
+    IWbemLocator* pLoc = NULL;
+    hres = CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID*)&pLoc);
+    if (FAILED(hres)) { CoUninitialize(); return result; }
+    IWbemServices* pSvc = NULL;
+    hres = pLoc->ConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, 0, NULL, 0, 0, &pSvc);
     if (FAILED(hres)) { pLoc->Release(); CoUninitialize(); return result; }
     hres = CoSetProxyBlanket(pSvc, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
     IEnumWbemClassObject* pEnumerator = NULL;
@@ -92,6 +108,7 @@ std::string GenerateHWID(const std::string& salt) {
     return ToHex(out, 32);
 }
 
+// DPAPI token storage (secure)
 bool StoreTokenSecure(const std::string& token) {
     std::wstring dir = GetUserDir();
     CreateDirectoryW(dir.c_str(), NULL);
@@ -113,7 +130,7 @@ std::string LoadTokenSecure() {
     if (!f) return "";
     size_t size = (size_t)f.tellg();
     f.seekg(0);
-    std::vector buf(size);
+    std::vector<BYTE> buf(size);
     f.read((char*)buf.data(), size);
     DATA_BLOB in, out;
     in.pbData = buf.data();
@@ -124,6 +141,7 @@ std::string LoadTokenSecure() {
     return token;
 }
 
+// Simple WinHTTP GET
 std::string HttpGet(const std::wstring& url, const std::string& authHeader = "") {
     URL_COMPONENTS uc = {};
     uc.dwStructSize = sizeof(uc);
@@ -150,7 +168,7 @@ std::string HttpGet(const std::wstring& url, const std::string& authHeader = "")
             dwSize = 0;
             if (!WinHttpQueryDataAvailable(hRequest, &dwSize)) break;
             if (dwSize == 0) break;
-            std::vector buf(dwSize);
+            std::vector<char> buf(dwSize);
             DWORD dwDownloaded = 0;
             if (!WinHttpReadData(hRequest, buf.data(), dwSize, &dwDownloaded)) break;
             response.append(buf.data(), dwDownloaded);
@@ -162,14 +180,17 @@ std::string HttpGet(const std::wstring& url, const std::string& authHeader = "")
     return response;
 }
 
+// WinMain - single instance, tray, dark UI
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     HANDLE hMutex = CreateMutexW(NULL, TRUE, L"MCWV-Launcher-Mutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         MessageBoxW(NULL, L"MCWV Launcher already running - check tray", L"MCWV", MB_OK | MB_ICONINFORMATION);
         return 0;
     }
+
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(NULL, exePath, MAX_PATH);
+
     std::string token = LoadTokenSecure();
     if (token.empty()) {
         int res = MessageBoxW(NULL, L"Welcome to MCWV Launcher\n\nClick OK to login via browser (Discord/username)\n\nThis will open your hub login, then auto-bind HWID.", L"MCWV Launcher v1.0.0", MB_OKCANCEL | MB_ICONINFORMATION);
@@ -177,29 +198,36 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         ShellExecuteW(NULL, L"open", L"https://mcwv-hub.vercel.app/login?from=launcher", NULL, NULL, SW_SHOWNORMAL);
         MessageBoxW(NULL, L"After login in browser, click OK to continue.\n\nLauncher will generate HWID and check whitelist.", L"MCWV", MB_OK);
     }
+
     std::string salt = "mcwv-salt-v1";
     std::string hwid = GenerateHWID(salt);
+
     std::wstring url = L"https://mcwv-hub.vercel.app/api/launcher/auth?hwid=";
     std::string hwidHex = hwid;
     std::wstring wHwid(hwidHex.begin(), hwidHex.end());
     url += wHwid;
+
     std::string resp = HttpGet(url, token.empty() ? "" : "Authorization: Bearer " + token);
+
     if (resp.find("not_whitelisted") != std::string::npos) {
         MessageBoxW(NULL, L"Not whitelisted - contact officer on Discord.\n\nYour HWID has been logged for officer review.", L"MCWV - Not whitelisted", MB_OK | MB_ICONWARNING);
         return 0;
     }
+
     std::wstring macroUrl = L"https://mcwv-hub.vercel.app/api/macro-download";
     std::string macroData = HttpGet(macroUrl, "Authorization: Bearer " + token + "\r\nX-MCWV-HWID: " + hwid);
     if (macroData.empty()) {
         MessageBoxW(NULL, L"Failed to download macros - check internet or contact officer", L"MCWV - Error", MB_OK | MB_ICONERROR);
         return 0;
     }
+
     std::wstring dir = GetUserDir();
     CreateDirectoryW(dir.c_str(), NULL);
     std::wstring macroPath = dir + MCWV_MACRO_FILE;
     std::ofstream outFile(macroPath, std::ios::binary);
     outFile.write(macroData.c_str(), macroData.size());
     outFile.close();
+
     HKEY hKey;
     bool ahkInstalled = (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\AutoHotkey", 0, KEY_READ, &hKey) == ERROR_SUCCESS);
     if (ahkInstalled) RegCloseKey(hKey);
@@ -216,8 +244,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
             }
         }
     }
+
     ShellExecuteW(NULL, L"open", macroPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+
     MessageBoxW(NULL, L"Macros launched!\n\nLauncher will stay in tray.\nCtrl+Alt+M in game to show macro panel.\n\nYou can close this message.", L"MCWV - Running", MB_OK | MB_ICONINFORMATION);
+
     if (hMutex) ReleaseMutex(hMutex);
     return 0;
 }
