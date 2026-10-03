@@ -24,14 +24,14 @@ CreateGUI()
 CreateGUI() {
     global myGui, statusText, actionBtn, hkControl, clickTimerEdit, keyTimerEdit
     
-    myGui := Gui("+AlwaysOnTop -MaximizeBox +ToolWindow", "Sopu Double Hatcher")
+    myGui := Gui("+AlwaysOnTop -MaximizeBox +ToolWindow", "MCWV Double Hatcher")
     myGui.BackColor := "0xf8f9fa"
     myGui.OnEvent("Close", (*) => ExitApp())
     myGui.SetFont("s9", "Segoe UI")
 
     ; -- Header --
     myGui.Add("Text", "x0 y0 w250 h30 Background2c3e50") 
-    title := myGui.Add("Text", "x0 y5 w250 h25 Center cWhite BackgroundTrans", "Vinny double hatcher")
+    title := myGui.Add("Text", "x0 y5 w250 h25 Center cWhite BackgroundTrans", "Micros double hatcher muahhaha made by micro and ethan")
     title.SetFont("s10 Bold")
 
     statusText := myGui.Add("Text", "x0 y40 w250 h20 Center c7f8c8d", "Status: WAITING")
