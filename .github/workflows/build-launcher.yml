@@ -13,25 +13,21 @@ jobs:
         shell: cmd
         run: |
           cd mcwv-launcher\src
-          dir
           if exist version.rc ( rc version.rc )
           if exist version.res (
             cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp version.res /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
           ) else (
             cl /EHsc /O2 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN main-clean.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
           )
-          if not exist MCWV-Launcher.exe (
-            if exist main.cpp (
-              cl /EHsc /O2 /DUNICODE /D_UNICODE main.cpp /Fe:MCWV-Launcher.exe /link winhttp.lib crypt32.lib shell32.lib user32.lib
-            )
-          )
           dir MCWV-Launcher.exe
-          findstr /I "Win32_Processor Win32_BaseBoard Wbem QueryWMI" MCWV-Launcher.exe && exit 1 || echo CLEAN - GOOD
+          findstr /I "Win32_Processor Win32_BaseBoard Wbem QueryWMI" MCWV-Launcher.exe >nul
+          if %errorlevel%==0 ( echo BAD WMI && exit 1 ) else ( echo CLEAN - GOOD )
       - name: Copy to public
         shell: pwsh
         run: |
           $exe = "mcwv-launcher\src\MCWV-Launcher.exe"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          New-Item -ItemType Directory -Force -Path "public\launcher" | Out-Null
           Copy-Item $exe "public\launcher\MCWV-Launcher.exe" -Force
           $route = "app\api\launcher\version\route.ts"
           $c = Get-Content $route -Raw
@@ -40,4 +36,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: MCWV-Launcher-v1.0.1-CLEAN
-          path: mcwv-launcher/src/MCWV-Launcher.exe
+          path: public/launcher/MCWV-Launcher.exe
