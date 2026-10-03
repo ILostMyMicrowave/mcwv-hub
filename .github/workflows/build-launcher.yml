@@ -5,7 +5,7 @@ on:
     paths:
       - 'mcwv-launcher/**'
       - '.github/workflows/build-launcher.yml'
-  workflow_dispatch: # Manual trigger button in GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,6 +14,24 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Check if mcwv-launcher folder exists
+        shell: bash
+        run: |
+          ls -la
+          if [ ! -d "mcwv-launcher" ]; then
+            echo "❌ mcwv-launcher folder NOT FOUND in repo!"
+            echo "You need to upload mcwv-launcher/ folder first:"
+            echo "- mcwv-launcher/src/main.cpp"
+            echo "- mcwv-launcher/rust-core/src/lib.rs"
+            echo "- mcwv-launcher/rust-core/Cargo.toml"
+            echo "- mcwv-launcher/CMakeLists.txt"
+            exit 1
+          fi
+          echo "✅ mcwv-launcher folder exists"
+          ls -la mcwv-launcher/
+          ls -la mcwv-launcher/rust-core/ || echo "rust-core missing"
+          ls -la mcwv-launcher/src/ || echo "src missing"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -24,22 +42,26 @@ jobs:
           cmake-version: '3.28'
 
       - name: Build Rust core
-        working-directory: mcwv-launcher/rust-core
-        run: cargo build --release
+        shell: bash
+        run: |
+          cd mcwv-launcher/rust-core
+          cargo build --release
+          ls -lh target/release/ | grep mcwv || ls -lh target/release/
 
       - name: Build C++ launcher
-        working-directory: mcwv-launcher
+        shell: bash
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release
-          dir build\Release
+          cd mcwv-launcher
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release --verbose
+          ls -lh build/Release/
 
       - name: Get SHA256
-        working-directory: mcwv-launcher
+        shell: bash
         run: |
-          certutil -hashfile build\Release\MCWV-Launcher.exe SHA256 | findstr /v "CertUtil" | findstr /v "SHA256" > sha.txt
-          type sha.txt
-          echo "SHA256=$(type sha.txt)" >> $env:GITHUB_ENV
+          cd mcwv-launcher
+          sha256sum build/Release/MCWV-Launcher.exe || certutil -hashfile build/Release/MCWV-Launcher.exe SHA256
+          echo "EXE built: $(ls -lh build/Release/MCWV-Launcher.exe)"
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
@@ -47,14 +69,4 @@ jobs:
           name: MCWV-Launcher.exe
           path: mcwv-launcher/build/Release/MCWV-Launcher.exe
           retention-days: 30
-
-      - name: Commit EXE to public/launcher (optional auto-deploy)
-        run: |
-          mkdir -p public/launcher
-          copy mcwv-launcher\build\Release\MCWV-Launcher.exe public\launcher\MCWV-Launcher.exe
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add public/launcher/MCWV-Launcher.exe || echo "No exe to add"
-          git diff --cached --quiet || git commit -m "feat: auto-build launcher exe ${{ env.SHA256 }}"
-          git push || echo "Push failed, maybe no changes"
-        continue-on-error: true
+          if-no-files-found: error
