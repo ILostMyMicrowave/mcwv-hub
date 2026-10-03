@@ -20,6 +20,8 @@ jobs:
         run: |
           if [ ! -d "mcwv-launcher" ]; then echo "❌ mcwv-launcher missing"; exit 1; fi
           ls -la mcwv-launcher/
+          ls -la mcwv-launcher/rust-core/
+          ls -la mcwv-launcher/src/
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -27,7 +29,7 @@ jobs:
       - name: Setup MSVC dev cmd
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build Rust core (pwsh — fixes Git link.exe shadowing MSVC link.exe)
+      - name: Build Rust core (pwsh — fixes Git link.exe shadowing)
         shell: pwsh
         run: |
           rustup default stable-x86_64-pc-windows-msvc
@@ -35,7 +37,7 @@ jobs:
           cargo build --release --verbose
           dir target\release\ | Select-String mcwv
 
-      - name: Build C++ launcher
+      - name: Build C++ launcher (pwsh — auto generator)
         shell: pwsh
         run: |
           cd mcwv-launcher
