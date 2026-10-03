@@ -5,7 +5,7 @@ export async function GET() {
   const version = "1.0.1";
   const minVersion = "1.0.0";
   const downloadUrl = "/launcher/MCWV-Launcher.exe";
-  const sha256 = "3f77de3e90a2d72c75e9c753283c24ae2866ce24d2f2e088445380378bb4b791";
+  const sha256 = "426d60dea374dc8107c1a64b8d43439c2e64e2756e6e6be8ab01ef749ad22c15";
   const size = "396KB";
   const changelog = [
     "Secure launcher with account login and whitelist",
