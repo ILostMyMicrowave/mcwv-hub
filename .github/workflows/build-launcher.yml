@@ -1,0 +1,60 @@
+name: Build MCWV Launcher EXE
+
+on:
+  push:
+    paths:
+      - 'mcwv-launcher/**'
+      - '.github/workflows/build-launcher.yml'
+  workflow_dispatch: # Manual trigger button in GitHub Actions tab
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.28'
+
+      - name: Build Rust core
+        working-directory: mcwv-launcher/rust-core
+        run: cargo build --release
+
+      - name: Build C++ launcher
+        working-directory: mcwv-launcher
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+          dir build\Release
+
+      - name: Get SHA256
+        working-directory: mcwv-launcher
+        run: |
+          certutil -hashfile build\Release\MCWV-Launcher.exe SHA256 | findstr /v "CertUtil" | findstr /v "SHA256" > sha.txt
+          type sha.txt
+          echo "SHA256=$(type sha.txt)" >> $env:GITHUB_ENV
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCWV-Launcher.exe
+          path: mcwv-launcher/build/Release/MCWV-Launcher.exe
+          retention-days: 30
+
+      - name: Commit EXE to public/launcher (optional auto-deploy)
+        run: |
+          mkdir -p public/launcher
+          copy mcwv-launcher\build\Release\MCWV-Launcher.exe public\launcher\MCWV-Launcher.exe
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add public/launcher/MCWV-Launcher.exe || echo "No exe to add"
+          git diff --cached --quiet || git commit -m "feat: auto-build launcher exe ${{ env.SHA256 }}"
+          git push || echo "Push failed, maybe no changes"
+        continue-on-error: true
